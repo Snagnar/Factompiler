@@ -1,0 +1,110 @@
+// fcdsl.lark
+// Factorio Circuit DSL grammar (Lark format)
+// - Use with Lark (LALR). Keeps operator precedence explicit.
+// - '|' projection binds looser than + and * but tighter than comparisons.
+
+%import common.ESCAPED_STRING   -> STRING
+%import common.SIGNED_NUMBER    -> NUMBER
+%import common.WS_INLINE
+%ignore WS_INLINE
+%ignore /#[^\n]*/               // line comments start with #
+
+NAME: /[A-Za-z_][A-Za-z0-9_-]*/   // allow hyphens in names for type-like identifiers
+
+// ---------------------------------
+// Entry point
+// ---------------------------------
+start: statement*
+
+// ---------------------------------
+// Statements (terminated by semicolon), and decls
+// ---------------------------------
+statement: let_stmt ";"                     -> let_stmt
+         | assign_stmt ";"                  -> assign_stmt
+         | mem_decl ";"                     -> mem_decl
+         | expr_stmt ";"                    -> expr_stmt
+         | return_stmt ";"                  -> return_stmt
+         | import_stmt ";"                  -> import_stmt
+         | func_decl                        -> func_decl   // function bodies contain their own semicolons
+
+let_stmt: "let" NAME "=" expr
+
+assign_stmt: lvalue "=" expr
+
+lvalue: NAME ("." NAME)?                    // variable or property assign (e.g. lamp.enable)
+
+mem_decl: "mem" NAME "=" "memory" "(" [expr] ")"
+
+expr_stmt: expr
+
+return_stmt: "return" expr
+
+import_stmt: "import" STRING ["as" NAME]
+
+// ---------------------------------
+// Functions
+// ---------------------------------
+func_decl: "func" NAME "(" [param_list] ")" "{" statement* "}"
+
+param_list: NAME ("," NAME)*
+
+// ---------------------------------
+// Expressions with precedence
+// Precedence (tightest -> loosest):
+//  primary -> unary -> mul -> add -> projection (|) -> comparison -> logic
+// ---------------------------------
+expr: logic
+
+logic: comparison ( ( "&&" | "||" ) comparison )*
+
+comparison: projection ( COMP_OP projection )*
+
+COMP_OP: "==" | "!=" | "<=" | ">=" | "<" | ">"
+
+projection: add ( PROJ_OP type_literal )*        // projection binds looser than +; allow multiple chained projections (rare)
+
+PROJ_OP: "|"
+
+add: mul ( ADD_OP mul )*
+
+mul: unary ( MUL_OP unary )*
+
+ADD_OP: "+" | "-"
+MUL_OP: "*" | "/" | "%"
+
+unary: UNARY_OP unary
+     | primary
+
+UNARY_OP: "+" | "-" | "!"
+
+// primary expressions (constructors, calls, memory ops, property access, bundle)
+primary: literal
+       | lvalue                                // NAME or NAME.prop
+       | call_expr
+       | method_call
+       | "input" "(" input_args ")"
+       | "read" "(" NAME ")"
+       | "write" "(" NAME "," expr ")"
+       | bundle_expr
+       | "(" expr ")"
+
+bundle_expr: "bundle" "(" [arglist] ")"
+
+call_expr: NAME "(" [arglist] ")"
+method_call: NAME "." NAME "(" [arglist] ")"
+
+arglist: expr ("," expr)*
+
+input_args: NUMBER                         -> input_index
+          | type_literal "," NUMBER       -> input_typed_index
+
+type_literal: STRING
+            | NAME
+
+literal: NUMBER    -> number
+       | STRING    -> string
+
+// ---------------------------------
+// Tokens & whitespace
+// ---------------------------------
+%ignore /[ \t\f\r\n]+/

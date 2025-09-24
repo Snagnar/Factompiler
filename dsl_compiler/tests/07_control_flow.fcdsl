@@ -1,0 +1,41 @@
+# Test 7: Complex control flow and decision logic
+# Tests: complex conditions, nested expressions, operator precedence
+
+let sensor_a = input("signal-A", 0);
+let sensor_b = input("signal-B", 1);
+let sensor_c = input("signal-C", 2);
+
+# Complex conditional logic
+let threshold_low = 10;
+let threshold_high = 100;
+
+let in_range = (sensor_a >= threshold_low) && (sensor_a <= threshold_high);
+let any_active = (sensor_a > 0) || (sensor_b > 0) || (sensor_c > 0);
+let all_active = (sensor_a > 0) && (sensor_b > 0) && (sensor_c > 0);
+
+# Operator precedence test: | binds looser than +
+let precedence_test = sensor_a + sensor_b * 2 | "iron-plate";
+
+# Nested conditions with arithmetic
+let priority_value = 
+    (sensor_a > 50) * 100 +
+    (sensor_b > 30) * 50 +
+    (sensor_c > 10) * 25;
+
+# State-based decisions
+mem decision_state = memory(0); 
+let state = read(decision_state);
+
+let next_state = 
+    (state == 0 && sensor_a > 0) * 1 +
+    (state == 1 && sensor_b > 0) * 2 +
+    (state == 2 && sensor_c > 0) * 0 +
+    (state * (sensor_a == 0 && sensor_b == 0 && sensor_c == 0));
+
+write(decision_state, next_state);
+
+# Output based on state and sensors
+let output_value = 
+    (state == 0) * sensor_a +
+    (state == 1) * sensor_b * 2 +
+    (state == 2) * sensor_c * 3;

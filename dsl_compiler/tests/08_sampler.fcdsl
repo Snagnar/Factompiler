@@ -1,0 +1,35 @@
+# Test 8: The 100-tick sampler (from spec example)
+# Tests: modulo operations, periodic sampling, complex logic chains
+
+mem tick = memory(0);
+
+let ONE = 1;
+
+# Increment tick every game tick (unconditional write)
+write(tick, read(tick) + ONE);
+
+let tick_mod = read(tick) % 100;
+let sample_now = (tick_mod == 0);
+
+let v = input(0);           # implicit signal type __v1
+let rem = v % 2;
+let is_even = (rem == 0);
+
+let do_output = sample_now * is_even;    # 0/1 gate
+
+let scaled = v * 10;
+let out_value = scaled * do_output;
+
+# Additional complexity: multiple sampling rates
+let fast_sample = (read(tick) % 10 == 0);
+let slow_sample = (read(tick) % 1000 == 0);
+
+let fast_output = v * fast_sample;
+let slow_output = (v / 5) * slow_sample;
+
+# Bundle multiple outputs
+let all_outputs = bundle(
+    out_value | "signal-output",
+    fast_output | "signal-fast", 
+    slow_output | "signal-slow"
+);

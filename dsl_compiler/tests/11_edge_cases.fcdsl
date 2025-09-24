@@ -1,0 +1,46 @@
+# Test 11: Edge cases and error conditions
+# Tests: boundary conditions, type conflicts, invalid operations
+
+# Edge case: deeply nested expressions
+let deep_nested = ((((input(0) + 1) * 2) - 3) / 4) % 5;
+
+# Edge case: zero and negative operations
+let zero_test = input(1) * 0;
+let negative_test = -input(2);
+let division_by_small = input(3) / 1;
+
+# Type system edge cases
+let implicit1 = input(4);   # __v1
+let implicit2 = input(5);   # __v2  
+let explicit1 = input("signal-A", 6);
+
+# Chain of mixed-type operations (should generate multiple warnings)
+let mixed_chain = implicit1 + explicit1 + implicit2;
+
+# Bundle edge cases
+let single_bundle = bundle(implicit1);
+let duplicate_types = bundle(
+    explicit1, 
+    input("signal-A", 7)  # same type, should merge
+);
+
+# Projection edge cases
+let project_missing = single_bundle | "non-existent-type";  # should sum
+let project_self = explicit1 | "signal-A";  # no-op
+
+# Memory edge cases  
+mem uninitialized = memory();  # Valid: defaults to 0 with implicit type
+mem negative_init = memory(-10);
+
+# Bundle edge cases - valid but should clarify semantics
+let empty_bundle = bundle();  # Valid: empty wire group (no signals)
+
+# Complex precedence testing
+let precedence_complex = ((input(8) + input(9) * 2 | "iron") + input(10) == 5 && input(11) > 0);
+
+# Potential error conditions (for compiler validation)
+# These should cause compile errors:
+# let undefined_var = nonexistent + 1;       # undefined variable
+# let bad_input = input();                   # missing required args  
+# let bad_memory = read(nonexistent_mem);    # undefined memory
+# let bad_projection = 123 | "type";         # projection on raw int (invalid)

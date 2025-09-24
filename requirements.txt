@@ -1,0 +1,21 @@
+# Requirements for Factorio Circuit DSL Compiler
+
+# Core parsing
+lark>=1.1.8
+
+# For blueprint generation
+# (factorio-draftsman is already in workspace)
+
+# Development and testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Type checking
+mypy>=1.0.0
+
+# Code formatting
+black>=23.0.0
+isort>=5.0.0
+
+# Documentation
+sphinx>=5.0.0

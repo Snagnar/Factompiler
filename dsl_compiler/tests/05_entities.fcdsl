@@ -1,0 +1,31 @@
+# Test 5: Entity placement and property access
+# Tests: Place(), entity properties, entity.prop syntax
+
+# Place entities at specific coordinates
+let lamp1 = Place("small-lamp", 0, 0);
+let lamp2 = Place("small-lamp", 2, 0);
+let train_station = Place("train-stop", 5, 0);
+
+# Configure train station properties
+train_station.manual_mode = 1;
+
+# Input controls
+let enable_lamps = input("signal-E", 0);
+let train_control = input("signal-T", 1);
+
+# Control entity properties
+lamp1.enable = enable_lamps > 0;
+lamp2.enable = enable_lamps > 5;
+
+# Read entity properties (if supported)
+let lamp1_status = lamp1.enable;
+
+# More complex entity control
+let blink_pattern = read(counter) % 10;  # requires counter from test 4
+lamp1.enable = (blink_pattern < 5);
+lamp2.enable = (blink_pattern >= 5);
+
+# Entity with computed position
+let x_pos = input(2) % 10;
+let y_pos = input(3) % 10;
+let dynamic_lamp = Place("small-lamp", x_pos, y_pos);
