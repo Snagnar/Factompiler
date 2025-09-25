@@ -13,18 +13,14 @@ Tests semantic analysis features including:
 
 import pytest
 from pathlib import Path
-import sys
 
-# Add the src directory to Python path
-sys.path.insert(0, str(Path(__file__).parent / "dsl_compiler" / "src"))
-
-from semantic import (
+from dsl_compiler.src.semantic import (
     SemanticAnalyzer, analyze_program, analyze_file,
     DiagnosticLevel, ValueType, SignalTypeInfo, 
     SignalValue, BundleValue, IntValue, Symbol
 )
-from parser import DSLParser
-from dsl_ast import *
+from dsl_compiler.src.parser import DSLParser
+from dsl_compiler.src.dsl_ast import *
 
 
 class TestSemanticAnalyzer:
@@ -390,7 +386,7 @@ class TestSemanticAnalysisIntegration:
     
     def setup_method(self):
         """Set up test fixtures."""
-        self.test_dir = Path(__file__).parent / "dsl_compiler" / "tests"
+        self.test_dir = Path(__file__).parent / "sample_programs"
         
     @pytest.mark.parametrize("test_file", [
         "01_basic_arithmetic.fcdsl",

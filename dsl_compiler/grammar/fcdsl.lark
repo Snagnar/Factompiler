@@ -9,6 +9,15 @@
 %ignore WS_INLINE
 %ignore /#[^\n]*/               // line comments start with #
 
+// Keywords (must come before NAME to take precedence)
+READ: "read"
+WRITE: "write"
+INPUT: "input"
+BUNDLE: "bundle"
+MEMORY: "memory"
+LET: "let"
+MEM: "mem"
+
 NAME: /[A-Za-z_][A-Za-z0-9_-]*/   // allow hyphens in names for type-like identifiers
 
 // ---------------------------------
@@ -22,18 +31,18 @@ start: statement*
 statement: let_stmt ";"                     -> let_stmt
          | assign_stmt ";"                  -> assign_stmt
          | mem_decl ";"                     -> mem_decl
-         | expr_stmt ";"                    -> expr_stmt
+         | expr_stmt ";"                    -> statement_expr_stmt
          | return_stmt ";"                  -> return_stmt
          | import_stmt ";"                  -> import_stmt
          | func_decl                        -> func_decl   // function bodies contain their own semicolons
 
-let_stmt: "let" NAME "=" expr
+let_stmt: LET NAME "=" expr
 
 assign_stmt: lvalue "=" expr
 
 lvalue: NAME ("." NAME)?                    // variable or property assign (e.g. lamp.enable)
 
-mem_decl: "mem" NAME "=" "memory" "(" [expr] ")"
+mem_decl: MEM NAME "=" MEMORY "(" [expr] ")"
 
 expr_stmt: expr
 
@@ -82,13 +91,13 @@ primary: literal
        | lvalue                                // NAME or NAME.prop
        | call_expr
        | method_call
-       | "input" "(" input_args ")"
-       | "read" "(" NAME ")"
-       | "write" "(" NAME "," expr ")"
+       | INPUT "(" input_args ")"
+       | READ "(" NAME ")"
+       | WRITE "(" NAME "," expr ")"
        | bundle_expr
        | "(" expr ")"
 
-bundle_expr: "bundle" "(" [arglist] ")"
+bundle_expr: BUNDLE "(" [arglist] ")"
 
 call_expr: NAME "(" [arglist] ")"
 method_call: NAME "." NAME "(" [arglist] ")"

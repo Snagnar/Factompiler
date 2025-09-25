@@ -15,7 +15,7 @@ from enum import Enum
 from pathlib import Path
 import warnings
 
-from dsl_ast import *
+from dsl_compiler.src.dsl_ast import *
 
 
 # =============================================================================
@@ -426,10 +426,15 @@ class SemanticAnalyzer(ASTVisitor):
         # Infer type of value expression
         value_type = self.get_expr_type(node.value)
         
+        # Determine symbol type based on the value expression
+        symbol_type = "variable"
+        if isinstance(node.value, CallExpr) and node.value.name == "Place":
+            symbol_type = "entity"
+        
         # Define symbol
         symbol = Symbol(
             name=node.name,
-            symbol_type="variable",
+            symbol_type=symbol_type,
             value_type=value_type,
             defined_at=node
         )
@@ -518,6 +523,13 @@ class SemanticAnalyzer(ASTVisitor):
                 self.diagnostics.error(f"Undefined variable '{node.target.name}'", node.target)
             elif not symbol.is_mutable and symbol.symbol_type != "entity":
                 self.diagnostics.error(f"Cannot assign to immutable '{node.target.name}'", node.target)
+        elif isinstance(node.target, PropertyAccess):
+            # Check that the object exists
+            object_symbol = self.current_scope.lookup(node.target.object_name)
+            if object_symbol is None:
+                self.diagnostics.error(f"Undefined entity '{node.target.object_name}'", node.target)
+            elif object_symbol.symbol_type != "entity":
+                self.diagnostics.error(f"Cannot access property '{node.target.property_name}' on non-entity '{node.target.object_name}'", node.target)
         
         # Type check assignment
         value_type = self.get_expr_type(node.value)
@@ -545,8 +557,8 @@ class SemanticAnalyzer(ASTVisitor):
     def visit_ReturnStmt(self, node: ReturnStmt) -> None:
         """Analyze return statement."""
         # Type check the return expression
-        if node.value:
-            return_type = self.get_expr_type(node.value)
+        if node.expr:
+            return_type = self.get_expr_type(node.expr)
             # Could check against function return type here
         
     def generic_visit(self, node: ASTNode) -> Any:
@@ -564,16 +576,17 @@ class SemanticAnalyzer(ASTVisitor):
 # Public API
 # =============================================================================
 
-def analyze_program(program: Program, strict_types: bool = False) -> DiagnosticCollector:
+def analyze_program(program: Program, strict_types: bool = False, analyzer: Optional['SemanticAnalyzer'] = None) -> DiagnosticCollector:
     """Perform semantic analysis on a program AST."""
-    analyzer = SemanticAnalyzer(strict_types=strict_types)
+    if analyzer is None:
+        analyzer = SemanticAnalyzer(strict_types=strict_types)
     analyzer.visit(program)
     return analyzer.diagnostics
 
 
 def analyze_file(file_path: str, strict_types: bool = False) -> DiagnosticCollector:
     """Analyze a DSL file."""
-    from parser import DSLParser
+    from dsl_compiler.src.parser import DSLParser
     
     parser = DSLParser()
     try:
@@ -596,7 +609,7 @@ if __name__ == "__main__":
     write(counter, count + 1);
     """
     
-    from parser import DSLParser
+    from dsl_compiler.src.parser import DSLParser
     parser = DSLParser()
     
     try:

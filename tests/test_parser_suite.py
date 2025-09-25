@@ -6,13 +6,9 @@ Tests parsing of all example programs in the tests/ directory.
 
 import pytest
 from pathlib import Path
-import sys
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "dsl_compiler" / "src"))
-
-from parser import DSLParser
-from dsl_ast import Program, print_ast
+from dsl_compiler.src.parser import DSLParser
+from dsl_compiler.src.dsl_ast import Program, print_ast
 
 
 class TestParserSuite:
@@ -22,7 +18,7 @@ class TestParserSuite:
     def setup_class(cls):
         """Set up test class."""
         cls.parser = DSLParser()
-        cls.test_dir = Path(__file__).parent / "dsl_compiler" / "tests"
+        cls.test_dir = Path(__file__).parent / "sample_programs"
         
     def test_parser_initialization(self):
         """Test that parser initializes correctly."""

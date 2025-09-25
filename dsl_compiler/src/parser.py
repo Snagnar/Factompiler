@@ -12,7 +12,7 @@ from typing import List, Optional, Any, Dict
 from lark import Lark, Transformer, Tree, Token
 from lark.exceptions import LarkError, ParseError, LexError
 
-from dsl_ast import (
+from dsl_compiler.src.dsl_ast import (
     ASTNode, Program, Statement, Expr, LValue,
     LetStmt, AssignStmt, MemDecl, ExprStmt, ReturnStmt, ImportStmt, FuncDecl,
     Identifier, PropertyAccess,
@@ -48,15 +48,16 @@ class DSLTransformer(Transformer):
         return Program(statements=statements)
     
     def let_stmt(self, items) -> LetStmt:
-        """let_stmt: "let" NAME "=" expr"""
+        """let_stmt: LET NAME "=" expr"""
         if len(items) == 1 and isinstance(items[0], LetStmt):
             # Handle nested let_stmt rule
             return items[0]
-        elif len(items) >= 2:
-            # Handle actual let statement tokens
-            name = str(items[0])
-            value = self._unwrap_tree(items[1])  # Handle Tree wrapper
-            return self._set_position(LetStmt(name=name, value=value), items[0])
+        elif len(items) >= 3:
+            # Handle actual let statement: LET token, NAME token, expr
+            # items[0] = LET token, items[1] = NAME token, items[2] = expr
+            name = str(items[1].value) if hasattr(items[1], 'value') else str(items[1])
+            value = self._unwrap_tree(items[2])  # Handle Tree wrapper
+            return self._set_position(LetStmt(name=name, value=value), items[1])
         else:
             raise ValueError(f"Unexpected let_stmt structure: {items}")
     
@@ -117,9 +118,23 @@ class DSLTransformer(Transformer):
         """expr_stmt: expr"""
         return ExprStmt(expr=items[0])
     
+    def statement_expr_stmt(self, items) -> ExprStmt:
+        """Handle expr_stmt at statement level to avoid double nesting."""
+        # items[0] should be the ExprStmt from expr_stmt rule
+        return items[0]
+    
     def return_stmt(self, items) -> ReturnStmt:
         """return_stmt: "return" expr"""
-        return ReturnStmt(expr=items[0])
+        # Handle case where we get a ReturnStmt back (from statement rule)
+        if len(items) == 1 and isinstance(items[0], ReturnStmt):
+            return items[0]
+        
+        # Transform expression if it's still a Tree
+        expr = items[0]
+        if isinstance(expr, Tree):
+            expr = self.transform(expr)
+        
+        return ReturnStmt(expr=expr)
     
     def import_stmt(self, items) -> ImportStmt:
         """import_stmt: "import" STRING ["as" NAME]"""
@@ -170,6 +185,11 @@ class DSLTransformer(Transformer):
             elif hasattr(item, '__class__') and 'Stmt' in item.__class__.__name__:
                 # This is a statement in the function body
                 body.append(item)
+            elif isinstance(item, Tree):
+                # Transform any remaining Tree objects
+                transformed = self.transform(item)
+                if hasattr(transformed, '__class__') and 'Stmt' in transformed.__class__.__name__:
+                    body.append(transformed)
             
         return self._set_position(FuncDecl(name=name, params=params, body=body), items[0])
     
@@ -191,6 +211,10 @@ class DSLTransformer(Transformer):
     # =========================================================================
     # Expressions (following precedence)
     # =========================================================================
+    
+    def expr(self, items) -> Expr:
+        """expr: logic"""
+        return items[0]
     
     def logic(self, items) -> Expr:
         """logic: comparison ( ( "&&" | "||" ) comparison )*"""
@@ -355,7 +379,7 @@ class DSLTransformer(Transformer):
             
             # Handle identifiers in expression context
             if isinstance(item, Token) and item.type == 'NAME':
-                return IdentifierExpr(name=str(item))
+                return IdentifierExpr(name=item.value)
             
             # Handle lvalue -> identifier conversion
             if isinstance(item, Identifier):
@@ -368,11 +392,27 @@ class DSLTransformer(Transformer):
             
             return item
         
-        # Handle specific primary constructs
-        if isinstance(items[0], str):
-            if items[0] == "input":
+        # Handle multi-token primary constructs first
+        if len(items) > 1 and hasattr(items[0], 'type'):
+            token_type = items[0].type
+            if token_type == "INPUT":
                 # This should be handled by the input_args rules
                 return items[1]  # The InputExpr created by input_args
+            elif token_type == "READ":
+                memory_name = str(items[1].value) if len(items) > 1 else "unknown"
+                return ReadExpr(memory_name=memory_name)
+            elif token_type == "WRITE":
+                memory_name = str(items[1].value) if len(items) > 1 else "unknown"
+                value = items[2] if len(items) > 2 else None
+                return WriteExpr(memory_name=memory_name, value=value)
+            elif token_type == "BUNDLE":
+                exprs = items[1] if len(items) > 1 else []
+                return BundleExpr(exprs=exprs)
+                
+        # Handle legacy string-based constructs (fallback)
+        if len(items) > 0 and isinstance(items[0], str):
+            if items[0] == "input":
+                return items[1]
             elif items[0] == "read":
                 memory_name = str(items[1])
                 return ReadExpr(memory_name=memory_name)

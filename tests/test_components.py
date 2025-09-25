@@ -6,11 +6,7 @@ Simple test of AST classes without requiring lark.
 import sys
 from pathlib import Path
 
-# Add src to path
-src_path = Path(__file__).parent / "dsl_compiler" / "src"
-sys.path.insert(0, str(src_path))
-
-from ast import *
+from dsl_compiler.src.dsl_ast import *
 
 def test_ast_classes():
     """Test AST class construction."""

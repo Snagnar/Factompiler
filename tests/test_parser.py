@@ -6,19 +6,8 @@ Test script for the DSL parser.
 import sys
 from pathlib import Path
 
-# Add src to path
-src_path = Path(__file__).parent / "dsl_compiler" / "src"
-sys.path.insert(0, str(src_path))
-
-try:
-    from parser import DSLParser
-    from ast import print_ast
-    print("Successfully imported parser modules")
-except ImportError as e:
-    print(f"Import error: {e}")
-    print("Make sure lark is installed: pip install lark")
-    print(f"Looking for modules in: {src_path}")
-    sys.exit(1)
+from dsl_compiler.src.parser import DSLParser
+from dsl_compiler.src.dsl_ast import print_ast
 
 
 def test_basic_parsing():
@@ -79,7 +68,7 @@ def test_basic_parsing():
 def test_file_parsing():
     """Test parsing actual test files."""
     parser = DSLParser()
-    test_dir = Path(__file__).parent / "tests"
+    test_dir = Path(__file__).parent / "sample_programs"
     
     if not test_dir.exists():
         print("Test directory not found")
