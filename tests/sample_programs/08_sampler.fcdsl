@@ -29,7 +29,7 @@ let slow_output = (v / 5) * slow_sample;
 
 # Bundle multiple outputs
 let all_outputs = bundle(
-    out_value | "signal-output",
-    fast_output | "signal-fast", 
-    slow_output | "signal-slow"
+    out_value | "signal-red",
+    fast_output | "fast-transport-belt", 
+    slow_output | "signal-blue"
 );

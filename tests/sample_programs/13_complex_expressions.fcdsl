@@ -37,4 +37,4 @@ let conditional_value =
     (c > 30) * 300;
 
 # Mixed bundle and single-channel operations
-let mixed_result = a + bundle(b, c) + (a * 2) | "processed-item";
+let mixed_result = a + bundle(b, c) + (a * 2) | "iron-ore";

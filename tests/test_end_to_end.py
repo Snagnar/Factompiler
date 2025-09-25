@@ -35,7 +35,7 @@ class TestEndToEndCompilation:
             return False, f"Semantic errors: {semantic_diagnostics.get_messages()}"
         
         # IR generation
-        ir_operations, lowering_diagnostics = lower_program(program, analyzer)
+        ir_operations, lowering_diagnostics, signal_type_map = lower_program(program, analyzer)
         
         if lowering_diagnostics.has_errors():
             return False, f"IR lowering errors: {lowering_diagnostics.get_messages()}"
@@ -44,7 +44,7 @@ class TestEndToEndCompilation:
         if not DRAFTSMAN_AVAILABLE:
             return True, "Blueprint generation skipped - Draftsman not available"
         
-        blueprint_string, emit_diagnostics = emit_blueprint_string(ir_operations, f"{program_name} Blueprint")
+        blueprint_string, emit_diagnostics = emit_blueprint_string(ir_operations, f"{program_name} Blueprint", signal_type_map)
         
         if emit_diagnostics.has_errors():
             return False, f"Blueprint emission errors: {emit_diagnostics.get_messages()}"
@@ -100,23 +100,13 @@ class TestEndToEndCompilation:
         program_name = sample_file.replace('.fcdsl', '').replace('_', ' ').title()
         success, result = self._run_full_pipeline(dsl_code, program_name)
         
-        # Skip tests with known signal name issues (test framework problem, not DSL problem)
-        if not success and "Unknown signal name" in str(result):
-            pytest.skip(f"Signal name issue in {sample_file} - test framework problem, not DSL problem")
+        # ALL sample programs should work - they define the target specification
+        # No skips - if something fails, we need to fix it
+        assert success, f"End-to-end compilation failed for {sample_file}: {result}"
         
-        # For working samples, we expect full success
-        if sample_file.startswith("working_"):
-            assert success, f"End-to-end compilation failed for {sample_file}: {result}"
-            # Save successful blueprints for inspection
-            self._save_successful_blueprint(result, program_name)
-        else:
-            # ALL sample programs should work - they define the target specification
-            # If they don't work, we need to fix the compiler, not skip the tests
-            assert success, f"End-to-end compilation failed for {sample_file}: {result}"
-            # Save successful blueprints for inspection
-            self._save_successful_blueprint(result, program_name)
+        # Save successful blueprints for inspection
+        self._save_successful_blueprint(result, program_name)
     
-    @pytest.mark.skipif(not DRAFTSMAN_AVAILABLE, reason="Draftsman library not available")
     def test_blueprint_format_validation(self):
         """Test that generated blueprints have correct format using a simple sample."""
         simple_dsl = """
@@ -126,9 +116,6 @@ class TestEndToEndCompilation:
         """
         
         success, result = self._run_full_pipeline(simple_dsl, "Format Test")
-        
-        if not success and "Unknown signal name" in str(result):
-            pytest.skip("Signal name issue - test framework problem, not DSL problem")
         
         assert success, f"Blueprint generation failed: {result}"
         
@@ -193,7 +180,7 @@ class TestCompilerPipeline:
             analyzer = SemanticAnalyzer()
             analyze_program(program, strict_types=False, analyzer=analyzer)
             
-            ir_operations, diagnostics = lower_program(program, analyzer)
+            ir_operations, diagnostics, signal_type_map = lower_program(program, analyzer)
             
             assert not diagnostics.has_errors(), f"IR generation failed on {sample_path.name}: {diagnostics.get_messages()}"
             assert len(ir_operations) > 0, f"No IR operations generated from {sample_path.name}"

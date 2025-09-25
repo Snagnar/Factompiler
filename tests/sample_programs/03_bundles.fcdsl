@@ -21,6 +21,6 @@ let iron_plus_bundle = iron + resources;  # iron channel gets added
 
 # Nested bundle operations
 let processed = bundle(
-    iron * 2 | "processed-iron",
-    copper + coal | "alloy"
+    iron * 2 | "iron-ore",
+    copper + coal | "copper-ore"
 );

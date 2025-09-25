@@ -36,7 +36,7 @@ mem negative_init = memory(-10);
 let empty_bundle = bundle();  # Valid: empty wire group (no signals)
 
 # Complex precedence testing
-let precedence_complex = ((input(8) + input(9) * 2 | "iron") + input(10) == 5 && input(11) > 0);
+let precedence_complex = ((input(8) + input(9) * 2 | "iron-ore") + input(10) == 5 && input(11) > 0);
 
 # Potential error conditions (for compiler validation)
 # These should cause compile errors:

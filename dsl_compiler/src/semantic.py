@@ -302,6 +302,30 @@ class SemanticAnalyzer(ASTVisitor):
             # Function calls - for now return implicit signal
             return SignalValue(signal_type=self.allocate_implicit_type())
             
+        elif isinstance(expr, PropertyAccess):
+            # Entity property access
+            object_symbol = self.current_scope.lookup(expr.object_name)
+            if object_symbol is None:
+                self.diagnostics.error(f"Undefined variable '{expr.object_name}'", expr)
+                return IntValue()
+            elif object_symbol.symbol_type != "entity":
+                self.diagnostics.error(f"Cannot access property '{expr.property_name}' on non-entity '{expr.object_name}'", expr)
+                return IntValue()
+            # Entity properties return signals for circuit control
+            return SignalValue(signal_type=self.allocate_implicit_type())
+            
+        elif isinstance(expr, PropertyAccessExpr):
+            # Entity property access in expression context (same logic as PropertyAccess)
+            object_symbol = self.current_scope.lookup(expr.object_name)
+            if object_symbol is None:
+                self.diagnostics.error(f"Undefined variable '{expr.object_name}'", expr)
+                return IntValue()
+            elif object_symbol.symbol_type != "entity":
+                self.diagnostics.error(f"Cannot access property '{expr.property_name}' on non-entity '{expr.object_name}'", expr)
+                return IntValue()
+            # Entity properties return signals for circuit control
+            return SignalValue(signal_type=self.allocate_implicit_type())
+            
         else:
             self.diagnostics.warning(f"Unknown expression type: {type(expr)}", expr)
             return IntValue()

@@ -99,7 +99,7 @@ class LayoutEngine:
 class BlueprintEmitter:
     """Converts IR operations to Factorio blueprint using Draftsman."""
     
-    def __init__(self):
+    def __init__(self, signal_type_map: Dict[str, str] = None):
         if not DRAFTSMAN_AVAILABLE:
             raise RuntimeError("factorio-draftsman library not available")
         
@@ -109,6 +109,9 @@ class BlueprintEmitter:
         
         self.layout = LayoutEngine()
         self.diagnostics = DiagnosticCollector()
+        
+        # Signal type mapping from IR builder
+        self.signal_type_map = signal_type_map or {}
         
         # Entity tracking
         self.entities: Dict[str, EntityPlacement] = {}
@@ -167,9 +170,10 @@ class BlueprintEmitter:
         
         # Set the constant signal
         section = combinator.add_section()
+        signal_name = self._get_signal_name(op.output_type)
         section.set_signal(
             index=0,
-            name=op.output_type,
+            name=signal_name,
             count=op.value
         )
         
@@ -180,7 +184,7 @@ class BlueprintEmitter:
             entity=combinator,
             entity_id=op.node_id,
             position=pos,
-            output_signals={op.output_type: "red"},  # Output on red wire
+            output_signals={signal_name: "red"},  # Output on red wire
             input_signals={}
         )
         self.entities[op.node_id] = placement
@@ -198,16 +202,17 @@ class BlueprintEmitter:
         combinator.first_operand = self._get_signal_name(op.left)
         combinator.second_operand = self._get_signal_name(op.right)
         combinator.operation = op.op
-        combinator.output_signal = op.output_type
+        combinator.output_signal = self._get_signal_name(op.output_type)
         
         self.blueprint.entities.append(combinator)
         
         # Track entity for wiring
+        signal_name = self._get_signal_name(op.output_type)
         placement = EntityPlacement(
             entity=combinator,
             entity_id=op.node_id,
             position=pos,
-            output_signals={op.output_type: "red"},
+            output_signals={signal_name: "red"},
             input_signals={}  # Will be populated when wiring
         )
         self.entities[op.node_id] = placement
@@ -227,7 +232,7 @@ class BlueprintEmitter:
         combinator.first_operand = self._get_signal_name(op.left)
         combinator.second_operand = self._get_operand_value(op.right)
         combinator.comparator = op.test_op
-        combinator.output_signal = op.output_type
+        combinator.output_signal = self._get_signal_name(op.output_type)
         combinator.copy_count_from_input = op.output_value == "input"
         if not combinator.copy_count_from_input:
             combinator.constant = op.output_value
@@ -235,11 +240,12 @@ class BlueprintEmitter:
         self.blueprint.entities.append(combinator)
         
         # Track entity for wiring
+        signal_name = self._get_signal_name(op.output_type)
         placement = EntityPlacement(
             entity=combinator,
             entity_id=op.node_id,
             position=pos,
-            output_signals={op.output_type: "red"},
+            output_signals={signal_name: "red"},
             input_signals={}
         )
         self.entities[op.node_id] = placement
@@ -259,9 +265,10 @@ class BlueprintEmitter:
         
         # Add section with input signal type
         section = combinator.add_section()
+        signal_name = self._get_signal_name(op.output_type)
         section.set_signal(
             index=0,
-            name=op.output_type,
+            name=signal_name,
             count=0  # Will be set externally
         )
         
@@ -390,22 +397,33 @@ class BlueprintEmitter:
                                 self.diagnostics.warning(f"Failed to connect {source_entity_id} -> {sink_entity_id}: {e}")
     
     def _get_signal_name(self, operand) -> str:
-        """Get signal name from operand."""
-        if isinstance(operand, str):
-            # Signal reference - clean up invalid characters
-            name = operand.replace('@', '_').replace('__', '_')
-            # Extract meaningful part from generated names
-            if name.startswith('_v') and '_' in name[2:]:
-                # Extract the last part after underscore for implicit variables
-                parts = name.split('_')
-                if len(parts) > 2:
-                    return f"signal-{parts[-1]}"
-            return name if name.startswith('signal-') else f"signal-{name}"
-        elif isinstance(operand, int):
-            # Constant value - use special signal
-            return "signal-0" 
-        else:
-            return str(operand)
+        """Get signal name from operand using the signal type mapping."""
+        # Convert to string first to handle SignalRef and other objects
+        operand_str = str(operand)
+        
+        # First check if this is a mapped implicit signal type
+        if operand_str in self.signal_type_map:
+            return self.signal_type_map[operand_str]
+        
+        # Clean up signal reference strings that may have been concatenated
+        clean_name = operand_str.split('@')[0]  # Remove anything after @
+        
+        # Handle bundle references like "Bundle[__v4, __v5, __v6]"
+        if clean_name.startswith('Bundle[') and clean_name.endswith(']'):
+            # For bundle references, use a generic signal for bundle operations
+            return "signal-each"  # Special signal for bundle operations
+        
+        # Check if the clean name is in the mapping
+        if clean_name in self.signal_type_map:
+            return self.signal_type_map[clean_name]
+            
+        # Handle integer constants
+        if isinstance(operand, int):
+            return "signal-0"
+            
+        # Otherwise, assume it's a valid Factorio signal name and let draftsman validate it
+        # The DSL should only use actual Factorio signal names, no custom mappings
+        return clean_name
     
     def _get_operand_value(self, operand):
         """Get operand value for decider combinator."""
@@ -429,9 +447,9 @@ class BlueprintEmitter:
 # Public API
 # =============================================================================
 
-def emit_blueprint(ir_operations: List[IRNode], label: str = "DSL Generated") -> Tuple[Blueprint, DiagnosticCollector]:
+def emit_blueprint(ir_operations: List[IRNode], label: str = "DSL Generated", signal_type_map: Dict[str, str] = None) -> Tuple[Blueprint, DiagnosticCollector]:
     """Convert IR operations to Factorio blueprint."""
-    emitter = BlueprintEmitter()
+    emitter = BlueprintEmitter(signal_type_map)
     emitter.blueprint.label = label
     
     try:
@@ -442,9 +460,9 @@ def emit_blueprint(ir_operations: List[IRNode], label: str = "DSL Generated") ->
         return emitter.blueprint, emitter.diagnostics
 
 
-def emit_blueprint_string(ir_operations: List[IRNode], label: str = "DSL Generated") -> Tuple[str, DiagnosticCollector]:
+def emit_blueprint_string(ir_operations: List[IRNode], label: str = "DSL Generated", signal_type_map: Dict[str, str] = None) -> Tuple[str, DiagnosticCollector]:
     """Convert IR operations to Factorio blueprint string."""
-    blueprint, diagnostics = emit_blueprint(ir_operations, label)
+    blueprint, diagnostics = emit_blueprint(ir_operations, label, signal_type_map)
     
     try:
         blueprint_string = blueprint.to_string()

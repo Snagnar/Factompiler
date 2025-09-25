@@ -16,7 +16,7 @@ from dsl_compiler.src.dsl_ast import (
     ASTNode, Program, Statement, Expr, LValue,
     LetStmt, AssignStmt, MemDecl, ExprStmt, ReturnStmt, ImportStmt, FuncDecl,
     Identifier, PropertyAccess,
-    BinaryOp, UnaryOp, NumberLiteral, StringLiteral, IdentifierExpr,
+    BinaryOp, UnaryOp, NumberLiteral, StringLiteral, IdentifierExpr, PropertyAccessExpr,
     CallExpr, InputExpr, ReadExpr, WriteExpr, BundleExpr, ProjectionExpr,
     PlaceExpr, print_ast
 )
@@ -184,13 +184,15 @@ class DSLTransformer(Transformer):
             if isinstance(item, list) and all(isinstance(x, str) or (isinstance(x, Token) and x.type == 'NAME') for x in item):
                 # This is the parameter list
                 params = [str(x) for x in item]
-            elif hasattr(item, '__class__') and 'Stmt' in item.__class__.__name__:
+            elif hasattr(item, '__class__') and ('Stmt' in item.__class__.__name__ or 
+                                                  item.__class__.__name__ in ['MemDecl', 'FuncDecl']):
                 # This is a statement in the function body
                 body.append(item)
             elif isinstance(item, Tree):
                 # Transform any remaining Tree objects
                 transformed = self.transform(item)
-                if hasattr(transformed, '__class__') and 'Stmt' in transformed.__class__.__name__:
+                if hasattr(transformed, '__class__') and ('Stmt' in transformed.__class__.__name__ or 
+                                                          transformed.__class__.__name__ in ['MemDecl', 'FuncDecl']):
                     body.append(transformed)
             
         return self._set_position(FuncDecl(name=name, params=params, body=body), items[0])
@@ -392,8 +394,8 @@ class DSLTransformer(Transformer):
             
             # Handle property access in expression context  
             if isinstance(item, PropertyAccess):
-                # For now, treat as identifier - semantic analysis will handle
-                return IdentifierExpr(name=f"{item.object_name}.{item.property_name}")
+                # Convert to PropertyAccessExpr for expression context
+                return PropertyAccessExpr(object_name=item.object_name, property_name=item.property_name)
             
             return item
         

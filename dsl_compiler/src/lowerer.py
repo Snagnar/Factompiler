@@ -186,6 +186,12 @@ class ASTLowerer:
         elif isinstance(expr, CallExpr):
             return self.lower_call_expr(expr)
             
+        elif isinstance(expr, PropertyAccess):
+            return self.lower_property_access(expr)
+            
+        elif isinstance(expr, PropertyAccessExpr):
+            return self.lower_property_access_expr(expr)
+            
         else:
             self.diagnostics.error(f"Unknown expression type: {type(expr)}", expr)
             return 0
@@ -423,16 +429,60 @@ class ASTLowerer:
         # Return a dummy signal (entities don't produce signals directly)
         return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
+    def lower_property_access(self, expr: PropertyAccess) -> ValueRef:
+        """Lower property access for reading entity properties."""
+        entity_name = expr.object_name
+        prop_name = expr.property_name
+        
+        if entity_name in self.entity_refs:
+            entity_id = self.entity_refs[entity_name]
+            # Allocate a type for the property read result
+            signal_type = self.ir_builder.allocate_implicit_type()
+            
+            # Create an IR operation for reading entity property
+            read_op = IR_EntityPropRead(f"prop_read_{entity_id}_{prop_name}", signal_type, expr)
+            read_op.entity_id = entity_id
+            read_op.property_name = prop_name
+            self.ir_builder.add_operation(read_op)
+            
+            # Return a signal reference pointing to this operation's output
+            return SignalRef(read_op.node_id, signal_type)
+        else:
+            self.diagnostics.error(f"Undefined entity: {entity_name}", expr)
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+
+    def lower_property_access_expr(self, expr: PropertyAccessExpr) -> ValueRef:
+        """Lower property access expression for reading entity properties."""
+        entity_name = expr.object_name
+        prop_name = expr.property_name
+        
+        if entity_name in self.entity_refs:
+            entity_id = self.entity_refs[entity_name]
+            # Allocate a type for the property read result
+            signal_type = self.ir_builder.allocate_implicit_type()
+            
+            # Create an IR operation for reading entity property
+            read_op = IR_EntityPropRead(f"prop_read_{entity_id}_{prop_name}", signal_type, expr)
+            read_op.entity_id = entity_id
+            read_op.property_name = prop_name
+            self.ir_builder.add_operation(read_op)
+            
+            # Return a signal reference pointing to this operation's output
+            return SignalRef(read_op.node_id, signal_type)
+        else:
+            self.diagnostics.error(f"Undefined entity: {entity_name}", expr)
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+
 
 # =============================================================================
 # Public API
 # =============================================================================
 
-def lower_program(program: Program, semantic_analyzer: SemanticAnalyzer) -> tuple[List[IRNode], DiagnosticCollector]:
+def lower_program(program: Program, semantic_analyzer: SemanticAnalyzer) -> tuple[List[IRNode], DiagnosticCollector, Dict[str, str]]:
     """Lower a semantic-analyzed program to IR."""
     lowerer = ASTLowerer(semantic_analyzer)
     ir_operations = lowerer.lower_program(program)
-    return ir_operations, lowerer.diagnostics
+    return ir_operations, lowerer.diagnostics, lowerer.ir_builder.signal_type_map
 
 
 

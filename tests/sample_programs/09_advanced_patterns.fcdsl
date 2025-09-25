@@ -42,8 +42,8 @@ write(filtered_sum, current_sum + (input_val * should_accumulate));
 
 # Output status bundle
 let status = bundle(
-    up_val | "up-count",
-    down_val | "down-count", 
-    events | "event-count",
-    current_sum | "filtered-sum"
+    up_val | "signal-red",
+    down_val | "signal-green", 
+    events | "signal-blue",
+    current_sum | "signal-yellow"
 );

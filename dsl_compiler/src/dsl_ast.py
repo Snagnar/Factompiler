@@ -241,6 +241,18 @@ class IdentifierExpr(Expr):
 
 
 @dataclass
+class PropertyAccessExpr(Expr):
+    """Property access in expression context: entity.property"""
+    object_name: str
+    property_name: str
+    
+    def __init__(self, object_name: str, property_name: str, line: int = 0, column: int = 0):
+        super().__init__(line, column)
+        self.object_name = object_name
+        self.property_name = property_name
+
+
+@dataclass
 class CallExpr(Expr):
     """Function call: func(args...)"""
     name: str
