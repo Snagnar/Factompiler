@@ -504,24 +504,4 @@ class DSLParser:
             raise FileNotFoundError(f"Source file not found: {file_path}")
 
 
-def main():
-    """Test the parser with example code."""
-    parser = DSLParser()
-    
-    test_code = """
-    let a = input(0);
-    let b = input("iron-plate", 1);
-    let sum = a + b;
-    let result = sum | "signal-output";
-    """
-    
-    try:
-        ast = parser.parse(test_code)
-        print("Parse successful!")
-        print_ast(ast)
-    except Exception as e:
-        print(f"Parse failed: {e}")
 
-
-if __name__ == "__main__":
-    main()

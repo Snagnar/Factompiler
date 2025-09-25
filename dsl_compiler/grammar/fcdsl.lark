@@ -115,3 +115,4 @@ literal: NUMBER    -> number
 // Tokens & whitespace
 // ---------------------------------
 %ignore /[ \t\f\r\n]+/
+%ignore /\/\/[^\r\n]*/  // Line comments

@@ -1,0 +1,22 @@
+# Working sample: Memory operations
+# Tests: memory(), read(), write()
+
+mem counter = memory(0);
+mem accumulator = memory(0);
+
+# Read current values
+let current_count = read(counter);
+let current_total = read(accumulator);
+
+# Simple increment
+let next_count = current_count + 1;
+write(counter, next_count);
+
+# Accumulate input
+let input_value = input(0);
+let new_total = current_total + input_value;
+write(accumulator, new_total);
+
+# Output current values
+let count_out = current_count | "signal-C";
+let total_out = current_total | "signal-T";

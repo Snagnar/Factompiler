@@ -598,34 +598,4 @@ def analyze_file(file_path: str, strict_types: bool = False) -> DiagnosticCollec
         return diagnostics
 
 
-if __name__ == "__main__":
-    # Test semantic analysis
-    test_code = """
-    let a = input(0);
-    let b = input("iron-plate", 1);
-    let mixed = a + b;
-    mem counter = memory(0);
-    let count = read(counter);
-    write(counter, count + 1);
-    """
-    
-    from dsl_compiler.src.parser import DSLParser
-    parser = DSLParser()
-    
-    try:
-        program = parser.parse(test_code)
-        diagnostics = analyze_program(program, strict_types=False)
-        
-        print("Semantic Analysis Results:")
-        print("=" * 40)
-        
-        for message in diagnostics.get_messages():
-            print(message)
-            
-        if not diagnostics.has_errors():
-            print("✓ Analysis completed successfully")
-        else:
-            print(f"✗ Analysis failed with {diagnostics.error_count} errors")
-            
-    except Exception as e:
-        print(f"Error: {e}")
+

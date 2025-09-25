@@ -213,21 +213,24 @@ class ASTLowerer:
         right_type = self.semantic.get_expr_type(expr.right)
         result_type = self.semantic.get_expr_type(expr)
         
-        # Determine output signal type
+        # Determine output signal type based on result type
         if isinstance(result_type, SignalValue):
             output_type = result_type.signal_type.name
         elif isinstance(result_type, IntValue):
-            # This is a comparison operation, return integer
-            return self.lower_comparison_op(expr, left_ref, right_ref)
+            # Integer result - use an implicit type for the signal
+            output_type = self.ir_builder.allocate_implicit_type()
         else:
             output_type = self.ir_builder.allocate_implicit_type()
         
         # Handle different operand combinations
         if expr.op in ["+", "-", "*", "/", "%"]:
             return self.ir_builder.arithmetic(expr.op, left_ref, right_ref, output_type, expr)
-        else:
+        elif expr.op in ["==", "!=", "<", "<=", ">", ">=", "&&", "||"]:
             # This should be handled by comparison lowering
             return self.lower_comparison_op(expr, left_ref, right_ref)
+        else:
+            self.diagnostics.error(f"Unknown binary operator: {expr.op}", expr)
+            return self.ir_builder.const(output_type, 0, expr)
     
     def lower_comparison_op(self, expr: BinaryOp, left_ref: ValueRef, right_ref: ValueRef) -> ValueRef:
         """Lower comparison operations to decider combinators."""
@@ -432,51 +435,4 @@ def lower_program(program: Program, semantic_analyzer: SemanticAnalyzer) -> tupl
     return ir_operations, lowerer.diagnostics
 
 
-if __name__ == "__main__":
-    # Test IR lowering
-    from dsl_compiler.src.parser import DSLParser
-    from dsl_compiler.src.semantic import analyze_program
-    
-    test_code = """
-    let a = input(0);
-    let b = input("iron-plate", 1);
-    let sum = a + b;
-    let result = sum | "signal-output";
-    
-    mem counter = memory(0);
-    let count = read(counter);
-    write(counter, count + 1);
-    """
-    
-    parser = DSLParser()
-    try:
-        program = parser.parse(test_code)
-        
-        # Run semantic analysis
-        from dsl_compiler.src.semantic import SemanticAnalyzer
-        analyzer = SemanticAnalyzer()
-        semantic_diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
-        if semantic_diagnostics.has_errors():
-            print("Semantic errors:")
-            for msg in semantic_diagnostics.get_messages():
-                print(f"  {msg}")
-        else:
-            # Lower to IR using the analyzer that already processed the program
-            ir_operations, lowering_diagnostics = lower_program(program, analyzer)
-            
-            print("IR Lowering Results:")
-            print("=" * 50)
-            
-            for i, op in enumerate(ir_operations):
-                print(f"{i:2d}: {op}")
-            
-            print("\nDiagnostics:")
-            for msg in lowering_diagnostics.get_messages():
-                print(f"  {msg}")
-            
-            print(f"\nGenerated {len(ir_operations)} IR operations")
-            
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
+

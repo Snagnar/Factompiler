@@ -1,0 +1,30 @@
+# Test 12: Comments and edge cases with whitespace  
+# Tests: line comments, mixed whitespace, complex formatting
+
+// This is a C-style comment (if supported)
+let input_a = input(0); // End of line comment
+let input_b = input(1);   // Extra whitespace
+
+# Complex expression with comments
+let result = (input_a + input_b) * 2 - 1;  // Should be parsed correctly
+
+// Multi-line expressions with comments  
+let complex_calc = 
+    input_a * 3 +     // First part
+    input_b / 2 -     // Second part  
+    5;                // Constant
+
+# Bundle with comments
+let signals = bundle(
+    input_a,          // First channel
+    input_b * 2       // Second channel, doubled
+);
+
+# Projection with comments
+let output = signals | "signal-output";  // Final result
+
+# Edge case: empty lines and spacing
+
+
+
+let final_result = output + 1;
