@@ -9,14 +9,11 @@
 %ignore WS_INLINE
 %ignore /#[^\n]*/               // line comments start with #
 
-// Keywords (must come before NAME to take precedence)
-READ: "read"
-WRITE: "write"
-INPUT: "input"
-BUNDLE: "bundle"
-MEMORY: "memory"
-LET: "let"
-MEM: "mem"
+// Keywords for special forms (must come before NAME to take precedence)
+READ_KW: "read"
+WRITE_KW: "write"
+INPUT_KW: "input"
+BUNDLE_KW: "bundle"
 
 NAME: /[A-Za-z_][A-Za-z0-9_-]*/   // allow hyphens in names for type-like identifiers
 
@@ -36,13 +33,13 @@ statement: let_stmt ";"                     -> let_stmt
          | import_stmt ";"                  -> import_stmt
          | func_decl                        -> func_decl   // function bodies contain their own semicolons
 
-let_stmt: LET NAME "=" expr
+let_stmt: "let" NAME "=" expr
 
 assign_stmt: lvalue "=" expr
 
 lvalue: NAME ("." NAME)?                    // variable or property assign (e.g. lamp.enable)
 
-mem_decl: MEM NAME "=" MEMORY "(" [expr] ")"
+mem_decl: "mem" NAME "=" "memory" "(" [expr] ")"
 
 expr_stmt: expr
 
@@ -64,10 +61,11 @@ param_list: NAME ("," NAME)*
 // ---------------------------------
 expr: logic
 
-logic: comparison ( ( "&&" | "||" ) comparison )*
+logic: comparison ( LOGIC_OP comparison )*
 
 comparison: projection ( COMP_OP projection )*
 
+LOGIC_OP: "&&" | "||"
 COMP_OP: "==" | "!=" | "<=" | ">=" | "<" | ">"
 
 projection: add ( PROJ_OP type_literal )*        // projection binds looser than +; allow multiple chained projections (rare)
@@ -88,16 +86,16 @@ UNARY_OP: "+" | "-" | "!"
 
 // primary expressions (constructors, calls, memory ops, property access, bundle)
 primary: literal
-       | lvalue                                // NAME or NAME.prop
-       | call_expr
-       | method_call
-       | INPUT "(" input_args ")"
-       | READ "(" NAME ")"
-       | WRITE "(" NAME "," expr ")"
+       | INPUT_KW "(" input_args ")"          // Special forms first
+       | READ_KW "(" NAME ")"
+       | WRITE_KW "(" NAME "," expr ")"
        | bundle_expr
+       | call_expr                            // General function calls after specific forms
+       | method_call
+       | lvalue                               // Simple identifiers last
        | "(" expr ")"
 
-bundle_expr: BUNDLE "(" [arglist] ")"
+bundle_expr: BUNDLE_KW "(" [arglist] ")"
 
 call_expr: NAME "(" [arglist] ")"
 method_call: NAME "." NAME "(" [arglist] ")"

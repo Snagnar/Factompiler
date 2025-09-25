@@ -55,7 +55,7 @@ def test_ast_classes():
     print(json.dumps(ast_dict, indent=2))
 
 
-def test_draftsman_availability():
+def draftsman_availability():
     """Test if factorio-draftsman is available."""
     print("\nTesting factorio-draftsman availability...")
     
@@ -90,7 +90,7 @@ if __name__ == "__main__":
     
     test_ast_classes()
     
-    draftsman_ok = test_draftsman_availability()
+    draftsman_ok = draftsman_availability()
     
     print("\n" + "=" * 50)
     print("Component testing complete")

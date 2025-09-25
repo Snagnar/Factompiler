@@ -48,16 +48,16 @@ class DSLTransformer(Transformer):
         return Program(statements=statements)
     
     def let_stmt(self, items) -> LetStmt:
-        """let_stmt: LET NAME "=" expr"""
+        """let_stmt: "let" NAME "=" expr"""
         if len(items) == 1 and isinstance(items[0], LetStmt):
             # Handle nested let_stmt rule
             return items[0]
-        elif len(items) >= 3:
-            # Handle actual let statement: LET token, NAME token, expr
-            # items[0] = LET token, items[1] = NAME token, items[2] = expr
-            name = str(items[1].value) if hasattr(items[1], 'value') else str(items[1])
-            value = self._unwrap_tree(items[2])  # Handle Tree wrapper
-            return self._set_position(LetStmt(name=name, value=value), items[1])
+        elif len(items) >= 2:
+            # With simplified grammar: items[0] = NAME token, items[1] = expr
+            # The "let" and "=" literals are filtered out by Lark
+            name = str(items[0].value) if hasattr(items[0], 'value') else str(items[0])
+            value = self._unwrap_tree(items[1])  # Handle Tree wrapper
+            return self._set_position(LetStmt(name=name, value=value), items[0])
         else:
             raise ValueError(f"Unexpected let_stmt structure: {items}")
     
@@ -80,7 +80,8 @@ class DSLTransformer(Transformer):
             stmt.value = self._unwrap_tree(stmt.value)
             return stmt
             
-        # Normal case: lvalue "=" expr
+        # With simplified grammar: items[0] = lvalue, items[1] = expr
+        # The "=" literal is filtered out by Lark
         if len(items) >= 2:
             target = items[0]
             value = self._unwrap_tree(items[1])
@@ -94,25 +95,26 @@ class DSLTransformer(Transformer):
         if len(items) == 1 and isinstance(items[0], MemDecl):
             return items[0]
         
-        # Parse the actual memory declaration
-        # The structure should be: NAME, [expr] (tokens filtered by Lark)
-        name = None
-        init_expr = None
-        
-        for item in items:
-            if isinstance(item, Token) and item.type == 'NAME':
-                name = str(item)
-            elif hasattr(item, '__class__') and 'Expr' in item.__class__.__name__:
-                init_expr = item
-            elif isinstance(item, Tree):
-                # Unwrap tree to get expression
-                init_expr = self._unwrap_tree(item)
-        
-        if name is None and len(items) > 0:
-            # Fallback: assume first item is the name
+        # With simplified grammar: string literals filtered out
+        # Remaining items should be: NAME, [expr] (optional expression)
+        if len(items) >= 1:
+            # First item should be the name
             name = str(items[0])
+            init_expr = None
             
-        return self._set_position(MemDecl(name=name, init_expr=init_expr), items[0] if items else None)
+            # Look for expression in remaining items
+            if len(items) > 1:
+                for item in items[1:]:
+                    if hasattr(item, '__class__') and ('Expr' in item.__class__.__name__ or 'Literal' in item.__class__.__name__):
+                        init_expr = item
+                        break
+                    elif isinstance(item, Tree):
+                        init_expr = self._unwrap_tree(item)
+                        break
+                        
+            return self._set_position(MemDecl(name=name, init_expr=init_expr), items[0])
+        else:
+            raise ValueError(f"Could not parse mem_decl from items: {items}")
     
     def expr_stmt(self, items) -> ExprStmt:
         """expr_stmt: expr"""
@@ -287,11 +289,12 @@ class DSLTransformer(Transformer):
         name = str(items[0])
         args = []
         
-        # Extract arguments, handling Tree-wrapped expressions
-        if len(items) > 1:
+        # Extract arguments, filtering out None values
+        if len(items) > 1 and items[1] is not None:
             raw_args = items[1] if isinstance(items[1], list) else [items[1]]
             for arg in raw_args:
-                args.append(self._unwrap_tree(arg))
+                if arg is not None:
+                    args.append(self._unwrap_tree(arg))
         
         return self._set_position(CallExpr(name=name, args=args), items[0])
     
@@ -317,13 +320,13 @@ class DSLTransformer(Transformer):
     
     def input_index(self, items) -> InputExpr:
         """input_args: NUMBER -> input_index"""
-        index = items[0]
+        index = NumberLiteral(value=int(items[0]))
         return InputExpr(index=index, signal_type=None)
     
     def input_typed_index(self, items) -> InputExpr:
         """input_args: type_literal "," NUMBER -> input_typed_index"""
         signal_type = items[0]
-        index = items[1]
+        index = NumberLiteral(value=int(items[1]))
         return InputExpr(index=index, signal_type=StringLiteral(value=signal_type))
     
     def type_literal(self, items) -> str:
@@ -355,11 +358,13 @@ class DSLTransformer(Transformer):
     # =========================================================================
     
     def bundle_expr(self, items) -> BundleExpr:
-        """bundle_expr: "bundle" "(" [arglist] ")" """
+        """bundle_expr: BUNDLE_KW "(" [arglist] ")" """
         args = []
-        # The arglist should be the first (and only) item when not None
-        if len(items) > 0 and items[0] is not None:
-            arglist = items[0]
+        # With keyword tokens, first item is BUNDLE_KW token, second is arglist (or None)
+        start_idx = 1 if len(items) > 0 and hasattr(items[0], 'type') and items[0].type == 'BUNDLE_KW' else 0
+        
+        if start_idx < len(items) and items[start_idx] is not None:
+            arglist = items[start_idx]
             if isinstance(arglist, list):
                 # Unwrap Tree objects to get the actual expressions
                 for arg in arglist:
@@ -392,27 +397,32 @@ class DSLTransformer(Transformer):
             
             return item
         
-        # Handle multi-token primary constructs first
-        if len(items) > 1 and hasattr(items[0], 'type'):
+        # Handle keyword token constructs
+        if len(items) > 0 and isinstance(items[0], Token):
             token_type = items[0].type
-            if token_type == "INPUT":
-                # This should be handled by the input_args rules
-                return items[1]  # The InputExpr created by input_args
-            elif token_type == "READ":
-                memory_name = str(items[1].value) if len(items) > 1 else "unknown"
+            if token_type == "INPUT_KW":
+                return items[1]  # The InputExpr created by input_args rules
+            elif token_type == "READ_KW":
+                memory_name = str(items[1])
                 return ReadExpr(memory_name=memory_name)
-            elif token_type == "WRITE":
-                memory_name = str(items[1].value) if len(items) > 1 else "unknown"
-                value = items[2] if len(items) > 2 else None
+            elif token_type == "WRITE_KW":
+                memory_name = str(items[1])
+                value = items[2]
                 return WriteExpr(memory_name=memory_name, value=value)
-            elif token_type == "BUNDLE":
-                exprs = items[1] if len(items) > 1 else []
+            elif token_type == "BUNDLE_KW":
+                exprs = []
+                if len(items) > 1 and items[1] is not None:
+                    arglist = items[1]
+                    if isinstance(arglist, list):
+                        exprs = arglist
+                    else:
+                        exprs = [arglist]
                 return BundleExpr(exprs=exprs)
-                
-        # Handle legacy string-based constructs (fallback)
+        
+        # Handle string-based constructs (fallback)
         if len(items) > 0 and isinstance(items[0], str):
             if items[0] == "input":
-                return items[1]
+                return items[1]  # The InputExpr created by input_args rules
             elif items[0] == "read":
                 memory_name = str(items[1])
                 return ReadExpr(memory_name=memory_name)
@@ -421,7 +431,13 @@ class DSLTransformer(Transformer):
                 value = items[2]
                 return WriteExpr(memory_name=memory_name, value=value)
             elif items[0] == "bundle":
-                exprs = items[1] if len(items) > 1 else []
+                exprs = []
+                if len(items) > 1 and items[1] is not None:
+                    arglist = items[1]
+                    if isinstance(arglist, list):
+                        exprs = arglist
+                    else:
+                        exprs = [arglist]
                 return BundleExpr(exprs=exprs)
         
         return items[0]
