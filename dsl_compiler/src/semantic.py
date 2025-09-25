@@ -544,7 +544,22 @@ class SemanticAnalyzer(ASTVisitor):
         if isinstance(node.target, Identifier):
             symbol = self.current_scope.lookup(node.target.name)
             if symbol is None:
-                self.diagnostics.error(f"Undefined variable '{node.target.name}'", node.target)
+                # Check if this is entity assignment (Place() call)
+                if isinstance(node.value, CallExpr) and node.value.name == "Place":
+                    # Create entity symbol
+                    entity_symbol = Symbol(
+                        name=node.target.name,
+                        symbol_type="entity",
+                        value_type=IntValue(),  # Entities don't have specific types
+                        defined_at=node.target,
+                        is_mutable=True
+                    )
+                    try:
+                        self.current_scope.define(entity_symbol)
+                    except SemanticError as e:
+                        self.diagnostics.error(e.message, node.target)
+                else:
+                    self.diagnostics.error(f"Undefined variable '{node.target.name}'", node.target)
             elif not symbol.is_mutable and symbol.symbol_type != "entity":
                 self.diagnostics.error(f"Cannot assign to immutable '{node.target.name}'", node.target)
         elif isinstance(node.target, PropertyAccess):

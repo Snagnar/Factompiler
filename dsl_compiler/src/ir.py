@@ -193,7 +193,7 @@ class IR_MemWrite(IREffect):
 class IR_PlaceEntity(IREffect):
     """Entity placement in blueprint."""
     
-    def __init__(self, entity_id: str, prototype: str, x: int, y: int, properties: Dict[str, Any] = None):
+    def __init__(self, entity_id: str, prototype: str, x: Union[int, ValueRef], y: Union[int, ValueRef], properties: Dict[str, Any] = None):
         super().__init__(f"place_{entity_id}")
         self.entity_id = entity_id
         self.prototype = prototype
@@ -335,7 +335,7 @@ class IRBuilder:
         op = IR_MemWrite(memory_id, data_signal, write_enable)
         self.add_operation(op)
     
-    def place_entity(self, entity_id: str, prototype: str, x: int, y: int,
+    def place_entity(self, entity_id: str, prototype: str, x: Union[int, ValueRef], y: Union[int, ValueRef],
                     properties: Optional[Dict[str, Any]] = None, 
                     source_ast: Optional[ASTNode] = None):
         """Place an entity."""

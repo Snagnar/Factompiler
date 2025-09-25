@@ -416,14 +416,13 @@ class ASTLowerer:
         x_ref = self.lower_expr(x_expr)
         y_ref = self.lower_expr(y_expr)
         
-        if not isinstance(x_ref, int) or not isinstance(y_ref, int):
-            self.diagnostics.error("Place() coordinates must be integer constants", expr)
-            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+        # Support both constant integers and variable coordinates
+        # For variable coordinates, the actual placement will be resolved at emit time
         
         # Generate unique entity ID
         entity_id = f"entity_{self.ir_builder.next_id()}"
         
-        # Place the entity
+        # Place the entity (coordinates can be constants or signal references)
         self.ir_builder.place_entity(entity_id, prototype, x_ref, y_ref, source_ast=expr)
         
         # Return a dummy signal (entities don't produce signals directly)
