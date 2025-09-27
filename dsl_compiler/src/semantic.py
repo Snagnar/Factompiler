@@ -603,75 +603,11 @@ class SemanticAnalyzer(ASTVisitor):
         
     def visit_ImportStmt(self, node: ImportStmt) -> None:
         """Analyze import statement."""
-        # Create a module symbol
-        module_name = node.alias or Path(node.path).stem
-        
-        # Load and parse the imported file
-        module_functions = self._load_module_functions(node.path)
-        
-        # Create a module symbol with function definitions
-        module_symbol = Symbol(
-            name=module_name,
-            symbol_type="module", 
-            value_type=IntValue(),  # Placeholder - modules don't have runtime values
-            defined_at=node,
-            is_mutable=False,
-            properties=module_functions  # Store imported functions as properties
-        )
-        
-        try:
-            self.current_scope.define(module_symbol)
-        except SemanticError as e:
-            self.diagnostics.error(str(e), node)
-    
-    def _load_module_functions(self, import_path: str) -> Dict[str, Symbol]:
-        """Load functions from an imported module file."""
-        try:
-            # Convert relative import path to absolute path
-            if hasattr(self, 'current_file_dir'):
-                base_dir = self.current_file_dir
-            else:
-                # Fallback to tests/sample_programs directory structure
-                base_dir = Path("tests/sample_programs")
-            
-            module_path = base_dir / import_path
-            
-            if not module_path.exists():
-                # Try without .fcdsl extension if needed
-                if not import_path.endswith('.fcdsl'):
-                    module_path = base_dir / (import_path + '.fcdsl')
-            
-            if not module_path.exists():
-                raise FileNotFoundError(f"Import file not found: {import_path}")
-                
-            # Parse the imported file
-            with open(module_path, 'r') as f:
-                content = f.read()
-            
-            from dsl_compiler.src.parser import DSLParser
-            parser = DSLParser()
-            imported_ast = parser.parse(content, str(module_path))
-            
-            # Extract function definitions from the imported AST
-            functions = {}
-            for stmt in imported_ast.statements:
-                if isinstance(stmt, FuncDecl):
-                    func_symbol = Symbol(
-                        name=stmt.name,
-                        symbol_type="function",
-                        value_type=FunctionValue([IntValue() for _ in stmt.params], IntValue()),
-                        defined_at=stmt,
-                        is_mutable=False,
-                        function_def=stmt  # Store the AST node for later inlining
-                    )
-                    functions[stmt.name] = func_symbol
-                    
-            return functions
-            
-        except Exception as e:
-            # For now, return empty dict on error - could be improved with better error handling
-            warnings.warn(f"Failed to load module {import_path}: {e}")
-            return {}
+        # With C-style preprocessing, import statements should have been 
+        # replaced with the actual imported content, so this should rarely be called.
+        # If we do encounter an import statement, it means the file wasn't found
+        # during preprocessing, so we'll just log a warning.
+        self.diagnostics.warning(f"Import statement found in AST - file may not have been found during preprocessing: {node.path}", node)
     
     def visit_ReturnStmt(self, node: ReturnStmt) -> None:
         """Analyze return statement."""

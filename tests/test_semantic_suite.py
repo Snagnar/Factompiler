@@ -318,24 +318,24 @@ class TestSemanticAnalyzer:
     def test_import_statement(self):
         """Test import statement analysis."""
         code = """
-        import "stdlib/math.fcdsl" as math;
+        import "stdlib/math.fcdsl";
         """
         analyzer = self.parse_and_analyze(code)
         
-        # Import should create a module symbol
+        # With C-style imports, functions should be directly available
+        # No module symbol should be created
         math_symbol = analyzer.symbol_table.lookup("math")
-        assert math_symbol is not None
-        assert math_symbol.symbol_type == "module"
+        assert math_symbol is None  # No module symbol with C-style imports
         
     def test_module_method_call(self):
-        """Test module method call analysis."""
+        """Test direct function call after import."""
         code = """
-        import "stdlib/math.fcdsl" as math;
-        let result = math.sqrt(16);
+        import "stdlib/math.fcdsl";
+        let result = sqrt(16);
         """
         analyzer = self.parse_and_analyze(code)
         
-        # Should resolve module method call
+        # Should resolve direct function call
         errors = self.get_diagnostics_by_level(analyzer, DiagnosticLevel.ERROR)
         # Note: May have warnings about unknown module, but no critical errors
         critical_errors = [e for e in errors if "undefined" in e.message.lower()]

@@ -22,6 +22,66 @@ from dsl_compiler.src.dsl_ast import (
 )
 
 
+def preprocess_imports(source_code: str, base_path: Optional[Path] = None) -> str:
+    """
+    C-style preprocessor that inlines imported files.
+    
+    Finds import statements of the form:
+        import "path/to/file.fcdsl";
+    
+    And replaces them with the contents of the imported file.
+    """
+    if base_path is None:
+        base_path = Path("tests/sample_programs")
+    
+    lines = source_code.split('\n')
+    processed_lines = []
+    processed_files = set()  # Prevent infinite recursion
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Look for import statements (simple regex-free approach)
+        if stripped.startswith('import "') and stripped.endswith('";'):
+            # Extract the file path
+            import_path = stripped[8:-2]  # Remove 'import "' and '";'
+            
+            # Resolve the file path
+            if not import_path.endswith('.fcdsl'):
+                import_path += '.fcdsl'
+            
+            file_path = base_path / import_path
+            
+            # Avoid circular imports
+            if str(file_path) in processed_files:
+                processed_lines.append(f"# Skipped circular import: {import_path}")
+                continue
+                
+            try:
+                if file_path.exists():
+                    processed_files.add(str(file_path))
+                    with open(file_path, 'r') as f:
+                        imported_content = f.read()
+                    
+                    # Recursively process imports in the imported file
+                    imported_content = preprocess_imports(imported_content, base_path)
+                    
+                    # Add the imported content with a comment
+                    processed_lines.append(f"# --- Imported from {import_path} ---")
+                    processed_lines.append(imported_content)
+                    processed_lines.append(f"# --- End import {import_path} ---")
+                else:
+                    # Keep the import statement as-is if file not found (let semantic analysis handle the error)
+                    processed_lines.append(line)
+            except Exception as e:
+                # Keep the import statement if there's an error
+                processed_lines.append(line)
+        else:
+            processed_lines.append(line)
+    
+    return '\n'.join(processed_lines)
+
+
 class DSLTransformer(Transformer):
     """Transforms Lark parse tree into typed AST nodes."""
     
@@ -483,8 +543,23 @@ class DSLParser:
             if self.parser is None:
                 raise RuntimeError("Parser not initialized")
             
+            # Determine base path for imports
+            base_path = None
+            if filename != "<string>":
+                file_path = Path(filename)
+                if file_path.is_absolute():
+                    base_path = file_path.parent
+                else:
+                    # Default to sample programs directory
+                    base_path = Path("tests/sample_programs")
+            else:
+                base_path = Path("tests/sample_programs")
+            
+            # C-style preprocessing: inline imports
+            preprocessed_code = preprocess_imports(source_code, base_path)
+            
             # Parse and transform in one step
-            ast = self.parser.parse(source_code)
+            ast = self.parser.parse(preprocessed_code)
             
             if not isinstance(ast, Program):
                 raise RuntimeError(f"Expected Program AST node, got {type(ast)}")
