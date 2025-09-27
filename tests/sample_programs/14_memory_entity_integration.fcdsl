@@ -2,9 +2,9 @@
 # Tests: memory operations with entity properties, entity-driven state machines
 
 # Entities for testing
-let controller_lamp = Place("small-lamp", 0, 0);
-let status_lamp = Place("small-lamp", 5, 0);
-let indicator_lamp = Place("small-lamp", 10, 0);
+Entity controller_lamp = Place("small-lamp", 0, 0);
+Entity status_lamp = Place("small-lamp", 5, 0);
+Entity indicator_lamp = Place("small-lamp", 10, 0);
 
 # Memory for state tracking
 mem entity_state = memory(0);
@@ -12,20 +12,20 @@ mem blink_counter = memory(0);
 mem last_lamp_status = memory(0);
 
 # Input controls
-let mode_selector = input(0) % 3;  # 0, 1, or 2
-let enable_signal = input(1) > 0;
+Signal mode_selector = input(0) % 3;  # 0, 1, or 2
+Signal enable_signal = input(1) > 0;
 
 # Entity property control based on memory state
-let current_state = read(entity_state);
+Signal current_state = read(entity_state);
 controller_lamp.enable = (current_state == 1) || (current_state == 2);
 
 # Read entity property and store in memory
-let lamp_is_on = controller_lamp.enable;
-let last_status = read(last_lamp_status);
-let status_changed = lamp_is_on != last_status;
+Signal lamp_is_on = controller_lamp.enable;
+Signal last_status = read(last_lamp_status);
+Signal status_changed = lamp_is_on != last_status;
 
 # State machine driven by entity status
-let next_state = 
+Signal next_state = 
     (current_state == 0 && enable_signal) * 1 +
     (current_state == 1 && status_changed) * 2 +
     (current_state == 2 && !enable_signal) * 0 +
@@ -37,22 +37,22 @@ write(entity_state, next_state);
 write(last_lamp_status, lamp_is_on);
 
 # Blinking pattern based on memory
-let blink_count = read(blink_counter);
+Signal blink_count = read(blink_counter);
 write(blink_counter, (blink_count + 1) % 20);
-let should_blink = current_state == 2;
+Signal should_blink = current_state == 2;
 status_lamp.enable = should_blink && ((blink_count % 10) < 5);
 
 # Indicator lamp shows mode
 indicator_lamp.enable = mode_selector > 0;
 
 # Complex entity property calculations
-let total_lamps_on = controller_lamp.enable + status_lamp.enable + indicator_lamp.enable;
-let any_lamp_on = total_lamps_on > 0;
+Signal total_lamps_on = controller_lamp.enable + status_lamp.enable + indicator_lamp.enable;
+Signal any_lamp_on = total_lamps_on > 0;
 
 # Entity placement based on memory values  
-let memory_x = read(entity_state) * 3;
-let memory_y = read(blink_counter) / 10;
-let dynamic_entity = Place("fast-inserter", memory_x, memory_y);
+Signal memory_x = read(entity_state) * 3;
+Signal memory_y = read(blink_counter) / 10;
+Entity dynamic_entity = Place("fast-inserter", memory_x, memory_y);
 
 # Property assignment from memory
 dynamic_entity.enable = (read(entity_state) == 2) && (read(blink_counter) > 10);

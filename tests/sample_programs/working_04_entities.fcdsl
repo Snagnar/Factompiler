@@ -2,11 +2,11 @@
 # Tests: Place(), basic entity properties
 
 # Place entities at specific coordinates
-let lamp1 = Place("small-lamp", 0, 0);
-let lamp2 = Place("small-lamp", 2, 0);
+Entity lamp1 = Place("small-lamp", 0, 0);
+Entity lamp2 = Place("small-lamp", 2, 0);
 
 # Input controls
-let enable_signal = input(0);
+Signal enable_signal = input(0);
 
 # Basic property assignment (simplified)
 lamp1.enable = enable_signal;

@@ -6,19 +6,19 @@ mem up_counter = memory(0);
 mem down_counter = memory(100);
 mem event_count = memory(0);
 
-let increment = input("signal-I", 0) > 0;
-let decrement = input("signal-D", 1) > 0;
-let reset = input("signal-R", 2) > 0;
+Signal increment = input("signal-I", 0) > 0;
+Signal decrement = input("signal-D", 1) > 0;
+Signal reset = input("signal-R", 2) > 0;
 
 # Counter logic with bounds checking
-let up_val = read(up_counter);
-let down_val = read(down_counter);
+Signal up_val = read(up_counter);
+Signal down_val = read(down_counter);
 
-let new_up = 
+Signal new_up = 
     reset * 0 + 
     (1 - reset) * (up_val + increment * (up_val < 999));
 
-let new_down = 
+Signal new_down = 
     reset * 100 + 
     (1 - reset) * (down_val - decrement * (down_val > 0));
 
@@ -26,22 +26,22 @@ write(up_counter, new_up);
 write(down_counter, new_down);
 
 # Event detection and counting
-let up_overflow = (up_val >= 999) && increment;
-let down_underflow = (down_val <= 0) && decrement;
-let any_event = up_overflow || down_underflow;
+Signal up_overflow = (up_val >= 999) && increment;
+Signal down_underflow = (down_val <= 0) && decrement;
+Signal any_event = up_overflow || down_underflow;
 
-let events = read(event_count);
+Signal events = read(event_count);
 write(event_count, events + any_event);
 
 # Filtered accumulator - only accumulate positive values
 mem filtered_sum = memory(0);
-let input_val = input(3);
-let should_accumulate = input_val > 0;
-let current_sum = read(filtered_sum);
+Signal input_val = input(3);
+Signal should_accumulate = input_val > 0;
+Signal current_sum = read(filtered_sum);
 write(filtered_sum, current_sum + (input_val * should_accumulate));
 
 # Output status bundle
-let status = bundle(
+Bundle status = bundle(
     up_val | "signal-red",
     down_val | "signal-green", 
     events | "signal-blue",

@@ -5,24 +5,24 @@ mem counter = memory(0);
 mem accumulator = memory(input("iron-plate", 0));
 
 # Read current values
-let current_count = read(counter);
-let current_total = read(accumulator);
+Signal current_count = read(counter);
+Signal current_total = read(accumulator);
 
 # Increment counter every tick
 write(counter, current_count + 1);
 
 # Conditional memory update
-let input_value = input(1);
-let should_add = input_value > 0;
-let new_total = current_total + (input_value * should_add);
+Signal input_value = input(1);
+Signal should_add = input_value > 0;
+Signal new_total = current_total + (input_value * should_add);
 write(accumulator, new_total);
 
 # Memory-based state machine
 mem state = memory(0);
-let current_state = read(state);
-let next_state = (current_state + 1) % 4;
+Signal current_state = read(state);
+Signal next_state = (current_state + 1) % 4;
 write(state, next_state);
 
 # Use state for output
-let output_multiplier = (current_state == 2) * 10 + 1;
-let final_output = input_value * output_multiplier;
+Signal output_multiplier = (current_state == 2) * 10 + 1;
+Signal final_output = input_value * output_multiplier;

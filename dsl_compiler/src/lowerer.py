@@ -43,8 +43,8 @@ class ASTLowerer:
     
     def lower_statement(self, stmt: Statement):
         """Lower a statement to IR."""
-        if isinstance(stmt, LetStmt):
-            self.lower_let_stmt(stmt)
+        if isinstance(stmt, DeclStmt):
+            self.lower_decl_stmt(stmt)
         elif isinstance(stmt, AssignStmt):
             self.lower_assign_stmt(stmt)
         elif isinstance(stmt, MemDecl):
@@ -60,8 +60,8 @@ class ASTLowerer:
         else:
             self.diagnostics.warning(f"Unknown statement type: {type(stmt)}", stmt)
     
-    def lower_let_stmt(self, stmt: LetStmt):
-        """Lower let statement: let name = expr;"""
+    def lower_decl_stmt(self, stmt: DeclStmt):
+        """Lower typed declaration statement: type name = expr;"""
         # Special handling for Place() calls to track entities
         if isinstance(stmt.value, CallExpr) and stmt.value.name == "Place":
             entity_id, value_ref = self.lower_place_call_with_tracking(stmt.value)

@@ -26,11 +26,11 @@ def test_ast_classes():
     print(f"✓ Binary op: {binop}")
     
     # Test statements
-    let_stmt = LetStmt(name="result", value=binop)
+    decl_stmt = DeclStmt(type_name="int", name="result", value=binop)
     input_expr = InputExpr(index=NumberLiteral(value=0))
     mem_decl = MemDecl(name="counter", init_expr=NumberLiteral(value=0))
     
-    print(f"✓ Let statement: {let_stmt}")
+    print(f"✓ Declaration statement: {decl_stmt}")
     print(f"✓ Input expression: {input_expr}")
     print(f"✓ Memory declaration: {mem_decl}")
     
@@ -43,7 +43,7 @@ def test_ast_classes():
     print(f"✓ Bundle: {bundle}")
     
     # Test program
-    program = Program(statements=[let_stmt, mem_decl])
+    program = Program(statements=[decl_stmt, mem_decl])
     print(f"✓ Program with {len(program.statements)} statements")
     
     print("\n=== AST Tree Structure ===")

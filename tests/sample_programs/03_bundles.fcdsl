@@ -1,26 +1,26 @@
 # Test 3: Bundle operations and multi-channel signals
 # Tests: bundle(), projection from bundles, bundle arithmetic
 
-let iron = input("iron-plate", 0);
-let copper = input("copper-plate", 1);  
-let coal = input("coal", 2);
+Signal iron = input("iron-plate", 0);
+Signal copper = input("copper-plate", 1);  
+Signal coal = input("coal", 2);
 
 # Create bundle with multiple channels
-let resources = bundle(iron, copper, coal);
+Bundle resources = bundle(iron, copper, coal);
 
 # Bundle arithmetic
-let doubled_resources = resources * 2;
-let more_resources = resources + bundle(iron * 3, coal);
+Bundle doubled_resources = resources * 2;
+Bundle more_resources = resources + bundle(iron * 3, coal);
 
 # Project specific channels from bundle
-let iron_from_bundle = resources | "iron-plate";
-let steel_collapsed = resources | "steel-plate";  # sum all channels
+Signal iron_from_bundle = resources | "iron-plate";
+Signal steel_collapsed = resources | "steel-plate";  # sum all channels
 
 # Mixed bundle and signal operations
-let iron_plus_bundle = iron + resources;  # iron channel gets added
+Bundle iron_plus_bundle = iron + resources;  # iron channel gets added
 
 # Nested bundle operations
-let processed = bundle(
+Bundle processed = bundle(
     iron * 2 | "iron-ore",
     copper + coal | "copper-ore"
 );

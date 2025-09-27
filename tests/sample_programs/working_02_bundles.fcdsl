@@ -1,17 +1,17 @@
 # Working sample: Bundle operations 
 # Tests: bundle(), bundle arithmetic, projections
 
-let iron = input(0);
-let copper = input(1);  
-let coal = input(2);
+Signal iron = input(0);
+Signal copper = input(1);  
+Signal coal = input(2);
 
 # Create bundle with multiple channels
-let resources = bundle(iron, copper, coal);
+Bundle resources = bundle(iron, copper, coal);
 
 # Bundle arithmetic (addition only - supported)
-let more_resources = resources + resources;
+Bundle more_resources = resources + resources;
 
 # Project specific channels from bundle
-let iron_output = resources | "iron-plate";
-let copper_output = resources | "copper-plate";
-let coal_output = resources | "coal";
+Signal iron_output = resources | "iron-plate";
+Signal copper_output = resources | "copper-plate";
+Signal coal_output = resources | "coal";

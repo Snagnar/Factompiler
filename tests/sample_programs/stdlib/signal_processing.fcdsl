@@ -6,16 +6,16 @@ func smooth_filter(signal, window_size) {
     mem accumulator = memory(0);
     mem sample_count = memory(0);
     
-    let current_sum = read(accumulator);
-    let count = read(sample_count);
+    Signal current_sum = read(accumulator);
+    Signal count = read(sample_count);
     
-    let new_sum = current_sum + signal;
-    let new_count = count + 1;
+    Signal new_sum = current_sum + signal;
+    Signal new_count = count + 1;
     
     # Reset when window is full
-    let should_reset = new_count >= window_size;
-    let final_sum = should_reset * signal + (1 - should_reset) * new_sum;
-    let final_count = should_reset * 1 + (1 - should_reset) * new_count;
+    Signal should_reset = new_count >= window_size;
+    Signal final_sum = should_reset * signal + (1 - should_reset) * new_sum;
+    Signal final_count = should_reset * 1 + (1 - should_reset) * new_count;
     
     write(accumulator, final_sum);
     write(sample_count, final_count);
@@ -28,11 +28,11 @@ func high_pass_filter(signal, cutoff) {
     mem last_input = memory(0);
     mem last_output = memory(0);
     
-    let last_in = read(last_input);
-    let last_out = read(last_output);
+    Signal last_in = read(last_input);
+    Signal last_out = read(last_output);
     
     # High-pass: output = signal - last_input + 0.9 * last_output
-    let output = signal - last_in + (last_out * 9) / 10;
+    Signal output = signal - last_in + (last_out * 9) / 10;
     
     write(last_input, signal);
     write(last_output, output);
@@ -44,9 +44,9 @@ func low_pass_filter(signal, cutoff) {
     # Simple low-pass filter  
     mem filtered_value = memory(0);
     
-    let current = read(filtered_value);
+    Signal current = read(filtered_value);
     # Low-pass: output = 0.1 * signal + 0.9 * last_output
-    let output = (signal + current * 9) / 10;
+    Signal output = (signal + current * 9) / 10;
     
     write(filtered_value, output);
     
@@ -55,7 +55,7 @@ func low_pass_filter(signal, cutoff) {
 
 func combine_signals(signal_a, signal_b, signal_c) {
     # Combine three signals with weighting
-    let weighted_sum = signal_a * 5 + signal_b * 3 + signal_c * 2;
-    let average = weighted_sum / 10;
+    Signal weighted_sum = signal_a * 5 + signal_b * 3 + signal_c * 2;
+    Signal average = weighted_sum / 10;
     return average;
 }

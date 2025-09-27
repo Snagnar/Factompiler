@@ -6,11 +6,11 @@ func delay_signal(signal, delay_ticks) {
     mem delayed_value = memory(0);
     mem tick_counter = memory(0);
     
-    let ticks = read(tick_counter);
-    let should_update = (ticks % delay_ticks) == 0;
+    Signal ticks = read(tick_counter);
+    Signal should_update = (ticks % delay_ticks) == 0;
     
-    let current_delayed = read(delayed_value);
-    let new_delayed = should_update * signal + (1 - should_update) * current_delayed;
+    Signal current_delayed = read(delayed_value);
+    Signal new_delayed = should_update * signal + (1 - should_update) * current_delayed;
     
     write(delayed_value, new_delayed);
     write(tick_counter, ticks + 1);
@@ -22,11 +22,11 @@ func accumulate_clamped(signal, min_val, max_val) {
     # Accumulate signal with min/max bounds
     mem accumulator = memory(0);
     
-    let current = read(accumulator);
-    let new_val = current + signal;
+    Signal current = read(accumulator);
+    Signal new_val = current + signal;
     
     # Clamp between min and max
-    let clamped = (new_val < min_val) * min_val + 
+    Signal clamped = (new_val < min_val) * min_val + 
                   (new_val > max_val) * max_val +
                   ((new_val >= min_val) && (new_val <= max_val)) * new_val;
     
@@ -38,15 +38,15 @@ func rate_limiter(signal, max_change_per_tick) {
     # Limit rate of change in signal
     mem last_value = memory(0);
     
-    let last = read(last_value);
-    let change = signal - last;
-    let abs_change = (change >= 0) * change + (change < 0) * (-change);
+    Signal last = read(last_value);
+    Signal change = signal - last;
+    Signal abs_change = (change >= 0) * change + (change < 0) * (-change);
     
-    let limited_change = (abs_change > max_change_per_tick) * 
+    Signal limited_change = (abs_change > max_change_per_tick) * 
                         ((change >= 0) * max_change_per_tick + (change < 0) * (-max_change_per_tick)) +
                         (abs_change <= max_change_per_tick) * change;
     
-    let new_value = last + limited_change;
+    Signal new_value = last + limited_change;
     write(last_value, new_value);
     
     return new_value;

@@ -1,15 +1,15 @@
 # Working sample: Basic arithmetic and input/output
 # Tests: input(), basic arithmetic (+, -, /), projections
 
-let a = input(0);           
-let b = input(1);          
-let c = input(2);
+Signal a = input(0);           
+Signal b = input(1);          
+Signal c = input(2);
 
-let sum = a + b;            
-let diff = c - b;          
-let quotient = sum / 2;
+Signal sum = a + b;            
+Signal diff = c - b;          
+Signal quotient = sum / 2;
 
 # Output with explicit type projection
-let output1 = sum | "signal-red";
-let output2 = diff | "signal-green";
-let output3 = quotient | "signal-blue";
+Signal output1 = sum | "signal-red";
+Signal output2 = diff | "signal-green";
+Signal output3 = quotient | "signal-blue";

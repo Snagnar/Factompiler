@@ -1,32 +1,32 @@
 # Test 7: Complex control flow and decision logic
 # Tests: complex conditions, nested expressions, operator precedence
 
-let sensor_a = input("signal-A", 0);
-let sensor_b = input("signal-B", 1);
-let sensor_c = input("signal-C", 2);
+Signal sensor_a = input("signal-A", 0);
+Signal sensor_b = input("signal-B", 1);
+Signal sensor_c = input("signal-C", 2);
 
 # Complex conditional logic
-let threshold_low = 10;
-let threshold_high = 100;
+Signal threshold_low = 10;
+Signal threshold_high = 100;
 
-let in_range = (sensor_a >= threshold_low) && (sensor_a <= threshold_high);
-let any_active = (sensor_a > 0) || (sensor_b > 0) || (sensor_c > 0);
-let all_active = (sensor_a > 0) && (sensor_b > 0) && (sensor_c > 0);
+Signal in_range = (sensor_a >= threshold_low) && (sensor_a <= threshold_high);
+Signal any_active = (sensor_a > 0) || (sensor_b > 0) || (sensor_c > 0);
+Signal all_active = (sensor_a > 0) && (sensor_b > 0) && (sensor_c > 0);
 
 # Operator precedence test: | binds looser than +
-let precedence_test = sensor_a + sensor_b * 2 | "iron-plate";
+Signal precedence_test = sensor_a + sensor_b * 2 | "iron-plate";
 
 # Nested conditions with arithmetic
-let priority_value = 
+Signal priority_value = 
     (sensor_a > 50) * 100 +
     (sensor_b > 30) * 50 +
     (sensor_c > 10) * 25;
 
 # State-based decisions
 mem decision_state = memory(0); 
-let state = read(decision_state);
+Signal state = read(decision_state);
 
-let next_state = 
+Signal next_state = 
     (state == 0 && sensor_a > 0) * 1 +
     (state == 1 && sensor_b > 0) * 2 +
     (state == 2 && sensor_c > 0) * 0 +
@@ -35,7 +35,7 @@ let next_state =
 write(decision_state, next_state);
 
 # Output based on state and sensors
-let output_value = 
+Signal output_value = 
     (state == 0) * sensor_a +
     (state == 1) * sensor_b * 2 +
     (state == 2) * sensor_c * 3;

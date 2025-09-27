@@ -5,39 +5,39 @@ import "stdlib/memory_utils.fcdsl";
 import "stdlib/signal_processing.fcdsl";
 
 # Use imported functions
-let input_signal = input("iron-plate", 0);
-let processed = smooth_filter(input_signal, 5);
-let delayed = delay_signal(processed, 10);
+Signal input_signal = input("iron-plate", 0);
+Signal processed = smooth_filter(input_signal, 5);
+Signal delayed = delay_signal(processed, 10);
 
 # Local function that uses imports
 func production_controller(demand, supply, buffer_size) {
-    let shortfall = demand - supply;
-    let buffered = accumulate_clamped(shortfall, 0, buffer_size);
-    let smoothed = smooth_filter(buffered, 3);
+    Signal shortfall = demand - supply;
+    Signal buffered = accumulate_clamped(shortfall, 0, buffer_size);
+    Signal smoothed = smooth_filter(buffered, 3);
     return smoothed;
 }
 
 # Entity configuration with imports
-assembler1 = Place("assembling-machine-1", 0, 0);
-assembler2 = Place("assembling-machine-1", 3, 0);
+Entity assembler1 = Place("assembling-machine-1", 0, 0);
+Entity assembler2 = Place("assembling-machine-1", 3, 0);
 
-let iron_demand = input("signal-demand", 1);
-let iron_supply = input("signal-supply", 2);
+Signal iron_demand = input("signal-demand", 1);
+Signal iron_supply = input("signal-supply", 2);
 
-let control_signal = production_controller(iron_demand, iron_supply, 100);
+Signal control_signal = production_controller(iron_demand, iron_supply, 100);
 
 # Use control signal for entity management
 assembler1.enable = control_signal > 0;
 assembler2.enable = control_signal > 50;
 
 # Complex import interaction - using separate steps since arrays not supported
-let high_passed = high_pass_filter(input_signal, 10);
-let low_passed = low_pass_filter(delayed, 5);
-let rate_limited = rate_limiter(control_signal, 2);
-let multi_stage = combine_signals(high_passed, low_passed, rate_limited);
+Signal high_passed = high_pass_filter(input_signal, 10);
+Signal low_passed = low_pass_filter(delayed, 5);
+Signal rate_limited = rate_limiter(control_signal, 2);
+Signal multi_stage = combine_signals(high_passed, low_passed, rate_limited);
 
 # Export final result as bundle
-let system_output = bundle(
+Bundle system_output = bundle(
     processed | "signal-P",
     delayed | "signal-D", 
     control_signal | "signal-C",

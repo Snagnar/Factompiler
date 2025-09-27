@@ -308,8 +308,19 @@ class SemanticAnalyzer(ASTVisitor):
             return BundleValue(channels=channels)
             
         elif isinstance(expr, CallExpr):
-            # Function calls - for now return implicit signal
-            return SignalValue(signal_type=self.allocate_implicit_type())
+            # Function calls - check if function returns entity
+            if expr.name == "Place":
+                # Direct Place() call returns entity type
+                return SignalValue(signal_type=self.allocate_implicit_type())  # For now, keep as signal
+            else:
+                # Check if this is a user-defined function that returns an entity
+                func_symbol = self.current_scope.lookup(expr.name)
+                if func_symbol and func_symbol.symbol_type == "function":
+                    # For now, assume user functions return signals
+                    # TODO: Improve with proper function return type analysis
+                    return SignalValue(signal_type=self.allocate_implicit_type())
+                else:
+                    return SignalValue(signal_type=self.allocate_implicit_type())
             
         elif isinstance(expr, PropertyAccess):
             # Entity or module property access
@@ -472,17 +483,31 @@ class SemanticAnalyzer(ASTVisitor):
         for stmt in node.statements:
             self.visit(stmt)
             
-    def visit_LetStmt(self, node: LetStmt) -> None:
-        """Analyze let statement."""
-        # Infer type of value expression
+    def visit_DeclStmt(self, node: DeclStmt) -> None:
+        """Analyze typed declaration statement."""
+        # Check that the value expression matches the declared type
         value_type = self.get_expr_type(node.value)
         
-        # Determine symbol type based on the value expression
-        symbol_type = "variable"
-        if isinstance(node.value, CallExpr) and node.value.name == "Place":
-            symbol_type = "entity"
+        # Special case: Signal x = 42; should create an implicit signal with quantity 42
+        if (node.type_name == "Signal" and isinstance(value_type, IntValue)):
+            # Create implicit signal with the integer value as quantity
+            implicit_signal_type = self.allocate_implicit_type()
+            value_type = SignalValue(
+                signal_type=implicit_signal_type,
+                count_expr=node.value  # Store the integer expression as the count
+            )
         
-        # Define symbol
+        # Convert type name to symbol type
+        symbol_type = self._type_name_to_symbol_type(node.type_name)
+        
+        # Validate that the value matches the declared type
+        if not self._value_matches_type(value_type, node.type_name):
+            self.diagnostics.error(
+                f"Cannot assign {self._value_type_name(value_type)} to {node.type_name} variable '{node.name}'", 
+                node
+            )
+        
+        # Define symbol with explicit type
         symbol = Symbol(
             name=node.name,
             symbol_type=symbol_type,
@@ -493,6 +518,60 @@ class SemanticAnalyzer(ASTVisitor):
             self.current_scope.define(symbol)
         except SemanticError as e:
             self.diagnostics.error(e.message, node)
+    
+    def _type_name_to_symbol_type(self, type_name: str) -> str:
+        """Convert type name to symbol type."""
+        if type_name == "Entity":
+            return "entity"
+        elif type_name in ["int", "Signal", "SignalType", "Bundle"]:
+            return "variable"
+        else:
+            return "variable"  # Default fallback
+    
+    def _value_matches_type(self, value_type: ValueInfo, expected_type_name: str) -> bool:
+        """Check if a value type matches the expected type name."""
+        if expected_type_name == "int":
+            return isinstance(value_type, IntValue)
+        elif expected_type_name == "Signal":
+            return isinstance(value_type, SignalValue)
+        elif expected_type_name == "SignalType":
+            return isinstance(value_type, SignalValue)  # For now, treat as Signal
+        elif expected_type_name == "Entity":
+            return isinstance(value_type, SignalValue)  # Entity calls return signals for now
+        elif expected_type_name == "Bundle":
+            return isinstance(value_type, BundleValue)
+        else:
+            return True  # Default to allowing for now
+    
+    def _value_type_name(self, value_type: ValueInfo) -> str:
+        """Get a human-readable name for a value type."""
+        if isinstance(value_type, IntValue):
+            return "int"
+        elif isinstance(value_type, SignalValue):
+            return "Signal"
+        elif isinstance(value_type, BundleValue):
+            return "Bundle"
+        elif isinstance(value_type, FunctionValue):
+            return "function"
+        else:
+            return "unknown"
+    
+    def _function_returns_entity(self, function_name: str) -> bool:
+        """Check if a function returns an entity by examining its definition."""
+        from dsl_compiler.src.dsl_ast import ReturnStmt, CallExpr
+        
+        func_symbol = self.current_scope.lookup(function_name)
+        if not func_symbol or func_symbol.symbol_type != "function":
+            return False
+            
+        # If the function definition has return statements with Place() calls
+        if hasattr(func_symbol, 'function_def') and func_symbol.function_def:
+            for stmt in func_symbol.function_def.body:
+                if isinstance(stmt, ReturnStmt) and stmt.expr:
+                    if isinstance(stmt.expr, CallExpr) and stmt.expr.name == "Place":
+                        return True
+        
+        return False
         
     def visit_MemDecl(self, node: MemDecl) -> None:
         """Analyze memory declaration."""
@@ -528,7 +607,8 @@ class SemanticAnalyzer(ASTVisitor):
             name=node.name,
             symbol_type="function",
             value_type=IntValue(),  # Placeholder
-            defined_at=node
+            defined_at=node,
+            function_def=node  # Store AST for analysis
         )
         try:
             self.current_scope.define(func_symbol)

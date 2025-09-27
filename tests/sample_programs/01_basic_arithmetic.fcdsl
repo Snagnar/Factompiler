@@ -1,15 +1,15 @@
 # Test 1: Basic arithmetic operations and implicit signal types
 # Tests: input(), basic arithmetic, implicit type allocation
 
-let a = input(0);           # implicit type __v1
-let b = input(1);           # implicit type __v2  
-let c = input("iron-plate", 2);  # explicit type
+Signal a = input(0);           # implicit type __v1
+Signal b = input(1);           # implicit type __v2  
+Signal c = input("iron-plate", 2);  # explicit type
 
-let sum = a + b;            # should be same type as 'a' (__v1)
-let diff = c - 10;          # int coerced to iron-plate type
-let product = a * 2;
-let quotient = c / 3;
-let remainder = b % 5;
+Signal sum = a + b;            # should be same type as 'a' (__v1)
+Signal diff = c - 10;          # int coerced to iron-plate type
+Signal product = a * 2;
+Signal quotient = c / 3;
+Signal remainder = b % 5;
 
 # Output with explicit type projection
-let output_val = sum | "signal-output";
+Signal output_val = sum | "signal-output";

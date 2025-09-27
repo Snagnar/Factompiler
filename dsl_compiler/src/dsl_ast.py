@@ -55,13 +55,15 @@ class Statement(ASTNode):
 
 
 @dataclass
-class LetStmt(Statement):
-    """let variable = expression;"""
+class DeclStmt(Statement):
+    """type variable = expression;"""
+    type_name: str  # "int", "Signal", "SignalType", "Entity", "Bundle"
     name: str
     value: 'Expr'
     
-    def __init__(self, name: str, value: 'Expr', line: int = 0, column: int = 0):
+    def __init__(self, type_name: str, name: str, value: 'Expr', line: int = 0, column: int = 0):
         super().__init__(line, column)
+        self.type_name = type_name
         self.name = name
         self.value = value
 

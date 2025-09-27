@@ -1,25 +1,25 @@
 # Test 2: Mixed-type arithmetic (should warn, left-operand wins)
 # Tests: mixed-type rules, warnings, projection operator
 
-let iron = input("iron-plate", 0);
-let copper = input("copper-plate", 1);
+Signal iron = input("iron-plate", 0);
+Signal copper = input("copper-plate", 1);
 
 # Mixed types - should warn and use left operand type (iron-plate)
-let mixed_sum = iron + copper;
+Signal mixed_sum = iron + copper;
 
 # Explicit projection to force different output type
-let forced_copper = iron + copper | "copper-plate";
+Signal forced_copper = iron + copper | "copper-plate";
 
 # Bundle operation
-let as_bundle = bundle(iron, copper);
+Bundle as_bundle = bundle(iron, copper);
 
 # Project bundle to single channel  
-let collapsed = as_bundle | "steel-plate";
+Signal collapsed = as_bundle | "steel-plate";
 
 # Comparison operations
-let is_positive = iron > 0;
-let are_equal = iron == copper;  # mixed type comparison
+Signal is_positive = iron > 0;
+Signal are_equal = iron == copper;  # mixed type comparison
 
 # Logical operations
-let both_positive = (iron > 0) && (copper > 0);
-let either_positive = (iron > 0) || (copper > 0);
+Signal both_positive = (iron > 0) && (copper > 0);
+Signal either_positive = (iron > 0) || (copper > 0);

@@ -1,40 +1,40 @@
 # Test 13: Complex nested expressions and operator precedence
 # Tests: deeply nested expressions, operator precedence, complex projections
 
-let a = input(0);
-let b = input(1);
-let c = input(2);
+Signal a = input(0);
+Signal b = input(1);
+Signal c = input(2);
 
 # Test operator precedence: * before +, && before ||
-let precedence1 = a + b * c;         # Should be a + (b * c)  
-let precedence2 = a > 0 && b > 0 || c > 0;  # Should be (a > 0 && b > 0) || c > 0
+Signal precedence1 = a + b * c;         # Should be a + (b * c)  
+Signal precedence2 = a > 0 && b > 0 || c > 0;  # Should be (a > 0 && b > 0) || c > 0
 
 # Complex nested arithmetic with projections
-let nested = ((a + b) * (c - 1)) / 2 | "iron-plate";
+Signal nested = ((a + b) * (c - 1)) / 2 | "iron-plate";
 
 # Multiple projections and type coercion
-let type_chain = a | "copper-plate";
-let type_recast = type_chain | "steel-plate";
+Signal type_chain = a | "copper-plate";
+Signal type_recast = type_chain | "steel-plate";
 
 # Complex bundle operations
-let bundle1 = bundle(a, b);
-let bundle2 = bundle(c, a * 2);
-let bundle_math = (bundle1 + bundle2) * 3;
+Bundle bundle1 = bundle(a, b);
+Bundle bundle2 = bundle(c, a * 2);
+Bundle bundle_math = (bundle1 + bundle2) * 3;
 
 # Deeply nested bundle projections
-let complex_projection = bundle(
+Signal complex_projection = bundle(
     (a + b) | "iron-plate",
     (b * c) | "copper-plate"
 ) | "steel-plate";  # Should sum all channels to steel-plate
 
 # Complex logical expressions
-let complex_logic = (a > b && b > c) || (c > a && a > 0) || (b == 0 && c > 5);
+Signal complex_logic = (a > b && b > c) || (c > a && a > 0) || (b == 0 && c > 5);
 
 # Conditional arithmetic using boolean results as multipliers
-let conditional_value = 
+Signal conditional_value = 
     (a > 10) * 100 +
     (b > 20) * 200 + 
     (c > 30) * 300;
 
 # Mixed bundle and single-channel operations
-let mixed_result = a + bundle(b, c) + (a * 2) | "iron-ore";
+Signal mixed_result = a + bundle(b, c) + (a * 2) | "iron-ore";

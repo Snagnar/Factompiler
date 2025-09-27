@@ -15,6 +15,13 @@ WRITE_KW: "write"
 INPUT_KW: "input"
 BUNDLE_KW: "bundle"
 
+// Type keywords
+INT_KW: "int"
+SIGNAL_KW: "Signal"
+SIGNALTYPE_KW: "SignalType" 
+ENTITY_KW: "Entity"
+BUNDLE_TYPE_KW: "Bundle"
+
 NAME: /[A-Za-z_][A-Za-z0-9_-]*/   // allow hyphens in names for type-like identifiers
 
 // ---------------------------------
@@ -25,7 +32,7 @@ start: statement*
 // ---------------------------------
 // Statements (terminated by semicolon), and decls
 // ---------------------------------
-statement: let_stmt ";"                     -> let_stmt
+statement: decl_stmt ";"                    -> decl_stmt
          | assign_stmt ";"                  -> assign_stmt
          | mem_decl ";"                     -> mem_decl
          | expr_stmt ";"                    -> statement_expr_stmt
@@ -33,7 +40,9 @@ statement: let_stmt ";"                     -> let_stmt
          | import_stmt ";"                  -> import_stmt
          | func_decl                        -> func_decl   // function bodies contain their own semicolons
 
-let_stmt: "let" NAME "=" expr
+decl_stmt: type_name NAME "=" expr
+
+type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW | BUNDLE_TYPE_KW
 
 assign_stmt: lvalue "=" expr
 

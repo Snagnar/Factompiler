@@ -14,7 +14,7 @@ from lark.exceptions import LarkError, ParseError, LexError
 
 from dsl_compiler.src.dsl_ast import (
     ASTNode, Program, Statement, Expr, LValue,
-    LetStmt, AssignStmt, MemDecl, ExprStmt, ReturnStmt, ImportStmt, FuncDecl,
+    DeclStmt, AssignStmt, MemDecl, ExprStmt, ReturnStmt, ImportStmt, FuncDecl,
     Identifier, PropertyAccess,
     BinaryOp, UnaryOp, NumberLiteral, StringLiteral, IdentifierExpr, PropertyAccessExpr,
     CallExpr, InputExpr, ReadExpr, WriteExpr, BundleExpr, ProjectionExpr,
@@ -107,19 +107,28 @@ class DSLTransformer(Transformer):
         """start: statement*"""
         return Program(statements=statements)
     
-    def let_stmt(self, items) -> LetStmt:
-        """let_stmt: "let" NAME "=" expr"""
-        if len(items) == 1 and isinstance(items[0], LetStmt):
-            # Handle nested let_stmt rule
+    def decl_stmt(self, items) -> DeclStmt:
+        """decl_stmt: type_name NAME "=" expr"""
+        if len(items) == 1 and isinstance(items[0], DeclStmt):
+            # Handle nested decl_stmt rule
             return items[0]
-        elif len(items) >= 2:
-            # With simplified grammar: items[0] = NAME token, items[1] = expr
-            # The "let" and "=" literals are filtered out by Lark
-            name = str(items[0].value) if hasattr(items[0], 'value') else str(items[0])
-            value = self._unwrap_tree(items[1])  # Handle Tree wrapper
-            return self._set_position(LetStmt(name=name, value=value), items[0])
+        elif len(items) >= 3:
+            # items[0] = type_name token, items[1] = NAME token, items[2] = expr
+            # The "=" literal is filtered out by Lark
+            type_name = str(items[0].value) if hasattr(items[0], 'value') else str(items[0])
+            name = str(items[1].value) if hasattr(items[1], 'value') else str(items[1])
+            value = self._unwrap_tree(items[2])  # Handle Tree wrapper
+            return self._set_position(DeclStmt(type_name=type_name, name=name, value=value), items[1])
         else:
-            raise ValueError(f"Unexpected let_stmt structure: {items}")
+            raise ValueError(f"Unexpected decl_stmt structure: {items}")
+
+    def type_name(self, items) -> str:
+        """type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW | BUNDLE_TYPE_KW"""
+        if len(items) == 1:
+            token = items[0]
+            return str(token.value) if hasattr(token, 'value') else str(token)
+        else:
+            raise ValueError(f"Unexpected type_name structure: {items}")
     
     def _unwrap_tree(self, item):
         """Unwrap Tree objects to get the actual value."""

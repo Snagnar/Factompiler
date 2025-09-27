@@ -21,16 +21,16 @@ class TestDSLParser:
     def test_literals(self):
         """Test parsing of literals."""
         test_cases = [
-            ("let x = 42;", NumberLiteral, 42),
-            ('let s = "hello";', StringLiteral, "hello"),
-            ("let neg = -17;", NumberLiteral, -17),  # negative number parsed directly
+            ("int x = 42;", NumberLiteral, 42),
+            ('Signal s = \"hello\";', StringLiteral, "hello"),
+            ("int neg = -17;", NumberLiteral, -17),  # negative number parsed directly
         ]
         
         for code, expected_type, expected_value in test_cases:
             ast = self.parser.parse(code)
             assert len(ast.statements) == 1
             stmt = ast.statements[0]
-            assert isinstance(stmt, LetStmt)
+            assert isinstance(stmt, DeclStmt)
             assert isinstance(stmt.value, expected_type)
             if expected_value is not None:
                 assert stmt.value.value == expected_value
@@ -38,7 +38,7 @@ class TestDSLParser:
     def test_identifiers_and_property_access(self):
         """Test parsing identifiers and property access."""
         # Simple identifier
-        ast = self.parser.parse("let x = y;")
+        ast = self.parser.parse("Signal x = y;")
         stmt = ast.statements[0]
         assert isinstance(stmt.value, IdentifierExpr)
         assert stmt.value.name == "y"
@@ -54,12 +54,12 @@ class TestDSLParser:
     def test_arithmetic_expressions(self):
         """Test parsing arithmetic expressions with correct precedence."""
         test_cases = [
-            ("let x = a + b;", BinaryOp, "+"),
-            ("let x = a - b;", BinaryOp, "-"),
-            ("let x = a * b;", BinaryOp, "*"),
-            ("let x = a / b;", BinaryOp, "/"),
-            ("let x = a % b;", BinaryOp, "%"),
-            ("let x = a + b * c;", BinaryOp, "+"),  # Should be a + (b * c)
+            ("Signal x = a + b;", BinaryOp, "+"),
+            ("Signal x = a - b;", BinaryOp, "-"),
+            ("Signal x = a * b;", BinaryOp, "*"),
+            ("Signal x = a / b;", BinaryOp, "/"),
+            ("Signal x = a % b;", BinaryOp, "%"),
+            ("Signal x = a + b * c;", BinaryOp, "+"),  # Should be a + (b * c)
         ]
         
         for code, expected_type, expected_op in test_cases:
@@ -69,7 +69,7 @@ class TestDSLParser:
             assert stmt.value.op == expected_op
             
         # Test precedence: a + b * c should parse as a + (b * c)
-        ast = self.parser.parse("let x = a + b * c;")
+        ast = self.parser.parse("Signal x = a + b * c;")
         stmt = ast.statements[0]
         assert isinstance(stmt.value, BinaryOp)
         assert stmt.value.op == "+"
@@ -81,7 +81,7 @@ class TestDSLParser:
         test_cases = ["==", "!=", "<", ">", "<=", ">="]
         
         for op in test_cases:
-            code = f"let x = a {op} b;"
+            code = f"Signal x = a {op} b;"
             ast = self.parser.parse(code)
             stmt = ast.statements[0]
             assert isinstance(stmt.value, BinaryOp)
@@ -92,7 +92,7 @@ class TestDSLParser:
         test_cases = ["&&", "||"]
         
         for op in test_cases:
-            code = f"let x = a {op} b;"
+            code = f"Signal x = a {op} b;"
             ast = self.parser.parse(code)
             stmt = ast.statements[0]
             assert isinstance(stmt.value, BinaryOp)
@@ -103,7 +103,7 @@ class TestDSLParser:
         test_cases = ["+", "-", "!"]
         
         for op in test_cases:
-            code = f"let x = {op}a;"
+            code = f"Signal x = {op}a;"
             ast = self.parser.parse(code)
             stmt = ast.statements[0]
             assert isinstance(stmt.value, UnaryOp)
@@ -111,13 +111,13 @@ class TestDSLParser:
     
     def test_projection_expressions(self):
         """Test parsing projection expressions (| operator)."""
-        ast = self.parser.parse('let x = a | "signal-type";')
+        ast = self.parser.parse('Signal x = a | "signal-type";')
         stmt = ast.statements[0]
         assert isinstance(stmt.value, ProjectionExpr)
         assert stmt.value.target_type == "signal-type"
         
         # Test chained projections
-        ast = self.parser.parse('let x = a | "type1" | "type2";')
+        ast = self.parser.parse('Signal x = a | "type1" | "type2";')
         stmt = ast.statements[0]
         assert isinstance(stmt.value, ProjectionExpr)
         assert stmt.value.target_type == "type2"
@@ -127,7 +127,7 @@ class TestDSLParser:
     def test_input_expressions(self):
         """Test parsing input expressions."""
         # Simple input by index
-        ast = self.parser.parse("let x = input(0);")
+        ast = self.parser.parse("Signal x = input(0);")
         stmt = ast.statements[0]
         assert isinstance(stmt.value, InputExpr)
         assert isinstance(stmt.value.index, NumberLiteral)
@@ -135,7 +135,7 @@ class TestDSLParser:
         assert stmt.value.signal_type is None
         
         # Typed input
-        ast = self.parser.parse('let x = input("iron-plate", 1);')
+        ast = self.parser.parse('Signal x = input("iron-plate", 1);')
         stmt = ast.statements[0]
         assert isinstance(stmt.value, InputExpr)
         assert isinstance(stmt.value.index, NumberLiteral)
@@ -161,7 +161,7 @@ class TestDSLParser:
         assert stmt.init_expr.value == 42
         
         # Read operation
-        ast = self.parser.parse("let x = read(counter);")
+        ast = self.parser.parse("Signal x = read(counter);")
         stmt = ast.statements[0]
         assert isinstance(stmt.value, ReadExpr)
         assert stmt.value.memory_name == "counter"
@@ -177,13 +177,13 @@ class TestDSLParser:
     def test_bundle_expressions(self):
         """Test parsing bundle expressions."""
         # Empty bundle
-        ast = self.parser.parse("let empty = bundle();")
+        ast = self.parser.parse("Signal empty = bundle();")
         stmt = ast.statements[0]
         assert isinstance(stmt.value, BundleExpr)
         assert len(stmt.value.exprs) == 0
         
         # Bundle with arguments
-        ast = self.parser.parse("let resources = bundle(iron, copper, coal);")
+        ast = self.parser.parse("Signal resources = bundle(iron, copper, coal);")
         stmt = ast.statements[0]
         assert isinstance(stmt.value, BundleExpr)
         assert len(stmt.value.exprs) == 3
@@ -192,21 +192,21 @@ class TestDSLParser:
     def test_function_calls(self):
         """Test parsing function calls."""
         # Simple call
-        ast = self.parser.parse("let x = func();")
+        ast = self.parser.parse("Signal x = func();")
         stmt = ast.statements[0]
         assert isinstance(stmt.value, CallExpr)
         assert stmt.value.name == "func"
         assert len(stmt.value.args) == 0
         
         # Call with arguments
-        ast = self.parser.parse("let x = func(a, b, 42);")
+        ast = self.parser.parse("Signal x = func(a, b, 42);")
         stmt = ast.statements[0]
         assert isinstance(stmt.value, CallExpr)
         assert stmt.value.name == "func"
         assert len(stmt.value.args) == 3
         
         # Method call
-        ast = self.parser.parse("let x = module.method(arg);")
+        ast = self.parser.parse("Signal x = module.method(arg);")
         stmt = ast.statements[0]
         assert isinstance(stmt.value, CallExpr)
         assert stmt.value.name == "module.method"
@@ -231,7 +231,7 @@ class TestDSLParser:
         # Function with parameters
         code = """
         func add(a, b) {
-            let sum = a + b;
+            Signal sum = a + b;
             return sum;
         }
         """
@@ -245,8 +245,8 @@ class TestDSLParser:
     def test_statements(self):
         """Test parsing different statement types."""
         # Let statement
-        ast = self.parser.parse("let x = 42;")
-        assert isinstance(ast.statements[0], LetStmt)
+        ast = self.parser.parse("int x = 42;")
+        assert isinstance(ast.statements[0], DeclStmt)
         
         # Assignment statement
         ast = self.parser.parse("x = 42;")
@@ -276,7 +276,7 @@ class TestDSLParser:
     
     def test_parenthesized_expressions(self):
         """Test parsing parenthesized expressions."""
-        ast = self.parser.parse("let x = (a + b) * c;")
+        ast = self.parser.parse("Signal x = (a + b) * c;")
         stmt = ast.statements[0]
         assert isinstance(stmt.value, BinaryOp)
         assert stmt.value.op == "*"
@@ -286,14 +286,14 @@ class TestDSLParser:
     def test_complex_expressions(self):
         """Test parsing complex nested expressions."""
         code = """
-        let result = bundle(
+        Signal result = bundle(
             input("iron-plate", 0) + input("copper-plate", 1),
             read(memory) * 2
         ) | "output-signal";
         """
         ast = self.parser.parse(code)
         stmt = ast.statements[0]
-        assert isinstance(stmt, LetStmt)
+        assert isinstance(stmt, DeclStmt)
         assert isinstance(stmt.value, ProjectionExpr)
         assert isinstance(stmt.value.expr, BundleExpr)
         assert len(stmt.value.expr.exprs) == 2
@@ -318,11 +318,12 @@ class TestDSLParser:
     def test_syntax_errors(self):
         """Test that syntax errors are properly detected."""
         invalid_cases = [
-            "let x =;",  # Missing expression
-            "let = 42;",  # Missing variable name
+            "int x =;",  # Missing expression
+            "int = 42;",  # Missing variable name
             "x + ;",  # Incomplete expression
             "func() { return; }",  # Missing return value
             "input();",  # Missing input arguments
+            "let x = 42;",  # Old let syntax should now fail
         ]
         
         for code in invalid_cases:
@@ -337,24 +338,24 @@ def test_basic_parsing():
     test_cases = [
         # Basic arithmetic
         """
-        let a = input(0);
-        let b = input("iron-plate", 1);
-        let sum = a + b;
+        Signal a = input(0);
+        Signal b = input("iron-plate", 1);
+        Signal sum = a + b;
         """,
         
         # Memory operations
         """
         mem counter = memory(0);
-        let current = read(counter);
+        Signal current = read(counter);
         write(counter, current + 1);
         """,
         
         # Projection and bundles
         """
-        let iron = input("iron-plate", 0);
-        let copper = input("copper-plate", 1);
-        let resources = bundle(iron, copper);
-        let output = resources | "steel-plate";
+        Signal iron = input("iron-plate", 0);
+        Signal copper = input("copper-plate", 1);
+        Signal resources = bundle(iron, copper);
+        Signal output = resources | "steel-plate";
         """,
         
         # Functions
@@ -362,12 +363,12 @@ def test_basic_parsing():
         func double(x) {
             return x * 2;
         }
-        let result = double(input(0));
+        Signal result = double(input(0));
         """,
         
         # Entity placement
         """
-        let lamp = Place("small-lamp", 0, 0);
+        Signal lamp = Place("small-lamp", 0, 0);
         lamp.enable = input(0) > 0;
         """
     ]
