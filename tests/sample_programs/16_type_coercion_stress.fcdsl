@@ -1,0 +1,68 @@
+# Test 16: Type coercion and mixed operations stress test
+# Tests: complex type mixing, coercion edge cases, signal type interactions
+
+# Various input types
+let implicit1 = input(0);                    # __v1
+let implicit2 = input(1);                    # __v2  
+let iron = input("iron-plate", 2);
+let copper = input("copper-plate", 3);
+let signal_a = input("signal-A", 4);
+
+# Integer literals
+let int_val = 42;
+let zero = 0;
+let negative = -15;
+
+# Basic type mixing (should generate warnings)
+let mixed1 = implicit1 + iron;               # implicit + explicit -> implicit type
+let mixed2 = iron + copper;                  # explicit + explicit -> iron-plate type
+let mixed3 = implicit1 + implicit2;          # implicit + implicit -> first type
+
+# Integer coercion
+let coerced1 = iron + int_val;               # int coerced to iron-plate
+let coerced2 = int_val * implicit1;          # int coerced to implicit1 type
+let coerced3 = copper - negative;            # int coerced to copper-plate
+
+# Chain of mixed operations (multiple warnings expected)
+let chain1 = implicit1 + iron + copper;     # __v1 + iron -> __v1, then __v1 + copper -> __v1
+let chain2 = iron + implicit1 + copper;     # iron + __v1 -> iron, then iron + copper -> iron
+
+# Bundle type mixing
+let mixed_bundle = bundle(implicit1, iron, copper);
+let bundle_arithmetic = mixed_bundle + implicit2;    # bundle + signal
+
+# Projection type changes  
+let proj1 = mixed1 | "steel-plate";         # change type via projection
+let proj2 = mixed_bundle | "coal";          # project bundle to different type
+
+# Complex nested type mixing
+let complex_mixed = (implicit1 + iron) * (copper - implicit2) + signal_a;
+
+# Type mixing in comparisons
+let comparison_mixed1 = implicit1 > iron;           # comparing different types
+let comparison_mixed2 = iron == copper;             # comparing different explicit types
+let comparison_mixed3 = implicit1 < int_val;       # implicit vs integer
+
+# Logical operations with mixed types
+let logical_mixed = (implicit1 > 0) && (iron > copper);
+
+# Bundle projections with type mixing
+let bundle_proj_mixed = bundle(implicit1 + iron, copper * implicit2);
+let final_proj = bundle_proj_mixed | "wood";        # project to unrelated type
+
+# Memory operations with type mixing
+mem mixed_memory = memory(implicit1 + iron);
+write(mixed_memory, copper + implicit2);
+let memory_read = read(mixed_memory);
+
+# Function with type mixing
+func mixed_type_function(param1, param2) {
+    let local_mixed = param1 + iron;
+    let result = local_mixed * param2 + copper;
+    return result;
+}
+
+let func_result = mixed_type_function(implicit1, implicit2);
+
+# Extreme type mixing chain
+let extreme_chain = ((implicit1 + iron) * (copper - signal_a)) / (implicit2 + int_val) | "uranium-ore";

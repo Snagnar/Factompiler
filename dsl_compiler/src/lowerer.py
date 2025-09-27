@@ -62,6 +62,13 @@ class ASTLowerer:
     
     def lower_let_stmt(self, stmt: LetStmt):
         """Lower let statement: let name = expr;"""
+        # Special handling for Place() calls to track entities
+        if isinstance(stmt.value, CallExpr) and stmt.value.name == "Place":
+            entity_id, value_ref = self.lower_place_call_with_tracking(stmt.value)
+            self.entity_refs[stmt.name] = entity_id
+            self.signal_refs[stmt.name] = value_ref
+            return
+            
         value_ref = self.lower_expr(stmt.value)
         
         # Store the reference for later use
@@ -83,6 +90,14 @@ class ASTLowerer:
     
     def lower_assign_stmt(self, stmt: AssignStmt):
         """Lower assignment statement: target = expr;"""
+        if isinstance(stmt.target, Identifier):
+            # Special handling for Place() calls to track entities
+            if isinstance(stmt.value, CallExpr) and stmt.value.name == "Place":
+                entity_id, value_ref = self.lower_place_call_with_tracking(stmt.value)
+                self.entity_refs[stmt.target.name] = entity_id
+                self.signal_refs[stmt.target.name] = value_ref
+                return
+        
         value_ref = self.lower_expr(stmt.value)
         
         if isinstance(stmt.target, Identifier):
@@ -99,12 +114,8 @@ class ASTLowerer:
             
             if entity_name in self.entity_refs:
                 entity_id = self.entity_refs[entity_name]
-                self.ir_builder.add_operation(
-                    IR_EntityPropWrite(f"prop_write_{entity_id}_{prop_name}", stmt)
-                )
-                self.ir_builder.operations[-1].entity_id = entity_id
-                self.ir_builder.operations[-1].property_name = prop_name
-                self.ir_builder.operations[-1].value = value_ref
+                prop_write_op = IR_EntityPropWrite(entity_id, prop_name, value_ref)
+                self.ir_builder.add_operation(prop_write_op)
     
     def lower_mem_decl(self, stmt: MemDecl):
         """Lower memory declaration: mem name = memory(init);"""
@@ -427,6 +438,37 @@ class ASTLowerer:
         
         # Return a dummy signal (entities don't produce signals directly)
         return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+
+    def lower_place_call_with_tracking(self, expr: CallExpr) -> tuple[str, ValueRef]:
+        """Lower Place() call and return both entity_id and value reference for tracking."""
+        if len(expr.args) != 3:
+            self.diagnostics.error("Place() requires exactly 3 arguments: prototype, x, y", expr)
+            dummy_ref = self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            return "error_entity", dummy_ref
+        
+        # Extract arguments
+        prototype_expr, x_expr, y_expr = expr.args
+        
+        if not isinstance(prototype_expr, StringLiteral):
+            self.diagnostics.error("Place() prototype must be a string literal", prototype_expr)
+            dummy_ref = self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            return "error_entity", dummy_ref
+        
+        prototype = prototype_expr.value
+        
+        # Evaluate position arguments
+        x_ref = self.lower_expr(x_expr)
+        y_ref = self.lower_expr(y_expr)
+        
+        # Generate unique entity ID
+        entity_id = f"entity_{self.ir_builder.next_id()}"
+        
+        # Place the entity
+        self.ir_builder.place_entity(entity_id, prototype, x_ref, y_ref, source_ast=expr)
+        
+        # Return both entity_id and dummy signal reference
+        value_ref = self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+        return entity_id, value_ref
 
     def lower_property_access(self, expr: PropertyAccess) -> ValueRef:
         """Lower property access for reading entity properties."""

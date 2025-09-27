@@ -157,6 +157,8 @@ class BlueprintEmitter:
             self.emit_place_entity(op)
         elif isinstance(op, IR_EntityPropWrite):
             self.emit_entity_prop_write(op)
+        elif isinstance(op, IR_EntityPropRead):
+            self.emit_entity_prop_read(op)
         elif isinstance(op, IR_Bundle):
             self.emit_bundle(op)
         else:
@@ -327,8 +329,12 @@ class BlueprintEmitter:
     
     def emit_place_entity(self, op: IR_PlaceEntity):
         """Emit entity placement."""
+        # Handle both constant and variable coordinates
+        x_coord = op.x if isinstance(op.x, int) else 0  # Default to 0 for variable coordinates
+        y_coord = op.y if isinstance(op.y, int) else 0  # Default to 0 for variable coordinates
+        
         # Use specified position, but offset to avoid combinators
-        pos = (op.x + 20, op.y)  # Offset entities to the right
+        pos = (x_coord + 20, y_coord)  # Offset entities to the right
         
         if op.prototype == "small-lamp":
             entity = Lamp(tile_position=pos)
@@ -359,7 +365,17 @@ class BlueprintEmitter:
             # Track that this entity needs this signal as input
             entity_placement.input_signals[f"{op.property_name}_input"] = "green"
             self._add_signal_sink(op.value, op.entity_id)
-    
+
+    def emit_entity_prop_read(self, op: IR_EntityPropRead):
+        """Emit entity property read (circuit network connection)."""
+        # This would read entity properties and output them as signals
+        if op.entity_id in self.entities:
+            entity_placement = self.entities[op.entity_id]
+            # Track that this entity outputs this signal
+            entity_placement.output_signals[f"{op.property_name}_output"] = "red"
+            # Mark this operation as a signal source using the existing pattern
+            self.signal_sources[op.node_id] = op.entity_id
+
     def emit_bundle(self, op: IR_Bundle):
         """Emit bundle operation (multiple signals on same wire)."""
         # Bundles are handled in the wiring phase

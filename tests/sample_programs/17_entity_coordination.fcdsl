@@ -1,0 +1,101 @@
+# Test 17: Entity coordination and complex placement
+# Tests: multiple entities working together, dynamic placement patterns, property interactions
+
+# Create a grid of entities with computed positions
+func place_grid_entity(base_x, base_y, offset_x, offset_y, entity_type) {
+    let final_x = base_x + offset_x;
+    let final_y = base_y + offset_y;
+    let entity = Place(entity_type, final_x, final_y);
+    return entity;
+}
+
+# Input controls for dynamic behavior
+let master_enable = input(0) > 0;
+let pattern_selector = input(1) % 4;
+let intensity = input(2);
+
+# Grid of lamps with different patterns
+let grid_size = 3;
+let lamp_00 = place_grid_entity(0, 0, 0, 0, "small-lamp");
+let lamp_10 = place_grid_entity(0, 0, grid_size, 0, "small-lamp");
+let lamp_20 = place_grid_entity(0, 0, grid_size * 2, 0, "small-lamp");
+let lamp_01 = place_grid_entity(0, 0, 0, grid_size, "small-lamp");
+let lamp_11 = place_grid_entity(0, 0, grid_size, grid_size, "small-lamp");
+let lamp_21 = place_grid_entity(0, 0, grid_size * 2, grid_size, "small-lamp");
+
+# Memory for coordination patterns
+mem pattern_counter = memory(0);
+mem sync_counter = memory(0);
+
+let pattern_tick = read(pattern_counter);
+let sync_tick = read(sync_counter);
+
+write(pattern_counter, (pattern_tick + 1) % 20);
+write(sync_counter, sync_tick + 1);
+
+# Pattern 0: All synchronized
+let pattern0_enable = master_enable && ((pattern_tick % 10) < 5);
+
+# Pattern 1: Checkerboard
+let pattern1_lamp00 = master_enable && ((pattern_tick % 8) < 4);
+let pattern1_lamp10 = master_enable && ((pattern_tick % 8) >= 4);
+let pattern1_lamp01 = pattern1_lamp10;  # opposite of 00
+let pattern1_lamp11 = pattern1_lamp00;  # same as 00
+
+# Pattern 2: Wave pattern
+let wave_phase = pattern_tick % 12;
+let pattern2_lamp00 = master_enable && (wave_phase < 2);
+let pattern2_lamp10 = master_enable && ((wave_phase >= 2) && (wave_phase < 4));
+let pattern2_lamp20 = master_enable && ((wave_phase >= 4) && (wave_phase < 6));
+let pattern2_lamp01 = master_enable && ((wave_phase >= 6) && (wave_phase < 8));
+let pattern2_lamp11 = master_enable && ((wave_phase >= 8) && (wave_phase < 10));
+let pattern2_lamp21 = master_enable && (wave_phase >= 10);
+
+# Pattern 3: Intensity-based
+let intensity_threshold = intensity / 10;
+let pattern3_lamp00 = master_enable && (intensity_threshold > 0);
+let pattern3_lamp10 = master_enable && (intensity_threshold > 1);
+let pattern3_lamp20 = master_enable && (intensity_threshold > 2);
+let pattern3_lamp01 = master_enable && (intensity_threshold > 3);
+let pattern3_lamp11 = master_enable && (intensity_threshold > 4);
+let pattern3_lamp21 = master_enable && (intensity_threshold > 5);
+
+# Apply selected pattern
+lamp_00.enable = (pattern_selector == 0) * pattern0_enable +
+                 (pattern_selector == 1) * pattern1_lamp00 +
+                 (pattern_selector == 2) * pattern2_lamp00 +
+                 (pattern_selector == 3) * pattern3_lamp00;
+
+lamp_10.enable = (pattern_selector == 0) * pattern0_enable +
+                 (pattern_selector == 1) * pattern1_lamp10 +
+                 (pattern_selector == 2) * pattern2_lamp10 +
+                 (pattern_selector == 3) * pattern3_lamp10;
+
+lamp_20.enable = (pattern_selector == 0) * pattern0_enable +
+                 (pattern_selector == 1) * pattern1_lamp00 +
+                 (pattern_selector == 2) * pattern2_lamp20 +
+                 (pattern_selector == 3) * pattern3_lamp20;
+
+lamp_01.enable = (pattern_selector == 0) * pattern0_enable +
+                 (pattern_selector == 1) * pattern1_lamp01 +
+                 (pattern_selector == 2) * pattern2_lamp01 +
+                 (pattern_selector == 3) * pattern3_lamp01;
+
+lamp_11.enable = (pattern_selector == 0) * pattern0_enable +
+                 (pattern_selector == 1) * pattern1_lamp11 +
+                 (pattern_selector == 2) * pattern2_lamp11 +
+                 (pattern_selector == 3) * pattern3_lamp11;
+
+lamp_21.enable = (pattern_selector == 0) * pattern0_enable +
+                 (pattern_selector == 1) * pattern1_lamp00 +
+                 (pattern_selector == 2) * pattern2_lamp21 +
+                 (pattern_selector == 3) * pattern3_lamp21;
+
+# Dynamic entity placement based on current pattern
+let active_lamp_count = lamp_00.enable + lamp_10.enable + lamp_20.enable + 
+                       lamp_01.enable + lamp_11.enable + lamp_21.enable;
+
+let indicator_x = active_lamp_count * 2;
+let indicator_y = pattern_selector * 3;
+let pattern_indicator = Place("fast-inserter", indicator_x, indicator_y);
+pattern_indicator.enable = active_lamp_count > 0;

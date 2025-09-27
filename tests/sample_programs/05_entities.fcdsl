@@ -20,8 +20,10 @@ lamp2.enable = enable_lamps > 5;
 # Read entity properties (if supported)
 let lamp1_status = lamp1.enable;
 
-# More complex entity control
-let blink_pattern = read(counter) % 10;  # requires counter from test 4
+# More complex entity control with memory
+mem counter = memory(0);
+write(counter, read(counter) + 1);  # increment counter each tick
+let blink_pattern = read(counter) % 10;
 lamp1.enable = (blink_pattern < 5);
 lamp2.enable = (blink_pattern >= 5);
 
