@@ -1,0 +1,203 @@
+# Comprehensive Signal Type Testing
+# Tests all different types of signals available in Factorio/draftsman
+
+# =============================================================================
+# VIRTUAL SIGNALS - Built-in circuit network signals
+# =============================================================================
+
+# Basic virtual signals
+Signal signal_A = input("signal-A", 0);
+Signal signal_B = input("signal-B", 1);
+Signal signal_0 = input("signal-0", 2);
+Signal signal_1 = input("signal-1", 3);
+
+# Special virtual signals
+Signal everything = input("signal-everything", 4);
+Signal anything = input("signal-anything", 5);
+Signal each = input("signal-each", 6);
+
+# Virtual signal arithmetic
+Signal virtual_sum = signal_A + signal_B;
+Signal virtual_product = signal_0 * signal_1;
+
+# =============================================================================
+# ITEM SIGNALS - All items that can be carried/stored
+# =============================================================================
+
+# Basic resources
+Signal iron_ore = input("iron-ore", 10);
+Signal copper_ore = input("copper-ore", 11);
+Signal coal = input("coal", 12);
+Signal stone = input("stone", 13);
+Signal wood = input("wood", 14);
+
+# Processed materials
+Signal iron_plate = input("iron-plate", 15);
+Signal copper_plate = input("copper-plate", 16);
+Signal steel_plate = input("steel-plate", 17);
+Signal iron_gear = input("iron-gear-wheel", 18);
+Signal copper_cable = input("copper-cable", 19);
+
+# Advanced materials
+Signal electronic_circuit = input("electronic-circuit", 20);
+Signal advanced_circuit = input("advanced-circuit", 21);
+Signal processing_unit = input("processing-unit", 22);
+Signal plastic_bar = input("plastic-bar", 23);
+
+# Intermediate products
+Signal engine_unit = input("engine-unit", 25);
+Signal electric_engine = input("electric-engine-unit", 26);
+Signal flying_robot_frame = input("flying-robot-frame", 27);
+
+# Science packs
+Signal automation_science = input("automation-science-pack", 30);
+Signal logistic_science = input("logistic-science-pack", 31);
+Signal military_science = input("military-science-pack", 32);
+Signal chemical_science = input("chemical-science-pack", 33);
+Signal production_science = input("production-science-pack", 34);
+Signal utility_science = input("utility-science-pack", 35);
+
+# Weapons and ammo
+Signal pistol = input("pistol", 40);
+Signal submachine_gun = input("submachine-gun", 41);
+Signal firearm_magazine = input("firearm-magazine", 42);
+Signal piercing_rounds = input("piercing-rounds-magazine", 43);
+
+# Tools
+Signal burner_mining_drill_item = input("burner-mining-drill", 45);
+Signal electric_mining_drill_item = input("electric-mining-drill", 46);
+Signal transport_belt_item = input("transport-belt", 47);
+
+# =============================================================================
+# FLUID SIGNALS - All fluids in the game
+# =============================================================================
+
+# Basic fluids  
+Signal water = input("water", 50);
+Signal steam = input("steam", 51);
+Signal crude_oil = input("crude-oil", 52);
+
+# Refined oils
+Signal petroleum_gas = input("petroleum-gas", 55);
+Signal light_oil = input("light-oil", 56);
+Signal heavy_oil = input("heavy-oil", 57);
+Signal lubricant = input("lubricant", 58);
+
+# Chemical fluids
+Signal sulfuric_acid = input("sulfuric-acid", 60);
+
+# Space Age fluids (if available)
+Signal thruster_fuel = input("thruster-fuel", 65);
+Signal thruster_oxidizer = input("thruster-oxidizer", 66);
+
+# =============================================================================
+# RECIPE SIGNALS - All crafting recipes
+# =============================================================================
+
+# Basic crafting recipes
+Signal iron_plate_recipe = input("iron-plate", 70);  # Recipe names match item names
+Signal copper_plate_recipe = input("copper-plate", 71);
+Signal steel_plate_recipe = input("steel-plate", 72);
+
+# Complex recipe signals  
+Signal electronic_circuit_recipe = input("electronic-circuit", 75);
+Signal advanced_circuit_recipe = input("advanced-circuit", 76);
+Signal engine_unit_recipe = input("engine-unit", 77);
+
+# =============================================================================
+# ENTITY SIGNALS - All placeable entities
+# =============================================================================
+
+# Entity reference signals (used for reading entity IDs, etc.)
+Signal belt_entity = input("transport-belt", 80);
+Signal inserter_entity = input("inserter", 81); 
+Signal chest_entity = input("iron-chest", 82);
+Signal assembler_entity = input("assembling-machine-1", 83);
+
+# =============================================================================
+# SIGNAL OPERATIONS AND CONVERSIONS
+# =============================================================================
+
+# Mixed signal type operations
+Signal resource_total = iron_ore + copper_ore + coal;
+Signal processed_total = iron_plate + copper_plate + steel_plate;
+Signal fluid_total = water + crude_oil + petroleum_gas;
+
+# Signal type conversions via projection
+Signal iron_as_virtual = iron_plate | "signal-I";
+Signal copper_as_virtual = copper_plate | "signal-C";
+
+# Complex bundle with mixed signal types
+Bundle mixed_signals = bundle(
+    signal_A,           # Virtual
+    iron_plate,         # Item
+    water,              # Fluid  
+    iron_plate_recipe,  # Recipe
+    belt_entity         # Entity
+);
+
+# Project bundle to different signal types
+Signal mixed_virtual = mixed_signals | "signal-M";
+Signal mixed_item = mixed_signals | "iron-gear-wheel";
+
+# =============================================================================
+# CONDITIONAL LOGIC WITH DIFFERENT SIGNAL TYPES
+# =============================================================================
+
+# Item-based conditions
+Signal low_iron = iron_plate < 100;
+Signal low_copper = copper_plate < 100;
+Signal material_shortage = low_iron || low_copper;
+
+# Fluid-based conditions
+Signal water_available = water > 1000;
+Signal oil_processing_ready = crude_oil > 500;
+
+# Recipe-based logic
+Signal can_craft_circuits = (iron_plate >= 1) && (copper_cable >= 3);
+Signal can_craft_engines = (steel_plate >= 1) && (iron_gear >= 5);
+
+# Virtual signal logic
+Signal production_mode = signal_A > signal_B;
+Signal emergency_stop = signal_0 == 0;
+
+# =============================================================================
+# MEMORY WITH DIFFERENT SIGNAL TYPES
+# =============================================================================
+
+# Item counters
+mem iron_consumed = memory(0);
+mem copper_consumed = memory(0);
+
+Signal iron_increment = iron_plate > 0 && 1 || 0;
+write(iron_consumed, read(iron_consumed) + iron_increment);
+Signal copper_increment = copper_plate > 0 && 1 || 0;
+write(copper_consumed, read(copper_consumed) + copper_increment);
+
+# Fluid tracking
+mem water_used = memory(0);
+Signal water_amount = water > 0 && water || 0;
+write(water_used, read(water_used) + water_amount);
+
+# Virtual signal state
+mem system_mode = memory(1);  # Virtual signal for system state
+Signal mode_change = signal_A > 1000;
+Signal new_mode = mode_change && 2 || read(system_mode);
+write(system_mode, new_mode);
+
+# =============================================================================
+# OUTPUT BUNDLE WITH ALL SIGNAL TYPES
+# =============================================================================
+
+Bundle comprehensive_output = bundle(
+    signal_A | "status-virtual",           # Virtual signal
+    iron_plate | "iron-inventory",         # Item signal  
+    water | "water-level",                 # Fluid signal
+    iron_plate_recipe | "recipe-active",   # Recipe signal
+    belt_entity | "entity-count"           # Entity signal
+);
+
+# Final status signals
+Signal status_value = material_shortage && 0 || 1;
+Signal overall_status = status_value | "system-ready";
+Signal production_efficiency = ((processed_total * 100) / resource_total) | "efficiency-percent";

@@ -1,0 +1,143 @@
+# Comprehensive Entity Testing Sample
+# Tests all available entity types from draftsman and their properties
+
+# =============================================================================
+# COMBINATORS - Core circuit elements
+# =============================================================================
+
+# Basic signal constants
+Signal input_signal = input("signal-A", 0);
+Signal counter_value = input("signal-B", 1);
+
+# Constant combinator with multiple signals
+Entity constants = Place("constant-combinator", 0, 0);
+# In a full implementation, we'd set the combinator's values here
+
+# Arithmetic operations
+Signal sum = input_signal + counter_value;
+Signal product = input_signal * 2;
+Signal quotient = counter_value / 3;
+
+# Decider logic
+Signal condition = input_signal > 10;
+Signal gate_output = condition * counter_value;
+
+# =============================================================================
+# POWER INFRASTRUCTURE
+# =============================================================================
+
+# Electric poles - power network
+Entity small_pole = Place("small-electric-pole", 5, 0);
+Entity medium_pole = Place("medium-electric-pole", 15, 0);
+Entity big_pole = Place("big-electric-pole", 30, 0);
+Entity substation = Place("substation", 45, 0);
+
+# =============================================================================
+# LOGISTICS - Belts, inserters, containers
+# =============================================================================
+
+# Transport belts
+Entity yellow_belt = Place("transport-belt", 0, 5);
+Entity fast_belt = Place("fast-transport-belt", 1, 5);
+Entity express_belt = Place("express-transport-belt", 2, 5);
+
+# Underground belts
+Entity underground_in = Place("underground-belt", 0, 7);
+Entity underground_out = Place("underground-belt", 8, 7);
+
+# Splitters
+Entity basic_splitter = Place("splitter", 0, 9);
+Entity fast_splitter = Place("fast-splitter", 3, 9);
+Entity express_splitter = Place("express-splitter", 6, 9);
+
+# Inserters
+Entity burner_inserter = Place("burner-inserter", 10, 5);
+Entity basic_inserter = Place("inserter", 11, 5);
+Entity long_inserter = Place("long-handed-inserter", 12, 5);
+Entity fast_inserter = Place("fast-inserter", 13, 5);
+Entity filter_inserter = Place("filter-inserter", 14, 5);
+Entity stack_inserter = Place("stack-inserter", 15, 5);
+Entity stack_filter = Place("stack-filter-inserter", 16, 5);
+
+# Containers  
+Entity wooden_chest = Place("wooden-chest", 10, 7);
+Entity iron_chest = Place("iron-chest", 11, 7);
+Entity steel_chest = Place("steel-chest", 12, 7);
+Entity storage_tank = Place("storage-tank", 14, 7);
+
+# =============================================================================
+# PRODUCTION - Assemblers, furnaces, mining
+# =============================================================================
+
+# Assembling machines
+Entity assembler1 = Place("assembling-machine-1", 0, 15);
+Entity assembler2 = Place("assembling-machine-2", 4, 15);
+Entity assembler3 = Place("assembling-machine-3", 8, 15);
+
+# Furnaces
+Entity stone_furnace = Place("stone-furnace", 0, 20);
+Entity steel_furnace = Place("steel-furnace", 3, 20);
+Entity electric_furnace = Place("electric-furnace", 6, 20);
+
+# Mining
+Entity burner_drill = Place("burner-mining-drill", 15, 15);
+Entity electric_drill = Place("electric-mining-drill", 18, 15);
+
+# =============================================================================
+# FLUIDS - Pumps and fluid handling
+# =============================================================================
+
+Entity offshore_pump = Place("offshore-pump", 0, 25);
+Entity pump = Place("pump", 5, 25);
+
+# =============================================================================
+# CIRCUIT NETWORK CONTROL
+# =============================================================================
+
+# Lamp with circuit control
+Entity controlled_lamp = Place("small-lamp", 20, 0);
+controlled_lamp.enable = input_signal > 5;
+
+# Train stop with circuit control
+Entity train_station = Place("train-stop", 25, 0);
+train_station.read_from_train = 1;
+train_station.send_to_train = 1;
+
+# =============================================================================
+# ADVANCED - Radar, roboport
+# =============================================================================
+
+Entity radar = Place("radar", 30, 15);
+Entity roboport = Place("roboport", 35, 15);
+
+# =============================================================================
+# CIRCUIT NETWORK INTERACTIONS
+# =============================================================================
+
+# Read entity properties into signals
+Signal lamp_status = controlled_lamp.enable;
+Signal train_contents = train_station.train_contents;
+
+# Memory for state tracking
+mem entity_counter = memory(0);
+write(entity_counter, read(entity_counter) + 1);
+Signal counter_out = read(entity_counter);
+
+# Complex control logic
+Signal enable_production = (input_signal > 100) && (counter_out < 1000);
+assembler1.enable = enable_production;
+assembler2.enable = enable_production;
+
+# Conditional entity behavior
+Signal belt_enable = input_signal % 10 > 5;
+yellow_belt.enable = belt_enable;
+fast_belt.enable = !belt_enable;
+
+# Bundle operations with entity control
+Bundle production_signals = bundle(
+    input_signal,
+    counter_out,
+    enable_production | "production-enable"
+);
+
+Signal production_sum = production_signals | "signal-P";
