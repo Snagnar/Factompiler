@@ -13,6 +13,7 @@ from dsl_compiler.src.semantic import analyze_program, SemanticAnalyzer
 from dsl_compiler.src.lowerer import lower_program
 from dsl_compiler.src.emit import emit_blueprint_string, DRAFTSMAN_AVAILABLE
 
+sample_files = glob.glob("tests/sample_programs/*.fcdsl")
 
 class TestEndToEndCompilation:
     """End-to-end compilation tests using sample programs."""
@@ -79,28 +80,7 @@ class TestEndToEndCompilation:
 
     @pytest.mark.parametrize(
         "sample_file",
-        [
-            # Working samples - only include features that are implemented
-            "working_01_basic.fcdsl",
-            "working_02_bundles.fcdsl",
-            "working_03_memory.fcdsl",
-            "working_04_entities.fcdsl",
-            "working_05_logic.fcdsl",
-            # Original samples - these test the parser/semantic phases even if they don't fully compile
-            "01_basic_arithmetic.fcdsl",
-            "02_mixed_types.fcdsl",
-            "03_bundles.fcdsl",
-            "04_memory.fcdsl",
-            "05_entities.fcdsl",
-            "06_functions.fcdsl",
-            "07_control_flow.fcdsl",
-            "08_sampler.fcdsl",
-            "09_advanced_patterns.fcdsl",
-            "10_imports_modules.fcdsl",
-            "11_edge_cases.fcdsl",
-            "12_comments_formatting.fcdsl",
-            "13_complex_expressions.fcdsl",
-        ],
+        [Path(f).name for f in sample_files],
     )
     def test_sample_program_end_to_end(self, sample_file):
         """Test end-to-end compilation of each sample program."""

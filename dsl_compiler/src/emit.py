@@ -263,40 +263,41 @@ class LayoutEngine:
     def __init__(self):
         self.next_x = 0
         self.next_y = 0
-        self.row_height = 3
+        self.row_height = 4  # Increased spacing to avoid overlaps
         self.entities_per_row = 8
         self.current_row_count = 0
         self.used_positions = set()
+        self.entity_spacing = 4  # Minimum spacing between entities
 
     def get_next_position(self) -> Tuple[int, int]:
-        """Get next available position for entity placement."""
-        while True:
-            pos = (self.next_x, self.next_y)
+        """Get next available position for entity placement with proper grid alignment."""
+        # Ensure current position is grid-aligned (integer coordinates)
+        pos = (int(self.next_x), int(self.next_y))
+        
+        # Check if position is available
+        while pos in self.used_positions:
+            self._advance_position()
+            pos = (int(self.next_x), int(self.next_y))
+        
+        # Mark position as used
+        self.used_positions.add(pos)
+        
+        # Advance to next position for the next call
+        self._advance_position()
+        
+        return pos
 
-            if pos not in self.used_positions:
-                self.used_positions.add(pos)
-                break
-
-            # Move to next position
-            self.current_row_count += 1
-            if self.current_row_count >= self.entities_per_row:
-                # Move to next row
-                self.next_x = 0
-                self.next_y += self.row_height
-                self.current_row_count = 0
-            else:
-                self.next_x += 3  # Space entities further apart
-
-        # Advance for next call
+    def _advance_position(self):
+        """Advance to the next grid position."""
         self.current_row_count += 1
         if self.current_row_count >= self.entities_per_row:
+            # Move to next row
             self.next_x = 0
             self.next_y += self.row_height
             self.current_row_count = 0
         else:
-            self.next_x += 3
-
-        return pos
+            # Move to next column with proper spacing
+            self.next_x += self.entity_spacing
 
 
 class BlueprintEmitter:
@@ -592,15 +593,14 @@ class BlueprintEmitter:
     def emit_place_entity(self, op: IR_PlaceEntity):
         """Emit entity placement using the entity factory."""
         # Handle both constant and variable coordinates
-        x_coord = (
-            op.x if isinstance(op.x, int) else 0
-        )  # Default to 0 for variable coordinates
-        y_coord = (
-            op.y if isinstance(op.y, int) else 0
-        )  # Default to 0 for variable coordinates
-
-        # Use specified position, but offset to avoid combinators
-        pos = (x_coord + 20, y_coord)  # Offset entities to the right
+        if isinstance(op.x, int) and isinstance(op.y, int):
+            # Use specified position with offset to avoid combinators
+            base_x = op.x + 20  # Offset entities to the right of combinators
+            base_y = op.y
+            pos = (int(base_x), int(base_y))  # Ensure grid alignment
+        else:
+            # Default to layout engine for variable coordinates or fallback
+            pos = self.layout.get_next_position()
 
         try:
             entity = self.entity_factory.create_entity(op.prototype, tile_position=pos)
