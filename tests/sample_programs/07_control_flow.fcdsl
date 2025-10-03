@@ -1,9 +1,9 @@
 # Test 7: Complex control flow and decision logic
 # Tests: complex conditions, nested expressions, operator precedence
 
-Signal sensor_a = input("signal-A", 0);
-Signal sensor_b = input("signal-B", 1);
-Signal sensor_c = input("signal-C", 2);
+Signal sensor_a = ("signal-A", 0);
+Signal sensor_b = ("signal-B", 1);
+Signal sensor_c = ("signal-C", 2);
 
 # Complex conditional logic
 Signal threshold_low = 10;
@@ -23,7 +23,7 @@ Signal priority_value =
     (sensor_c > 10) * 25;
 
 # State-based decisions
-mem decision_state = memory(0); 
+Memory decision_state = 0;
 Signal state = read(decision_state);
 
 Signal next_state = 

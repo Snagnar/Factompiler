@@ -5,47 +5,47 @@
 # INPUT SIGNALS  
 # =============================================================================
 
-Signal item_count = input("iron-plate", 0);
-Signal copper_count = input("copper-plate", 1);
-Signal production_rate = input("signal-P", 2);
-Signal error_state = input("signal-E", 3);
-Signal system_health = input("signal-H", 4);
+Signal item_count = ("iron-plate", 0);
+Signal copper_count = ("copper-plate", 1);
+Signal production_rate = ("signal-P", 2);
+Signal error_state = ("signal-E", 3);
+Signal system_health = ("signal-H", 4);
 
 # =============================================================================
 # SMART INSERTER CONTROL
 # =============================================================================
 
 # Filter inserter with dynamic control
-Entity smart_inserter = Place("filter-inserter", 0, 0);
+Entity smart_inserter = place("inserter", 0, 0);
 
 # Using logical operators instead of ternary
 Signal high_volume = item_count > 50;
 smart_inserter.enable = item_count > 0;
 
 # Stack inserter with circuit control  
-Entity stack_inserter = Place("stack-inserter", 2, 0);
+Entity stack_inserter = place("stack-inserter", 2, 0);
 stack_inserter.enable = item_count < 1000;
 
 # =============================================================================
 # BELT AND TRANSPORT SYSTEMS
 # =============================================================================
 
-Entity transport_belt = Place("transport-belt", 5, 0);
-Entity fast_belt = Place("fast-transport-belt", 7, 0);
+Entity transport_belt = place("transport-belt", 5, 0);
+Entity fast_belt = place("fast-transport-belt", 7, 0);
 
 # Belt control based on production rate
 Signal high_production = production_rate > 100;
 
 # Splitter with priority control
-Entity smart_splitter = Place("splitter", 10, 0);
-Signal belt_iron = input("iron-plate", 10);
-Signal belt_copper = input("copper-plate", 11);
+Entity smart_splitter = place("splitter", 10, 0);
+Signal belt_iron = ("iron-plate", 10);
+Signal belt_copper = ("copper-plate", 11);
 
 # =============================================================================
 # TRAIN SYSTEM INTEGRATION
 # =============================================================================
 
-Entity cargo_station = Place("train-stop", 15, 0);
+Entity cargo_station = place("train-stop", 15, 0);
 cargo_station.enable = item_count > 0;
 
 # Train stop with limit based on inventory
@@ -55,8 +55,8 @@ Signal need_multiple_trains = item_count > 500;
 # PRODUCTION CONTROL
 # =============================================================================
 
-Entity assembler1 = Place("assembling-machine-1", 20, 0);
-Entity assembler2 = Place("assembling-machine-2", 22, 0);
+Entity assembler1 = place("assembling-machine-1", 20, 0);
+Entity assembler2 = place("assembling-machine-2", 24, 0);
 
 # Recipe selection based on resource availability
 Signal prefer_iron = item_count > copper_count;
@@ -67,12 +67,12 @@ assembler2.enable = copper_count > 10;
 # ROBOPORT AND LOGISTICS
 # =============================================================================
 
-Entity roboport = Place("roboport", 25, 0);
+Entity roboport = place("roboport", 29, 0);
 roboport.enable = item_count > 100;
 
 # Chest with circuit control
-Entity provider = Place("iron-chest", 30, 0);
-Entity requester = Place("steel-chest", 32, 0);
+Entity provider = place("iron-chest", 34, 0);
+Entity requester = place("steel-chest", 36, 0);
 
 Signal chest_total = item_count + copper_count;
 Signal chest_needs_items = chest_total < 1000;
@@ -81,8 +81,8 @@ Signal chest_needs_items = chest_total < 1000;
 # POWER AND INFRASTRUCTURE
 # =============================================================================
 
-Entity electric_pole = Place("medium-electric-pole", 35, 0);
-Entity lamp = Place("small-lamp", 37, 0);
+Entity electric_pole = place("medium-electric-pole", 35, 0);
+Entity lamp = place("small-lamp", 37, 0);
 
 # Lamp control based on system status
 Signal system_ok = system_health > 0;
@@ -93,8 +93,8 @@ lamp.enable = system_ok;
 # =============================================================================
 
 # Memory for tracking production state
-mem production_state = memory(0);
-mem item_history = memory(0);
+Memory production_state = 0;
+Memory item_history = 0;
 
 # Update production state based on conditions
 Signal state_change = item_count > read(item_history);

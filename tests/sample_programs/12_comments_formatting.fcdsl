@@ -2,8 +2,8 @@
 # Tests: line comments, mixed whitespace, complex formatting
 
 // This is a C-style comment (if supported)
-Signal input_a = input(0); // End of line comment
-Signal input_b = input(1);   // Extra whitespace
+Signal input_a = 100; // End of line comment
+Signal input_b = 110;   // Extra whitespace
 
 # Complex expression with comments
 Signal result = (input_a + input_b) * 2 - 1;  // Should be parsed correctly

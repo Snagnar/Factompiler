@@ -77,7 +77,7 @@ class AssignStmt(Statement):
 
 
 class MemDecl(Statement):
-    """mem name = memory([init_expr]);"""
+    """Memory name = init_expr;"""
 
     def __init__(
         self,
@@ -250,21 +250,6 @@ class CallExpr(Expr):
         self.args = args
 
 
-class InputExpr(Expr):
-    """input(index) or input(type, index)"""
-
-    def __init__(
-        self,
-        index: Expr,
-        signal_type: Optional[Expr] = None,
-        line: int = 0,
-        column: int = 0,
-    ):
-        super().__init__(line, column)
-        self.index = index
-        self.signal_type = signal_type  # if present, this is input(type, index)
-
-
 class ReadExpr(Expr):
     """read(memory_name)"""
 
@@ -299,8 +284,23 @@ class ProjectionExpr(Expr):
         self.target_type = target_type  # the type literal after |
 
 
+class SignalLiteral(Expr):
+    """Signal literal: ("type", value) or just value"""
+
+    def __init__(
+        self,
+        value: Expr,
+        signal_type: Optional[str] = None,
+        line: int = 0,
+        column: int = 0,
+    ):
+        super().__init__(line, column)
+        self.value = value
+        self.signal_type = signal_type  # None for implicit type, string for explicit
+
+
 class PlaceExpr(Expr):
-    """Place(proto, x, y, [props]) - entity placement"""
+    """place(proto, x, y, [props]) - entity placement"""
 
     def __init__(
         self,

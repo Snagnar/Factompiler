@@ -1,31 +1,23 @@
 # Test 17: Entity coordination and complex placement
 # Tests: multiple entities working together, dynamic placement patterns, property interactions
 
-# Create a grid of entities with computed positions
-func place_grid_entity(base_x, base_y, offset_x, offset_y, entity_type) {
-    Signal final_x = base_x + offset_x;
-    Signal final_y = base_y + offset_y;
-    Entity entity = Place(entity_type, final_x, final_y);
-    return entity;
-}
-
 # Input controls for dynamic behavior
-Signal master_enable = input(0) > 0;
-Signal pattern_selector = input(1) % 4;
-Signal intensity = input(2);
+Signal master_enable = 100 > 0;
+Signal pattern_selector = 110 % 4;
+Signal intensity = 120;
 
-# Grid of lamps with different patterns
-int grid_size = 3;
-Entity lamp_00 = place_grid_entity(0, 0, 0, 0, "small-lamp");
-Entity lamp_10 = place_grid_entity(0, 0, grid_size, 0, "small-lamp");
-Entity lamp_20 = place_grid_entity(0, 0, grid_size * 2, 0, "small-lamp");
-Entity lamp_01 = place_grid_entity(0, 0, 0, grid_size, "small-lamp");
-Entity lamp_11 = place_grid_entity(0, 0, grid_size, grid_size, "small-lamp");
-Entity lamp_21 = place_grid_entity(0, 0, grid_size * 2, grid_size, "small-lamp");
+# Grid of lamps with computed positions
+Signal grid_size = 3;
+Entity lamp_00 = place("small-lamp", 0, 0);
+Entity lamp_10 = place("small-lamp", grid_size, 0);
+Entity lamp_20 = place("small-lamp", grid_size * 2, 0);
+Entity lamp_01 = place("small-lamp", 0, grid_size);
+Entity lamp_11 = place("small-lamp", grid_size, grid_size);
+Entity lamp_21 = place("small-lamp", grid_size * 2, grid_size);
 
 # Memory for coordination patterns
-mem pattern_counter = memory(0);
-mem sync_counter = memory(0);
+Memory pattern_counter = 0;
+Memory sync_counter = 0;
 
 Signal pattern_tick = read(pattern_counter);
 Signal sync_tick = read(sync_counter);
@@ -97,5 +89,5 @@ Signal active_lamp_count = lamp_00.enable + lamp_10.enable + lamp_20.enable +
 
 Signal indicator_x = active_lamp_count * 2;
 Signal indicator_y = pattern_selector * 3;
-Entity pattern_indicator = Place("fast-inserter", indicator_x, indicator_y);
+Entity pattern_indicator = place("fast-inserter", indicator_x, indicator_y);
 pattern_indicator.enable = active_lamp_count > 0;

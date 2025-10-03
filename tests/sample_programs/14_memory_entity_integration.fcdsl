@@ -2,18 +2,18 @@
 # Tests: memory operations with entity properties, entity-driven state machines
 
 # Entities for testing
-Entity controller_lamp = Place("small-lamp", 0, 0);
-Entity status_lamp = Place("small-lamp", 5, 0);
-Entity indicator_lamp = Place("small-lamp", 10, 0);
+Entity controller_lamp = place("small-lamp", 0, 0);
+Entity status_lamp = place("small-lamp", 5, 0);
+Entity indicator_lamp = place("small-lamp", 10, 0);
 
 # Memory for state tracking
-mem entity_state = memory(0);
-mem blink_counter = memory(0);
-mem last_lamp_status = memory(0);
+Memory entity_state = 0;
+Memory blink_counter = 0;
+Memory last_lamp_status = 0;
 
 # Input controls
-Signal mode_selector = input(0) % 3;  # 0, 1, or 2
-Signal enable_signal = input(1) > 0;
+Signal mode_selector = 100 % 3;  # 0, 1, or 2
+Signal enable_signal = 110 > 0;
 
 # Entity property control based on memory state
 Signal current_state = read(entity_state);
@@ -52,7 +52,7 @@ Signal any_lamp_on = total_lamps_on > 0;
 # Entity placement based on memory values  
 Signal memory_x = read(entity_state) * 3;
 Signal memory_y = read(blink_counter) / 10;
-Entity dynamic_entity = Place("fast-inserter", memory_x, memory_y);
+Entity dynamic_entity = place("fast-inserter", memory_x, memory_y);
 
 # Property assignment from memory
 dynamic_entity.enable = (read(entity_state) == 2) && (read(blink_counter) > 10);

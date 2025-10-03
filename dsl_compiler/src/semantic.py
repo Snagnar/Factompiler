@@ -260,24 +260,6 @@ class SemanticAnalyzer(ASTVisitor):
                 return IntValue()
             return symbol.value_type
 
-        elif isinstance(expr, InputExpr):
-            # input(index) or input(type, index)
-            if expr.signal_type is None:
-                # Allocate implicit type
-                signal_type = self.allocate_implicit_type()
-                return SignalValue(signal_type=signal_type)
-            else:
-                # Extract type from signal_type expression
-                if isinstance(expr.signal_type, StringLiteral):
-                    type_name = expr.signal_type.value
-                    signal_type = SignalTypeInfo(name=type_name)
-                    return SignalValue(signal_type=signal_type)
-                else:
-                    self.diagnostics.error(
-                        "Signal type must be string literal", expr.signal_type
-                    )
-                    return SignalValue(signal_type=self.allocate_implicit_type())
-
         elif isinstance(expr, ReadExpr):
             # read(memory) returns the memory's signal type
             symbol = self.current_scope.lookup(expr.memory_name)
@@ -307,6 +289,16 @@ class SemanticAnalyzer(ASTVisitor):
             target_signal_type = SignalTypeInfo(name=expr.target_type)
             return SignalValue(signal_type=target_signal_type)
 
+        elif isinstance(expr, SignalLiteral):
+            # Signal literal: ("type", value) or just value
+            if expr.signal_type:
+                # Explicit type
+                signal_type = SignalTypeInfo(name=expr.signal_type)
+            else:
+                # Implicit type
+                signal_type = self.allocate_implicit_type()
+            return SignalValue(signal_type=signal_type, count_expr=expr.value)
+
         elif isinstance(expr, BundleExpr):
             # bundle(exprs...) returns Bundle
             channels = {}
@@ -321,9 +313,12 @@ class SemanticAnalyzer(ASTVisitor):
             return BundleValue(channels=channels)
 
         elif isinstance(expr, CallExpr):
+            # Analyze the function call first
+            self.visit_CallExpr(expr)
+            
             # Function calls - check if function returns entity
-            if expr.name == "Place":
-                # Direct Place() call returns entity type
+            if expr.name == "place":
+                # Direct place() call returns entity type
                 return SignalValue(
                     signal_type=self.allocate_implicit_type()
                 )  # For now, keep as signal
@@ -397,7 +392,7 @@ class SemanticAnalyzer(ASTVisitor):
                 return IntValue()
 
         else:
-            self.diagnostics.warning(f"Unknown expression type: {type(expr)}", expr)
+            self.diagnostics.error(f"Unknown expression type: {type(expr)}", expr)
             return IntValue()
 
     def infer_binary_op_type(self, expr: BinaryOp) -> ValueInfo:
@@ -405,9 +400,11 @@ class SemanticAnalyzer(ASTVisitor):
         left_type = self.get_expr_type(expr.left)
         right_type = self.get_expr_type(expr.right)
 
-        # Comparison operators always return int (0/1)
+        # Comparison and logical operators return signals with value 0 or 1
         if expr.op in ["==", "!=", "<", "<=", ">", ">=", "&&", "||"]:
-            return IntValue()
+            # In Factorio, comparisons produce signals, not bare integers
+            signal_type = self.allocate_implicit_type()
+            return SignalValue(signal_type=signal_type)
 
         # Arithmetic operators: +, -, *, /, %
         if isinstance(left_type, IntValue) and isinstance(right_type, IntValue):
@@ -487,8 +484,19 @@ class SemanticAnalyzer(ASTVisitor):
             right_signal = right_bundle.channels.get(type_name)
 
             if left_signal and right_signal:
-                # Both have this channel - combine
-                result_channels[type_name] = left_signal  # Simplified
+                # Both have this channel - create a combined signal based on operation
+                if expr.op in ["+", "-", "*", "/", "%"]:
+                    # Arithmetic operations result in a computed signal
+                    result_channels[type_name] = SignalValue(signal_type=type_name)
+                elif expr.op in ["==", "!=", "<", ">", "<=", ">="]:
+                    # Comparison operations result in a boolean-like signal (0 or 1)
+                    result_channels[type_name] = SignalValue(signal_type=type_name)
+                elif expr.op in ["&&", "||"]:
+                    # Logical operations result in a boolean-like signal
+                    result_channels[type_name] = SignalValue(signal_type=type_name)
+                else:
+                    # Default: use left signal for unknown operations
+                    result_channels[type_name] = left_signal
             elif left_signal:
                 result_channels[type_name] = left_signal
             elif right_signal:
@@ -573,7 +581,12 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _type_name_to_symbol_type(self, type_name: str) -> str:
         """Convert type name to symbol type."""
-        return "entity" if type_name == "Entity" else "variable"
+        if type_name == "Entity":
+            return "entity"
+        elif type_name == "Memory":
+            return "memory"
+        else:
+            return "variable"
 
     def _value_matches_type(
         self, value_type: ValueInfo, expected_type_name: str
@@ -585,6 +598,7 @@ class SemanticAnalyzer(ASTVisitor):
             "SignalType": SignalValue,  # For now, treat as Signal
             "Entity": SignalValue,  # Entity calls return signals for now
             "Bundle": BundleValue,
+            "Memory": SignalValue,  # Memory is stored as Signal type
         }
         return (
             isinstance(value_type, type_map.get(expected_type_name, type(None)))
@@ -609,11 +623,11 @@ class SemanticAnalyzer(ASTVisitor):
         if not func_symbol or func_symbol.symbol_type != "function":
             return False
 
-        # If the function definition has return statements with Place() calls
+        # If the function definition has return statements with place() calls
         if hasattr(func_symbol, "function_def") and func_symbol.function_def:
             for stmt in func_symbol.function_def.body:
                 if isinstance(stmt, ReturnStmt) and stmt.expr:
-                    if isinstance(stmt.expr, CallExpr) and stmt.expr.name == "Place":
+                    if isinstance(stmt.expr, CallExpr) and stmt.expr.name == "place":
                         return True
 
         return False
@@ -736,11 +750,21 @@ class SemanticAnalyzer(ASTVisitor):
 
     def visit_FuncDecl(self, node: FuncDecl) -> None:
         """Analyze function declaration."""
-        # Create function symbol with placeholder type
+        # Analyze function parameters and infer their types
+        param_types = []
+        for param_name in node.params:
+            # For now, assume all parameters are IntValue
+            # A more sophisticated implementation would infer from usage
+            param_types.append(IntValue())
+        
+        # Analyze return type by examining return statements in the body
+        return_type = self._infer_function_return_type(node.body)
+        
+        # Create function symbol with proper function type
         func_symbol = Symbol(
             name=node.name,
             symbol_type="function",
-            value_type=IntValue(),  # Placeholder
+            value_type=FunctionValue(param_types=param_types, return_type=return_type),
             defined_at=node,
             function_def=node,  # Store AST for analysis
         )
@@ -777,6 +801,21 @@ class SemanticAnalyzer(ASTVisitor):
         # Restore scope
         self.current_scope = old_scope
 
+    def _infer_function_return_type(self, body: List[Statement]) -> ValueInfo:
+        """Infer function return type by analyzing return statements."""
+        from dsl_compiler.src.dsl_ast import ReturnStmt
+        
+        # Look for return statements
+        for stmt in body:
+            if isinstance(stmt, ReturnStmt) and stmt.expr:
+                # Try to infer the type of the return expression
+                # For now, return IntValue as a safe default
+                # A more sophisticated implementation would analyze the expression
+                return IntValue()
+        
+        # No return statement found, assume void (represented as IntValue for now)
+        return IntValue()
+
     def visit_ExprStmt(self, node: ExprStmt) -> None:
         """Analyze expression statement."""
         self.get_expr_type(node.expr)
@@ -787,8 +826,8 @@ class SemanticAnalyzer(ASTVisitor):
         if isinstance(node.target, Identifier):
             symbol = self.current_scope.lookup(node.target.name)
             if symbol is None:
-                # Check if this is entity assignment (Place() call)
-                if isinstance(node.value, CallExpr) and node.value.name == "Place":
+                # Check if this is entity assignment (place() call)
+                if isinstance(node.value, CallExpr) and node.value.name == "place":
                     # Create entity symbol
                     entity_symbol = Symbol(
                         name=node.target.name,
@@ -832,7 +871,7 @@ class SemanticAnalyzer(ASTVisitor):
         # replaced with the actual imported content, so this should rarely be called.
         # If we do encounter an import statement, it means the file wasn't found
         # during preprocessing, so we'll just log a warning.
-        self.diagnostics.warning(
+        self.diagnostics.error(
             f"Import statement found in AST - file may not have been found during preprocessing: {node.path}",
             node,
         )
@@ -843,6 +882,34 @@ class SemanticAnalyzer(ASTVisitor):
         if node.expr:
             return_type = self.get_expr_type(node.expr)
             # Could check against function return type here
+
+    def visit_CallExpr(self, node: CallExpr) -> None:
+        """Analyze function call expressions."""
+        # Check if function exists
+        func_symbol = self.current_scope.lookup(node.name)
+        if func_symbol is None:
+            # Check for built-in functions
+            if node.name not in ["place", "read", "write", "bundle"]:
+                self.diagnostics.error(f"Undefined function '{node.name}'", node)
+            return
+        
+        if func_symbol.symbol_type != "function":
+            self.diagnostics.error(f"'{node.name}' is not a function", node)
+            return
+
+        # Validate argument count
+        if hasattr(func_symbol, "function_def") and func_symbol.function_def:
+            expected_params = len(func_symbol.function_def.params)
+            actual_args = len(node.args)
+            if actual_args != expected_params:
+                self.diagnostics.error(
+                    f"Function '{node.name}' expects {expected_params} arguments, got {actual_args}",
+                    node
+                )
+
+        # Analyze argument expressions
+        for arg in node.args:
+            self.get_expr_type(arg)
 
     def generic_visit(self, node: ASTNode) -> Any:
         """Default visitor - traverse children."""

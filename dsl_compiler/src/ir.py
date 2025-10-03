@@ -58,9 +58,9 @@ class IRNode(ABC):
         self.node_id = node_id
         self.source_ast = source_ast  # For diagnostics
 
-    @abstractmethod
     def __str__(self) -> str:
-        pass
+        """String representation of the IR node."""
+        return f"{self.__class__.__name__}({self.node_id})"
 
 
 class IRValue(IRNode):
@@ -95,19 +95,6 @@ class IR_Const(IRValue):
 
     def __str__(self) -> str:
         return f"IR_Const({self.node_id}: {self.output_type} = {self.value})"
-
-
-class IR_Input(IRValue):
-    """Input from circuit network at specified index."""
-
-    def __init__(
-        self, node_id: str, output_type: str, source_ast: Optional[ASTNode] = None
-    ):
-        super().__init__(node_id, output_type, source_ast)
-        self.index: int = 0
-
-    def __str__(self) -> str:
-        return f"IR_Input({self.node_id}: {self.output_type} = input[{self.index}])"
 
 
 class IR_Arith(IRValue):
@@ -297,6 +284,48 @@ class IR_Group(IRNode):
         return f"IR_Group({self.node_id}: {len(self.operations)} operations)"
 
 
+class IR_FuncDecl(IRNode):
+    """Function declaration IR node."""
+
+    def __init__(
+        self,
+        node_id: str,
+        func_name: str,
+        params: List[str],
+        body_operations: List[IRNode],
+        return_ref: Optional[str] = None,
+        source_ast: Optional[ASTNode] = None,
+    ):
+        super().__init__(node_id, source_ast)
+        self.func_name = func_name
+        self.params = params
+        self.body_operations = body_operations
+        self.return_ref = return_ref
+
+    def __str__(self) -> str:
+        return f"IR_FuncDecl({self.func_name}, params={self.params})"
+
+
+class IR_FuncCall(IRNode):
+    """Function call IR node - will be inlined during emission."""
+
+    def __init__(
+        self,
+        node_id: str,
+        func_name: str,
+        args: List[ValueRef],
+        result_ref: str,
+        source_ast: Optional[ASTNode] = None,
+    ):
+        super().__init__(node_id, source_ast)
+        self.func_name = func_name
+        self.args = args
+        self.result_ref = result_ref
+
+    def __str__(self) -> str:
+        return f"IR_FuncCall({self.func_name}({', '.join(map(str, self.args))}) -> {self.result_ref})"
+
+
 # =============================================================================
 # IR Builder
 # =============================================================================
@@ -327,22 +356,6 @@ class IRBuilder:
         node_id = self.next_id("const")
         op = IR_Const(node_id, signal_type, source_ast)
         op.value = value
-        self.add_operation(op)
-        return SignalRef(signal_type, node_id)
-
-    def input_signal(
-        self,
-        index: int,
-        signal_type: Optional[str] = None,
-        source_ast: Optional[ASTNode] = None,
-    ) -> SignalRef:
-        """Create an input signal."""
-        if signal_type is None:
-            signal_type = self.allocate_implicit_type()
-
-        node_id = self.next_id("input")
-        op = IR_Input(node_id, signal_type, source_ast)
-        op.index = index
         self.add_operation(op)
         return SignalRef(signal_type, node_id)
 
@@ -440,6 +453,33 @@ class IRBuilder:
             sig_type: SignalRef(sig_type, node_id) for sig_type in inputs.keys()
         }
         return BundleRef(channels, node_id)
+
+    def func_decl(
+        self,
+        func_name: str,
+        params: List[str],
+        body_operations: List[IRNode],
+        return_ref: Optional[str] = None,
+        source_ast: Optional[ASTNode] = None,
+    ) -> IR_FuncDecl:
+        """Create a function declaration."""
+        node_id = self.next_id("func")
+        op = IR_FuncDecl(node_id, func_name, params, body_operations, return_ref, source_ast)
+        self.add_operation(op)
+        return op
+
+    def func_call(
+        self,
+        func_name: str,
+        args: List[ValueRef],
+        result_ref: str,
+        source_ast: Optional[ASTNode] = None,
+    ) -> IR_FuncCall:
+        """Create a function call."""
+        node_id = self.next_id("call")
+        op = IR_FuncCall(node_id, func_name, args, result_ref, source_ast)
+        self.add_operation(op)
+        return op
 
     def allocate_implicit_type(self) -> str:
         """Allocate a new implicit signal type."""

@@ -137,14 +137,15 @@ class DraftsmanEntityFactory:
                     return SelectorCombinator(**kwargs)
             
             # Entities that take prototype names as first argument
+            # Order matters - more specific matches should come first
             entity_classes_with_prototypes = [
                 (Container, ['chest']),
                 (AssemblingMachine, ['assembling-machine', 'cryogenic', 'electromagnetic', 'foundry']),
                 (Furnace, ['furnace']),
                 (MiningDrill, ['mining-drill']),
-                (ElectricPole, ['pole']),
+                (ElectricPole, ['pole', 'substation']),
+                (UndergroundBelt, ['underground']),  # Match underground before belt
                 (TransportBelt, ['belt']),
-                (UndergroundBelt, ['underground']),
                 (Inserter, ['inserter']),
                 (Splitter, ['splitter']),
             ]
@@ -207,7 +208,7 @@ class EntityPlacement:
 
 
 class MemoryCircuitBuilder:
-    """Builds SR latch circuits for memory operations."""
+    """Builds proper memory circuits based on real Factorio designs."""
     
     def __init__(self, layout_engine, blueprint: Blueprint, entity_factory: DraftsmanEntityFactory):
         self.layout = layout_engine
@@ -217,29 +218,127 @@ class MemoryCircuitBuilder:
 
     def build_sr_latch(self, memory_id: str, signal_type: str, initial_value: int = 0) -> Dict[str, EntityPlacement]:
         """
-        Build a simple memory circuit using valid Factorio signals.
+        Build a 3-combinator memory cell that handles negatives and burst signals.
         
-        For now, we'll use a simplified approach with just one combinator per memory cell
-        to avoid signal name validation issues.
+        Based on the design from: https://forums.factorio.com/viewtopic.php?f=193&t=60330
+        
+        This creates a robust memory cell with:
+        - Input combinator (detects input and generates reset signal)
+        - Output combinator (handles output during input)  
+        - Memory combinator (stores the value when no input)
         """
+        from draftsman.entity import DeciderCombinator
+        
         placements = {}
         
-        # Simplified memory: just use a constant combinator that can be updated
-        # This is not a true SR latch but it's a working memory implementation
-        memory_pos = self.layout.get_next_position()
-        memory_combinator = self.factory.create_entity('constant-combinator', tile_position=memory_pos)
+        # Combinator 1: Input detector and reset generator
+        # If I != 0, output R = 1 (reset signal)
+        input_pos = self.layout.get_next_position()
+        input_combinator = DeciderCombinator(tile_position=input_pos)
         
-        # Set initial value
-        section = memory_combinator.add_section()
-        section.set_signal(index=0, name=signal_type, count=initial_value)
+        # Set condition: I != 0
+        input_condition = DeciderCombinator.Condition(
+            first_signal=signal_type,
+            comparator="!=",
+            constant=0
+        )
+        input_combinator.conditions = [input_condition]
+        
+        # Output: R = 1 (constant)
+        input_output = DeciderCombinator.Output(
+            signal="signal-R",
+            copy_count_from_input=False,
+            constant=1
+        )
+        input_combinator.outputs.append(input_output)
+        
+        self.blueprint.entities.append(input_combinator)
+        
+        # Combinator 2: Output handler during input
+        # If R > 0, output M = I (copy input value)
+        output_pos = self.layout.get_next_position()
+        output_combinator = DeciderCombinator(tile_position=output_pos)
+        
+        # Set condition: R > 0
+        output_condition = DeciderCombinator.Condition(
+            first_signal="signal-R",
+            comparator=">",
+            constant=0
+        )
+        output_combinator.conditions = [output_condition]
+        
+        # Output: M = I (copy input signal)
+        output_output = DeciderCombinator.Output(
+            signal="signal-M",
+            copy_count_from_input=True  # Copy the I signal value
+        )
+        output_combinator.outputs.append(output_output)
+        
+        self.blueprint.entities.append(output_combinator)
+        
+        # Combinator 3: Memory storage
+        # If R = 0, output M = M (memory feedback)
+        memory_pos = self.layout.get_next_position()
+        memory_combinator = DeciderCombinator(tile_position=memory_pos)
+        
+        # Set condition: R = 0
+        memory_condition = DeciderCombinator.Condition(
+            first_signal="signal-R",
+            comparator="=",
+            constant=0
+        )
+        memory_combinator.conditions = [memory_condition]
+        
+        # Output: M = M (copy memory signal)
+        memory_output = DeciderCombinator.Output(
+            signal="signal-M",
+            copy_count_from_input=True  # Copy the M signal value from input
+        )
+        memory_combinator.outputs.append(memory_output)
+        
+        # Set initial value if specified
+        if initial_value != 0:
+            # Use a constant combinator to initialize the memory
+            from draftsman.entity import ConstantCombinator
+            init_pos = self.layout.get_next_position()
+            init_combinator = ConstantCombinator(tile_position=init_pos)
+            section = init_combinator.add_section()
+            section.set_signal(index=0, signal="signal-M", count=initial_value)
+            self.blueprint.entities.append(init_combinator)
+            
+            placements['init_combinator'] = EntityPlacement(
+                entity=init_combinator,
+                entity_id=f"{memory_id}_init",
+                position=init_pos,
+                output_signals={"signal-M": "red"},
+                input_signals={}
+            )
+        
         self.blueprint.entities.append(memory_combinator)
+        
+        # Store placements
+        placements['input_combinator'] = EntityPlacement(
+            entity=input_combinator,
+            entity_id=f"{memory_id}_input",
+            position=input_pos,
+            output_signals={"signal-R": "red"},
+            input_signals={signal_type: "green"}  # Input from external source
+        )
+        
+        placements['output_combinator'] = EntityPlacement(
+            entity=output_combinator,
+            entity_id=f"{memory_id}_output",
+            position=output_pos,
+            output_signals={"signal-M": "green"},
+            input_signals={"signal-R": "red", signal_type: "red"}  # Connected to input combinator output
+        )
         
         placements['memory_combinator'] = EntityPlacement(
             entity=memory_combinator,
             entity_id=f"{memory_id}_memory",
             position=memory_pos,
-            output_signals={signal_type: "red"},
-            input_signals={}
+            output_signals={"signal-M": "green"},
+            input_signals={"signal-R": "red", "signal-M": "green"}  # Reset from input, feedback from self
         )
         
         # Store the memory module for later wiring
@@ -247,21 +346,70 @@ class MemoryCircuitBuilder:
         return placements
 
     def wire_sr_latch(self, memory_id: str):
-        """Wire up the memory components (simplified for constant combinator approach)."""
+        """Wire up the 3-combinator memory cell components."""
         if memory_id not in self.memory_modules:
             return
             
-        # For the simplified constant combinator approach, no wiring is needed
-        # The memory values are set directly in the constant combinator
-        # In a more advanced implementation, we would wire actual SR latch components
-        pass
+        placements = self.memory_modules[memory_id]
+        
+        try:
+            # Get the entities from placements
+            input_comb = placements['input_combinator'].entity
+            output_comb = placements['output_combinator'].entity
+            memory_comb = placements['memory_combinator'].entity
+            
+            # Verify all entities exist in the blueprint before wiring
+            if input_comb not in self.blueprint.entities:
+                print(f"Warning: Input combinator for {memory_id} not in blueprint")
+                return
+            if output_comb not in self.blueprint.entities:
+                print(f"Warning: Output combinator for {memory_id} not in blueprint")
+                return
+            if memory_comb not in self.blueprint.entities:
+                print(f"Warning: Memory combinator for {memory_id} not in blueprint")
+                return
+            
+            # Wire 1: Input combinator output (red) -> Output combinator input (red)
+            # This passes the R signal to the output combinator
+            self.blueprint.add_circuit_connection("red", input_comb, output_comb, 
+                                                 side_1="output", side_2="input")
+            
+            # Wire 2: Input combinator output (red) -> Memory combinator input (red)  
+            # This passes the R (reset) signal to memory combinator
+            self.blueprint.add_circuit_connection("red", input_comb, memory_comb, 
+                                                 side_1="output", side_2="input")
+            
+            # Wire 3: Output combinator output (green) -> Memory combinator input (green)
+            # This provides the new M value during input phase
+            self.blueprint.add_circuit_connection("green", output_comb, memory_comb, 
+                                                 side_1="output", side_2="input")
+            
+            # Wire 4: Memory combinator output (green) -> Memory combinator input (green)
+            # This creates the memory feedback loop for storage
+            self.blueprint.add_circuit_connection("green", memory_comb, memory_comb, 
+                                                 side_1="output", side_2="input")
+            
+            # If there's an init combinator, wire it to the memory
+            if 'init_combinator' in placements:
+                init_comb = placements['init_combinator'].entity
+                if init_comb in self.blueprint.entities:
+                    self.blueprint.add_circuit_connection("red", init_comb, memory_comb, 
+                                                         side_1="output", side_2="input")
+                else:
+                    print(f"Warning: Init combinator for {memory_id} not in blueprint")
+            
+        except Exception as e:
+            # Fallback if wiring fails - the individual combinators will still work partially
+            print(f"Warning: Could not wire memory cell {memory_id}: {e}")
+            pass
 
 
 class LayoutEngine:
     """Simple layout engine for entity placement."""
 
     def __init__(self):
-        self.next_x = 0
+        # Start automatic layout in negative coordinates to avoid manual entities
+        self.next_x = -30  # Start well to the left of manual entities
         self.next_y = 0
         self.row_height = 4  # Increased spacing to avoid overlaps
         self.entities_per_row = 8
@@ -292,7 +440,7 @@ class LayoutEngine:
         self.current_row_count += 1
         if self.current_row_count >= self.entities_per_row:
             # Move to next row
-            self.next_x = 0
+            self.next_x = -30  # Reset to left edge for automatic layout
             self.next_y += self.row_height
             self.current_row_count = 0
         else:
@@ -332,6 +480,18 @@ class BlueprintEmitter:
 
     def emit_blueprint(self, ir_operations: List[IRNode]) -> Blueprint:
         """Convert IR operations to blueprint."""
+        import warnings
+        
+        # Collect draftsman warnings during blueprint construction
+        captured_warnings = []
+        
+        def warning_handler(message, category, filename, lineno, file=None, line=None):
+            captured_warnings.append((message, category, filename, lineno))
+        
+        # Set up warning capture
+        old_showwarning = warnings.showwarning
+        warnings.showwarning = warning_handler
+        
         try:
             # Process all IR operations
             for op in ir_operations:
@@ -340,17 +500,40 @@ class BlueprintEmitter:
             # Add wiring connections
             self.create_circuit_connections()
             
-            # Validate the final blueprint
-            self._validate_blueprint()
+            # Validate the final blueprint and process captured warnings
+            self._validate_blueprint_with_warnings(captured_warnings)
 
             return self.blueprint
 
         except Exception as e:
             self.diagnostics.error(f"Blueprint emission failed: {e}")
             raise
+        finally:
+            # Restore original warning handler
+            warnings.showwarning = old_showwarning
 
-    def _validate_blueprint(self):
-        """Perform basic validation on the generated blueprint."""
+    def _validate_blueprint_with_warnings(self, captured_warnings):
+        """Perform validation on the generated blueprint and process draftsman warnings."""
+        
+        # Process captured draftsman warnings
+        critical_warning_types = {
+            'OverlappingObjectsWarning',
+            'UnknownEntityWarning', 
+            'InvalidEntityError',
+            'InvalidConnectorError'
+        }
+        
+        for message, category, filename, lineno in captured_warnings:
+            warning_name = category.__name__
+            
+            # Convert critical warnings to errors
+            if warning_name in critical_warning_types:
+                self.diagnostics.error(f"Blueprint validation failed - {warning_name}: {message}")
+            else:
+                # Keep other warnings as warnings
+                self.diagnostics.warning(f"{warning_name}: {message}")
+        
+        # Basic blueprint validation
         if len(self.blueprint.entities) == 0:
             self.diagnostics.warning("Generated blueprint is empty")
             
@@ -376,7 +559,6 @@ class BlueprintEmitter:
             IR_Const: self.emit_constant,
             IR_Arith: self.emit_arithmetic,
             IR_Decider: self.emit_decider,
-            IR_Input: self.emit_input,
             IR_MemCreate: self.emit_memory_create,
             IR_MemRead: self.emit_memory_read,
             IR_MemWrite: self.emit_memory_write,
@@ -390,7 +572,7 @@ class BlueprintEmitter:
         if handler:
             handler(op)
         else:
-            self.diagnostics.warning(f"Unknown IR operation: {type(op)}")
+            self.diagnostics.error(f"Unknown IR operation: {type(op)}")
 
     def emit_constant(self, op: IR_Const):
         """Emit constant combinator for IR_Const."""
@@ -502,37 +684,6 @@ class BlueprintEmitter:
         if not isinstance(op.right, int):  # Signal reference
             self._add_signal_sink(op.right, op.node_id)
 
-    def emit_input(self, op: IR_Input):
-        """Emit input operation (placeholder combinator with label)."""
-        pos = self.layout.get_next_position()
-
-        # Use constant combinator as input placeholder
-        combinator = self.entity_factory.create_entity('constant-combinator', tile_position=pos)
-
-        # Add section with input signal type
-        section = combinator.add_section()
-        signal_name = self._get_signal_name(op.output_type)
-        
-        # Validate signal
-        if not self.entity_factory.is_valid_signal(signal_name):
-            self.diagnostics.warning(f"Unknown input signal: {signal_name}, using signal-0")
-            signal_name = "signal-0"
-            
-        section.set_signal(index=0, name=signal_name, count=0)  # Will be set externally
-
-        self.blueprint.entities.append(combinator)
-
-        # Track entity
-        placement = EntityPlacement(
-            entity=combinator,
-            entity_id=op.node_id,
-            position=pos,
-            output_signals={signal_name: "red"},
-            input_signals={},
-        )
-        self.entities[op.node_id] = placement
-        self.signal_sources[op.node_id] = op.node_id
-
     def emit_memory_create(self, op: IR_MemCreate):
         """Emit memory module creation using SR latch circuit."""
         # Get initial value
@@ -563,32 +714,81 @@ class BlueprintEmitter:
             self.signal_sources[op.memory_id] = output_placement.entity_id
 
     def emit_memory_read(self, op: IR_MemRead):
-        """Emit memory read operation."""
-        # Memory read connects to the output of the memory module
+        """Emit memory read operation from the 3-combinator memory cell."""
+        # Memory read connects to the output of the memory combinator
         if op.memory_id in self.memory_builder.memory_modules:
-            # Get the memory combinator from the memory module
+            # Get the memory combinator from the memory module (the one that outputs M signal)
             memory_components = self.memory_builder.memory_modules[op.memory_id]
             if 'memory_combinator' in memory_components:
-                memory_entity_id = memory_components['memory_combinator'].entity_id
+                memory_entity_placement = memory_components['memory_combinator']
+                memory_entity_id = memory_entity_placement.entity_id
+                
+                # The memory cell outputs on the "signal-M" channel
+                # Create a signal mapping for the read operation
                 self.signal_sources[op.node_id] = memory_entity_id
+                
+                # Track that this read operation expects the "signal-M" signal
+                # This will be used when wiring up connections
+                if not hasattr(self, 'memory_read_signals'):
+                    self.memory_read_signals = {}
+                self.memory_read_signals[op.node_id] = "signal-M"
+                
             else:
                 self.diagnostics.error(f"Memory combinator not found in {op.memory_id}")
         else:
             self.diagnostics.error(f"Memory {op.memory_id} not found for read operation")
 
     def emit_memory_write(self, op: IR_MemWrite):
-        """Emit memory write operation."""
-        # For the simplified memory approach, memory writes are handled by updating
-        # the constant combinator values at blueprint generation time
+        """Emit memory write operation to the 3-combinator memory cell."""
         memory_id = op.memory_id
         
         if memory_id not in self.memory_builder.memory_modules:
             self.diagnostics.error(f"Memory {memory_id} not found for write operation")
             return
         
-        # For now, we'll track the write operation but handle it in a simplified way
-        # In a more advanced implementation, this would connect to proper SR latch inputs
-        self.diagnostics.info(f"Memory write operation for {memory_id} (simplified implementation)")
+        # Get the memory module components
+        memory_module = self.memory_builder.memory_modules[memory_id]
+        input_combinator_placement = memory_module['input_combinator']
+        
+        # Create a combinator to convert the write data and enable signal to the memory input format
+        from draftsman.entity import ArithmeticCombinator
+        write_pos = self.layout.get_next_position()
+        write_combinator = ArithmeticCombinator(tile_position=write_pos)
+        
+        try:
+            # Get the signal information from the write operation
+            signal_type = self._get_signal_name(op.data_signal)
+            if not self.entity_factory.is_valid_signal(signal_type):
+                self.diagnostics.warning(f"Unknown signal type for memory write: {op.data_signal} -> {signal_type}, using signal-0")
+                signal_type = "signal-0"
+            
+            # Configure the write combinator to pass through the data when write is enabled
+            # This converts the data_signal to the I signal expected by the memory cell
+            write_combinator.first_operand = signal_type
+            write_combinator.second_operand = 1  # Constant 1
+            write_combinator.operation = "*"  # Multiply by 1 to pass through
+            write_combinator.output_signal = signal_type  # Output same signal type
+            
+            self.blueprint.entities.append(write_combinator)
+            
+            # Wire the write combinator output to the memory cell input
+            try:
+                input_combinator = input_combinator_placement.entity
+                self.blueprint.add_circuit_connection("green", write_combinator, input_combinator,
+                                                     side_1="output", side_2="input")
+                
+                self.diagnostics.info(f"Memory write operation properly connected for {memory_id}")
+                
+                # If there's a write_enable signal, we could add additional logic here
+                # For now, the write happens whenever data_signal is non-zero
+                
+            except Exception as e:
+                self.diagnostics.warning(f"Could not wire memory write combinator for {memory_id}: {e}")
+                
+        except Exception as e:
+            self.diagnostics.warning(f"Could not configure memory write combinator for {memory_id}: {e}")
+            # Fallback to logging for compatibility
+            self.diagnostics.info(f"Memory write operation for {memory_id} (fallback to simplified logging)")
 
     def emit_place_entity(self, op: IR_PlaceEntity):
         """Emit entity placement using the entity factory."""
@@ -598,6 +798,9 @@ class BlueprintEmitter:
             base_x = op.x + 20  # Offset entities to the right of combinators
             base_y = op.y
             pos = (int(base_x), int(base_y))  # Ensure grid alignment
+            
+            # Mark this position as used in the layout manager to prevent overlaps
+            self.layout.used_positions.add(pos)
         else:
             # Default to layout engine for variable coordinates or fallback
             pos = self.layout.get_next_position()
@@ -611,7 +814,7 @@ class BlueprintEmitter:
                     if hasattr(entity, prop_name):
                         setattr(entity, prop_name, prop_value)
                     else:
-                        self.diagnostics.warning(f"Unknown property '{prop_name}' for entity '{op.prototype}'")
+                        self.diagnostics.error(f"Unknown property '{prop_name}' for entity '{op.prototype}'")
 
             self.blueprint.entities.append(entity)
 
@@ -678,7 +881,7 @@ class BlueprintEmitter:
             try:
                 self.memory_builder.wire_sr_latch(memory_id)
             except Exception as e:
-                self.diagnostics.warning(f"Failed to wire memory {memory_id}: {e}")
+                self.diagnostics.error(f"Failed to wire memory {memory_id}: {e}")
 
         # Create connections between signal sources and sinks
         for signal_id, sink_entities in self.signal_sinks.items():
@@ -705,13 +908,13 @@ class BlueprintEmitter:
                                     side_2="input",
                                 )
                             except Exception as e:
-                                self.diagnostics.warning(
+                                self.diagnostics.error(
                                     f"Failed to connect {source_entity_id} -> {sink_entity_id}: {e}"
                                 )
                 else:
-                    self.diagnostics.warning(f"Source entity {source_entity_id} not found for signal {signal_id}")
+                    self.diagnostics.error(f"Source entity {source_entity_id} not found for signal {signal_id}")
             else:
-                self.diagnostics.warning(f"No source found for signal {signal_id}")
+                self.diagnostics.error(f"No source found for signal {signal_id}")
 
     def _get_wire_color(self, source: EntityPlacement, sink: EntityPlacement) -> str:
         """Determine appropriate wire color for connection."""

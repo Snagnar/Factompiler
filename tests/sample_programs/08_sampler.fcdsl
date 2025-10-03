@@ -1,7 +1,7 @@
 # Test 8: The 100-tick sampler (from spec example)
 # Tests: modulo operations, periodic sampling, complex logic chains
 
-mem tick = memory(0);
+Memory tick = 0;
 
 Signal ONE = 1;
 
@@ -11,7 +11,7 @@ write(tick, read(tick) + ONE);
 Signal tick_mod = read(tick) % 100;
 Signal sample_now = (tick_mod == 0);
 
-Signal v = input(0);           # implicit signal type __v1
+Signal v = 100;           # implicit signal type __v1
 Signal rem = v % 2;
 Signal is_even = (rem == 0);
 

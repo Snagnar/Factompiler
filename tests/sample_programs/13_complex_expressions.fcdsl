@@ -1,9 +1,9 @@
 # Test 13: Complex nested expressions and operator precedence
 # Tests: deeply nested expressions, operator precedence, complex projections
 
-Signal a = input(0);
-Signal b = input(1);
-Signal c = input(2);
+Signal a = 100;
+Signal b = 110;
+Signal c = 120;
 
 # Test operator precedence: * before +, && before ||
 Signal precedence1 = a + b * c;         # Should be a + (b * c)  

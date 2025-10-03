@@ -6,15 +6,15 @@
 # =============================================================================
 
 # Basic virtual signals
-Signal signal_A = input("signal-A", 0);
-Signal signal_B = input("signal-B", 1);
-Signal signal_0 = input("signal-0", 2);
-Signal signal_1 = input("signal-1", 3);
+Signal signal_A = ("signal-A", 0);
+Signal signal_B = ("signal-B", 1);
+Signal signal_0 = ("signal-0", 2);
+Signal signal_1 = ("signal-1", 3);
 
 # Special virtual signals
-Signal everything = input("signal-everything", 4);
-Signal anything = input("signal-anything", 5);
-Signal each = input("signal-each", 6);
+Signal everything = ("signal-everything", 4);
+Signal anything = ("signal-anything", 5);
+Signal each = ("signal-each", 6);
 
 # Virtual signal arithmetic
 Signal virtual_sum = signal_A + signal_B;
@@ -25,94 +25,94 @@ Signal virtual_product = signal_0 * signal_1;
 # =============================================================================
 
 # Basic resources
-Signal iron_ore = input("iron-ore", 10);
-Signal copper_ore = input("copper-ore", 11);
-Signal coal = input("coal", 12);
-Signal stone = input("stone", 13);
-Signal wood = input("wood", 14);
+Signal iron_ore = ("iron-ore", 10);
+Signal copper_ore = ("copper-ore", 11);
+Signal coal = ("coal", 12);
+Signal stone = ("stone", 13);
+Signal wood = ("wood", 14);
 
 # Processed materials
-Signal iron_plate = input("iron-plate", 15);
-Signal copper_plate = input("copper-plate", 16);
-Signal steel_plate = input("steel-plate", 17);
-Signal iron_gear = input("iron-gear-wheel", 18);
-Signal copper_cable = input("copper-cable", 19);
+Signal iron_plate = ("iron-plate", 15);
+Signal copper_plate = ("copper-plate", 16);
+Signal steel_plate = ("steel-plate", 17);
+Signal iron_gear = ("iron-gear-wheel", 18);
+Signal copper_cable = ("copper-cable", 19);
 
 # Advanced materials
-Signal electronic_circuit = input("electronic-circuit", 20);
-Signal advanced_circuit = input("advanced-circuit", 21);
-Signal processing_unit = input("processing-unit", 22);
-Signal plastic_bar = input("plastic-bar", 23);
+Signal electronic_circuit = ("electronic-circuit", 20);
+Signal advanced_circuit = ("advanced-circuit", 21);
+Signal processing_unit = ("processing-unit", 22);
+Signal plastic_bar = ("plastic-bar", 23);
 
 # Intermediate products
-Signal engine_unit = input("engine-unit", 25);
-Signal electric_engine = input("electric-engine-unit", 26);
-Signal flying_robot_frame = input("flying-robot-frame", 27);
+Signal engine_unit = ("engine-unit", 25);
+Signal electric_engine = ("electric-engine-unit", 26);
+Signal flying_robot_frame = ("flying-robot-frame", 27);
 
 # Science packs
-Signal automation_science = input("automation-science-pack", 30);
-Signal logistic_science = input("logistic-science-pack", 31);
-Signal military_science = input("military-science-pack", 32);
-Signal chemical_science = input("chemical-science-pack", 33);
-Signal production_science = input("production-science-pack", 34);
-Signal utility_science = input("utility-science-pack", 35);
+Signal automation_science = ("automation-science-pack", 30);
+Signal logistic_science = ("logistic-science-pack", 31);
+Signal military_science = ("military-science-pack", 32);
+Signal chemical_science = ("chemical-science-pack", 33);
+Signal production_science = ("production-science-pack", 34);
+Signal utility_science = ("utility-science-pack", 35);
 
 # Weapons and ammo
-Signal pistol = input("pistol", 40);
-Signal submachine_gun = input("submachine-gun", 41);
-Signal firearm_magazine = input("firearm-magazine", 42);
-Signal piercing_rounds = input("piercing-rounds-magazine", 43);
+Signal pistol = ("pistol", 40);
+Signal submachine_gun = ("submachine-gun", 41);
+Signal firearm_magazine = ("firearm-magazine", 42);
+Signal piercing_rounds = ("piercing-rounds-magazine", 43);
 
 # Tools
-Signal burner_mining_drill_item = input("burner-mining-drill", 45);
-Signal electric_mining_drill_item = input("electric-mining-drill", 46);
-Signal transport_belt_item = input("transport-belt", 47);
+Signal burner_mining_drill_item = ("burner-mining-drill", 45);
+Signal electric_mining_drill_item = ("electric-mining-drill", 46);
+Signal transport_belt_item = ("transport-belt", 47);
 
 # =============================================================================
 # FLUID SIGNALS - All fluids in the game
 # =============================================================================
 
 # Basic fluids  
-Signal water = input("water", 50);
-Signal steam = input("steam", 51);
-Signal crude_oil = input("crude-oil", 52);
+Signal water = ("water", 50);
+Signal steam = ("steam", 51);
+Signal crude_oil = ("crude-oil", 52);
 
 # Refined oils
-Signal petroleum_gas = input("petroleum-gas", 55);
-Signal light_oil = input("light-oil", 56);
-Signal heavy_oil = input("heavy-oil", 57);
-Signal lubricant = input("lubricant", 58);
+Signal petroleum_gas = ("petroleum-gas", 55);
+Signal light_oil = ("light-oil", 56);
+Signal heavy_oil = ("heavy-oil", 57);
+Signal lubricant = ("lubricant", 58);
 
 # Chemical fluids
-Signal sulfuric_acid = input("sulfuric-acid", 60);
+Signal sulfuric_acid = ("sulfuric-acid", 60);
 
 # Space Age fluids (if available)
-Signal thruster_fuel = input("thruster-fuel", 65);
-Signal thruster_oxidizer = input("thruster-oxidizer", 66);
+Signal thruster_fuel = ("thruster-fuel", 65);
+Signal thruster_oxidizer = ("thruster-oxidizer", 66);
 
 # =============================================================================
 # RECIPE SIGNALS - All crafting recipes
 # =============================================================================
 
 # Basic crafting recipes
-Signal iron_plate_recipe = input("iron-plate", 70);  # Recipe names match item names
-Signal copper_plate_recipe = input("copper-plate", 71);
-Signal steel_plate_recipe = input("steel-plate", 72);
+Signal iron_plate_recipe = ("iron-plate", 70);  # Recipe names match item names
+Signal copper_plate_recipe = ("copper-plate", 71);
+Signal steel_plate_recipe = ("steel-plate", 72);
 
 # Complex recipe signals  
-Signal electronic_circuit_recipe = input("electronic-circuit", 75);
-Signal advanced_circuit_recipe = input("advanced-circuit", 76);
-Signal engine_unit_recipe = input("engine-unit", 77);
+Signal electronic_circuit_recipe = ("electronic-circuit", 75);
+Signal advanced_circuit_recipe = ("advanced-circuit", 76);
+Signal engine_unit_recipe = ("engine-unit", 77);
 
 # =============================================================================
 # ENTITY SIGNALS - All placeable entities
 # =============================================================================
 
 # Entity reference signals (used for reading entity IDs, etc.)
-Signal belt_entity = input("transport-belt", 80);
-Signal inserter_entity = input("inserter", 81); 
-Signal chest_entity = input("iron-chest", 82);
-Signal assembler_entity = input("assembling-machine-1", 83);
+Signal belt_entity = ("transport-belt", 80);
+Signal inserter_entity = ("inserter", 81); 
+Signal chest_entity = ("iron-chest", 82);
+Signal assembler_entity = ("assembling-machine-1", 83);
 
 # =============================================================================
 # SIGNAL OPERATIONS AND CONVERSIONS
@@ -166,8 +166,8 @@ Signal emergency_stop = signal_0 == 0;
 # =============================================================================
 
 # Item counters
-mem iron_consumed = memory(0);
-mem copper_consumed = memory(0);
+Memory iron_consumed = 0;
+Memory copper_consumed = 0;
 
 Signal iron_increment = iron_plate > 0 && 1 || 0;
 write(iron_consumed, read(iron_consumed) + iron_increment);
@@ -175,12 +175,12 @@ Signal copper_increment = copper_plate > 0 && 1 || 0;
 write(copper_consumed, read(copper_consumed) + copper_increment);
 
 # Fluid tracking
-mem water_used = memory(0);
+Memory water_used = 0;
 Signal water_amount = water > 0 && water || 0;
 write(water_used, read(water_used) + water_amount);
 
 # Virtual signal state
-mem system_mode = memory(1);  # Virtual signal for system state
+Memory system_mode = 1;
 Signal mode_change = signal_A > 1000;
 Signal new_mode = mode_change && 2 || read(system_mode);
 write(system_mode, new_mode);

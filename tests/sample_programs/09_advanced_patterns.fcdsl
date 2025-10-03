@@ -2,13 +2,13 @@
 # Tests: complex memory patterns, filtering, accumulation
 
 # Multi-counter system
-mem up_counter = memory(0);
-mem down_counter = memory(100);
-mem event_count = memory(0);
+Memory up_counter = 0;
+Memory down_counter = 100;
+Memory event_count = 0;
 
-Signal increment = input("signal-I", 0) > 0;
-Signal decrement = input("signal-D", 1) > 0;
-Signal reset = input("signal-R", 2) > 0;
+Signal increment = ("signal-I", 0) > 0;
+Signal decrement = ("signal-D", 1) > 0;
+Signal reset = ("signal-R", 2) > 0;
 
 # Counter logic with bounds checking
 Signal up_val = read(up_counter);
@@ -34,8 +34,8 @@ Signal events = read(event_count);
 write(event_count, events + any_event);
 
 # Filtered accumulator - only accumulate positive values
-mem filtered_sum = memory(0);
-Signal input_val = input(3);
+Memory filtered_sum = 0;
+Signal input_val = 130;
 Signal should_accumulate = input_val > 0;
 Signal current_sum = read(filtered_sum);
 write(filtered_sum, current_sum + (input_val * should_accumulate));

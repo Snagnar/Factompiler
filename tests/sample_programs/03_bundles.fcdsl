@@ -1,9 +1,9 @@
 # Test 3: Bundle operations and multi-channel signals
 # Tests: bundle(), projection from bundles, bundle arithmetic
 
-Signal iron = input("iron-plate", 0);
-Signal copper = input("copper-plate", 1);  
-Signal coal = input("coal", 2);
+Signal iron = ("iron-plate", 100);
+Signal copper = ("copper-plate", 80);  
+Signal coal = ("coal", 50);
 
 # Create bundle with multiple channels
 Bundle resources = bundle(iron, copper, coal);

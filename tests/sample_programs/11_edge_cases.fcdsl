@@ -2,17 +2,17 @@
 # Tests: boundary conditions, type conflicts, invalid operations
 
 # Edge case: deeply nested expressions
-Signal deep_nested = ((((input(0) + 1) * 2) - 3) / 4) % 5;
+Signal deep_nested = ((((100 + 1) * 2) - 3) / 4) % 5;
 
 # Edge case: zero and negative operations
-Signal zero_test = input(1) * 0;
-Signal negative_test = -input(2);
-Signal division_by_small = input(3) / 1;
+Signal zero_test = 110 * 0;
+Signal negative_test = -120;
+Signal division_by_small = 130 / 1;
 
 # Type system edge cases
-Signal implicit1 = input(4);   # __v1
-Signal implicit2 = input(5);   # __v2  
-Signal explicit1 = input("signal-A", 6);
+Signal implicit1 = 140;   # __v1
+Signal implicit2 = 150;   # __v2  
+Signal explicit1 = ("signal-A", 6);
 
 # Chain of mixed-type operations (should generate multiple warnings)
 Signal mixed_chain = implicit1 + explicit1 + implicit2;
@@ -21,7 +21,7 @@ Signal mixed_chain = implicit1 + explicit1 + implicit2;
 Bundle single_bundle = bundle(implicit1);
 Bundle duplicate_types = bundle(
     explicit1, 
-    input("signal-A", 7)  # same type, should merge
+    ("signal-A", 7)  # same type, should merge
 );
 
 # Projection edge cases
@@ -29,14 +29,14 @@ Signal project_missing = single_bundle | "non-existent-type";  # should sum
 Signal project_self = explicit1 | "signal-A";  # no-op
 
 # Memory edge cases  
-mem uninitialized = memory();  # Valid: defaults to 0 with implicit type
-mem negative_init = memory(-10);
+Memory uninitialized = 0;
+Memory negative_init = -10;
 
 # Bundle edge cases - valid but should clarify semantics
 Bundle empty_bundle = bundle();  # Valid: empty wire group (no signals)
 
 # Complex precedence testing
-Signal precedence_complex = ((input(8) + input(9) * 2 | "iron-ore") + input(10) == 5 && input(11) > 0);
+Signal precedence_complex = ((180 + 190 * 2 | "iron-ore") + 200 == 5 && 210 > 0);
 
 # Potential error conditions (for compiler validation)
 # These should cause compile errors:

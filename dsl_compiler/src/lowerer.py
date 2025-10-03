@@ -63,12 +63,16 @@ class ASTLowerer:
         if handler:
             handler(stmt)
         else:
-            self.diagnostics.warning(f"Unknown statement type: {type(stmt)}", stmt)
+            self.diagnostics.error(f"Unknown statement type: {type(stmt)}", stmt)
 
     def lower_decl_stmt(self, stmt: DeclStmt):
         """Lower typed declaration statement: type name = expr;"""
-        # Special handling for Place() calls to track entities
-        if isinstance(stmt.value, CallExpr) and stmt.value.name == "Place":
+        # Handle Memory type declarations
+        if stmt.type_name == "Memory":
+            return self.lower_memory_decl(stmt)
+        
+        # Special handling for place() calls to track entities
+        if isinstance(stmt.value, CallExpr) and stmt.value.name == "place":
             entity_id, value_ref = self.lower_place_call_with_tracking(stmt.value)
             self.entity_refs[stmt.name] = entity_id
             self.signal_refs[stmt.name] = value_ref
@@ -110,8 +114,8 @@ class ASTLowerer:
     def lower_assign_stmt(self, stmt: AssignStmt):
         """Lower assignment statement: target = expr;"""
         if isinstance(stmt.target, Identifier):
-            # Special handling for Place() calls to track entities
-            if isinstance(stmt.value, CallExpr) and stmt.value.name == "Place":
+            # Special handling for place() calls to track entities
+            if isinstance(stmt.value, CallExpr) and stmt.value.name == "place":
                 entity_id, value_ref = self.lower_place_call_with_tracking(stmt.value)
                 self.entity_refs[stmt.target.name] = entity_id
                 self.signal_refs[stmt.target.name] = value_ref
@@ -151,7 +155,7 @@ class ASTLowerer:
                 self.ir_builder.add_operation(prop_write_op)
 
     def lower_mem_decl(self, stmt: MemDecl):
-        """Lower memory declaration: mem name = memory(init);"""
+        """Lower memory declaration: Memory name = init;"""
         memory_id = f"mem_{stmt.name}"
         self.memory_refs[stmt.name] = memory_id
 
@@ -172,6 +176,25 @@ class ASTLowerer:
 
         self.ir_builder.memory_create(memory_id, signal_type, init_ref, stmt)
 
+    def lower_memory_decl(self, stmt: DeclStmt):
+        """Lower Memory type declaration: Memory name = init_expr;"""
+        memory_id = f"mem_{stmt.name}"
+        self.memory_refs[stmt.name] = memory_id
+
+        # Get memory type from semantic analysis
+        symbol = self.semantic.symbol_table.lookup(stmt.name)
+        if symbol and isinstance(symbol.value_type, SignalValue):
+            signal_type = symbol.value_type.signal_type.name
+        else:
+            signal_type = self.ir_builder.allocate_implicit_type()
+
+        # Lower initialization expression
+        init_ref = self.lower_expr(stmt.value)
+        if isinstance(init_ref, int):
+            init_ref = self.ir_builder.const(signal_type, init_ref, stmt)
+
+        self.ir_builder.memory_create(memory_id, signal_type, init_ref, stmt)
+
     def lower_expr_stmt(self, stmt: ExprStmt):
         """Lower expression statement: expr;"""
         self.lower_expr(stmt.expr)
@@ -180,21 +203,23 @@ class ASTLowerer:
         """Lower return statement: return expr;"""
         if stmt.expr:
             return_ref = self.lower_expr(stmt.expr)
-            # For now, just lower the expression
-            # TODO: Handle function return values properly
+            # Store the return value for function inlining
+            # The function inlining mechanism will pick this up
+            return return_ref
+        return None
 
     def lower_func_decl(self, stmt: FuncDecl):
         """Lower function declaration."""
-        # TODO: Implement function lowering with IR_Group
-        self.diagnostics.warning(
-            f"Function lowering not yet implemented: {stmt.name}", stmt
-        )
+        # Store function definition for later inlining - don't generate IR yet
+        # Functions will be inlined when called
+        pass
 
     def lower_import_stmt(self, stmt: ImportStmt):
         """Lower import statement."""
-        # TODO: Implement module imports
-        self.diagnostics.warning(
-            f"Import lowering not yet implemented: {stmt.path}", stmt
+        # Import statements should have been preprocessed and inlined by the parser.
+        # If we encounter one here, it means the file wasn't found during preprocessing.
+        self.diagnostics.error(
+            f"Import statement found in AST - file not found during preprocessing: {stmt.path}", stmt
         )
 
     def lower_expr(self, expr: Expr) -> ValueRef:
@@ -211,7 +236,6 @@ class ASTLowerer:
             IdentifierExpr: self.lower_identifier,
             BinaryOp: self.lower_binary_op,
             UnaryOp: self.lower_unary_op,
-            InputExpr: self.lower_input_expr,
             ReadExpr: self.lower_read_expr,
             WriteExpr: self.lower_write_expr,
             BundleExpr: self.lower_bundle_expr,
@@ -219,6 +243,7 @@ class ASTLowerer:
             CallExpr: self.lower_call_expr,
             PropertyAccess: self.lower_property_access,
             PropertyAccessExpr: self.lower_property_access_expr,
+            SignalLiteral: self.lower_signal_literal,
         }
 
         handler = expression_handlers.get(type(expr))
@@ -331,19 +356,25 @@ class ASTLowerer:
             self.diagnostics.error(f"Unknown unary operator: {expr.op}", expr)
             return operand_ref
 
-    def lower_input_expr(self, expr: InputExpr) -> SignalRef:
-        """Lower input expression: input(index) or input(type, index)."""
+    def lower_signal_literal(self, expr: SignalLiteral) -> SignalRef:
+        """Lower signal literal: ("type", value) or just value."""
         if expr.signal_type:
             # Explicit type specified
-            if isinstance(expr.signal_type, StringLiteral):
-                signal_type = expr.signal_type.value
-            else:
-                signal_type = str(expr.signal_type)
+            signal_type = expr.signal_type
         else:
             # Allocate implicit type
             signal_type = self.ir_builder.allocate_implicit_type()
 
-        return self.ir_builder.input_signal(expr.index, signal_type, expr)
+        # Lower the value expression
+        value_ref = self.lower_expr(expr.value)
+        
+        # Create a constant with the specified signal type and value
+        if isinstance(value_ref, int):
+            return self.ir_builder.const(signal_type, value_ref, expr)
+        else:
+            # For non-integer values, create a constant with value 0
+            # and let the type system handle the rest
+            return self.ir_builder.const(signal_type, 0, expr)
 
     def lower_read_expr(self, expr: ReadExpr) -> SignalRef:
         """Lower memory read: read(memory)."""
@@ -447,18 +478,18 @@ class ASTLowerer:
             return self.ir_builder.const(target_type, 0, expr)
 
     def lower_call_expr(self, expr: CallExpr) -> ValueRef:
-        """Lower function call or special calls like Place()."""
-        if expr.name == "Place":
+        """Lower function call or special calls like place()."""
+        if expr.name == "place":
             return self.lower_place_call(expr)
         else:
             # Try to inline simple function calls
             return self.lower_function_call_inline(expr)
 
     def lower_place_call(self, expr: CallExpr) -> SignalRef:
-        """Lower Place() call for entity placement."""
+        """Lower place() call for entity placement."""
         if len(expr.args) < 3:
             self.diagnostics.error(
-                "Place() requires at least 3 arguments: (prototype, x, y)", expr
+                "place() requires at least 3 arguments: (prototype, x, y)", expr
             )
             return self.ir_builder.const(
                 self.ir_builder.allocate_implicit_type(), 0, expr
@@ -469,21 +500,29 @@ class ASTLowerer:
         x_expr = expr.args[1]
         y_expr = expr.args[2]
 
-        # Get the prototype - it can be a string literal or a string value from parameter
-        prototype_value = self.lower_expr(prototype_expr)
-        if not isinstance(prototype_value, str):
+        # Get the prototype - it should be a string literal
+        if isinstance(prototype_expr, StringLiteral):
+            prototype = prototype_expr.value
+        else:
             self.diagnostics.error(
-                f"Place() prototype must be a string, got {type(prototype_value)}", prototype_expr
+                f"place() prototype must be a string literal, got {type(prototype_expr)}", prototype_expr
             )
             return self.ir_builder.const(
                 self.ir_builder.allocate_implicit_type(), 0, expr
             )
 
-        prototype = prototype_value
-
-        # Evaluate position arguments
-        x_ref = self.lower_expr(x_expr)
-        y_ref = self.lower_expr(y_expr)
+        # Get coordinates - they can be SignalLiterals with NumberLiteral values or NumberLiterals
+        def extract_coordinate(coord_expr):
+            if isinstance(coord_expr, SignalLiteral) and isinstance(coord_expr.value, NumberLiteral):
+                return coord_expr.value.value
+            elif isinstance(coord_expr, NumberLiteral):
+                return coord_expr.value
+            else:
+                # For non-constant coordinates, return the expression to be lowered
+                return self.lower_expr(coord_expr)
+        
+        x_coord = extract_coordinate(x_expr)
+        y_coord = extract_coordinate(y_expr)
 
         # Support both constant integers and variable coordinates
         # For variable coordinates, the actual placement will be resolved at emit time
@@ -493,17 +532,17 @@ class ASTLowerer:
 
         # Place the entity (coordinates can be constants or signal references)
         self.ir_builder.place_entity(
-            entity_id, prototype, x_ref, y_ref, source_ast=expr
+            entity_id, prototype, x_coord, y_coord, source_ast=expr
         )
 
         # Return a dummy signal (entities don't produce signals directly)
         return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
     def lower_place_call_with_tracking(self, expr: CallExpr) -> tuple[str, ValueRef]:
-        """Lower Place() call and return both entity_id and value reference for tracking."""
+        """Lower place() call and return both entity_id and value reference for tracking."""
         if len(expr.args) != 3:
             self.diagnostics.error(
-                "Place() requires exactly 3 arguments: prototype, x, y", expr
+                "place() requires exactly 3 arguments: prototype, x, y", expr
             )
             dummy_ref = self.ir_builder.const(
                 self.ir_builder.allocate_implicit_type(), 0, expr
@@ -513,29 +552,37 @@ class ASTLowerer:
         # Extract arguments
         prototype_expr, x_expr, y_expr = expr.args
 
-        # Get the prototype - it can be a string literal or a string value from parameter
-        prototype_value = self.lower_expr(prototype_expr)
-        if not isinstance(prototype_value, str):
+        # Get the prototype - it should be a string literal
+        if isinstance(prototype_expr, StringLiteral):
+            prototype = prototype_expr.value
+        else:
             self.diagnostics.error(
-                f"Place() prototype must be a string, got {type(prototype_value)}", prototype_expr
+                f"place() prototype must be a string literal, got {type(prototype_expr)}", prototype_expr
             )
             dummy_ref = self.ir_builder.const(
                 self.ir_builder.allocate_implicit_type(), 0, expr
             )
             return "error_entity", dummy_ref
 
-        prototype = prototype_value
-
-        # Evaluate position arguments
-        x_ref = self.lower_expr(x_expr)
-        y_ref = self.lower_expr(y_expr)
+        # Get coordinates - they can be SignalLiterals with NumberLiteral values or NumberLiterals
+        def extract_coordinate(coord_expr):
+            if isinstance(coord_expr, SignalLiteral) and isinstance(coord_expr.value, NumberLiteral):
+                return coord_expr.value.value
+            elif isinstance(coord_expr, NumberLiteral):
+                return coord_expr.value
+            else:
+                # For non-constant coordinates, return the expression to be lowered
+                return self.lower_expr(coord_expr)
+        
+        x_coord = extract_coordinate(x_expr)
+        y_coord = extract_coordinate(y_expr)
 
         # Generate unique entity ID
         entity_id = f"entity_{self.ir_builder.next_id()}"
 
         # Place the entity
         self.ir_builder.place_entity(
-            entity_id, prototype, x_ref, y_ref, source_ast=expr
+            entity_id, prototype, x_coord, y_coord, source_ast=expr
         )
 
         # Return both entity_id and dummy signal reference

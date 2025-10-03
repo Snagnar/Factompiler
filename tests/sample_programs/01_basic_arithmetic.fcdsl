@@ -1,9 +1,9 @@
 # Test 1: Basic arithmetic operations and implicit signal types
-# Tests: input(), basic arithmetic, implicit type allocation
+# Tests: signal literals, basic arithmetic, implicit type allocation
 
-Signal a = input(0);           # implicit type __v1
-Signal b = input(1);           # implicit type __v2  
-Signal c = input("iron-plate", 2);  # explicit type
+Signal a = 100;               # implicit type __v1
+Signal b = 200;               # implicit type __v2  
+Signal c = ("iron-plate", 50); # explicit type
 
 Signal sum = a + b;            # should be same type as 'a' (__v1)
 Signal diff = c - 10;          # int coerced to iron-plate type

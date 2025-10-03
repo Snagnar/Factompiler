@@ -1,17 +1,17 @@
 # Test 5: Entity placement and property access
-# Tests: Place(), entity properties, entity.prop syntax
+# Tests: place(), entity properties, entity.prop syntax
 
 # Place entities at specific coordinates
-Entity lamp1 = Place("small-lamp", 0, 0);
-Entity lamp2 = Place("small-lamp", 2, 0);
-Entity train_station = Place("train-stop", 5, 0);
+Entity lamp1 = place("small-lamp", 0, 0);
+Entity lamp2 = place("small-lamp", 2, 0);
+Entity train_station = place("train-stop", 5, 0);
 
 # Configure train station properties
 train_station.manual_mode = 1;
 
 # Input controls
-Signal enable_lamps = input("signal-E", 0);
-Signal train_control = input("signal-T", 1);
+Signal enable_lamps = ("signal-E", 1);
+Signal train_control = ("signal-T", 1);
 
 # Control entity properties
 lamp1.enable = enable_lamps > 0;
@@ -21,13 +21,13 @@ lamp2.enable = enable_lamps > 5;
 Signal lamp1_status = lamp1.enable;
 
 # More complex entity control with memory
-mem counter = memory(0);
+Memory counter = 0;
 write(counter, read(counter) + 1);  # increment counter each tick
 Signal blink_pattern = read(counter) % 10;
 lamp1.enable = (blink_pattern < 5);
 lamp2.enable = (blink_pattern >= 5);
 
 # Entity with computed position
-Signal x_pos = input(2) % 10;
-Signal y_pos = input(3) % 10;
-Entity dynamic_lamp = Place("small-lamp", x_pos, y_pos);
+Signal x_pos = 3;
+Signal y_pos = 4;
+Entity dynamic_lamp = place("small-lamp", x_pos, y_pos);

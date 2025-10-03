@@ -115,7 +115,7 @@ class TestWarningAnalysis:
         from dsl_compiler.src.emit import BlueprintEmitter
         
         code = '''
-        mem counter = memory(0);
+        Memory counter = 0;
         Signal current = read(counter);
         write(counter, current + 1);
         '''

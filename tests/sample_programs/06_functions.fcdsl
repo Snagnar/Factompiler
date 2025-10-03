@@ -11,7 +11,7 @@ func conditional_add(a, b, condition) {
 }
 
 func memory_toggle() {
-    mem toggle_state = memory(0);
+    Memory toggle_state = 0;
     Signal current = read(toggle_state);
     Signal new_state = 1 - current;  # toggle between 0 and 1
     write(toggle_state, new_state);
@@ -19,10 +19,10 @@ func memory_toggle() {
 }
 
 # Use functions
-Signal input_val = input(0);
+Signal input_val = 42;
 Signal doubled = double_signal(input_val);
 
-Signal condition = input(1) > 0;
+Signal condition = 50 > 0;
 Signal computed = conditional_add(input_val, 5, condition);
 
 Signal toggle_output = memory_toggle();
@@ -30,6 +30,6 @@ Signal toggle_output = memory_toggle();
 # Nested function calls
 Signal complex_result = conditional_add(
     double_signal(input_val),
-    input(2),
+    120,
     toggle_output
 );

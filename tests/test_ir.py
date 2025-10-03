@@ -44,16 +44,6 @@ class TestIRValueNodes:
         node.value = 42
         assert node.value == 42
 
-    def test_ir_input(self):
-        """Test IR_Input node."""
-        ast_node = StringLiteral("iron-plate")
-        node = IR_Input("input_1", "iron-plate", ast_node)
-        assert node.node_id == "input_1"
-        assert node.output_type == "iron-plate"
-        assert node.source_ast == ast_node
-        node.index = 0
-        assert node.index == 0
-
     def test_ir_arith(self):
         """Test IR_Arith node."""
         node = IR_Arith("arith_1", "signal-A")
@@ -181,7 +171,6 @@ class TestIRHierarchy:
         """Test IRValue node inheritance."""
         values = [
             IR_Const("const_1", "signal-A"),
-            IR_Input("input_1", "iron-plate"),
             IR_Arith("arith_1", "signal-A"),
             IR_Decider("decider_1", "signal-A"),
             IR_MemRead("mem_read_1", "signal-A"),

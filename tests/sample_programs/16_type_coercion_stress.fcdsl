@@ -2,11 +2,11 @@
 # Tests: complex type mixing, coercion edge cases, signal type interactions
 
 # Various input types
-Signal implicit1 = input(0);                    # __v1
-Signal implicit2 = input(1);                    # __v2  
-Signal iron = input("iron-plate", 2);
-Signal copper = input("copper-plate", 3);
-Signal signal_a = input("signal-A", 4);
+Signal implicit1 = 100;                    # __v1
+Signal implicit2 = 110;                    # __v2  
+Signal iron = ("iron-plate", 2);
+Signal copper = ("copper-plate", 3);
+Signal signal_a = ("signal-A", 4);
 
 # Integer literals
 Signal int_val = 42;
@@ -51,7 +51,7 @@ Bundle bundle_proj_mixed = bundle(implicit1 + iron, copper * implicit2);
 Signal final_proj = bundle_proj_mixed | "wood";        # project to unrelated type
 
 # Memory operations with type mixing
-mem mixed_memory = memory(implicit1 + iron);
+Memory mixed_memory = implicit1 + iron;
 write(mixed_memory, copper + implicit2);
 Signal memory_read = read(mixed_memory);
 

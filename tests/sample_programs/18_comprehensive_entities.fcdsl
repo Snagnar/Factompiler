@@ -6,11 +6,11 @@
 # =============================================================================
 
 # Basic signal constants
-Signal input_signal = input("signal-A", 0);
-Signal counter_value = input("signal-B", 1);
+Signal input_signal = ("signal-A", 0);
+Signal counter_value = ("signal-B", 1);
 
 # Constant combinator with multiple signals
-Entity constants = Place("constant-combinator", 0, 0);
+Entity constants = place("constant-combinator", 0, 0);
 # In a full implementation, we'd set the combinator's values here
 
 # Arithmetic operations
@@ -27,79 +27,78 @@ Signal gate_output = condition * counter_value;
 # =============================================================================
 
 # Electric poles - power network
-Entity small_pole = Place("small-electric-pole", 5, 0);
-Entity medium_pole = Place("medium-electric-pole", 15, 0);
-Entity big_pole = Place("big-electric-pole", 30, 0);
-Entity substation = Place("substation", 45, 0);
+Entity small_pole = place("small-electric-pole", 5, 0);
+Entity medium_pole = place("medium-electric-pole", 15, 0);
+Entity big_pole = place("big-electric-pole", 30, 0);
+Entity substation = place("substation", 45, 0);
 
 # =============================================================================
 # LOGISTICS - Belts, inserters, containers
 # =============================================================================
 
 # Transport belts
-Entity yellow_belt = Place("transport-belt", 0, 5);
-Entity fast_belt = Place("fast-transport-belt", 1, 5);
-Entity express_belt = Place("express-transport-belt", 2, 5);
+Entity yellow_belt = place("transport-belt", 0, 5);
+Entity fast_belt = place("fast-transport-belt", 1, 5);
+Entity express_belt = place("express-transport-belt", 2, 5);
 
 # Underground belts
-Entity underground_in = Place("underground-belt", 0, 7);
-Entity underground_out = Place("underground-belt", 8, 7);
+Entity underground_in = place("underground-belt", 0, 7);
+Entity underground_out = place("underground-belt", 8, 7);
 
 # Splitters
-Entity basic_splitter = Place("splitter", 0, 9);
-Entity fast_splitter = Place("fast-splitter", 3, 9);
-Entity express_splitter = Place("express-splitter", 6, 9);
+Entity basic_splitter = place("splitter", 0, 9);
+Entity fast_splitter = place("fast-splitter", 3, 9);
+Entity express_splitter = place("express-splitter", 6, 9);
 
 # Inserters
-Entity burner_inserter = Place("burner-inserter", 10, 5);
-Entity basic_inserter = Place("inserter", 11, 5);
-Entity long_inserter = Place("long-handed-inserter", 12, 5);
-Entity fast_inserter = Place("fast-inserter", 13, 5);
-Entity filter_inserter = Place("filter-inserter", 14, 5);
-Entity stack_inserter = Place("stack-inserter", 15, 5);
-Entity stack_filter = Place("stack-filter-inserter", 16, 5);
+Entity burner_inserter = place("burner-inserter", 10, 5);
+Entity basic_inserter = place("inserter", 11, 5);
+Entity long_inserter = place("long-handed-inserter", 12, 5);
+Entity fast_inserter = place("fast-inserter", 13, 5);
+Entity bulk_inserter = place("bulk-inserter", 14, 5);
+Entity stack_inserter = place("stack-inserter", 15, 5);
 
 # Containers  
-Entity wooden_chest = Place("wooden-chest", 10, 7);
-Entity iron_chest = Place("iron-chest", 11, 7);
-Entity steel_chest = Place("steel-chest", 12, 7);
-Entity storage_tank = Place("storage-tank", 14, 7);
+Entity wooden_chest = place("wooden-chest", 10, 7);
+Entity iron_chest = place("iron-chest", 11, 7);
+Entity steel_chest = place("steel-chest", 12, 7);
+Entity storage_tank = place("storage-tank", 14, 7);
 
 # =============================================================================
 # PRODUCTION - Assemblers, furnaces, mining
 # =============================================================================
 
 # Assembling machines
-Entity assembler1 = Place("assembling-machine-1", 0, 15);
-Entity assembler2 = Place("assembling-machine-2", 4, 15);
-Entity assembler3 = Place("assembling-machine-3", 8, 15);
+Entity assembler1 = place("assembling-machine-1", 0, 15);
+Entity assembler2 = place("assembling-machine-2", 4, 15);
+Entity assembler3 = place("assembling-machine-3", 8, 15);
 
 # Furnaces
-Entity stone_furnace = Place("stone-furnace", 0, 20);
-Entity steel_furnace = Place("steel-furnace", 3, 20);
-Entity electric_furnace = Place("electric-furnace", 6, 20);
+Entity stone_furnace = place("stone-furnace", 0, 20);
+Entity steel_furnace = place("steel-furnace", 3, 20);
+Entity electric_furnace = place("electric-furnace", 6, 20);
 
 # Mining
-Entity burner_drill = Place("burner-mining-drill", 15, 15);
-Entity electric_drill = Place("electric-mining-drill", 18, 15);
+Entity burner_drill = place("burner-mining-drill", 15, 15);
+Entity electric_drill = place("electric-mining-drill", 18, 15);
 
 # =============================================================================
 # FLUIDS - Pumps and fluid handling
 # =============================================================================
 
-Entity offshore_pump = Place("offshore-pump", 0, 25);
-Entity pump = Place("pump", 5, 25);
+Entity offshore_pump = place("offshore-pump", 0, 25);
+Entity pump = place("pump", 5, 25);
 
 # =============================================================================
 # CIRCUIT NETWORK CONTROL
 # =============================================================================
 
 # Lamp with circuit control
-Entity controlled_lamp = Place("small-lamp", 20, 0);
+Entity controlled_lamp = place("small-lamp", 20, 0);
 controlled_lamp.enable = input_signal > 5;
 
 # Train stop with circuit control
-Entity train_station = Place("train-stop", 25, 0);
+Entity train_station = place("train-stop", 25, 0);
 train_station.read_from_train = 1;
 train_station.send_to_train = 1;
 
@@ -107,8 +106,8 @@ train_station.send_to_train = 1;
 # ADVANCED - Radar, roboport
 # =============================================================================
 
-Entity radar = Place("radar", 30, 15);
-Entity roboport = Place("roboport", 35, 15);
+Entity radar = place("radar", 30, 15);
+Entity roboport = place("roboport", 35, 15);
 
 # =============================================================================
 # CIRCUIT NETWORK INTERACTIONS
@@ -119,7 +118,7 @@ Signal lamp_status = controlled_lamp.enable;
 Signal train_contents = train_station.train_contents;
 
 # Memory for state tracking
-mem entity_counter = memory(0);
+Memory entity_counter = 0;
 write(entity_counter, read(entity_counter) + 1);
 Signal counter_out = read(entity_counter);
 

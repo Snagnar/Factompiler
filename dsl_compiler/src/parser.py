@@ -34,12 +34,12 @@ from dsl_compiler.src.dsl_ast import (
     IdentifierExpr,
     PropertyAccessExpr,
     CallExpr,
-    InputExpr,
     ReadExpr,
     WriteExpr,
     BundleExpr,
     ProjectionExpr,
     PlaceExpr,
+    SignalLiteral,
     print_ast,
 )
 
@@ -149,7 +149,7 @@ class DSLTransformer(Transformer):
             raise ValueError(f"Unexpected decl_stmt structure: {items}")
 
     def type_name(self, items) -> str:
-        """type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW | BUNDLE_TYPE_KW"""
+        """type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW | BUNDLE_TYPE_KW | MEMORY_KW"""
         if len(items) == 1:
             token = items[0]
             return str(token.value) if hasattr(token, "value") else str(token)
@@ -157,14 +157,24 @@ class DSLTransformer(Transformer):
             raise ValueError(f"Unexpected type_name structure: {items}")
 
     def _unwrap_tree(self, item):
-        """Unwrap Tree objects to get the actual value."""
-        from lark import Tree
+        """Unwrap Tree objects and convert tokens to AST nodes."""
+        from lark import Tree, Token
 
         if isinstance(item, Tree):
             if len(item.children) == 1:
                 return self._unwrap_tree(item.children[0])
             else:
                 return item.children
+        elif isinstance(item, Token):
+            # Convert tokens to appropriate AST nodes
+            if item.type == "STRING":
+                # Remove quotes from string literal
+                return StringLiteral(value=item.value[1:-1])  # Remove surrounding quotes
+            elif item.type == "NUMBER":
+                return NumberLiteral(value=int(item.value))
+            else:
+                # For other tokens, return the value
+                return item.value
         return item
 
     def assign_stmt(self, items) -> AssignStmt:
@@ -184,36 +194,6 @@ class DSLTransformer(Transformer):
             return AssignStmt(target=target, value=value)
         else:
             raise ValueError(f"Could not parse assign_stmt from items: {items}")
-
-    def mem_decl(self, items) -> MemDecl:
-        """mem_decl: "mem" NAME "=" "memory" "(" [expr] ")" """
-        # Handle case where we get a MemDecl back (from statement rule)
-        if len(items) == 1 and isinstance(items[0], MemDecl):
-            return items[0]
-
-        # With simplified grammar: string literals filtered out
-        # Remaining items should be: NAME, [expr] (optional expression)
-        if len(items) >= 1:
-            # First item should be the name
-            name = str(items[0])
-            init_expr = None
-
-            # Look for expression in remaining items
-            if len(items) > 1:
-                for item in items[1:]:
-                    if hasattr(item, "__class__") and (
-                        "Expr" in item.__class__.__name__
-                        or "Literal" in item.__class__.__name__
-                    ):
-                        init_expr = item
-                        break
-                    elif isinstance(item, Tree):
-                        init_expr = self._unwrap_tree(item)
-                        break
-
-            return self._set_position(MemDecl(name=name, init_expr=init_expr), items[0])
-        else:
-            raise ValueError(f"Could not parse mem_decl from items: {items}")
 
     def expr_stmt(self, items) -> ExprStmt:
         """expr_stmt: expr"""
@@ -430,16 +410,16 @@ class DSLTransformer(Transformer):
         """arglist: expr ("," expr)*"""
         return list(items)
 
-    def input_index(self, items) -> InputExpr:
-        """input_args: NUMBER -> input_index"""
-        index = NumberLiteral(value=int(items[0]))
-        return InputExpr(index=index, signal_type=None)
+    def signal_with_type(self, items) -> SignalLiteral:
+        """signal_literal: "(" type_literal "," expr ")" -> signal_with_type"""
+        signal_type = items[0]  # type_literal
+        value = items[1]  # expr
+        return SignalLiteral(value=value, signal_type=signal_type)
 
-    def input_typed_index(self, items) -> InputExpr:
-        """input_args: type_literal "," NUMBER -> input_typed_index"""
-        signal_type = items[0]
-        index = NumberLiteral(value=int(items[1]))
-        return InputExpr(index=index, signal_type=StringLiteral(value=signal_type))
+    def signal_constant(self, items) -> SignalLiteral:
+        """signal_literal: NUMBER -> signal_constant"""
+        value = NumberLiteral(value=int(items[0]))
+        return SignalLiteral(value=value, signal_type=None)  # Implicit type
 
     def type_literal(self, items) -> str:
         """type_literal: STRING | NAME"""
@@ -450,20 +430,6 @@ class DSLTransformer(Transformer):
             else:  # NAME
                 return str(token)
         return str(token)
-
-    # =========================================================================
-    # Literals and identifiers
-    # =========================================================================
-
-    def number(self, items) -> NumberLiteral:
-        """literal: NUMBER -> number"""
-        value = int(items[0])
-        return NumberLiteral(value=value)
-
-    def string(self, items) -> StringLiteral:
-        """literal: STRING -> string"""
-        value = str(items[0])[1:-1]  # Remove quotes
-        return StringLiteral(value=value)
 
     # =========================================================================
     # Special constructs
@@ -520,9 +486,7 @@ class DSLTransformer(Transformer):
         # Handle keyword token constructs
         if len(items) > 0 and isinstance(items[0], Token):
             token_type = items[0].type
-            if token_type == "INPUT_KW":
-                return items[1]  # The InputExpr created by input_args rules
-            elif token_type == "READ_KW":
+            if token_type == "READ_KW":
                 memory_name = str(items[1])
                 return ReadExpr(memory_name=memory_name)
             elif token_type == "WRITE_KW":
@@ -541,9 +505,7 @@ class DSLTransformer(Transformer):
 
         # Handle string-based constructs (fallback)
         if len(items) > 0 and isinstance(items[0], str):
-            if items[0] == "input":
-                return items[1]  # The InputExpr created by input_args rules
-            elif items[0] == "read":
+            if items[0] == "read":
                 memory_name = str(items[1])
                 return ReadExpr(memory_name=memory_name)
             elif items[0] == "write":
