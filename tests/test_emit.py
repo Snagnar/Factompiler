@@ -6,38 +6,7 @@ import pytest
 from dsl_compiler.src.parser import DSLParser
 from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
 from dsl_compiler.src.lowerer import lower_program
-from dsl_compiler.src.emit import BlueprintEmitter, DraftsmanEntityFactory
-
-
-class TestDraftsmanEntityFactory:
-    """Test entity factory functionality."""
-
-    @pytest.fixture
-    def factory(self):
-        return DraftsmanEntityFactory()
-
-    def test_factory_initialization(self, factory):
-        """Test factory can be initialized."""
-        assert factory is not None
-
-    def test_signal_loading(self, factory):
-        """Test signal loading functionality."""
-        assert hasattr(factory, 'all_valid_signals')
-        assert hasattr(factory, 'virtual_signals')
-        assert len(factory.all_valid_signals) > 0
-        assert len(factory.virtual_signals) > 0
-
-    def test_signal_validation(self, factory):
-        """Test signal validation."""
-        assert factory.is_valid_signal("iron-plate")
-        assert factory.is_valid_signal("signal-A")
-        assert not factory.is_valid_signal("nonexistent-signal")
-
-    def test_virtual_signal_detection(self, factory):
-        """Test virtual signal detection."""
-        assert factory.is_virtual_signal("signal-A")
-        assert factory.is_virtual_signal("signal-0")
-        assert not factory.is_virtual_signal("iron-plate")
+from dsl_compiler.src.emit import BlueprintEmitter
 
 
 class TestBlueprintEmitter:

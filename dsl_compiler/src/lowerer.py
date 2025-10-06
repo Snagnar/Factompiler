@@ -20,6 +20,11 @@ from dsl_compiler.src.semantic import (
     DiagnosticCollector,
 )
 
+try:
+    from draftsman.data import signals as signal_data
+except ImportError:  # pragma: no cover - draftsman optional in some environments
+    signal_data = None
+
 
 class ASTLowerer:
     """Converts semantic-analyzed AST to IR."""
@@ -38,6 +43,78 @@ class ASTLowerer:
 
         # Copy signal type mapping from semantic analyzer
         self.ir_builder.signal_type_map = self.semantic.signal_type_map.copy()
+
+    def _infer_signal_category(self, signal_type: Optional[str]) -> str:
+        """Infer the Factorio signal category for the given identifier."""
+        if not signal_type:
+            return "virtual"
+
+        if signal_data is not None:
+            if signal_type in signal_data.type_of:
+                types = signal_data.type_of.get(signal_type, [])
+                if types:
+                    return types[0]
+            if signal_type in signal_data.raw:
+                info = signal_data.raw.get(signal_type, {})
+                prototype_type = info.get("type")
+                # Draftsman uses "virtual-signal" for prototype metadata, but
+                # the registration API expects the simplified "virtual" label.
+                if prototype_type == "virtual-signal":
+                    return "virtual"
+                if prototype_type in {
+                    "item",
+                    "fluid",
+                    "recipe",
+                    "entity",
+                    "space-location",
+                    "asteroid-chunk",
+                    "quality",
+                    "virtual",
+                }:
+                    return prototype_type
+
+        mapped = self.ir_builder.signal_type_map.get(signal_type)
+        if isinstance(mapped, dict):
+            return mapped.get("type", "virtual")
+        if isinstance(mapped, str):
+            if signal_data is not None and mapped in signal_data.raw:
+                prototype_type = signal_data.raw[mapped].get("type", "virtual")
+                # Normalize Draftsman's "virtual-signal" prototype type to the
+                # canonical "virtual" category before registering custom names.
+                return "virtual" if prototype_type == "virtual-signal" else prototype_type
+            if mapped.startswith("signal-"):
+                return "virtual"
+
+        if signal_type.startswith("__v"):
+            return "virtual"
+
+        return "virtual"
+
+    def _ensure_signal_registered(
+        self, signal_type: Optional[str], source_signal_type: Optional[str] = None
+    ) -> None:
+        """Ensure that a signal identifier is known to the emitter."""
+        if not signal_type:
+            return
+
+        if signal_data is not None and signal_type in signal_data.raw:
+            return
+
+        if signal_type in self.ir_builder.signal_type_map:
+            return
+
+        category = (
+            self._infer_signal_category(source_signal_type)
+            if source_signal_type
+            else None
+        )
+        if not category:
+            category = self._infer_signal_category(signal_type)
+
+        self.ir_builder.signal_type_map[signal_type] = {
+            "name": signal_type,
+            "type": category or "virtual",
+        }
 
     def lower_program(self, program: Program) -> List[IRNode]:
         """Lower an entire program to IR."""
@@ -166,6 +243,8 @@ class ASTLowerer:
         else:
             signal_type = self.ir_builder.allocate_implicit_type()
 
+        self._ensure_signal_registered(signal_type)
+
         # Lower initialization expression if present
         if stmt.init_expr:
             init_ref = self.lower_expr(stmt.init_expr)
@@ -187,6 +266,8 @@ class ASTLowerer:
             signal_type = symbol.value_type.signal_type.name
         else:
             signal_type = self.ir_builder.allocate_implicit_type()
+
+        self._ensure_signal_registered(signal_type)
 
         # Lower initialization expression
         init_ref = self.lower_expr(stmt.value)
@@ -287,6 +368,11 @@ class ASTLowerer:
         else:
             output_type = self.ir_builder.allocate_implicit_type()
 
+        left_signal_type = (
+            left_type.signal_type.name if isinstance(left_type, SignalValue) else None
+        )
+        self._ensure_signal_registered(output_type, left_signal_type)
+
         # Handle different operand combinations
         if expr.op in ["+", "-", "*", "/", "%"]:
             return self.ir_builder.arithmetic(
@@ -340,6 +426,11 @@ class ASTLowerer:
         else:
             output_type = self.ir_builder.allocate_implicit_type()
 
+        operand_signal_type = (
+            result_type.signal_type.name if isinstance(result_type, SignalValue) else None
+        )
+        self._ensure_signal_registered(output_type, operand_signal_type)
+
         if expr.op == "+":
             # Unary plus is a no-op
             return operand_ref
@@ -364,6 +455,8 @@ class ASTLowerer:
         else:
             # Allocate implicit type
             signal_type = self.ir_builder.allocate_implicit_type()
+
+        self._ensure_signal_registered(signal_type)
 
         # Lower the value expression
         value_ref = self.lower_expr(expr.value)
@@ -393,6 +486,8 @@ class ASTLowerer:
             signal_type = symbol.value_type.signal_type.name
         else:
             signal_type = self.ir_builder.allocate_implicit_type()
+
+        self._ensure_signal_registered(signal_type)
 
         return self.ir_builder.memory_read(memory_id, signal_type, expr)
 
@@ -453,6 +548,7 @@ class ASTLowerer:
                 return source_ref
             else:
                 # Convert signal to target type using arithmetic passthrough
+                self._ensure_signal_registered(target_type, source_ref.signal_type)
                 return self.ir_builder.arithmetic("+", source_ref, 0, target_type, expr)
 
         elif isinstance(source_ref, BundleRef):
@@ -465,16 +561,19 @@ class ASTLowerer:
                     f"Projection collapsing bundle to {target_type}", expr
                 )
                 # For now, just create a constant - proper summing would need more IR nodes
+                self._ensure_signal_registered(target_type)
                 return self.ir_builder.const(target_type, 0, expr)
 
         elif isinstance(source_ref, int):
             # Convert integer to signal of target type
+            self._ensure_signal_registered(target_type)
             return self.ir_builder.const(target_type, source_ref, expr)
 
         else:
             self.diagnostics.error(
                 f"Cannot project {type(source_ref)} to {target_type}", expr
             )
+            self._ensure_signal_registered(target_type)
             return self.ir_builder.const(target_type, 0, expr)
 
     def lower_call_expr(self, expr: CallExpr) -> ValueRef:
@@ -610,7 +709,7 @@ class ASTLowerer:
             self.ir_builder.add_operation(read_op)
 
             # Return a signal reference pointing to this operation's output
-            return SignalRef(read_op.node_id, signal_type)
+            return SignalRef(signal_type, read_op.node_id)
         else:
             self.diagnostics.error(f"Undefined entity: {entity_name}", expr)
             return self.ir_builder.const(
@@ -636,7 +735,7 @@ class ASTLowerer:
             self.ir_builder.add_operation(read_op)
 
             # Return a signal reference pointing to this operation's output
-            return SignalRef(read_op.node_id, signal_type)
+            return SignalRef(signal_type, read_op.node_id)
         else:
             self.diagnostics.error(f"Undefined entity: {entity_name}", expr)
             return self.ir_builder.const(

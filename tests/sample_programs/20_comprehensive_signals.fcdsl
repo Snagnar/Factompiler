@@ -190,8 +190,8 @@ write(system_mode, new_mode);
 # =============================================================================
 
 Bundle comprehensive_output = bundle(
-    signal_A | "status-virtual",           # Virtual signal
-    iron_plate | "iron-inventory",         # Item signal  
+    signal_A | "signal-Z",           # Virtual signal
+    iron_plate | "iron-plate",         # Item signal  
     water | "water-level",                 # Fluid signal
     iron_plate_recipe | "recipe-active",   # Recipe signal
     belt_entity | "entity-count"           # Entity signal

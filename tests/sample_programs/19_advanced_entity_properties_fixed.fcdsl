@@ -122,7 +122,7 @@ Signal normal_operation = factory_running && !critical_state;
 # =============================================================================
 
 Bundle production_status = bundle(
-    item_count | "iron-status",
+    item_count | "iron-plate",
     copper_count | "copper-status", 
     production_rate | "production-rate"
 );

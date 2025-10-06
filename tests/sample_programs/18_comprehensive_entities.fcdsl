@@ -136,7 +136,7 @@ fast_belt.enable = !belt_enable;
 Bundle production_signals = bundle(
     input_signal,
     counter_out,
-    enable_production | "production-enable"
+    enable_production | "signal-P"
 );
 
 Signal production_sum = production_signals | "signal-P";

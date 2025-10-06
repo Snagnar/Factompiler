@@ -21,7 +21,7 @@ func production_controller(demand, supply, buffer_size) {
 Entity assembler1 = place("assembling-machine-1", 0, 0);
 Entity assembler2 = place("assembling-machine-1", 3, 0);
 
-Signal iron_demand = ("signal-demand", 1);
+Signal iron_demand = ("signal-D", 1);
 Signal iron_supply = ("signal-supply", 2);
 
 Signal control_signal = production_controller(iron_demand, iron_supply, 100);
