@@ -14,14 +14,9 @@ Signal complex_calc =
     input_b / 2 -     // Second part  
     5;                // Constant
 
-# Bundle with comments
-Bundle signals = bundle(
-    input_a,          // First channel
-    input_b * 2       // Second channel, doubled
-);
-
-# Projection with comments
-Signal output = signals | "signal-output";  // Final result
+# Aggregation with comments (bundle-free)
+Signal doubled_b = input_b * 2;       // Second channel, doubled
+Signal output = (input_a + doubled_b) | "signal-output";  // Final result
 
 # Edge case: empty lines and spacing
 

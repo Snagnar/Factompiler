@@ -222,6 +222,14 @@ class StringLiteral(Literal):
         self.value = value
 
 
+class DictLiteral(Literal):
+    """Dictionary literal: { key: value, ... }"""
+
+    def __init__(self, entries: Dict[str, "Expr"], line: int = 0, column: int = 0):
+        super().__init__(line, column)
+        self.entries = entries
+
+
 class IdentifierExpr(Expr):
     """Variable reference in expression context."""
 
@@ -248,6 +256,7 @@ class CallExpr(Expr):
         super().__init__(line, column)
         self.name = name
         self.args = args
+        self.metadata: Dict[str, Any] = {}
 
 
 class ReadExpr(Expr):
@@ -265,14 +274,6 @@ class WriteExpr(Expr):
         super().__init__(line, column)
         self.memory_name = memory_name
         self.value = value
-
-
-class BundleExpr(Expr):
-    """bundle(expr1, expr2, ...)"""
-
-    def __init__(self, exprs: List[Expr], line: int = 0, column: int = 0):
-        super().__init__(line, column)
-        self.exprs = exprs
 
 
 class ProjectionExpr(Expr):
@@ -335,13 +336,6 @@ class SignalType(TypeInfo):
     def __init__(self, type_name: str, is_implicit: bool = False):
         self.type_name = type_name  # e.g. "iron-plate", "signal-A", "__v1"
         self.is_implicit = is_implicit  # True for compiler-allocated virtual signals
-
-
-class BundleType(TypeInfo):
-    """Multi-channel bundle type: Map[type_name -> count]"""
-
-    def __init__(self, channels: Dict[str, "SignalType"]):
-        self.channels = channels
 
 
 class IntType(TypeInfo):

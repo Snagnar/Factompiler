@@ -1,26 +1,24 @@
-# Test 3: Bundle operations and multi-channel signals
-# Tests: bundle(), projection from bundles, bundle arithmetic
+# Test 3: Advanced signal aggregation without bundles
+# Tests: chained projections, multi-signal arithmetic, channel remapping
 
 Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 80);  
 Signal coal = ("coal", 50);
 
-# Create bundle with multiple channels
-Bundle resources = bundle(iron, copper, coal);
+Signal total_resources = iron + copper + coal;
 
-# Bundle arithmetic
-Bundle doubled_resources = resources * 2;
-Bundle more_resources = resources + bundle(iron * 3, coal);
+# Aggregation with projection
+Signal doubled_resources = (total_resources * 2) | "iron-plate";
+Signal more_resources = (total_resources + iron * 3 + coal) | "copper-plate";
 
-# Project specific channels from bundle
-Signal iron_from_bundle = resources | "iron-plate";
-Signal steel_collapsed = resources | "steel-plate";  # sum all channels
+# Project specific channels via explicit projection
+Signal iron_projected = iron | "iron-plate";
+Signal steel_projection = (iron + copper + coal) | "steel-plate";  # sum all via projection
 
-# Mixed bundle and signal operations
-Bundle iron_plus_bundle = iron + resources;  # iron channel gets added
+# Mixed-channel operations using projections
+Signal iron_with_copper = (iron + (copper | "iron-plate"));
 
-# Nested bundle operations
-Bundle processed = bundle(
-    iron * 2 | "iron-ore",
-    copper + coal | "copper-ore"
-);
+# Simulate nested processing without bundles
+Signal processed_iron = (iron * 2) | "iron-ore";
+Signal processed_copper = (copper + coal) | "copper-ore";
+Signal processed_total = processed_iron + processed_copper;

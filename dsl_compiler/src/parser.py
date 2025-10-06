@@ -36,10 +36,10 @@ from dsl_compiler.src.dsl_ast import (
     CallExpr,
     ReadExpr,
     WriteExpr,
-    BundleExpr,
     ProjectionExpr,
     PlaceExpr,
     SignalLiteral,
+    DictLiteral,
     print_ast,
 )
 
@@ -129,22 +129,27 @@ class DSLTransformer(Transformer):
         """start: statement*"""
         return Program(statements=statements)
 
-    def decl_stmt(self, items) -> DeclStmt:
+    def decl_stmt(self, items) -> Statement:
         """decl_stmt: type_name NAME "=" expr"""
-        if len(items) == 1 and isinstance(items[0], DeclStmt):
-            # Handle nested decl_stmt rule
+        if len(items) == 1 and isinstance(items[0], Statement):
+            # Handle nested decl_stmt rule (covers DeclStmt and MemDecl)
             return items[0]
         elif len(items) >= 3:
             # items[0] = type_name token, items[1] = NAME token, items[2] = expr
             # The "=" literal is filtered out by Lark
-            type_name = (
+            raw_type = (
                 str(items[0].value) if hasattr(items[0], "value") else str(items[0])
             )
             name = str(items[1].value) if hasattr(items[1], "value") else str(items[1])
             value = self._unwrap_tree(items[2])  # Handle Tree wrapper
-            return self._set_position(
-                DeclStmt(type_name=type_name, name=name, value=value), items[1]
-            )
+            type_name = "Memory" if raw_type in ("mem", "Memory") else raw_type
+
+            if type_name == "Memory":
+                return self._set_position(MemDecl(name=name, init_expr=value), items[1])
+            else:
+                return self._set_position(
+                    DeclStmt(type_name=type_name, name=name, value=value), items[1]
+                )
         else:
             raise ValueError(f"Unexpected decl_stmt structure: {items}")
 
@@ -152,7 +157,8 @@ class DSLTransformer(Transformer):
         """type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW | BUNDLE_TYPE_KW | MEMORY_KW"""
         if len(items) == 1:
             token = items[0]
-            return str(token.value) if hasattr(token, "value") else str(token)
+            value = str(token.value) if hasattr(token, "value") else str(token)
+            return "Memory" if value == "mem" else value
         else:
             raise ValueError(f"Unexpected type_name structure: {items}")
 
@@ -410,6 +416,32 @@ class DSLTransformer(Transformer):
         """arglist: expr ("," expr)*"""
         return list(items)
 
+    def dict_literal(self, items) -> DictLiteral:
+        """dict_literal: '{' [dict_item (',' dict_item)*] '}'"""
+        entries: Dict[str, Expr] = {}
+        first_token = None
+        for key, value, token in items:
+            entries[key] = value
+            if first_token is None:
+                first_token = token
+
+        literal = DictLiteral(entries=entries)
+        if first_token is not None:
+            literal = self._set_position(literal, first_token)
+        return literal
+
+    def dict_item(self, items):
+        """dict_item: (STRING | NAME) ':' expr"""
+        key_token = items[0]
+        value_expr = self._unwrap_tree(items[1])
+
+        if isinstance(key_token, Token) and key_token.type == "STRING":
+            key = key_token.value[1:-1]
+        else:
+            key = str(key_token)
+
+        return key, value_expr, key_token
+
     def signal_with_type(self, items) -> SignalLiteral:
         """signal_literal: "(" type_literal "," expr ")" -> signal_with_type"""
         signal_type = items[0]  # type_literal
@@ -434,28 +466,6 @@ class DSLTransformer(Transformer):
     # =========================================================================
     # Special constructs
     # =========================================================================
-
-    def bundle_expr(self, items) -> BundleExpr:
-        """bundle_expr: BUNDLE_KW "(" [arglist] ")" """
-        args = []
-        # With keyword tokens, first item is BUNDLE_KW token, second is arglist (or None)
-        start_idx = (
-            1
-            if len(items) > 0
-            and hasattr(items[0], "type")
-            and items[0].type == "BUNDLE_KW"
-            else 0
-        )
-
-        if start_idx < len(items) and items[start_idx] is not None:
-            arglist = items[start_idx]
-            if isinstance(arglist, list):
-                # Unwrap Tree objects to get the actual expressions
-                for arg in arglist:
-                    args.append(self._unwrap_tree(arg))
-            else:
-                args = [self._unwrap_tree(arglist)]
-        return BundleExpr(exprs=args)
 
     def primary(self, items) -> Expr:
         """Handle primary expressions that weren't caught by other rules."""
@@ -493,15 +503,6 @@ class DSLTransformer(Transformer):
                 memory_name = str(items[1])
                 value = items[2]
                 return WriteExpr(memory_name=memory_name, value=value)
-            elif token_type == "BUNDLE_KW":
-                exprs = []
-                if len(items) > 1 and items[1] is not None:
-                    arglist = items[1]
-                    if isinstance(arglist, list):
-                        exprs = arglist
-                    else:
-                        exprs = [arglist]
-                return BundleExpr(exprs=exprs)
 
         # Handle string-based constructs (fallback)
         if len(items) > 0 and isinstance(items[0], str):
@@ -512,15 +513,6 @@ class DSLTransformer(Transformer):
                 memory_name = str(items[1])
                 value = items[2]
                 return WriteExpr(memory_name=memory_name, value=value)
-            elif items[0] == "bundle":
-                exprs = []
-                if len(items) > 1 and items[1] is not None:
-                    arglist = items[1]
-                    if isinstance(arglist, list):
-                        exprs = arglist
-                    else:
-                        exprs = [arglist]
-                return BundleExpr(exprs=exprs)
 
         return items[0]
 

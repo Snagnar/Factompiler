@@ -1,44 +1,37 @@
-# Test 15: Function and bundle integration
-# Tests: functions returning bundles, bundle parameters, complex function-bundle interactions
+# Test 15: Function and signal integration
+# Tests: functions returning projected signals, memory interaction, nested calls
 
-# Function that creates and returns bundles
-func create_resource_bundle(iron_amount, copper_amount) {
-    Signal processed_iron = iron_amount * 2;
-    Signal processed_copper = copper_amount + 10;
-    Bundle resource_bundle = bundle(
-        processed_iron | "iron-plate",
-        processed_copper | "copper-plate"
-    );
-    return resource_bundle;
+# Function that creates a multi-channel mix using projections
+func create_resource_mix(iron_amount, copper_amount) {
+    Signal processed_iron = (iron_amount * 2) | "iron-plate";
+    Signal processed_copper = (copper_amount + 10) | "copper-plate";
+    return processed_iron + processed_copper;
 }
 
-# Function that processes bundles
-func process_bundle(input_bundle, multiplier) {
-    Bundle scaled_bundle = input_bundle * multiplier;
-    Signal iron_component = scaled_bundle | "iron-plate";
-    Signal copper_component = scaled_bundle | "copper-plate";
-    Signal total = iron_component + copper_component;
-    return total;
+# Function that processes the aggregated signal
+func process_mix(input_mix, multiplier) {
+    Signal scaled_mix = input_mix * multiplier;
+    Signal iron_component = scaled_mix | "iron-plate";
+    Signal copper_component = scaled_mix | "copper-plate";
+    return iron_component + copper_component;
 }
 
-# Function with memory that affects bundle creation
-func stateful_bundle_creator(base_value) {
+# Function with memory that affects signal composition
+func stateful_mix_creator(base_value) {
 Memory accumulator = 0;
 Memory type_selector = 0;
-    
+
     Signal current_accum = read(accumulator);
     Signal selector = read(type_selector);
-    
-    write(accumulator, current_accum + base_value);  
+
+    write(accumulator, current_accum + base_value);
     write(type_selector, (selector + 1) % 3);
-    
-    Bundle bundle_content = bundle(
-        (selector == 0) * current_accum | "iron-plate",
-        (selector == 1) * current_accum | "copper-plate", 
-        (selector == 2) * current_accum | "coal"
-    );
-    
-    return bundle_content;
+
+    Signal iron_channel = ((selector == 0) * current_accum) | "iron-plate";
+    Signal copper_channel = ((selector == 1) * current_accum) | "copper-plate";
+    Signal coal_channel = ((selector == 2) * current_accum) | "coal";
+
+    return iron_channel + copper_channel + coal_channel;
 }
 
 # Test inputs
@@ -46,34 +39,34 @@ Signal iron_input = ("iron-plate", 0);
 Signal copper_input = ("copper-plate", 1);
 Signal control_input = 120;
 
-# Create bundles using functions
-Bundle basic_bundle = create_resource_bundle(iron_input, copper_input);
-Signal processed_total = process_bundle(basic_bundle, 3);
+# Create mixes using functions
+Signal basic_mix = create_resource_mix(iron_input, copper_input);
+Signal processed_total = process_mix(basic_mix, 3);
 
-# Stateful bundle creation
-Bundle stateful_bundle1 = stateful_bundle_creator(control_input);
-Bundle stateful_bundle2 = stateful_bundle_creator(control_input + 5);
-Bundle stateful_bundle3 = stateful_bundle_creator(control_input * 2);
+# Stateful mix creation
+Signal stateful_mix1 = stateful_mix_creator(control_input);
+Signal stateful_mix2 = stateful_mix_creator(control_input + 5);
+Signal stateful_mix3 = stateful_mix_creator(control_input * 2);
 
-# Process stateful bundles
-Signal stateful_total1 = process_bundle(stateful_bundle1, 2);
-Signal stateful_total2 = process_bundle(stateful_bundle2, 1);
+# Process stateful mixes
+Signal stateful_total1 = process_mix(stateful_mix1, 2);
+Signal stateful_total2 = process_mix(stateful_mix2, 1);
 
-# Combine function results with regular bundle operations
-Bundle manual_bundle = bundle(iron_input, copper_input);
-Bundle combined_bundle = basic_bundle + manual_bundle;
-Signal final_total = process_bundle(combined_bundle, 1);
+# Combine function results with additional projections
+Signal manual_mix = (iron_input | "iron-plate") + (copper_input | "copper-plate");
+Signal combined_mix = basic_mix + manual_mix;
+Signal final_total = process_mix(combined_mix, 1);
 
-# Function calls with bundle projections as parameters
-Signal iron_only = basic_bundle | "iron-plate";
-Signal copper_only = basic_bundle | "copper-plate";
-Bundle specialized_bundle = create_resource_bundle(iron_only, copper_only);
+# Function calls with projections as parameters
+Signal iron_only = basic_mix | "iron-plate";
+Signal copper_only = basic_mix | "copper-plate";
+Signal specialized_mix = create_resource_mix(iron_only, copper_only);
 
-# Complex nested function and bundle operations
-Signal complex_result = process_bundle(
-    create_resource_bundle(
-        stateful_bundle1 | "iron-plate",
-        stateful_bundle2 | "copper-plate"
+# Complex nested function operations
+Signal complex_result = process_mix(
+    create_resource_mix(
+        stateful_mix1 | "iron-plate",
+        stateful_mix2 | "copper-plate"
     ),
     control_input % 5 + 1
 );

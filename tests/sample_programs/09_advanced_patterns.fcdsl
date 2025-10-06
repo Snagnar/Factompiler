@@ -40,10 +40,8 @@ Signal should_accumulate = input_val > 0;
 Signal current_sum = read(filtered_sum);
 write(filtered_sum, current_sum + (input_val * should_accumulate));
 
-# Output status bundle
-Bundle status = bundle(
-    up_val | "signal-red",
-    down_val | "signal-green", 
-    events | "signal-blue",
-    current_sum | "signal-yellow"
-);
+# Output status projections without bundles
+Signal status_up = up_val | "signal-red";
+Signal status_down = down_val | "signal-green";
+Signal status_events = events | "signal-blue";
+Signal status_sum = current_sum | "signal-yellow";

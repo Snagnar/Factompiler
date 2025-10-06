@@ -132,11 +132,9 @@ Signal belt_enable = input_signal % 10 > 5;
 yellow_belt.enable = belt_enable;
 fast_belt.enable = !belt_enable;
 
-# Bundle operations with entity control
-Bundle production_signals = bundle(
-    input_signal,
-    counter_out,
-    enable_production | "signal-P"
-);
+# Aggregated signal operations with entity control
+Signal production_input = input_signal | "signal-P";
+Signal production_counter = counter_out | "signal-P";
+Signal production_flag = enable_production | "signal-P";
 
-Signal production_sum = production_signals | "signal-P";
+Signal production_sum = production_input + production_counter + production_flag;

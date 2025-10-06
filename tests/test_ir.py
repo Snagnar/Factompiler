@@ -17,19 +17,6 @@ class TestSignalAndValueRefs:
         assert ref.source_id == "input_1"
         assert str(ref) == "iron-plate@input_1"
 
-    def test_bundle_ref(self):
-        """Test BundleRef creation and string representation."""
-        channels = {
-            "x": SignalRef("signal-A", "const_1"),
-            "y": SignalRef("signal-B", "const_2")
-        }
-        ref = BundleRef(channels, "bundle_1")
-        assert ref.channels == channels
-        assert ref.bundle_id == "bundle_1"
-        # String representation shows channel keys, not signal types
-        assert "x" in str(ref)
-        assert "y" in str(ref)
-
 
 class TestIRValueNodes:
     """Test IR value-producing nodes."""
@@ -86,16 +73,6 @@ class TestIRValueNodes:
         node.property_name = "enabled"
         assert node.entity_id == "lamp_1"
         assert node.property_name == "enabled"
-
-    def test_ir_bundle(self):
-        """Test IR_Bundle node."""
-        components = {
-            "x": SignalRef("signal-A", "const_1"),
-            "y": SignalRef("signal-B", "const_2")
-        }
-        node = IR_Bundle("bundle_1", components)
-        assert node.node_id == "bundle_1"
-        assert node.inputs == components
 
 
 class TestIREffectNodes:
@@ -175,7 +152,6 @@ class TestIRHierarchy:
             IR_Decider("decider_1", "signal-A"),
             IR_MemRead("mem_read_1", "signal-A"),
             IR_EntityPropRead("prop_read_1", "signal-A"),
-            IR_Bundle("bundle_1", {}),
         ]
         
         for value in values:
@@ -205,13 +181,6 @@ class TestValueRefTypes:
         ref = SignalRef("iron-plate", "input_1")
         # ValueRef is a Union type, just verify it can hold SignalRef
         assert isinstance(ref, SignalRef)
-
-    def test_value_ref_bundle(self):
-        """Test ValueRef with BundleRef."""
-        channels = {"x": SignalRef("signal-A", "const_1")}
-        ref = BundleRef(channels, "bundle_1")
-        # ValueRef is a Union type, just verify it can hold BundleRef
-        assert isinstance(ref, BundleRef)
 
     def test_value_ref_integer(self):
         """Test ValueRef with integer."""

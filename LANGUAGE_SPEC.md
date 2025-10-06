@@ -62,13 +62,14 @@ Identifiers can contain letters, numbers, underscores, and hyphens. Must start w
 ### Keywords
 
 **Type Keywords:**
-- `int`, `Signal`, `SignalType`, `Entity`, `Bundle`, `Memory`
+- `int`, `Signal`, `SignalType`, `Entity`, `Bundle`, `Memory`, `mem`
+- `mem` is an alias for `Memory`
 
 **Statement Keywords:**
 - `func`, `return`, `import`, `as`
 
 **Built-in Functions:**
-- `read`, `write`, `bundle`, `place`
+- `read`, `write`, `bundle`, `place`, `input`, `memory`
 
 ### Literals
 
@@ -345,6 +346,22 @@ Bundle with_projection = bundle(
 
 **Returns:** Bundle value containing all input channels
 
+### `input(signal_type, [channel_index])`
+
+Declares an external signal that will be provided to the circuit at runtime.
+
+**Syntax:**
+```fcdsl
+input("iron-plate")
+input("copper-plate", 1)
+```
+
+**Parameters:**
+- `signal_type`: String literal naming a Factorio signal. If omitted or unknown, the compiler allocates a virtual channel.
+- `channel_index` (optional): Integer hint used for documentation and layout when multiple inputs are declared.
+
+**Returns:** Signal of the requested type. Each call creates a pass-through combinator in the blueprint so external wires can inject the value.
+
 ### `place(entity_type, x, y, [properties])`
 
 Places entities in the blueprint at specified coordinates.
@@ -360,12 +377,13 @@ place(entity_type, x, y, properties)
 Entity lamp = place("small-lamp", 5, 0);
 Entity train_stop = place("train-stop", 10, 5);
 Entity assembler = place("assembling-machine-1", 0, 10);
+Entity lamp_with_color = place("small-lamp", 6, 0, {color: "green"});
 ```
 
 **Parameters:**
 - `entity_type`: String literal entity prototype name
 - `x`, `y`: Integer coordinates
-- `properties`: Optional dictionary of entity properties
+- `properties`: Optional dictionary of static entity properties. Keys must be valid prototype fields; values are numeric or string literals applied at placement time.
 
 **Returns:** Entity reference for property access
 
@@ -389,6 +407,8 @@ The DSL provides stateful memory through SR latch circuits using the Memory type
 
 ```fcdsl
 Memory name = initial_value;
+mem name = memory(initial_value);
+mem name = memory(initial_value, "signal-type");
 ```
 
 **Examples:**
@@ -396,7 +416,21 @@ Memory name = initial_value;
 Memory counter = 0;                     # Initialize to 0
 Memory accumulator = ("iron-plate", 50); # Initialize from signal
 Memory state = implicit_signal;         # Initialize from variable
+mem history = memory(0);                # Alias syntax using helper
+mem virtual = memory(5, "signal-A");   # Explicit output channel
 ```
+
+`mem` is interchangeable with `Memory` and preferred when using the `memory()` helper for clarity.
+
+### `memory(initial_value, [signal_type])`
+
+Creates a typed initializer for memory declarations.
+
+**Parameters:**
+- `initial_value`: Integer or signal expression used at compile time to seed the SR latch
+- `signal_type` (optional): String literal enforcing the stored channel; defaults to the inferred type of `initial_value` or a fresh virtual signal
+
+**Returns:** Signal typed for the new memory cell. Commonly used only on the right-hand side of a `mem` declaration.
 
 ### `read(memory_name)`
 
@@ -732,8 +766,11 @@ Bundle resources = bundle(iron, copper, coal);
 # Extract specific channel
 Signal iron_only = resources | "iron-plate";
 
-# Sum all channels into one signal type  
+# Sum all channels into one signal type (missing targets collapse into a sum)
 Signal total = resources | "signal-output";
+
+When the requested channel is not present in the bundle, every contained signal is converted to the target type and summed, producing an aggregate value instead of silently returning zero.
+
 
 # Extract non-existing channel (returns 0)
 Signal water = resources | "water";
@@ -787,17 +824,6 @@ Signal copper_virtual = copper | "signal-B";
 Signal sum = iron_virtual + copper_virtual | "signal-output";
 ```
 
-#### Bundle Channel Management
-```fcdsl
-Bundle raw = bundle(iron_ore, copper_ore);
-Bundle processed = bundle(
-    raw | "iron-ore" * 2 | "iron-plate",
-    raw | "copper-ore" * 1 | "copper-plate"
-);
-```
-
----
-
 ## Compilation Model
 
 ### Compilation Pipeline
@@ -817,7 +843,6 @@ The compiler generates IR operations that represent Factorio combinators:
 - `IR_Input`: Input interface (constant combinator placeholder)
 - `IR_Arith`: Arithmetic combinator (+, -, *, /, %)
 - `IR_Decider`: Decider combinator with conditional logic
-- `IR_Bundle`: Multi-channel bundle container
 
 #### Effect Operations
 - `IR_MemCreate`: Memory cell creation (SR latch circuit)
@@ -899,14 +924,14 @@ Signal shortage = production_demand - current_supply;
 Signal should_produce = shortage > 0;
 
 # Entity control
-Entity assembler1 = Place("assembling-machine-1", 10, 0);
-Entity assembler2 = Place("assembling-machine-1", 15, 0);
+Entity assembler1 = place("assembling-machine-1", 10, 0);
+Entity assembler2 = place("assembling-machine-1", 15, 0);
 
 assembler1.enable = should_produce;
 assembler2.enable = shortage > 50;  # Only enable second assembler for high demand
 
 # Status lamp
-Entity status_lamp = Place("small-lamp", 20, 0);
+Entity status_lamp = place("small-lamp", 20, 0);
 status_lamp.enable = should_produce;
 ```
 

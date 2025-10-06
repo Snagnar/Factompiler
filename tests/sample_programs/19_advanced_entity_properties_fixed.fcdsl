@@ -118,20 +118,18 @@ Signal critical_state = error_state || resource_shortage;
 Signal normal_operation = factory_running && !critical_state;
 
 # =============================================================================
-# BUNDLE OPERATIONS WITH PROPERTIES
+# AGGREGATED SIGNAL OPERATIONS WITH PROPERTIES
 # =============================================================================
 
-Bundle production_status = bundle(
-    item_count | "iron-plate",
-    copper_count | "copper-status", 
-    production_rate | "production-rate"
-);
+Signal production_iron = item_count | "iron-plate";
+Signal production_copper = copper_count | "copper-status";
+Signal production_rate_signal = production_rate | "production-rate";
+Signal production_status = production_iron + production_copper + production_rate_signal;
 
-Bundle system_status = bundle(
-    normal_operation | "system-ok",
-    critical_state | "system-error",
-    resource_shortage | "resource-low"
-);
+Signal system_ok_status = normal_operation | "system-ok";
+Signal system_error = critical_state | "system-error";
+Signal system_low = resource_shortage | "resource-low";
+Signal system_status = system_ok_status + system_error + system_low;
 
 # =============================================================================
 # OUTPUT CONTROL SIGNALS

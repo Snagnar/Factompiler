@@ -10,11 +10,8 @@ Signal mixed_sum = iron + copper;
 # Explicit projection to force different output type
 Signal forced_copper = iron + copper | "copper-plate";
 
-# Bundle operation
-Bundle as_bundle = bundle(iron, copper);
-
-# Project bundle to single channel  
-Signal collapsed = as_bundle | "steel-plate";
+# Explicit re-channeling without bundles
+Signal rechanneled_sum = (iron + copper) | "steel-plate";
 
 # Comparison operations
 Signal is_positive = iron > 0;

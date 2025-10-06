@@ -12,14 +12,13 @@
 // Keywords for special forms (must come before NAME to take precedence)
 READ_KW: "read"
 WRITE_KW: "write"
-BUNDLE_KW: "bundle"
+MEM_KW: "mem"
 
 // Type keywords
 INT_KW: "int"
 SIGNAL_KW: "Signal"
 SIGNALTYPE_KW: "SignalType" 
 ENTITY_KW: "Entity"
-BUNDLE_TYPE_KW: "Bundle"
 MEMORY_KW: "Memory"
 
 NAME: /[A-Za-z_][A-Za-z0-9_-]*/   // allow hyphens in names for type-like identifiers
@@ -41,7 +40,7 @@ statement: decl_stmt ";"                    -> decl_stmt
 
 decl_stmt: type_name NAME "=" expr
 
-type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW | BUNDLE_TYPE_KW | MEMORY_KW
+type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW | MEMORY_KW | MEM_KW
 
 assign_stmt: lvalue "=" expr
 
@@ -90,23 +89,24 @@ unary: UNARY_OP unary
 
 UNARY_OP: "+" | "-" | "!"
 
-// primary expressions (constructors, calls, memory ops, property access, bundle)
+// primary expressions (constructors, calls, memory ops, property access)
 primary: literal
        | signal_literal                       // New signal literal syntax
        | READ_KW "(" NAME ")"
        | WRITE_KW "(" NAME "," expr ")"
-       | bundle_expr
+  | dict_literal
        | call_expr                            // General function calls after specific forms
        | method_call
        | lvalue                               // Simple identifiers last
        | "(" expr ")"
 
-bundle_expr: BUNDLE_KW "(" [arglist] ")"
-
 call_expr: NAME "(" [arglist] ")"
 method_call: NAME "." NAME "(" [arglist] ")"
 
 arglist: expr ("," expr)*
+
+dict_literal: "{" [dict_item ("," dict_item)*] "}"
+dict_item: (STRING | NAME) ":" expr
 
 // Signal literal syntax: ("type", value) or just value
 signal_literal: "(" type_literal "," expr ")"    -> signal_with_type

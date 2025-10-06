@@ -1,0 +1,150 @@
+# Advanced Memory Module Test
+# Demonstrates full memory capabilities including:
+# - Storing arbitrary signal types (items, fluids, virtuals)
+# - Conditional writes based on signal values
+# - Reading and manipulating stored values
+# - Memory state machines
+
+# =============================================================================
+# BASIC MEMORY STORAGE - Different Signal Types
+# =============================================================================
+
+# Store an item signal
+Memory iron_storage = ("iron-plate", 0);
+Memory copper_storage = ("copper-plate", 0);
+
+# Store a fluid signal
+Memory water_level = ("water", 1000);
+
+# Store a virtual signal for state
+Memory system_state = ("signal-S", 0);
+
+# Store a counter
+Memory tick_counter = 0;
+
+# =============================================================================
+# CONDITIONAL WRITES - Write only when conditions are met
+# =============================================================================
+
+# Scenario 1: Write only if current value is zero (initialization check)
+# CORRECT PATTERN: Read current value, write new value if condition met, otherwise write current value back
+Signal current_iron = read(iron_storage);
+Signal iron_input = 50;
+Signal should_write_iron = (current_iron == 0);  # 1 if true, 0 if false
+Signal iron_write_value = should_write_iron * iron_input + (!should_write_iron) * current_iron;
+write(iron_storage, iron_write_value);  # Writes 50 if storage is 0, otherwise keeps current value
+
+# Scenario 2: Write only if input exceeds threshold
+Signal copper_input = 75;
+Signal should_store_copper = copper_input > 100;  # Boolean: 1 if true, 0 if false
+Signal copper_current = read(copper_storage);
+Signal copper_write_value = should_store_copper * copper_input + (!should_store_copper) * copper_current;
+write(copper_storage, copper_write_value);  # Writes input if > 100, otherwise keeps current
+
+# Scenario 3: Conditional increment - add to counter only if condition met
+Signal current_count = read(tick_counter);
+Signal enable_counting = 1;  # This could be from any condition
+Signal new_count = current_count + enable_counting;
+write(tick_counter, new_count);  # This always writes (increment by 1 or 0)
+
+# =============================================================================
+# COMPLEX CONDITIONAL WRITES - Multiple Conditions
+# =============================================================================
+
+# Write to water storage only if:
+# 1. Current level is low (< 500), AND
+# 2. Pump is active (simulated), AND
+# 3. Input is available
+Signal current_water = read(water_level);
+Signal water_is_low = current_water < 500;
+Signal pump_active = 1;  # Simulated
+Signal water_input = 200;
+Signal should_refill = water_is_low && pump_active;
+Signal water_write_value = should_refill * (current_water + water_input) + (!should_refill) * current_water;
+write(water_level, water_write_value);
+
+# =============================================================================
+# MEMORY-BASED STATE MACHINE
+# =============================================================================
+
+# State machine: 0 = idle, 1 = processing, 2 = complete, 3 = error
+Signal current_state = read(system_state);
+
+# Transitions based on conditions
+Signal has_input = iron_input > 0;
+Signal processing_done = current_count > 10;
+Signal has_error = 0;  # Simulated error condition
+
+# State transition logic
+Signal idle_to_processing = (current_state == 0) && has_input;
+Signal processing_to_complete = (current_state == 1) && processing_done;
+Signal any_to_error = has_error;
+Signal complete_to_idle = (current_state == 2);
+
+Signal next_state = 
+    (idle_to_processing * 1) +           # Go to state 1
+    (processing_to_complete * 2) +        # Go to state 2
+    (complete_to_idle * 0) +              # Go to state 0
+    (any_to_error * 3) +                  # Go to state 3
+    (!(idle_to_processing || processing_to_complete || complete_to_idle || any_to_error)) * current_state;  # Stay in current state
+
+write(system_state, next_state | "signal-S");
+
+# =============================================================================
+# STORING MULTIPLE VALUES - Using Different Memory Cells
+# =============================================================================
+
+Memory max_iron_seen = ("iron-plate", 0);
+Memory min_copper_seen = ("copper-plate", 999);
+
+Signal current_max = read(max_iron_seen);
+Signal new_max_iron = (iron_input > current_max) * iron_input + (iron_input <= current_max) * current_max;
+write(max_iron_seen, new_max_iron);
+
+Signal current_min = read(min_copper_seen);
+Signal new_min_copper = (copper_input < current_min) * copper_input + (copper_input >= current_min) * current_min;
+write(min_copper_seen, new_min_copper);
+
+# =============================================================================
+# CLEARING/RESETTING MEMORY
+# =============================================================================
+
+Signal reset_signal = 0;  # Set to 1 to trigger reset
+Signal iron_cleared = reset_signal * 0 + (!reset_signal) * current_iron;
+Signal copper_cleared = reset_signal * 0 + (!reset_signal) * read(copper_storage);
+
+# Write cleared values back
+write(iron_storage, iron_cleared);
+
+# =============================================================================
+# READING AND COMBINING MEMORY VALUES
+# =============================================================================
+
+# Read all storage values
+Signal total_iron = read(iron_storage);
+Signal total_copper = read(copper_storage);
+Signal total_water = read(water_level);
+
+# Combine for summary signal
+Signal total_resources = (total_iron | "signal-R") + (total_copper | "signal-R") + (total_water / 10 | "signal-R");
+
+# =============================================================================
+# CONDITIONAL SWAP - Exchange values between memories
+# =============================================================================
+
+Signal should_swap = 0;  # Condition to swap iron and copper storage
+Signal iron_after_swap = should_swap * read(copper_storage) + (!should_swap) * read(iron_storage);
+Signal copper_after_swap = should_swap * read(iron_storage) + (!should_swap) * read(copper_storage);
+
+write(iron_storage, iron_after_swap);
+write(copper_storage, copper_after_swap);
+
+# =============================================================================
+# OUTPUT SIGNALS - Based on Memory State
+# =============================================================================
+
+Signal storage_full = (total_iron > 1000) || (total_copper > 1000);
+Signal storage_empty = (total_iron == 0) && (total_copper == 0);
+Signal system_ready = (current_state == 0) && !storage_empty;
+Signal system_processing = (current_state == 1);
+Signal system_done = (current_state == 2);

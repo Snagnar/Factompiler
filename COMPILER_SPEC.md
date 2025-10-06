@@ -260,7 +260,6 @@ Implement a typed AST; these are the important node kinds:
   * BinaryOp(op, left, right)
   * UnaryOp(op, expr)
   * Projection(expr, typeLiteral)  # `|`
-  * BundleExpr(list of exprs)
   * PropertyAccess(objName, propName)
   * PlaceCall(...) (if you support Place as function sugar)
 
@@ -282,11 +281,10 @@ Key IR ops:
 * `IR_PlaceEntity(entity_id, proto, x, y, props)`
 * `IR_EntityPropWrite(entity_id, propName, signal_id)`
 * `IR_EntityPropRead(entity_id, propName) -> signal_id`
-* `IR_Bundle(id, map<SignalType, signal_id>)`
 * `IR_ConnectToWire(signal_id, channel_type)` → connect source signal to channel or entity port
 * `IR_Group(module_id, [child_ops], bounding_box)` → for placement
 
-IR values: `SignalRef` (logical handle to `(type, count_expr)`), `BundleRef`.
+IR values: `SignalRef` (logical handle to `(type, count_expr)`).
 
 ---
 
@@ -306,7 +304,7 @@ Below are the deterministic lowering rules the compiler must implement.
 
 ### 13.3 `BinaryOp(op, left, right)`
 
-* Lower left & right to `SignalRef` or `BundleRef` or Int.
+* Lower left & right to `SignalRef` or Int.
 * Case analysis:
 
   * Both `SignalRef` with same type T:
@@ -317,9 +315,6 @@ Below are the deterministic lowering rules the compiler must implement.
 
     * Default result type `T1` (left). Emit **warning**.
     * Create `IR_Arith(..., left_signal, right_signal, out_type=T1)` — an arithmetic combinator set to `T1 = T1 + T2` semantics. Return `SignalRef(T1, id)`.
-  * One is `BundleRef`:
-
-    * Convert other operand to `Bundle` (single-key bundle), then `Bundle + Bundle` → union and per-key sum. Return `BundleRef(...)`.
   * One is `Int`:
 
     * Coerce to `SignalRef` of the other operand’s type.
@@ -334,27 +329,18 @@ Below are the deterministic lowering rules the compiler must implement.
 * If `SignalRef` with different type:
 
   * Create `IR_Arith(op="+", left=expr, right=IR_Const(0,type=expr.type), out_type=TYPE)` (or simpler approach: arithmetic passthrough with output signal type set to TYPE). Return `SignalRef(TYPE, id)`.
-* If `BundleRef`:
-
-  * If `bundle` has key TYPE → return `SignalRef(TYPE, bundle[TYPE])`.
-  * Else → create IR chain to compute sum over bundle values and emit `SignalRef(TYPE, id)` with that sum. (Compiler will optionally warn that projection collapsed multi-channel into one.)
-
-### 13.5 `bundle(...)`
-
-* Evaluate each argument to signals/bundles; merge keys; return `IR_Bundle`.
-
-### 13.6 `mem name = memory(init)`
+### 13.5 `mem name = memory(init)`
 
 * Lower `init` to SignalRef or Int; if Int convert to SignalRef with allocated implicit or user-specified type per rules.
 * Create `IR_MemCreate(name, initial_signal)` and return mem reference.
 
-### 13.7 `write(mem, expr)`
+### 13.6 `write(mem, expr)`
 
 * Lower expr to `SignalRef` with a `type`.
 * If `signal.type != mem.type`: coerce/`projection` automatically if possible (compiler warns); else error in strict mode.
 * Emit `IR_MemWrite(mem, data_signal, write_enable=const_1)` or conditional if write gated.
 
-### 13.8 Entity property writes/reads
+### 13.7 Entity property writes/reads
 
 * `Place(...)` → `IR_PlaceEntity(...)`.
 * `entity.prop = expr` → Lower `expr` to `SignalRef` or Int, then `IR_EntityPropWrite(entity, prop, signal)`.

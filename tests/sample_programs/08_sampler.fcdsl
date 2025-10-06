@@ -27,9 +27,10 @@ Signal slow_sample = (read(tick) % 1000 == 0);
 Signal fast_output = v * fast_sample;
 Signal slow_output = (v / 5) * slow_sample;
 
-# Bundle multiple outputs
-Bundle all_outputs = bundle(
-    out_value | "signal-red",
-    fast_output | "fast-transport-belt", 
-    slow_output | "signal-blue"
-);
+# Project outputs onto distinct channels without bundles
+Signal out_red = out_value | "signal-red";
+Signal out_fast_belt = fast_output | "fast-transport-belt";
+Signal out_blue = slow_output | "signal-blue";
+
+# Aggregate onto a single channel for export if needed
+Signal combined_output = (out_red + out_fast_belt + out_blue) | "signal-each";

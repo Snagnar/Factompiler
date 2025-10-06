@@ -127,18 +127,18 @@ Signal fluid_total = water + crude_oil + petroleum_gas;
 Signal iron_as_virtual = iron_plate | "signal-I";
 Signal copper_as_virtual = copper_plate | "signal-C";
 
-# Complex bundle with mixed signal types
-Bundle mixed_signals = bundle(
-    signal_A,           # Virtual
-    iron_plate,         # Item
-    water,              # Fluid  
-    iron_plate_recipe,  # Recipe
-    belt_entity         # Entity
+# Mixed signal type aggregation (instead of bundle)
+Signal mixed_aggregate = (
+    (signal_A | "signal-M") +
+    (iron_plate | "signal-M") +
+    (water | "signal-M") +
+    (iron_plate_recipe | "signal-M") +
+    (belt_entity | "signal-M")
 );
 
-# Project bundle to different signal types
-Signal mixed_virtual = mixed_signals | "signal-M";
-Signal mixed_item = mixed_signals | "iron-gear-wheel";
+# Project aggregate to different signal types  
+Signal mixed_virtual = mixed_aggregate | "signal-M";
+Signal mixed_item = mixed_aggregate | "iron-gear-wheel";
 
 # =============================================================================
 # CONDITIONAL LOGIC WITH DIFFERENT SIGNAL TYPES
@@ -189,13 +189,12 @@ write(system_mode, new_mode);
 # OUTPUT BUNDLE WITH ALL SIGNAL TYPES
 # =============================================================================
 
-Bundle comprehensive_output = bundle(
-    signal_A | "signal-Z",           # Virtual signal
-    iron_plate | "iron-plate",         # Item signal  
-    water | "water-level",                 # Fluid signal
-    iron_plate_recipe | "recipe-active",   # Recipe signal
-    belt_entity | "entity-count"           # Entity signal
-);
+Signal output_virtual = signal_A | "signal-Z";
+Signal output_item = iron_plate | "iron-plate";
+Signal output_fluid = water | "water-level";
+Signal output_recipe = iron_plate_recipe | "recipe-active";
+Signal output_entity = belt_entity | "entity-count";
+Signal comprehensive_output = output_virtual + output_item + output_fluid + output_recipe + output_entity;
 
 # Final status signals
 Signal status_value = material_shortage && 0 || 1;

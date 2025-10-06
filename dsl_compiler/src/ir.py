@@ -30,20 +30,7 @@ class SignalRef:
         return f"{self.signal_type}@{self.source_id}"
 
 
-class BundleRef:
-    """Reference to a bundle (multi-channel) value in the IR."""
-
-    def __init__(self, channels: Dict[str, SignalRef], bundle_id: str):
-        self.channels = channels  # signal_type -> SignalRef
-        self.bundle_id = bundle_id
-
-    def __str__(self) -> str:
-        return f"Bundle[{', '.join(self.channels.keys())}]@{self.bundle_id}"
-
-
-ValueRef = Union[
-    SignalRef, BundleRef, int
-]  # IR values can be signals, bundles, or integers
+ValueRef = Union[SignalRef, int]  # IR values can be signals or integers
 
 
 # =============================================================================
@@ -157,21 +144,26 @@ class IR_EntityPropRead(IRValue):
         return f"IR_EntityPropRead({self.node_id}: {self.output_type} = {self.entity_id}.{self.property_name})"
 
 
-class IR_Bundle(IRValue):
-    """Bundle construction from multiple signals."""
+class IR_Input(IRValue):
+    """External input placeholder mapped to blueprint interfaces."""
 
     def __init__(
         self,
         node_id: str,
-        inputs: Dict[str, ValueRef],
+        output_type: str,
         source_ast: Optional[ASTNode] = None,
     ):
-        super().__init__(node_id, "bundle", source_ast)
-        self.inputs = inputs
+        super().__init__(node_id, output_type, source_ast)
+        self.signal_name: str = output_type
+        self.channel_index: Optional[int] = None
 
     def __str__(self) -> str:
-        inputs_str = ", ".join(f"{k}: {v}" for k, v in self.inputs.items())
-        return f"IR_Bundle({self.node_id}: bundle({inputs_str}))"
+        index = (
+            f", channel={self.channel_index}"
+            if self.channel_index is not None
+            else ""
+        )
+        return f"IR_Input({self.node_id}: {self.signal_name}{index})"
 
 
 # =============================================================================
@@ -338,6 +330,7 @@ class IRBuilder:
         self.operations: List[IRNode] = []
         self.node_counter = 0
         self.signal_type_map: Dict[str, str] = {}  # implicit -> factorio signal
+        self.implicit_type_counter = 0
 
     def next_id(self, prefix: str = "ir") -> str:
         """Generate next unique IR node ID."""
@@ -440,19 +433,22 @@ class IRBuilder:
         op = IR_PlaceEntity(entity_id, prototype, x, y, properties)
         self.add_operation(op)
 
-    def bundle(
-        self, inputs: Dict[str, ValueRef], source_ast: Optional[ASTNode] = None
-    ) -> BundleRef:
-        """Create a bundle."""
-        node_id = self.next_id("bundle")
-        op = IR_Bundle(node_id, inputs, source_ast)
+    def input_signal(
+        self,
+        signal_type: str,
+        channel_index: Optional[int] = None,
+        signal_name: Optional[str] = None,
+        source_ast: Optional[ASTNode] = None,
+    ) -> SignalRef:
+        """Register an external input placeholder."""
+        node_id = self.next_id("input")
+        op = IR_Input(node_id, signal_type, source_ast)
+        if signal_name is not None:
+            op.signal_name = signal_name
+        if channel_index is not None:
+            op.channel_index = channel_index
         self.add_operation(op)
-
-        # Create SignalRefs for each channel
-        channels = {
-            sig_type: SignalRef(sig_type, node_id) for sig_type in inputs.keys()
-        }
-        return BundleRef(channels, node_id)
+        return SignalRef(signal_type, node_id)
 
     def func_decl(
         self,
@@ -483,16 +479,23 @@ class IRBuilder:
 
     def allocate_implicit_type(self) -> str:
         """Allocate a new implicit signal type."""
-        implicit_counter = len(
-            [t for t in self.signal_type_map.keys() if t.startswith("__v")]
-        )
-        implicit_name = f"__v{implicit_counter + 1}"
+        self.implicit_type_counter += 1
+        implicit_name = f"__v{self.implicit_type_counter}"
 
-        # Map to Factorio virtual signal
-        factorio_signal = f"signal-{chr(ord('A') + implicit_counter % 26)}"
+        factorio_signal = self._virtual_signal_name(self.implicit_type_counter)
         self.signal_type_map[implicit_name] = factorio_signal
 
         return implicit_name
+
+    def _virtual_signal_name(self, index: int) -> str:
+        """Map implicit index to a unique Factorio virtual signal name."""
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        index -= 1
+        name = ""
+        while index >= 0:
+            name = alphabet[index % 26] + name
+            index = index // 26 - 1
+        return f"signal-{name}"
 
     def get_ir(self) -> List[IRNode]:
         """Get the built IR operations."""

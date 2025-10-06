@@ -27,13 +27,13 @@ Signal coerced3 = copper - negative;            # int coerced to copper-plate
 Signal chain1 = implicit1 + iron + copper;     # __v1 + iron -> __v1, then __v1 + copper -> __v1
 Signal chain2 = iron + implicit1 + copper;     # iron + __v1 -> iron, then iron + copper -> iron
 
-# Bundle type mixing
-Bundle mixed_bundle = bundle(implicit1, iron, copper);
-Bundle bundle_arithmetic = mixed_bundle + implicit2;    # bundle + signal
+# Aggregated type mixing without bundles
+Signal mixed_aggregate = (implicit1 | "signal-A") + iron + copper;
+Signal bundle_arithmetic = (mixed_aggregate + implicit2) | "signal-A";    # aggregate + signal
 
 # Projection type changes  
 Signal proj1 = mixed1 | "steel-plate";         # change type via projection
-Signal proj2 = mixed_bundle | "coal";          # project bundle to different type
+Signal proj2 = mixed_aggregate | "coal";          # project aggregated signal to different type
 
 # Complex nested type mixing
 Signal complex_mixed = (implicit1 + iron) * (copper - implicit2) + signal_a;
@@ -46,8 +46,8 @@ Signal comparison_mixed3 = implicit1 < int_val;       # implicit vs integer
 # Logical operations with mixed types
 Signal logical_mixed = (implicit1 > 0) && (iron > copper);
 
-# Bundle projections with type mixing
-Bundle bundle_proj_mixed = bundle(implicit1 + iron, copper * implicit2);
+# Simulated bundle projection with aggregated signals
+Signal bundle_proj_mixed = ( (implicit1 + iron) | "iron-plate" ) + ((copper * implicit2) | "copper-plate");
 Signal final_proj = bundle_proj_mixed | "wood";        # project to unrelated type
 
 # Memory operations with type mixing

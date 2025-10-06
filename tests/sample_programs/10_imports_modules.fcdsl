@@ -36,10 +36,11 @@ Signal low_passed = low_pass_filter(delayed, 5);
 Signal rate_limited = rate_limiter(control_signal, 2);
 Signal multi_stage = combine_signals(high_passed, low_passed, rate_limited);
 
-# Export final result as bundle
-Bundle system_output = bundle(
-    processed | "signal-P",
-    delayed | "signal-D", 
-    control_signal | "signal-C",
-    multi_stage | "signal-F"
-);
+# Export final results via individual projections
+Signal out_processed = processed | "signal-P";
+Signal out_delayed = delayed | "signal-D";
+Signal out_control = control_signal | "signal-C";
+Signal out_multi = multi_stage | "signal-F";
+
+# Optional aggregate for downstream modules
+Signal system_output = (out_processed + out_delayed + out_control + out_multi) | "signal-summary";

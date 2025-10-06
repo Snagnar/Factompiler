@@ -17,23 +17,16 @@ Signal explicit1 = ("signal-A", 6);
 # Chain of mixed-type operations (should generate multiple warnings)
 Signal mixed_chain = implicit1 + explicit1 + implicit2;
 
-# Bundle edge cases
-Bundle single_bundle = bundle(implicit1);
-Bundle duplicate_types = bundle(
-    explicit1, 
-    ("signal-A", 7)  # same type, should merge
-);
-
-# Projection edge cases
-Signal project_missing = single_bundle | "non-existent-type";  # should sum
+# Projection edge cases without bundles
+Signal project_missing = (implicit1 + explicit1) | "non-existent-type";  # forces collapse
 Signal project_self = explicit1 | "signal-A";  # no-op
 
 # Memory edge cases  
 Memory uninitialized = 0;
 Memory negative_init = -10;
 
-# Bundle edge cases - valid but should clarify semantics
-Bundle empty_bundle = bundle();  # Valid: empty wire group (no signals)
+# Simulated empty aggregation using neutral element
+Signal empty_aggregate = 0 | "signal-each";
 
 # Complex precedence testing
 Signal precedence_complex = ((180 + 190 * 2 | "iron-ore") + 200 == 5 && 210 > 0);

@@ -22,14 +22,6 @@ from dsl_compiler.src.dsl_ast import *
 # =============================================================================
 
 
-class ValueType(Enum):
-    """Possible value types in the DSL."""
-
-    INT = "int"
-    SIGNAL = "signal"
-    BUNDLE = "bundle"
-
-
 @dataclass
 class SignalTypeInfo:
     """Information about a signal type."""
@@ -48,13 +40,6 @@ class SignalValue:
 
 
 @dataclass
-class BundleValue:
-    """A multi-channel bundle value."""
-
-    channels: Dict[str, SignalValue]  # type_name -> SignalValue
-
-
-@dataclass
 class IntValue:
     """A plain integer value."""
 
@@ -69,7 +54,7 @@ class FunctionValue:
     return_type: "ValueInfo" = field(default_factory=lambda: IntValue())
 
 
-ValueInfo = Union[SignalValue, BundleValue, IntValue, FunctionValue]
+ValueInfo = Union[SignalValue, IntValue, FunctionValue]
 
 
 # =============================================================================
@@ -224,14 +209,27 @@ class SemanticAnalyzer(ASTVisitor):
         """Allocate a new implicit virtual signal type."""
         self.implicit_type_counter += 1
         implicit_name = f"__v{self.implicit_type_counter}"
-        factorio_signal = (
-            f"signal-{chr(ord('A') + (self.implicit_type_counter - 1) % 26)}"
-        )
+        factorio_signal = self._virtual_signal_name(self.implicit_type_counter)
 
         # Store mapping for debugging
         self.signal_type_map[implicit_name] = factorio_signal
 
         return SignalTypeInfo(name=implicit_name, is_implicit=True, is_virtual=True)
+
+    def _virtual_signal_name(self, index: int) -> str:
+        """Map implicit index to a unique Factorio virtual signal name."""
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        index -= 1  # Convert to zero-based
+        name = ""
+        while index >= 0:
+            name = alphabet[index % 26] + name
+            index = index // 26 - 1
+        return f"signal-{name}"
+
+    def make_signal_type_info(self, type_name: str, implicit: bool = False) -> SignalTypeInfo:
+        """Create a SignalTypeInfo with virtual flag inferred from name."""
+        is_virtual = type_name.startswith("signal-") or type_name.startswith("__")
+        return SignalTypeInfo(name=type_name, is_implicit=implicit, is_virtual=is_virtual)
 
     def get_expr_type(self, expr: Expr) -> ValueInfo:
         """Get the inferred type of an expression."""
@@ -252,6 +250,10 @@ class SemanticAnalyzer(ASTVisitor):
         elif isinstance(expr, StringLiteral):
             # Strings are only used as type literals, not values
             return IntValue()  # This shouldn't happen in normal cases
+
+        elif isinstance(expr, DictLiteral):
+            # Dictionary literals are primarily used for entity properties
+            return IntValue()
 
         elif isinstance(expr, IdentifierExpr):
             symbol = self.current_scope.lookup(expr.name)
@@ -299,37 +301,18 @@ class SemanticAnalyzer(ASTVisitor):
                 signal_type = self.allocate_implicit_type()
             return SignalValue(signal_type=signal_type, count_expr=expr.value)
 
-        elif isinstance(expr, BundleExpr):
-            # bundle(exprs...) returns Bundle
-            channels = {}
-            for sub_expr in expr.exprs:
-                sub_type = self.get_expr_type(sub_expr)
-                if isinstance(sub_type, SignalValue):
-                    channels[sub_type.signal_type.name] = sub_type
-                elif isinstance(sub_type, BundleValue):
-                    # Merge bundle
-                    channels.update(sub_type.channels)
-                # Ignore IntValue in bundles
-            return BundleValue(channels=channels)
-
         elif isinstance(expr, CallExpr):
-            # Analyze the function call first
             self.visit_CallExpr(expr)
-            
-            # Function calls - check if function returns entity
-            if expr.name == "place":
-                # Direct place() call returns entity type
-                return SignalValue(
-                    signal_type=self.allocate_implicit_type()
-                )  # For now, keep as signal
-            else:
-                # Check if this is a user-defined function
-                func_symbol = self.current_scope.lookup(expr.name)
-                if func_symbol and func_symbol.symbol_type == "function":
-                    # Analyze function return type
-                    return self._get_function_return_type(expr.name)
-                else:
-                    return SignalValue(signal_type=self.allocate_implicit_type())
+
+            builtin_type = self._infer_builtin_call_type(expr)
+            if builtin_type is not None:
+                return builtin_type
+
+            func_symbol = self.current_scope.lookup(expr.name)
+            if func_symbol and func_symbol.symbol_type == "function":
+                return self._get_function_return_type(expr.name)
+
+            return SignalValue(signal_type=self.allocate_implicit_type())
 
         elif isinstance(expr, PropertyAccess):
             # Entity or module property access
@@ -458,61 +441,9 @@ class SemanticAnalyzer(ASTVisitor):
 
                 return left_type
 
-        elif isinstance(left_type, BundleValue) or isinstance(right_type, BundleValue):
-            # Bundle operations - complex merging rules
-            return self.infer_bundle_operation_type(left_type, right_type, expr)
-
         else:
             self.diagnostics.error(f"Invalid operand types for {expr.op}", expr)
             return IntValue()
-
-    def infer_bundle_operation_type(
-        self, left_type: ValueInfo, right_type: ValueInfo, expr: BinaryOp
-    ) -> BundleValue:
-        """Handle bundle operations."""
-        result_channels = {}
-
-        # Convert operands to bundles
-        left_bundle = self.to_bundle(left_type)
-        right_bundle = self.to_bundle(right_type)
-
-        # Merge channels
-        all_types = set(left_bundle.channels.keys()) | set(right_bundle.channels.keys())
-
-        for type_name in all_types:
-            left_signal = left_bundle.channels.get(type_name)
-            right_signal = right_bundle.channels.get(type_name)
-
-            if left_signal and right_signal:
-                # Both have this channel - create a combined signal based on operation
-                if expr.op in ["+", "-", "*", "/", "%"]:
-                    # Arithmetic operations result in a computed signal
-                    result_channels[type_name] = SignalValue(signal_type=type_name)
-                elif expr.op in ["==", "!=", "<", ">", "<=", ">="]:
-                    # Comparison operations result in a boolean-like signal (0 or 1)
-                    result_channels[type_name] = SignalValue(signal_type=type_name)
-                elif expr.op in ["&&", "||"]:
-                    # Logical operations result in a boolean-like signal
-                    result_channels[type_name] = SignalValue(signal_type=type_name)
-                else:
-                    # Default: use left signal for unknown operations
-                    result_channels[type_name] = left_signal
-            elif left_signal:
-                result_channels[type_name] = left_signal
-            elif right_signal:
-                result_channels[type_name] = right_signal
-
-        return BundleValue(channels=result_channels)
-
-    def to_bundle(self, value_type: ValueInfo) -> BundleValue:
-        """Convert a value type to a bundle."""
-        if isinstance(value_type, BundleValue):
-            return value_type
-        elif isinstance(value_type, SignalValue):
-            return BundleValue(channels={value_type.signal_type.name: value_type})
-        else:
-            # IntValue -> empty bundle
-            return BundleValue(channels={})
 
     # =========================================================================
     # AST Visitor Methods
@@ -550,22 +481,10 @@ class SemanticAnalyzer(ASTVisitor):
 
         # Validate that the value matches the declared type
         if not self._value_matches_type(value_type, node.type_name):
-            # Check if this is a parameter coercion case in non-strict mode
-            if (not self.strict_types and 
-                node.type_name == "Bundle" and 
-                self._expression_involves_parameter(node.value)):
-                # In non-strict mode, allow parameter-based expressions to be coerced to Bundle
-                # Issue a warning instead of an error
-                self.diagnostics.warning(
-                    f"Coercing {self._value_type_name(value_type)} to {node.type_name} for parameter-based expression in '{node.name}'",
-                    node,
-                )
-                value_type = BundleValue(channels={})  # Treat as empty bundle for now
-            else:
-                self.diagnostics.error(
-                    f"Cannot assign {self._value_type_name(value_type)} to {node.type_name} variable '{node.name}'",
-                    node,
-                )
+            self.diagnostics.error(
+                f"Cannot assign {self._value_type_name(value_type)} to {node.type_name} variable '{node.name}'",
+                node,
+            )
 
         # Define symbol with explicit type
         symbol = Symbol(
@@ -597,7 +516,6 @@ class SemanticAnalyzer(ASTVisitor):
             "Signal": SignalValue,
             "SignalType": SignalValue,  # For now, treat as Signal
             "Entity": SignalValue,  # Entity calls return signals for now
-            "Bundle": BundleValue,
             "Memory": SignalValue,  # Memory is stored as Signal type
         }
         return (
@@ -610,7 +528,6 @@ class SemanticAnalyzer(ASTVisitor):
         type_names = {
             IntValue: "int",
             SignalValue: "Signal",
-            BundleValue: "Bundle",
             FunctionValue: "function",
         }
         return type_names.get(type(value_type), "unknown")
@@ -653,25 +570,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _infer_parameter_type(self, param_name: str, func_def) -> ValueInfo:
         """Infer parameter type from usage within the function body."""
-        from dsl_compiler.src.dsl_ast import BinaryOp, DeclStmt, Identifier
-
-        # Look for usage patterns in the function body
-        for stmt in func_def.body:
-            # Check for Bundle declarations that use this parameter
-            if isinstance(stmt, DeclStmt) and stmt.type_name == "Bundle":
-                if self._expression_uses_identifier(stmt.value, param_name):
-                    # If a parameter is used in a Bundle assignment, it's likely a Bundle
-                    return BundleValue(channels={})
-            
-            # Check for binary operations involving this parameter
-            if isinstance(stmt, DeclStmt) and isinstance(stmt.value, BinaryOp):
-                if self._expression_uses_identifier(stmt.value, param_name):
-                    # If Bundle * param or param * Bundle, param is likely a scalar
-                    if stmt.type_name == "Bundle":
-                        # This suggests param is used in Bundle operations
-                        return BundleValue(channels={})
-
-        # Default to Signal type
+        # With bundles removed, parameters default to signal types unless explicitly annotated
         return SignalValue(signal_type=self.allocate_implicit_type())
 
     def _expression_uses_identifier(self, expr, identifier_name: str) -> bool:
@@ -720,6 +619,135 @@ class SemanticAnalyzer(ASTVisitor):
             return (self._expression_involves_parameter(expr.left) or 
                     self._expression_involves_parameter(expr.right))
         return False
+
+    def _infer_builtin_call_type(self, expr: CallExpr) -> Optional[ValueInfo]:
+        """Return ValueInfo for built-in calls or None if not handled."""
+        if expr.name == "place":
+            signal_type = self.allocate_implicit_type()
+            expr.metadata["entity_signal_type"] = signal_type
+            return SignalValue(signal_type=signal_type)
+
+        if expr.name == "input":
+            signal_type = self._resolve_input_signal_type(expr)
+            expr.metadata["resolved_signal_type"] = signal_type
+            return SignalValue(signal_type=signal_type)
+
+        if expr.name == "memory":
+            signal_type = self._resolve_memory_signal_type(expr)
+            expr.metadata["resolved_signal_type"] = signal_type
+            return SignalValue(signal_type=signal_type)
+
+        return None
+
+    def _resolve_input_signal_type(self, expr: CallExpr) -> SignalTypeInfo:
+        """Determine the signal type for input() calls."""
+        if expr.args and isinstance(expr.args[0], StringLiteral):
+            signal_name = expr.args[0].value
+            return self.make_signal_type_info(signal_name, implicit=False)
+        return self.allocate_implicit_type()
+
+    def _resolve_memory_signal_type(self, expr: CallExpr) -> SignalTypeInfo:
+        """Determine the signal type for memory() calls."""
+        explicit_type = None
+        if len(expr.args) >= 2 and isinstance(expr.args[1], StringLiteral):
+            explicit_type = expr.args[1].value
+
+        if explicit_type:
+            return self.make_signal_type_info(explicit_type, implicit=False)
+
+        if expr.args:
+            initial_type = self.get_expr_type(expr.args[0])
+            if isinstance(initial_type, SignalValue):
+                return initial_type.signal_type
+
+        return self.allocate_implicit_type()
+
+    def _validate_builtin_call(self, node: CallExpr) -> None:
+        """Semantic validation for built-in calls like place/input/memory."""
+        if node.name == "place":
+            if not (3 <= len(node.args) <= 4):
+                self.diagnostics.error(
+                    "place() requires 3 or 4 arguments (prototype, x, y, [properties])",
+                    node,
+                )
+                return
+
+            prototype = node.args[0]
+            if not isinstance(prototype, StringLiteral):
+                self.diagnostics.error(
+                    "place() prototype must be a string literal",
+                    prototype if node.args else node,
+                )
+
+            # Analyze coordinate expressions
+            if len(node.args) >= 2:
+                self.get_expr_type(node.args[1])
+            if len(node.args) >= 3:
+                self.get_expr_type(node.args[2])
+
+            if len(node.args) == 4:
+                if not isinstance(node.args[3], DictLiteral):
+                    self.diagnostics.error(
+                        "place() properties must be a dictionary literal",
+                        node.args[3],
+                    )
+                else:
+                    # Analyze property values
+                    for value in node.args[3].entries.values():
+                        self.get_expr_type(value)
+
+            if isinstance(prototype, StringLiteral):
+                node.metadata["prototype"] = prototype.value
+
+        elif node.name == "input":
+            if not (1 <= len(node.args) <= 2):
+                self.diagnostics.error(
+                    "input() expects one or two arguments (signal, [channel])",
+                    node,
+                )
+
+            if len(node.args) >= 1:
+                first = node.args[0]
+                if isinstance(first, StringLiteral):
+                    node.metadata["signal_name"] = first.value
+                else:
+                    self.diagnostics.error(
+                        "input() first argument must be a string literal",
+                        first,
+                    )
+
+            if len(node.args) == 2:
+                index_type = self.get_expr_type(node.args[1])
+                if not isinstance(index_type, IntValue):
+                    self.diagnostics.error(
+                        "input() channel index must be an integer expression",
+                        node.args[1],
+                    )
+                elif isinstance(node.args[1], NumberLiteral):
+                    node.metadata["channel_index"] = node.args[1].value
+
+        elif node.name == "memory":
+            if not (1 <= len(node.args) <= 2):
+                self.diagnostics.error(
+                    "memory() expects one or two arguments (initial, [type])",
+                    node,
+                )
+
+            if len(node.args) >= 1:
+                self.get_expr_type(node.args[0])
+
+            if len(node.args) == 2 and not isinstance(node.args[1], StringLiteral):
+                self.diagnostics.error(
+                    "memory() explicit type must be a string literal",
+                    node.args[1],
+                )
+            elif len(node.args) == 2:
+                node.metadata["explicit_type"] = node.args[1].value
+
+        else:
+            # Generic fallback - analyze all arguments
+            for arg in node.args:
+                self.get_expr_type(arg)
 
     def visit_MemDecl(self, node: MemDecl) -> None:
         """Analyze memory declaration."""
@@ -885,31 +913,37 @@ class SemanticAnalyzer(ASTVisitor):
 
     def visit_CallExpr(self, node: CallExpr) -> None:
         """Analyze function call expressions."""
-        # Check if function exists
+        builtin_names = {"place", "input", "memory"}
+
         func_symbol = self.current_scope.lookup(node.name)
         if func_symbol is None:
-            # Check for built-in functions
-            if node.name not in ["place", "read", "write", "bundle"]:
-                self.diagnostics.error(f"Undefined function '{node.name}'", node)
+            if node.name in builtin_names:
+                self._validate_builtin_call(node)
+                return
+            self.diagnostics.error(f"Undefined function '{node.name}'", node)
             return
-        
+
         if func_symbol.symbol_type != "function":
             self.diagnostics.error(f"'{node.name}' is not a function", node)
             return
 
-        # Validate argument count
+        # User-defined function call
         if hasattr(func_symbol, "function_def") and func_symbol.function_def:
             expected_params = len(func_symbol.function_def.params)
             actual_args = len(node.args)
             if actual_args != expected_params:
                 self.diagnostics.error(
                     f"Function '{node.name}' expects {expected_params} arguments, got {actual_args}",
-                    node
+                    node,
                 )
 
-        # Analyze argument expressions
         for arg in node.args:
             self.get_expr_type(arg)
+
+    def visit_DictLiteral(self, node: DictLiteral) -> None:
+        """Analyze dictionary literal entries."""
+        for value in node.entries.values():
+            self.get_expr_type(value)
 
     def generic_visit(self, node: ASTNode) -> Any:
         """Default visitor - traverse children."""

@@ -16,16 +16,13 @@ Signal nested = ((a + b) * (c - 1)) / 2 | "iron-plate";
 Signal type_chain = a | "copper-plate";
 Signal type_recast = type_chain | "steel-plate";
 
-# Complex bundle operations
-Bundle bundle1 = bundle(a, b);
-Bundle bundle2 = bundle(c, a * 2);
-Bundle bundle_math = (bundle1 + bundle2) * 3;
+# Complex multi-signal operations replacing bundles
+Signal combined_ab = (a + b) | "iron-plate";
+Signal combined_ca = (c + a * 2) | "copper-plate";
+Signal bundle_math = ((combined_ab + combined_ca) * 3) | "steel-plate";
 
-# Deeply nested bundle projections
-Signal complex_projection = bundle(
-    (a + b) | "iron-plate",
-    (b * c) | "copper-plate"
-) | "steel-plate";  # Should sum all channels to steel-plate
+# Deeply nested projections
+Signal complex_projection = (((a + b) | "iron-plate") + ((b * c) | "copper-plate")) | "steel-plate";  # Sum via projection
 
 # Complex logical expressions
 Signal complex_logic = (a > b && b > c) || (c > a && a > 0) || (b == 0 && c > 5);
@@ -36,5 +33,5 @@ Signal conditional_value =
     (b > 20) * 200 + 
     (c > 30) * 300;
 
-# Mixed bundle and single-channel operations
-Signal mixed_result = a + bundle(b, c) + (a * 2) | "iron-ore";
+# Mixed multi-channel operations without bundles
+Signal mixed_result = (a + (b | "iron-plate") + (c | "iron-plate") + (a * 2)) | "iron-ore";
