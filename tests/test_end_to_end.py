@@ -4,14 +4,18 @@ End-to-end tests for the Factorio Circuit DSL compiler.
 Tests the complete pipeline using sample programs: DSL Source -> Parser -> Semantic Analysis -> IR -> Blueprint
 """
 
-import pytest
-from pathlib import Path
 import glob
+import warnings
+from pathlib import Path
+
+import pytest
+from draftsman.blueprintable import Blueprint
 
 from dsl_compiler.src.parser import DSLParser
 from dsl_compiler.src.semantic import analyze_program, SemanticAnalyzer
 from dsl_compiler.src.lowerer import lower_program
 from dsl_compiler.src.emit import emit_blueprint_string
+from compile import compile_dsl_file
 
 sample_files = glob.glob("tests/sample_programs/*.fcdsl")
 
@@ -66,6 +70,12 @@ class TestEndToEndCompilation:
 
         return True, blueprint_string
 
+    def _blueprint_from_string(self, blueprint_string: str) -> Blueprint:
+        """Decode a blueprint string while ignoring Draftsman alignment warnings."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return Blueprint.from_string(blueprint_string)
+
     def _save_successful_blueprint(self, blueprint_string: str, program_name: str):
         """Save successful blueprint for inspection."""
         if isinstance(blueprint_string, str) and blueprint_string.startswith("0eN"):
@@ -115,6 +125,108 @@ class TestEndToEndCompilation:
         assert isinstance(result, str), "Blueprint should be a string"
         assert len(result) > 50, "Blueprint string should be substantial"
         assert result.startswith("0eN"), "Blueprint should start with base64 header"
+
+    def test_memory_advanced_blueprint_structure(self):
+        """Validate that advanced memory sample emits rich combinator networks."""
+        sample_path = self.sample_dir / "04_memory_advanced.fcdsl"
+        with open(sample_path, "r", encoding="utf-8") as f:
+            dsl_code = f.read()
+
+        success, result = self._run_full_pipeline(
+            dsl_code, "Memory Advanced Integration"
+        )
+        assert success, f"Memory advanced sample failed: {result}"
+
+        blueprint = self._blueprint_from_string(result)
+        entity_dicts = [entity.to_dict() for entity in blueprint.entities]
+
+        deciders = [ent for ent in entity_dicts if ent["name"] == "decider-combinator"]
+        assert len(deciders) >= 6, "Expected SR latch and state machine deciders"
+
+        decider_conditions = [
+            condition
+            for dec in deciders
+            for condition in dec.get("control_behavior", {})
+            .get("decider_conditions", {})
+            .get("conditions", [])
+        ]
+        assert any(
+            cond.get("first_signal", {}).get("name") == "signal-R"
+            for cond in decider_conditions
+        ), "Memory latch should react to signal-R pulses"
+
+        arithmetic_outputs = [
+            cond.get("output_signal", {}).get("name")
+            for ent in entity_dicts
+            if ent["name"] == "arithmetic-combinator"
+            for cond in [
+                ent.get("control_behavior", {}).get("arithmetic_conditions", {})
+            ]
+            if cond
+        ]
+        assert "signal-R" in arithmetic_outputs, "Projected outputs should reuse signal-R"
+
+        constant_filters = [
+            filt
+            for ent in entity_dicts
+            if ent["name"] == "constant-combinator"
+            for section in ent.get("control_behavior", {})
+            .get("sections", {})
+            .get("sections", [])
+            for filt in section.get("filters", [])
+        ]
+        assert any(
+            filt.get("name") == "signal-M" for filt in constant_filters
+        ), "Memory bootstrap should reserve signal-M constants"
+
+    def test_entity_property_blueprint_behavior(self):
+        """Ensure entity property wiring and projections appear in blueprints."""
+        sample_path = self.sample_dir / "19_advanced_entity_properties_fixed.fcdsl"
+        with open(sample_path, "r", encoding="utf-8") as f:
+            dsl_code = f.read()
+
+        success, result = self._run_full_pipeline(
+            dsl_code, "Entity Property Integration"
+        )
+        assert success, f"Entity property sample failed: {result}"
+
+        blueprint = self._blueprint_from_string(result)
+        entity_dicts = [entity.to_dict() for entity in blueprint.entities]
+
+        lamp = next(ent for ent in entity_dicts if ent["name"] == "small-lamp")
+        assert lamp.get("control_behavior", {}).get("circuit_enabled") is True
+
+        train_stop = next(ent for ent in entity_dicts if ent["name"] == "train-stop")
+        first_signal = (
+            train_stop.get("control_behavior", {})
+            .get("circuit_condition", {})
+            .get("first_signal", {})
+        )
+        assert first_signal.get("type") == "virtual"
+
+        inserter = next(ent for ent in entity_dicts if ent["name"] == "inserter")
+        assert (
+            "first_signal"
+            in inserter.get("control_behavior", {})
+            .get("circuit_condition", {})
+        )
+
+        arithmetic_outputs = {
+            (
+                cond.get("output_signal", {}).get("type"),
+                cond.get("output_signal", {}).get("name"),
+            )
+            for ent in entity_dicts
+            if ent["name"] == "arithmetic-combinator"
+            for cond in [
+                ent.get("control_behavior", {}).get("arithmetic_conditions", {})
+            ]
+            if cond.get("output_signal")
+        }
+        output_types = {output[0] for output in arithmetic_outputs}
+        assert {"virtual", "item"}.issubset(
+            output_types
+        ), "Projection logic should mix virtual and item outputs"
 
         # For now, just check that we got a reasonable blueprint string
         # The actual base64 validation can be tricky due to draftsman's encoding quirks
