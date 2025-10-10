@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from dsl_compiler.src.parser import DSLParser
 from dsl_compiler.src.semantic import analyze_program, SemanticAnalyzer
 from dsl_compiler.src.lowerer import lower_program
-from dsl_compiler.src.emit import emit_blueprint_string, DRAFTSMAN_AVAILABLE
+from dsl_compiler.src.emit import emit_blueprint_string
 
 
 def compile_dsl_file(
@@ -52,7 +52,7 @@ def compile_dsl_file(
     try:
         # Parse
         parser = DSLParser()
-        program = parser.parse(dsl_code.strip())
+        program = parser.parse(dsl_code.strip(), str(input_path.resolve()))
         
         # Semantic analysis
         analyzer = SemanticAnalyzer(strict_types=strict_types)
@@ -87,9 +87,6 @@ def compile_dsl_file(
             all_diagnostics.extend(lowering_diagnostics.get_messages())
         
         # Blueprint generation
-        if not DRAFTSMAN_AVAILABLE:
-            return False, "Blueprint generation unavailable: Draftsman library not found", all_diagnostics
-        
         blueprint_string, emit_diagnostics = emit_blueprint_string(
             ir_operations, f"{program_name} Blueprint", signal_type_map
         )
@@ -141,12 +138,6 @@ def main(input_file: Path, output: Path, strict: bool, name: str, verbose: bool)
     
     INPUT_FILE: Path to the .fcdsl source file to compile
     """
-    # Check if draftsman is available
-    if not DRAFTSMAN_AVAILABLE:
-        click.echo("Error: Factorio-draftsman library is required but not available.", err=True)
-        click.echo("Please ensure factorio-draftsman is installed and accessible.", err=True)
-        sys.exit(1)
-    
     if verbose:
         click.echo(f"Compiling {input_file}...")
         if strict:

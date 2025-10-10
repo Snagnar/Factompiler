@@ -144,28 +144,6 @@ class IR_EntityPropRead(IRValue):
         return f"IR_EntityPropRead({self.node_id}: {self.output_type} = {self.entity_id}.{self.property_name})"
 
 
-class IR_Input(IRValue):
-    """External input placeholder mapped to blueprint interfaces."""
-
-    def __init__(
-        self,
-        node_id: str,
-        output_type: str,
-        source_ast: Optional[ASTNode] = None,
-    ):
-        super().__init__(node_id, output_type, source_ast)
-        self.signal_name: str = output_type
-        self.channel_index: Optional[int] = None
-
-    def __str__(self) -> str:
-        index = (
-            f", channel={self.channel_index}"
-            if self.channel_index is not None
-            else ""
-        )
-        return f"IR_Input({self.node_id}: {self.signal_name}{index})"
-
-
 # =============================================================================
 # Effect IR Nodes
 # =============================================================================
@@ -432,23 +410,6 @@ class IRBuilder:
         """Place an entity."""
         op = IR_PlaceEntity(entity_id, prototype, x, y, properties)
         self.add_operation(op)
-
-    def input_signal(
-        self,
-        signal_type: str,
-        channel_index: Optional[int] = None,
-        signal_name: Optional[str] = None,
-        source_ast: Optional[ASTNode] = None,
-    ) -> SignalRef:
-        """Register an external input placeholder."""
-        node_id = self.next_id("input")
-        op = IR_Input(node_id, signal_type, source_ast)
-        if signal_name is not None:
-            op.signal_name = signal_name
-        if channel_index is not None:
-            op.channel_index = channel_index
-        self.add_operation(op)
-        return SignalRef(signal_type, node_id)
 
     def func_decl(
         self,

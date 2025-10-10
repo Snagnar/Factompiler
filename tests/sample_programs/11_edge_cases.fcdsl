@@ -33,7 +33,7 @@ Signal precedence_complex = ((180 + 190 * 2 | "iron-ore") + 200 == 5 && 210 > 0)
 
 # Potential error conditions (for compiler validation)
 # These should cause compile errors:
-# let undefined_var = nonexistent + 1;       # undefined variable
-# let bad_input = input();                   # missing required args  
-# let bad_memory = read(nonexistent_mem);    # undefined memory
-# let bad_projection = 123 | "type";         # projection on raw int (invalid)
+# Signal undefined_var = nonexistent + 1;       # undefined variable
+# Legacy helper `input()` was removed—declare explicit signals instead.
+# Signal bad_memory = read(nonexistent_mem);    # undefined memory
+# Signal bad_projection = 123 | "signal-A";     # projection on raw int (invalid)

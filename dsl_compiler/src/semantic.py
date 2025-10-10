@@ -627,24 +627,12 @@ class SemanticAnalyzer(ASTVisitor):
             expr.metadata["entity_signal_type"] = signal_type
             return SignalValue(signal_type=signal_type)
 
-        if expr.name == "input":
-            signal_type = self._resolve_input_signal_type(expr)
-            expr.metadata["resolved_signal_type"] = signal_type
-            return SignalValue(signal_type=signal_type)
-
         if expr.name == "memory":
             signal_type = self._resolve_memory_signal_type(expr)
             expr.metadata["resolved_signal_type"] = signal_type
             return SignalValue(signal_type=signal_type)
 
         return None
-
-    def _resolve_input_signal_type(self, expr: CallExpr) -> SignalTypeInfo:
-        """Determine the signal type for input() calls."""
-        if expr.args and isinstance(expr.args[0], StringLiteral):
-            signal_name = expr.args[0].value
-            return self.make_signal_type_info(signal_name, implicit=False)
-        return self.allocate_implicit_type()
 
     def _resolve_memory_signal_type(self, expr: CallExpr) -> SignalTypeInfo:
         """Determine the signal type for memory() calls."""
@@ -700,31 +688,12 @@ class SemanticAnalyzer(ASTVisitor):
                 node.metadata["prototype"] = prototype.value
 
         elif node.name == "input":
-            if not (1 <= len(node.args) <= 2):
-                self.diagnostics.error(
-                    "input() expects one or two arguments (signal, [channel])",
-                    node,
-                )
-
-            if len(node.args) >= 1:
-                first = node.args[0]
-                if isinstance(first, StringLiteral):
-                    node.metadata["signal_name"] = first.value
-                else:
-                    self.diagnostics.error(
-                        "input() first argument must be a string literal",
-                        first,
-                    )
-
-            if len(node.args) == 2:
-                index_type = self.get_expr_type(node.args[1])
-                if not isinstance(index_type, IntValue):
-                    self.diagnostics.error(
-                        "input() channel index must be an integer expression",
-                        node.args[1],
-                    )
-                elif isinstance(node.args[1], NumberLiteral):
-                    node.metadata["channel_index"] = node.args[1].value
+            self.diagnostics.error(
+                "input() helper has been removed; use explicit signal literals or direct wiring instead.",
+                node,
+            )
+            for arg in node.args:
+                self.get_expr_type(arg)
 
         elif node.name == "memory":
             if not (1 <= len(node.args) <= 2):

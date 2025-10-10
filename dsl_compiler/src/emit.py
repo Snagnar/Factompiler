@@ -17,63 +17,19 @@ sys.path.insert(
     0, str(Path(__file__).parent.parent.parent.parent / "factorio-draftsman")
 )
 
-try:
-    from draftsman.blueprintable import Blueprint
-    from draftsman.entity import new_entity  # Use draftsman's factory
-    from draftsman.entity import *  # Import all entities
-    from draftsman.classes.entity import Entity
-    from draftsman.constants import Direction
-    from draftsman.data import entities as entity_data
-    from draftsman.data import signals as signal_data
-    from draftsman.signatures import SignalID
-    
-    # Try to get entity map for dynamic lookup
-    try:
-        from draftsman.data.entities import entity_map
-    except ImportError:
-        entity_map = None
-
-    DRAFTSMAN_AVAILABLE = True
-except ImportError as e:
-    print(f"Warning: factorio-draftsman not available: {e}")
-    DRAFTSMAN_AVAILABLE = False
-    entity_map = None
-
-    # Mock classes for development
-    class Blueprint:
-        pass
-
-    class Entity:
-        pass
-
-    def new_entity(name, **kwargs):
-        return Entity()
-
-    class ConstantCombinator:
-        pass
-
-    class ArithmeticCombinator:
-        pass
-
-    class ArithmeticCombinator:
-        pass
-
-    class DeciderCombinator:
-        pass
+from draftsman.blueprintable import Blueprint
+from draftsman.entity import new_entity  # Use draftsman's factory
+from draftsman.entity import *  # Import all entities
+from draftsman.classes.entity import Entity
+from draftsman.constants import Direction
+from draftsman.data import entities as entity_data
+from draftsman.data import signals as signal_data
+from draftsman.signatures import SignalID
 
 
-# Try relative imports when run as module
-try:
-    from .ir import *
-    from .semantic import DiagnosticCollector
-except ImportError:
-    # Fallback for direct execution
-    import sys
-    import os
-
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from src.ir import *
-    from src.semantic import DiagnosticCollector
+# Internal compiler imports
+from .ir import *
+from .semantic import DiagnosticCollector
 
 
 # =============================================================================
@@ -421,9 +377,6 @@ class LayoutEngine:
 class BlueprintEmitter:
     """Converts IR operations to Factorio blueprint using Draftsman."""
     def __init__(self, signal_type_map: Dict[str, str] = None):
-        if not DRAFTSMAN_AVAILABLE:
-            raise RuntimeError("factorio-draftsman library not available")
-
         self.blueprint = Blueprint()
         self.blueprint.label = "DSL Generated Blueprint"
         self.blueprint.version = (2, 0)
@@ -565,7 +518,6 @@ class BlueprintEmitter:
             IR_PlaceEntity: self.emit_place_entity,
             IR_EntityPropWrite: self.emit_entity_prop_write,
             IR_EntityPropRead: self.emit_entity_prop_read,
-            IR_Input: self.emit_input,
         }
 
         handler = operation_handlers.get(type(op))
@@ -878,44 +830,6 @@ class BlueprintEmitter:
             self.diagnostics.error(f"Failed to create entity: {e}")
         except Exception as e:
             self.diagnostics.error(f"Unexpected error creating entity '{op.prototype}': {e}")
-
-    def emit_input(self, op: IR_Input):
-        """Emit input placeholder combinator that forwards external signals."""
-        from draftsman.entity import DeciderCombinator
-
-        pos = self.layout.get_next_position()
-        combinator = DeciderCombinator(tile_position=pos)
-
-        signal_name = self._get_signal_name(op.signal_name)
-
-        condition = DeciderCombinator.Condition(
-            first_signal=signal_name,
-            comparator="!=",
-            constant=0,
-        )
-        combinator.conditions = [condition]
-
-        output = DeciderCombinator.Output(
-            signal=signal_name,
-            copy_count_from_input=True,
-        )
-        combinator.outputs.append(output)
-
-        if op.channel_index is not None:
-            combinator.tags = getattr(combinator, "tags", {})
-            combinator.tags["dsl_input_index"] = op.channel_index
-
-        combinator = self._add_entity(combinator)
-
-        placement = EntityPlacement(
-            entity=combinator,
-            entity_id=op.node_id,
-            position=pos,
-            output_signals={signal_name: "red"},
-            input_signals={signal_name: "green"},
-        )
-        self.entities[op.node_id] = placement
-        self.signal_sources[op.node_id] = op.node_id
 
     def emit_entity_prop_write(self, op: IR_EntityPropWrite):
         """Emit entity property write (circuit network connection)."""

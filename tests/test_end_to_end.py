@@ -11,7 +11,7 @@ import glob
 from dsl_compiler.src.parser import DSLParser
 from dsl_compiler.src.semantic import analyze_program, SemanticAnalyzer
 from dsl_compiler.src.lowerer import lower_program
-from dsl_compiler.src.emit import emit_blueprint_string, DRAFTSMAN_AVAILABLE
+from dsl_compiler.src.emit import emit_blueprint_string
 
 sample_files = glob.glob("tests/sample_programs/*.fcdsl")
 
@@ -46,9 +46,6 @@ class TestEndToEndCompilation:
             return False, f"IR lowering errors: {lowering_diagnostics.get_messages()}"
 
         # Blueprint generation
-        if not DRAFTSMAN_AVAILABLE:
-            return True, "Blueprint generation skipped - Draftsman not available"
-
         blueprint_string, emit_diagnostics = emit_blueprint_string(
             ir_operations, f"{program_name} Blueprint", signal_type_map
         )

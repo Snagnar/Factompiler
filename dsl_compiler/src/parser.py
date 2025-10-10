@@ -7,7 +7,7 @@ Uses Lark parser with the grammar file to parse DSL source code into AST objects
 
 import sys
 from pathlib import Path
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Set
 
 from lark import Lark, Transformer, Tree, Token
 from lark.exceptions import LarkError, ParseError, LexError
@@ -44,7 +44,11 @@ from dsl_compiler.src.dsl_ast import (
 )
 
 
-def preprocess_imports(source_code: str, base_path: Optional[Path] = None) -> str:
+def preprocess_imports(
+    source_code: str,
+    base_path: Optional[Path] = None,
+    processed_files: Optional[Set[Path]] = None,
+) -> str:
     """
     C-style preprocessor that inlines imported files.
 
@@ -53,12 +57,16 @@ def preprocess_imports(source_code: str, base_path: Optional[Path] = None) -> st
 
     And replaces them with the contents of the imported file.
     """
+    if processed_files is None:
+        processed_files = set()
+
     if base_path is None:
-        base_path = Path("tests/sample_programs")
+        base_path = Path("tests/sample_programs").resolve()
+    else:
+        base_path = base_path.resolve()
 
     lines = source_code.split("\n")
     processed_lines = []
-    processed_files = set()  # Prevent infinite recursion
 
     for line in lines:
         stripped = line.strip()
@@ -66,37 +74,46 @@ def preprocess_imports(source_code: str, base_path: Optional[Path] = None) -> st
         # Look for import statements (simple regex-free approach)
         if stripped.startswith('import "') and stripped.endswith('";'):
             # Extract the file path
-            import_path = stripped[8:-2]  # Remove 'import "' and '";'
+            raw_import_path = stripped[8:-2]  # Remove 'import "' and '";'
 
-            # Resolve the file path
-            if not import_path.endswith(".fcdsl"):
-                import_path += ".fcdsl"
+            import_path = Path(raw_import_path)
+            if import_path.suffix != ".fcdsl":
+                import_path = import_path.with_suffix(".fcdsl")
 
-            file_path = base_path / import_path
+            if not import_path.is_absolute():
+                file_path = (base_path / import_path).resolve()
+            else:
+                file_path = import_path
 
             # Avoid circular imports
-            if str(file_path) in processed_files:
+            if file_path in processed_files:
                 processed_lines.append(f"# Skipped circular import: {import_path}")
                 continue
 
             try:
                 if file_path.exists():
-                    processed_files.add(str(file_path))
-                    with open(file_path, "r") as f:
+                    processed_files.add(file_path)
+                    with open(file_path, "r", encoding="utf-8") as f:
                         imported_content = f.read()
 
-                    # Recursively process imports in the imported file
-                    imported_content = preprocess_imports(imported_content, base_path)
+                    # Recursively process imports using the imported file's directory
+                    imported_content = preprocess_imports(
+                        imported_content,
+                        base_path=file_path.parent,
+                        processed_files=processed_files,
+                    )
 
-                    # Add the imported content with a comment
-                    processed_lines.append(f"# --- Imported from {import_path} ---")
+                    display_path = (
+                        str(import_path)
+                        if import_path.is_absolute()
+                        else str(import_path)
+                    )
+                    processed_lines.append(f"# --- Imported from {display_path} ---")
                     processed_lines.append(imported_content)
-                    processed_lines.append(f"# --- End import {import_path} ---")
+                    processed_lines.append(f"# --- End import {display_path} ---")
                 else:
-                    # Keep the import statement as-is if file not found (let semantic analysis handle the error)
                     processed_lines.append(line)
-            except Exception as e:
-                # Keep the import statement if there's an error
+            except Exception:
                 processed_lines.append(line)
         else:
             processed_lines.append(line)
@@ -556,16 +573,13 @@ class DSLParser:
                 raise RuntimeError("Parser not initialized")
 
             # Determine base path for imports
-            base_path = None
             if filename != "<string>":
                 file_path = Path(filename)
-                if file_path.is_absolute():
-                    base_path = file_path.parent
-                else:
-                    # Default to sample programs directory
-                    base_path = Path("tests/sample_programs")
+                if not file_path.is_absolute():
+                    file_path = (Path.cwd() / file_path).resolve()
+                base_path = file_path.parent
             else:
-                base_path = Path("tests/sample_programs")
+                base_path = Path("tests/sample_programs").resolve()
 
             # C-style preprocessing: inline imports
             preprocessed_code = preprocess_imports(source_code, base_path)

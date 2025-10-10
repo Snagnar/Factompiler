@@ -187,3 +187,17 @@ class TestValueRefTypes:
         ref = 42
         # ValueRef is a Union type, just verify it can hold int
         assert isinstance(ref, int)
+
+
+class TestImplicitSignalAllocation:
+    """Validate implicit signal allocation behavior."""
+
+    def test_allocate_more_than_26_virtual_signals(self):
+        """Ensure implicit signal allocation produces unique base-26 names."""
+        builder = IRBuilder()
+        names = [builder.allocate_implicit_type() for _ in range(60)]
+
+        assert len(names) == len(set(names))
+        assert builder.signal_type_map[names[0]] == "signal-A"
+        assert builder.signal_type_map[names[25]] == "signal-Z"
+        assert builder.signal_type_map[names[26]] == "signal-AA"

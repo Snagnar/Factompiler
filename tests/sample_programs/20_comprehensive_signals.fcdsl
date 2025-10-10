@@ -186,7 +186,7 @@ Signal new_mode = mode_change && 2 || read(system_mode);
 write(system_mode, new_mode);
 
 # =============================================================================
-# OUTPUT BUNDLE WITH ALL SIGNAL TYPES
+# OUTPUT AGGREGATE WITH ALL SIGNAL TYPES
 # =============================================================================
 
 Signal output_virtual = signal_A | "signal-Z";

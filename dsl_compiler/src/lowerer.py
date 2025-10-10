@@ -5,6 +5,7 @@ AST to IR lowering pass for the Factorio Circuit DSL.
 This module converts semantic-analyzed AST nodes into IR operations
 following the lowering rules specified in the compiler specification.
 """
+from __future__ import annotations
 
 from typing import Dict, List, Optional, Union, Any
 from dataclasses import dataclass
@@ -16,14 +17,10 @@ from dsl_compiler.src.semantic import (
     SignalValue,
     IntValue,
     ValueInfo,
-    SignalTypeInfo,
     DiagnosticCollector,
 )
 
-try:
-    from draftsman.data import signals as signal_data
-except ImportError:  # pragma: no cover - draftsman optional in some environments
-    signal_data = None
+from draftsman.data import signals as signal_data
 
 
 class ASTLowerer:
@@ -470,6 +467,21 @@ class ASTLowerer:
                 properties[key] = value_expr.value
             elif isinstance(value_expr, StringLiteral):
                 properties[key] = value_expr.value
+            elif isinstance(value_expr, SignalLiteral):
+                inner_value = value_expr.value
+                if isinstance(inner_value, NumberLiteral):
+                    properties[key] = inner_value.value
+                elif isinstance(inner_value, StringLiteral):
+                    properties[key] = inner_value.value
+                else:
+                    lowered = self.lower_expr(inner_value)
+                    if isinstance(lowered, (int, str)):
+                        properties[key] = lowered
+                    else:
+                        self.diagnostics.error(
+                            f"Unsupported value for property '{key}' in place() call",
+                            value_expr,
+                        )
             else:
                 lowered = self.lower_expr(value_expr)
                 if isinstance(lowered, (int, str)):
@@ -559,11 +571,9 @@ class ASTLowerer:
             return self.ir_builder.const(target_type, 0, expr)
 
     def lower_call_expr(self, expr: CallExpr) -> ValueRef:
-        """Lower function call or special calls like place()/input()."""
+        """Lower function call or special calls like place()/memory()."""
         if expr.name == "place":
             return self.lower_place_call(expr)
-        if expr.name == "input":
-            return self.lower_input_call(expr)
         if expr.name == "memory":
             return self.lower_memory_call(expr)
         # Try to inline simple function calls
@@ -642,30 +652,6 @@ class ASTLowerer:
     def lower_place_call_with_tracking(self, expr: CallExpr) -> tuple[str, ValueRef]:
         """Lower place() call and return both entity_id and value reference for tracking."""
         return self._lower_place_core(expr)
-
-    def lower_input_call(self, expr: CallExpr) -> SignalRef:
-        """Lower input() helper to IR_Input nodes."""
-        signal_info = expr.metadata.get("resolved_signal_type")
-        if isinstance(signal_info, SignalTypeInfo):
-            signal_type = signal_info.name
-        else:
-            expr_type = self.semantic.get_expr_type(expr)
-            if isinstance(expr_type, SignalValue):
-                signal_type = expr_type.signal_type.name
-            else:
-                signal_type = self.ir_builder.allocate_implicit_type()
-
-        self._ensure_signal_registered(signal_type)
-
-        channel_index = expr.metadata.get("channel_index")
-        signal_name = expr.metadata.get("signal_name", signal_type)
-
-        return self.ir_builder.input_signal(
-            signal_type,
-            channel_index=channel_index,
-            signal_name=signal_name,
-            source_ast=expr,
-        )
 
     def lower_memory_call(self, expr: CallExpr) -> ValueRef:
         """Lower memory() helper used inside declarations."""

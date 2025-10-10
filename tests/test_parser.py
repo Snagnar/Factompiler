@@ -5,6 +5,7 @@ Tests for parser.py - Core parsing functionality.
 import pytest
 from dsl_compiler.src.parser import DSLParser
 from dsl_compiler.src.dsl_ast import Program, DeclStmt, NumberLiteral
+from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
 
 
 class TestParser:
@@ -35,3 +36,27 @@ class TestParser:
                 program = parser.parse(code)
                 assert isinstance(program, Program)
                 assert len(program.statements) > 0
+
+    def test_relative_imports_resolve_from_file_directory(self, tmp_path):
+        """Ensure preprocess_imports resolves paths relative to the source file."""
+        lib_dir = tmp_path / "lib"
+        lib_dir.mkdir()
+
+        helper_path = lib_dir / "helper.fcdsl"
+        helper_path.write_text(
+            "Signal helper_signal = 5;\n",
+            encoding="utf-8",
+        )
+
+        main_path = tmp_path / "main.fcdsl"
+        main_path.write_text(
+            'import "lib/helper.fcdsl";\n' "Signal result = helper_signal + 1;\n",
+            encoding="utf-8",
+        )
+
+        parser = DSLParser()
+        program = parser.parse_file(main_path)
+        analyzer = SemanticAnalyzer()
+        diagnostics = analyze_program(program, analyzer=analyzer)
+
+        assert not diagnostics.has_errors(), diagnostics.get_messages()

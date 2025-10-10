@@ -14,12 +14,11 @@ This document provides a complete specification of the Factorio Circuit DSL (Dom
 5. [Built-in Functions](#built-in-functions)
 6. [Memory Operations](#memory-operations)
 7. [Entity System](#entity-system)
-8. [Bundle Operations](#bundle-operations)
-9. [Functions and Modules](#functions-and-modules)
-10. [Projection and Type Coercion](#projection-and-type-coercion)
-11. [Compilation Model](#compilation-model)
-12. [Examples](#examples)
-13. [Diagnostics and Error Handling](#diagnostics-and-error-handling)
+8. [Functions and Modules](#functions-and-modules)
+9. [Projection and Type Coercion](#projection-and-type-coercion)
+10. [Compilation Model](#compilation-model)
+11. [Examples](#examples)
+12. [Diagnostics and Error Handling](#diagnostics-and-error-handling)
 
 ---
 
@@ -62,14 +61,14 @@ Identifiers can contain letters, numbers, underscores, and hyphens. Must start w
 ### Keywords
 
 **Type Keywords:**
-- `int`, `Signal`, `SignalType`, `Entity`, `Bundle`, `Memory`, `mem`
+- `int`, `Signal`, `SignalType`, `Entity`, `Memory`, `mem`
 - `mem` is an alias for `Memory`
 
 **Statement Keywords:**
 - `func`, `return`, `import`, `as`
 
 **Built-in Functions:**
-- `read`, `write`, `bundle`, `place`, `input`, `memory`
+- `read`, `write`, `place`, `memory`
 
 ### Literals
 
@@ -116,7 +115,7 @@ statement ::= decl_stmt ";"
 ```fcdsl
 decl_stmt ::= type_name NAME "=" expr
 
-type_name ::= "int" | "Signal" | "SignalType" | "Entity" | "Bundle" | "Memory"
+type_name ::= "int" | "Signal" | "SignalType" | "Entity" | "Memory"
 ```
 
 **Examples:**
@@ -125,7 +124,6 @@ Signal iron = ("iron-plate", 100);       # Signal with explicit type
 Signal virtual = ("signal-A", 42);       # Virtual signal
 Signal implicit = 5;                     # Signal with implicit type
 int count = 42;                          # Integer variable
-Bundle resources = bundle(iron, virtual); # Bundle declaration
 Entity lamp = place("small-lamp", 5, 0); # Entity placement
 Memory counter = 0;                      # Memory with initial value
 ```
@@ -222,22 +220,22 @@ Signal virtual = ("signal-A", 42);      # Virtual signal
 Signal implicit = 5;                    # Implicit type allocation
 ```
 
-#### 3. Bundle (`Bundle`)
-
-Multi-channel containers holding multiple signals.
-
-```fcdsl
-Bundle resources = bundle(iron, virtual, implicit);
-Bundle doubled = resources * 2;
-```
-
-#### 4. Memory (`Memory`)
+#### 3. Memory (`Memory`)
 
 Stateful memory cells that can store and retrieve values.
 
 ```fcdsl
 Memory counter = 0;                     # Memory initialized to 0
 Memory accumulator = iron;              # Memory initialized from signal
+```
+
+#### 4. Entity (`Entity`)
+
+References to placed Factorio entities that can be controlled.
+
+```fcdsl
+Entity lamp = place("small-lamp", 5, 0);
+lamp.enable = 1;                        # Control entity properties
 ```
 
 ### Signal Type System
@@ -272,11 +270,6 @@ Memory accumulator = iron;              # Memory initialized from signal
    # Warning: Mixed signal types in binary operation
    ```
 
-4. **Bundle + Bundle = Bundle** (channel-wise addition)
-   ```fcdsl
-   Bundle result = bundle1 + bundle2;  # Channels merged
-   ```
-
 #### Comparison Operations
 
 All comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`) return Signal values with the same type as their operands.
@@ -292,10 +285,10 @@ When `--strict` mode is enabled, type warnings become errors:
 
 ```bash
 # Normal mode: warnings
-python compile.py input.fcdsl
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl
 
 # Strict mode: errors
-python compile.py input.fcdsl --strict
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --strict
 ```
 
 ---
@@ -317,6 +310,7 @@ value                   # Implicit type allocation
 Signal iron = ("iron-plate", 100);      # Explicit type
 Signal virtual = ("signal-A", 42);      # Virtual signal
 Signal implicit = 5;                    # Implicit type (__v1)
+Signal bus_iron = ("iron-plate", 0);    # Placeholder for external wiring
 ```
 
 **Parameters:**
@@ -325,77 +319,35 @@ Signal implicit = 5;                    # Implicit type (__v1)
 
 **Returns:** Signal value
 
-### `bundle(expr1, expr2, ...)`
-
-Creates multi-channel bundles from expressions.
-
-**Syntax:**
-```fcdsl
-bundle(expr1, expr2, ...)
-```
-
-**Examples:**
-```fcdsl
-Bundle resources = bundle(iron, virtual, implicit);
-Bundle mixed = bundle(("iron-ore", 50), 42, iron * 2);
-Bundle with_projection = bundle(
-    iron * 2 | "iron-ore",
-    virtual + implicit | "copper-ore"
-);
-```
-
-**Returns:** Bundle value containing all input channels
-
-### `input(signal_type, [channel_index])`
-
-Declares an external signal that will be provided to the circuit at runtime.
-
-**Syntax:**
-```fcdsl
-input("iron-plate")
-input("copper-plate", 1)
-```
-
-**Parameters:**
-- `signal_type`: String literal naming a Factorio signal. If omitted or unknown, the compiler allocates a virtual channel.
-- `channel_index` (optional): Integer hint used for documentation and layout when multiple inputs are declared.
-
-**Returns:** Signal of the requested type. Each call creates a pass-through combinator in the blueprint so external wires can inject the value.
+> **External Inputs:** Declare a signal with the desired type (as above) to document expected bus connections. The compiler no longer inserts pass-through combinators—when the blueprint is imported into Factorio, wire the named signal to the appropriate networks manually.
 
 ### `place(entity_type, x, y, [properties])`
 
-Places entities in the blueprint at specified coordinates.
+Places entities in the blueprint at specified coordinates. An optional fourth argument lets you provide a dictionary of static prototype properties that will be applied immediately after creation.
 
 **Syntax:**
 ```fcdsl
 place(entity_type, x, y)
-place(entity_type, x, y, properties)
+place(entity_type, x, y, {property: value, ...})
 ```
 
 **Examples:**
 ```fcdsl
 Entity lamp = place("small-lamp", 5, 0);
-Entity train_stop = place("train-stop", 10, 5);
+Entity train_stop = place("train-stop", 10, 5, {station: "Central Station"});
 Entity assembler = place("assembling-machine-1", 0, 10);
-Entity lamp_with_color = place("small-lamp", 6, 0, {color: "green"});
 ```
 
 **Parameters:**
 - `entity_type`: String literal entity prototype name
-- `x`, `y`: Integer coordinates
-- `properties`: Optional dictionary of static entity properties. Keys must be valid prototype fields; values are numeric or string literals applied at placement time.
+- `x`, `y`: Integer coordinates (can be signal expressions for dynamic positioning)
+- `properties` (optional): Dictionary literal whose keys are property names and whose values are compile-time integers or strings. Values are written directly to the underlying Draftsman entity via `setattr`, so they must match the expected Python scalar types (for example, strings for names, integers for numeric configuration).
 
 **Returns:** Entity reference for property access
 
-**Supported Entity Types:**
-- Lamps: `"small-lamp"`
-- Train infrastructure: `"train-stop"`
-- Production: `"assembling-machine-1"`, `"assembling-machine-2"`, `"assembling-machine-3"`
-- Furnaces: `"stone-furnace"`, `"steel-furnace"`, `"electric-furnace"`
-- Logistics: `"inserter"`, `"fast-inserter"`, `"stack-inserter"`
-- Power: `"small-electric-pole"`, `"medium-electric-pole"`
-- Storage: `"wooden-chest"`, `"iron-chest"`, `"steel-chest"`
-- And many more from the Factorio prototype database
+**Notes:**
+- Properties that require booleans or richer structures (such as lamp `color`) must be configured after placement using dedicated DSL statements or future extensions; the dictionary currently supports only scalar int/string literals.
+- Dynamic, signal-driven properties should be configured via property assignments (e.g., `lamp.enable = condition`) after placement.
 
 ---
 
@@ -498,6 +450,16 @@ Signal next = (current + 1) % 4;  # 4-state cycle
 write(state, next);
 ```
 
+#### Advanced Memory Patterns
+
+The repository includes `tests/sample_programs/04_memory_advanced.fcdsl`, which demonstrates:
+
+- storing item, fluid, and virtual signals in dedicated memory cells
+- building conditional write expressions that preserve the previous value when a guard is false
+- constructing state machines and swapping stored values without bundle helpers
+
+Use it as a reference when wiring more sophisticated SR latch workflows.
+
 ---
 
 ## Entity System
@@ -559,82 +521,6 @@ Signal shortage = demand - supply;
 
 Entity assembler = place("assembling-machine-1", 5, 0);
 assembler.enable = shortage > 0;
-```
-
----
-
-## Bundle Operations
-
-Bundles are multi-channel containers that can hold multiple signal types.
-
-### Bundle Creation
-
-```fcdsl
-Bundle simple = bundle(iron, copper);
-Bundle complex = bundle(
-    ("iron-plate", 100),
-    ("copper-plate", 80),
-    ("coal", 50)
-);
-```
-
-### Bundle Arithmetic
-
-All arithmetic operations work channel-wise on bundles:
-
-```fcdsl
-Bundle doubled = resources * 2;        # Multiply all channels by 2
-Bundle combined = bundle1 + bundle2;   # Add corresponding channels
-Bundle scaled = resources * multiplier; # Scale by signal value
-```
-
-### Bundle + Signal Operations
-
-When combining bundles with signals, the signal is added to its corresponding channel:
-
-```fcdsl
-Bundle iron_boost = iron + resources;  # Adds iron to iron-plate channel
-```
-
-### Channel Projection
-
-Extract specific channels from bundles using the projection operator:
-
-```fcdsl
-Signal iron_amount = resources | "iron-plate";     # Extract iron channel
-Signal everything = resources | "signal-everything"; # Sum all channels
-```
-
-### Complex Bundle Examples
-
-#### Resource Processing
-```fcdsl
-Bundle raw_materials = bundle(
-    ("iron-ore", 100),
-    ("copper-ore", 80),
-    ("coal", 50)
-);
-
-Bundle processed = bundle(
-    raw_materials | "iron-ore" * 2 | "iron-plate",
-    raw_materials | "copper-ore" * 1 | "copper-plate"
-);
-```
-
-#### Multi-Channel Calculations
-```fcdsl
-Bundle demand = bundle(
-    ("signal-D1", 100),
-    ("signal-D2", 80)
-);
-
-Bundle supply = bundle(
-    ("signal-S1", 120),
-    ("signal-S2", 60)
-);
-
-Bundle shortage = demand - supply;
-Bundle production_needed = shortage * (shortage > 0);
 ```
 
 ---
@@ -756,24 +642,23 @@ Signal converted = iron | "copper-plate";    # Convert to copper-plate signal
 Signal virtual = iron | "signal-A";          # Convert to virtual signal
 ```
 
-### Bundle Projection
+### Channel Aggregation (Bundle Helper Removed)
 
-Extract channels from bundles:
+Bundles were removed from the language. To combine different channels, explicitly project each source into the desired output type and sum the projected values.
 
 ```fcdsl
-Bundle resources = bundle(iron, copper, coal);
+Signal iron = ("iron-plate", 100);
+Signal copper = ("copper-plate", 80);
+Signal coal = ("coal", 50);
 
-# Extract specific channel
-Signal iron_only = resources | "iron-plate";
+# Aggregate totals without bundle()
+Signal total_resources = (iron | "signal-output")
+                      + (copper | "signal-output")
+                      + (coal | "signal-output");
 
-# Sum all channels into one signal type (missing targets collapse into a sum)
-Signal total = resources | "signal-output";
-
-When the requested channel is not present in the bundle, every contained signal is converted to the target type and summed, producing an aggregate value instead of silently returning zero.
-
-
-# Extract non-existing channel (returns 0)
-Signal water = resources | "water";
+# Extract specific channels via projection
+Signal iron_only = iron | "iron-plate";
+Signal water = (coal | "water");   # Missing projections default to 0
 ```
 
 ### Arithmetic with Projection
@@ -824,6 +709,8 @@ Signal copper_virtual = copper | "signal-B";
 Signal sum = iron_virtual + copper_virtual | "signal-output";
 ```
 
+> Sample references: `tests/sample_programs/02_mixed_types.fcdsl`, `03_bundles.fcdsl`, and `09_advanced_patterns.fcdsl` showcase projection-based aggregation patterns in full programs.
+
 ## Compilation Model
 
 ### Compilation Pipeline
@@ -840,7 +727,6 @@ The compiler generates IR operations that represent Factorio combinators:
 
 #### Value-Producing Operations
 - `IR_Const`: Constant combinator with fixed value
-- `IR_Input`: Input interface (constant combinator placeholder)
 - `IR_Arith`: Arithmetic combinator (+, -, *, /, %)
 - `IR_Decider`: Decider combinator with conditional logic
 
@@ -883,9 +769,9 @@ Memory cells are implemented as simplified constant combinators (placeholder for
 ### Basic Arithmetic Circuit
 
 ```fcdsl
-# Input signals
-Signal iron = input("iron-plate", 0);
-Signal copper = input("copper-plate", 1);
+# Input signals (connect these to your bus after import)
+Signal iron = ("iron-plate", 0);
+Signal copper = ("copper-plate", 0);
 
 # Calculations
 Signal total = iron + copper;
@@ -915,9 +801,9 @@ Signal count_output = current | "signal-count";
 ### Entity Control System
 
 ```fcdsl
-# Inputs
-Signal production_demand = input("signal-demand", 0);
-Signal current_supply = input("signal-supply", 1);
+# Inputs (wire these channels from your factory bus)
+Signal production_demand = ("signal-demand", 0);
+Signal current_supply = ("signal-supply", 0);
 
 # Logic
 Signal shortage = production_demand - current_supply;
@@ -935,30 +821,23 @@ Entity status_lamp = place("small-lamp", 20, 0);
 status_lamp.enable = should_produce;
 ```
 
-### Bundle Processing System
+### Multi-Signal Processing (Bundle-Free)
 
 ```fcdsl
-# Input bundle
-Bundle raw_materials = bundle(
-    input("iron-ore", 0),
-    input("copper-ore", 1),
-    input("coal", 2)
-);
+# External feeds (wire these signals after import)
+Signal iron_feed = ("iron-ore", 0);
+Signal copper_feed = ("copper-ore", 0);
+Signal coal_feed = ("coal", 0);
 
-# Processing ratios
-Bundle processed = bundle(
-    raw_materials | "iron-ore" * 2 | "iron-plate",
-    raw_materials | "copper-ore" * 1 | "copper-plate",
-    raw_materials | "coal" * 1 | "coal"  # Pass through
-);
+# Process each channel explicitly via projection
+Signal iron_plates = (iron_feed | "iron-plate") * 2;
+Signal copper_plates = copper_feed | "copper-plate";
+Signal coal_passthrough = coal_feed | "coal";
 
-# Extract results
-Signal iron_plates = processed | "iron-plate";
-Signal copper_plates = processed | "copper-plate";
-Signal coal_amount = processed | "coal";
-
-# Total output
-Signal total_output = iron_plates + copper_plates + coal_amount | "signal-total";
+# Aggregate totals without bundle()
+Signal total_output = (iron_plates | "signal-total")
+                    + (copper_plates | "signal-total")
+                    + (coal_passthrough | "signal-total");
 ```
 
 ### State Machine Example
@@ -968,9 +847,11 @@ Signal total_output = iron_plates + copper_plates + coal_amount | "signal-total"
 mem production_state = memory(0);
 Signal current_state = read(production_state);
 
-# State transitions based on inputs
-Signal iron_low = input("iron-plate", 0) < 100;
-Signal copper_low = input("copper-plate", 1) < 100;
+# State transitions based on inputs (wire these channels externally)
+Signal iron_bus = ("iron-plate", 0);
+Signal copper_bus = ("copper-plate", 0);
+Signal iron_low = iron_bus < 100;
+Signal copper_low = copper_bus < 100;
 Signal both_ok = (!iron_low) && (!copper_low);
 
 Signal next_state = 
@@ -1007,8 +888,8 @@ func smooth_filter(signal, factor) {
     return new_value;
 }
 
-# Main circuit
-Signal raw_input = input("signal-input", 0);
+# Main circuit (wire signal-input externally)
+Signal raw_input = ("signal-input", 0);
 Signal smoothed = smooth_filter(raw_input, 5);
 Signal clamped = clamp(smoothed, 0, 1000);
 Signal output = clamped | "signal-output";
@@ -1036,7 +917,7 @@ Signal result = iron + 10;
 
 #### Unknown Signal Warnings
 ```fcdsl
-Signal unknown = input("nonexistent-signal", 0);
+Signal unknown = ("nonexistent-signal", 0);
 # Warning: Unknown signal type: nonexistent-signal, using signal-0
 ```
 
@@ -1066,10 +947,10 @@ When compiled with `--strict` flag, warnings become errors:
 
 ```bash
 # Normal compilation with warnings
-python compile.py input.fcdsl
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl
 
 # Strict compilation - warnings become errors
-python compile.py input.fcdsl --strict
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --strict
 ```
 
 ### Diagnostic Output
@@ -1077,7 +958,7 @@ python compile.py input.fcdsl --strict
 The compiler provides detailed diagnostic information:
 
 ```
-Compiling input.fcdsl...
+Compiling tests/sample_programs/01_basic_arithmetic.fcdsl...
 Diagnostics:
   WARNING [12:5]: Mixed signal types in binary operation: '__v1' + '__v2'
   WARNING [15:10]: Integer coerced to signal type in multiplication
@@ -1103,10 +984,10 @@ This specification describes the language as currently implemented. The followin
 
 ✅ **Complete Syntax**: All described syntax is implemented and tested  
 ✅ **Type System**: Full type inference with warnings and strict mode  
-✅ **Built-in Functions**: Signal literals, `bundle()`, `place()` all working  
+✅ **Built-in Functions**: Signal literals, `memory()`, `place()` implemented  
 ✅ **Memory Operations**: Memory type, `read()`, `write()` implemented  
 ✅ **Entity System**: Entity placement and property control functional  
-✅ **Bundle Operations**: Multi-channel operations and projection working  
+⚠️ **Bundle Helper**: `bundle()` removed; use projection patterns for aggregation  
 ✅ **Functions**: User-defined functions with parameters and local variables  
 ✅ **Compilation Pipeline**: Complete AST → IR → Blueprint generation  
 ✅ **Blueprint Export**: Generates valid Factorio blueprint strings  
@@ -1115,19 +996,19 @@ This specification describes the language as currently implemented. The followin
 
 ```bash
 # Basic compilation
-python compile.py input.fcdsl
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl
 
 # Save to file  
-python compile.py input.fcdsl -o output.blueprint
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl -o output.blueprint
 
 # Strict type checking
-python compile.py input.fcdsl --strict
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --strict
 
 # Verbose diagnostics
-python compile.py input.fcdsl --verbose
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --verbose
 
 # Custom blueprint name
-python compile.py input.fcdsl --name "My Circuit"
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --name "My Circuit"
 ```
 
 This specification represents the complete, implemented language as of version 1.0. All examples are guaranteed to compile and generate working Factorio blueprints.

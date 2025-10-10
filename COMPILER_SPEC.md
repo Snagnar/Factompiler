@@ -1,97 +1,84 @@
 # Complete language design + parser & compiler plan — Factorio circuit DSL (definitive spec)
 
-Below is a single, consistent, implementable specification you can hand to an engineer or another code-generating model to produce a parser and compiler. I thought carefully about every corner we discussed (signals as `(type,count)`, `|` projection, left-operand default for mixed types, `bundle`, `Place`/entities, `mem` atomic, imports, layout, diagnostics, and a minimal set of primitives). This is meant to be complete and actionable.
+Below is a single, consistent, implementable specification you can hand to an engineer or another code-generating model to produce a parser and compiler. I thought carefully about every corner we discussed (signals as `(type,count)`, `|` projection, left-operand default for mixed types, bundle removal, `place`/entities, `mem` atomic, imports, layout, diagnostics, and a minimal set of primitives). This is meant to be complete and actionable.
 
 ---
 
 # 1 — Design goals (short)
 
-* Minimal atomic primitives (arithmetic, decider, constant, wire, `mem`, `Place`) — everything else is library-level.
+* Minimal atomic primitives (arithmetic, decider, constant, wire, `mem`, `place`) — everything else is library-level.
 * Signals are first-class as `(type, count)` but DSL acts like integer arithmetic on counts by default.
-* Support single-channel signals and multi-channel *bundles*.
+* Focus on single-channel signals; multi-channel aggregation uses explicit projections (no bundle helper).
 * `|` operator projects/forces result channel/type.
-* Left-operand wins for mixed-type binary arithmetic by default (with warning/strict mode).
-* Isomorphism to Factorio blueprints: every construct lowers to combinators/entities/wires.
-* Clean import system for reusable blueprints / libraries.
-* Deterministic allocation of implicit signal types and good diagnostics.
 
----
+## Grammar Overview
 
-# 2 — Key concepts (precise)
+```
+program         ::= statement*
 
-### Signal
+statement        ::= decl_stmt ";"
+                 |  assign_stmt ";"
+                 |  expr_stmt ";"
+                 |  return_stmt ";"
+                 |  import_stmt ";"
+                 |  func_decl
 
-Logical value in DSL = `(type: SignalType, count: Int)`.
+decl_stmt        ::= type_name NAME "=" expr
 
-* `SignalType` is either:
+type_name        ::= "int" | "Signal" | "SignalType" | "Entity" | "Memory" | "mem"
 
-  * a literal string (e.g. `"iron-plate"`),
-  * a known identifier (e.g. `signal-A`), or
-  * an *implicit virtual* name allocated by the compiler (`__v1`, mapped to a Factorio virtual signal).
-* `count` is integer expression (can be negative).
+assign_stmt      ::= lvalue "=" expr
+lvalue           ::= NAME ("." NAME)?
 
-### Bundle
+expr_stmt        ::= expr
 
-A `Bundle` is a map `SignalType -> Int`. It carries multiple channels together. Bundles exist explicitly (via `bundle(...)`) or as result of operations combining differently typed signals when the language rules produce a multi-channel result.
+return_stmt      ::= "return" expr
 
-### Implicit typing & allocation
+import_stmt      ::= "import" STRING ["as" NAME]
 
-* `input(index)` with no type → compiler allocates a fresh implicit virtual `SignalType` for that input.
-* Expressions that produce a new signal and lack explicit `|` will have a compiler-assigned implicit type (fresh), unless rules derive from operands (see Mixed-type rules).
+func_decl        ::= "func" NAME "(" [param_list] ")" "{" statement* "}"
+param_list       ::= NAME ("," NAME)*
 
-### Projection (`|`)
+expr             ::= logic
+logic            ::= comparison ( ("&&" | "||") comparison )*
+comparison       ::= projection ( ("==" | "!=" | "<" | "<=" | ">" | ">=") projection )*
+projection       ::= add ( "|" type_literal )*
+add              ::= mul ( ("+" | "-") mul )*
+mul              ::= unary ( ("*" | "/" | "%") unary )*
+unary            ::= ("+" | "-" | "!") unary
+                 |  primary
 
-* Postfix operator: `expr | "type"` returns a single-channel `Signal` of `type` with count determined from `expr` (rules below).
+primary          ::= literal
+                 |  signal_literal
+                 |  "read" "(" NAME ")"
+                 |  "write" "(" NAME "," expr ")"
+                 |  dict_literal
+                 |  NAME "(" [arglist] ")"
+                 |  NAME "." NAME "(" [arglist] ")"
+                 |  lvalue
+                 |  "(" expr ")"
+
+arglist          ::= expr ("," expr)*
+
+dict_literal     ::= "{" [dict_item ("," dict_item)*] "}"
+dict_item        ::= (STRING | NAME) ":" expr
+
+signal_literal   ::= "(" type_literal "," expr ")"
+                   |  NUMBER
+
+type_literal     ::= STRING | NAME
+
+literal          ::= STRING
+```
 
 ### Memory
 
-* `mem name = memory(init)` declares a memory cell storing a single `Signal` (type fixed at creation or inferred). `read(name)` and `write(name, expr)` interact with it. Memory is atomic for simplicity (compiler can expand it into combinators).
 
-### Entities / Place
+### Entities / place
 
-* `Place(proto, x, y, props)` creates an entity instance in the blueprint. Entities have *ports* and *properties*. `entity.property` read/write maps to wires or control\_behavior fields as defined by entity descriptors.
+* `place(proto, x, y, props)` creates an entity instance in the blueprint. Entities have *ports* and *properties*. `entity.property` read/write maps to wires or control_behavior fields as defined by entity descriptors.
 
 ---
-
-# 3 — Full grammar (EBNF)
-
-```
-program         ::= topdecl*
-topdecl         ::= stmt ";" | func_decl | import_decl ";"
-
-stmt            ::= let_decl | assign | mem_decl | place_stmt | expr_stmt | return_stmt
-let_decl        ::= "let" IDENT "=" expr
-assign          ::= lvalue "=" expr
-lvalue          ::= IDENT | IDENT "." IDENT
-mem_decl        ::= "mem" IDENT "=" "memory" "(" [expr] ")"
-place_stmt      ::= IDENT "=" "Place" "(" TYPE_LITERAL "," expr "," expr ["," props] ")"
-expr_stmt       ::= expr
-return_stmt     ::= "return" expr
-func_decl       ::= "func" IDENT "(" [params] ")" "{" topdecl* "}"
-params          ::= IDENT ("," IDENT)*
-
-expr            ::= comparison
-comparison      ::= logic ( ( "==" | "!=" | "<" | ">" | "<=" | ">=" ) logic )*
-logic           ::= add ( ("&&"|"||") add )*
-add             ::= mul ( ("+"|"-") mul )*
-mul             ::= unary ( ("*"|"/"|"%" ) unary )*
-unary           ::= ("+"|"-"|"!") unary | primary
-primary         ::= literal
-                 |  IDENT
-                 |  IDENT "(" [arglist] ")"
-                 |  "input" "(" input_args ")"
-                 |  "read" "(" IDENT ")"
-                 |  "write" "(" IDENT "," expr ")"
-                 |  "(" expr ")"
-                 |  lvalue
-                 |  primary "|" TYPE_LITERAL      # projection / force-type
-arglist         ::= expr ("," expr)*
-input_args      ::= NUMBER | TYPE_LITERAL "," NUMBER
-
-literal         ::= NUMBER | STRING
-
-TYPE_LITERAL    ::= STRING | IDENT
-```
 
 **Note on `|` precedence:** it binds *looser* than `+/-` but *tighter* than comparisons. So `a + b | "iron"` parses as `(a + b) | "iron"`.
 
@@ -104,7 +91,7 @@ TYPE_LITERAL    ::= STRING | IDENT
 * STRING: double quoted `"..."` (for types with characters)
 * Symbols: `+ - * / % == != < <= >= && || = ( ) , . ; | { }`
 * Comments: `#` single-line
-* Keywords: `let mem input read write Place func return import bundle`
+* Keywords: `int Signal SignalType Entity Memory mem read write func return import`
 
 ---
 
@@ -129,38 +116,18 @@ TYPE_LITERAL    ::= STRING | IDENT
 
 * `Int` — integer literal or expression
 * `Signal` — single channel `{ type: SignalType, count: Int }`
-* `Bundle` — `Map<SignalType, Int>`
 
 ### Inference rules (summary)
 
-* `input(type?, index)`:
-
-  * if `type` given → `Signal(type)`
-  * else allocate new `SignalType` (implicit), return `Signal(impType)`
 * `read(mem)` → returns the mem’s `Signal` type
 * Binary arithmetic `e1 OP e2`:
 
   * If both `Signal` and same `type` → result `Signal` with that `type` (wire-merge if both are simple sources).
   * If both `Signal` and different types → **default** result `Signal(type = e1.type)` (left-operand's type). Compiler emits **warning** unless user used projection or in strict mode.
   * If one is `Int` and other is `Signal` → coerce `Int` to `Signal` with the `Signal`'s type; operate on counts.
-  * If either operand is `Bundle` → see *Bundle rules* below.
 * `expr | TYPE` (projection):
 
   * If `expr` is `Signal` → create `Signal(TYPE, count(expr))` (count preserved).
-  * If `expr` is `Bundle`:
-
-    * If bundle contains `TYPE` → result `Signal(TYPE, bundle[TYPE])`.
-    * Else → result `Signal(TYPE, sum_over_bundle_counts)` (collects all counts into the projected channel). (This choice is explicit and deterministic — compiler will warn if user likely did unintended collapse.)
-* `bundle(e1, e2, ...)` → returns `Bundle` combining each argument (if args are `Signal` they map accordingly; if `Bundle`, merge).
-
-### Bundle rules (precise)
-
-* Bundle is `Map<SignalType, Int>`.
-* Arithmetic or addition between `Bundle` and `Signal`:
-
-  * `Bundle + Signal(type T)` → `Bundle'` where `Bundle'[T] = bundle[T] + signal.count` (other keys preserved).
-* `Bundle + Bundle` → union of keys, per-key sums.
-* To convert `Bundle` to a `Signal`, use projection `|`.
 
 ---
 
@@ -169,7 +136,7 @@ TYPE_LITERAL    ::= STRING | IDENT
 * **Rule**: `a + b` with `a.type != b.type` → result `Signal(type = a.type)` and combinator added to add counts with outputs into `a.type`.
 * **UX safeguards**:
 
-  * Emit a **warning** on mixed-type arithmetic: "mixed signal types in `a + b`: result will be `a.type`. Use `|` to explicitly set output channel or use `bundle()`."
+  * Emit a **warning** on mixed-type arithmetic: "mixed signal types in `a + b`: result will be `a.type`. Use `|` to explicitly set the output channel."
   * `--strict-types` flag turns warning into compile-time error.
   * Compiler `--map-signals` output lists chosen implicit types for debugging.
 
@@ -177,9 +144,9 @@ This gives a practical balance: ergonomic default, explicit escape hatches for c
 
 ---
 
-# 8 — Entities / Place & properties
+# 8 — Entities / place & properties
 
-### `Place(proto, x, y, props)`
+### `place(proto, x, y, props)`
 
 * Creates an entity instance at coordinates `(x,y)` in generated blueprint.
 * `proto` is a TYPE\_LITERAL (string like `"small-lamp"`, or a device alias).
@@ -240,28 +207,17 @@ Each entity type has a descriptor (JSON-like) that defines:
 
 # 11 — AST node overview (suggested classes)
 
-Implement a typed AST; these are the important node kinds:
+Implement a typed AST; these are the important node kinds reflected in `dsl_ast.py`:
 
-* Program, TopDecl
-* Let(name, expr)
-* Assign(target: LValue, expr)
-* MemDecl(name, init\_expr)
-* PlaceStmt(name, proto, xExpr, yExpr, props)
-* FuncDecl(name, params, body)
-* ImportDecl(path, asAlias?)
-* Expr nodes:
+* `Program` (root node of statement list)
+* Statements: `DeclStmt`, `AssignStmt`, `MemDecl`, `ExprStmt`, `ReturnStmt`, `ImportStmt`, `FuncDecl`
+* LValues: `Identifier`, `PropertyAccess`
+* Expression nodes:
 
-  * LiteralNumber, LiteralString
-  * Ident(name)
-  * InputExpr(typeOpt, index)
-  * Read(memName)
-  * Write(memName, expr)
-  * Call(func, args)
-  * BinaryOp(op, left, right)
-  * UnaryOp(op, expr)
-  * Projection(expr, typeLiteral)  # `|`
-  * PropertyAccess(objName, propName)
-  * PlaceCall(...) (if you support Place as function sugar)
+  * `NumberLiteral`, `StringLiteral`, `DictLiteral`, `SignalLiteral`
+  * `IdentifierExpr`, `PropertyAccessExpr`
+  * `CallExpr`, `PlaceExpr`, `ReadExpr`, `WriteExpr`
+  * `BinaryOp`, `UnaryOp`, `ProjectionExpr`
 
 ---
 
@@ -272,7 +228,6 @@ IR is what lowers to combinators & blueprint entities. Keep it small and canonic
 Key IR ops:
 
 * `IR_Const(id, type?, value)` → constant combinator producing `(type, value)`
-* `IR_Input(id, index, type?)`
 * `IR_Arith(id, op, left_signal, right_signal, out_type)` → instantiate arithmetic combinator if needed
 * `IR_Decider(id, test, left_signal, right_value, out_signal_type, out_value_expr)`
 * `IR_MemCreate(mem_id, initial_signal)` → memory module instance
@@ -292,12 +247,7 @@ IR values: `SignalRef` (logical handle to `(type, count_expr)`).
 
 Below are the deterministic lowering rules the compiler must implement.
 
-### 13.1 `input(type?, index)`
-
-* If `type` present: return `SignalRef(type, src = IR_Input(...))`.
-* If not: allocate `impType = allocate_virtual_signal()` and return `SignalRef(impType, IR_Input(...))`.
-
-### 13.2 Numeric literal `42`
+### 13.1 Numeric literal `42`
 
 * If used in context requiring a `Signal` (coerce): create `IR_Const(constId, type=contextType, value=42)` (pool constants if same type/value).
 * If used as raw Int: keep as Int.
@@ -342,7 +292,7 @@ Below are the deterministic lowering rules the compiler must implement.
 
 ### 13.7 Entity property writes/reads
 
-* `Place(...)` → `IR_PlaceEntity(...)`.
+* `place(...)` → `IR_PlaceEntity(...)`.
 * `entity.prop = expr` → Lower `expr` to `SignalRef` or Int, then `IR_EntityPropWrite(entity, prop, signal)`.
 * `x = entity.prop` → `IR_EntityPropRead(entity, prop)` which returns a `SignalRef` or Int. Lowering may require placing forwarding combinator if the entity port is not a direct combinator output.
 
@@ -401,9 +351,9 @@ Heuristics for improvements:
 * Map files: `source_location -> [IR_entity_ids]` so errors refer back to code lines.
 * Warning examples:
 
-  * Mixed-type arithmetic: show types and suggested `|` or `bundle`.
+  * Mixed-type arithmetic: show operand types and suggest applying `|` to target the intended output channel.
   * Implicit type allocation: list assigned implicit types.
-  * Projection collapsing bundle: indicate whether bundle is collapsed to sum.
+  * Projections to unused channels: warn when `expr | "type"` produces a zeroed result because no source contributed to that channel.
 * Flags:
 
   * `--strict-types`: mixed-type arithmetic is error.
@@ -420,10 +370,10 @@ Heuristics for improvements:
 2. **AST transformer**: generate typed AST node objects from parse tree.
 3. **Name-resolution & symbol table**:
 
-   * Pass 1: record `let`, `mem`, `func`, `import`, `Place` declarations. Create scope stack for functions.
+  * Pass 1: record `DeclStmt`, `MemDecl`, `FuncDecl`, `ImportStmt`, `place` calls. Create scope stack for functions.
 4. **Type-inference pass** (bottom-up):
 
-   * Evaluate `infer_type(node)` returning `Signal`/`Bundle`/`Int`.
+  * Evaluate `infer_type(node)` returning `Signal`, `Int`, `Memory`, `Entity`, or `SignalType` depending on the expression or declaration.
    * Allocate implicit types when required (record mapping).
    * Emit warnings on mixed types.
 5. **Lowering to IR**:
@@ -480,7 +430,7 @@ Below is the DSL program (minimal, consistent with spec), and a concise lowering
 ### DSL
 
 ```text
-# every 100 ticks sample input(0) and if even output value*10
+# every 100 ticks sample "signal-input" and if even output value*10
 mem tick = memory(0);
 
 let ONE = 1;
@@ -491,7 +441,7 @@ write(tick, read(tick) + ONE);
 let tick_mod = read(tick) % 100;
 let sample_now = (tick_mod == 0);
 
-let v = input(0);           # implicit signal type __v1
+Signal v = ("signal-input", 0);  # external bus placeholder
 let rem = v % 2;
 let is_even = (rem == 0);
 
@@ -530,18 +480,18 @@ output(out_value | "signal-output");  # explicit output channel
 
 * Parse & AST shape:
 
-  * `a = input(0); b = input("iron",1); c = a + b;`
+  * `Signal a = ("signal-A", 0); Signal b = ("iron-plate", 0); Signal c = a + b;`
   * `a + b | "iron"`
-  * `bundle(a|"iron", b|"copper") | "steel"` (cascade)
+  * `(a | "iron") + (b | "iron")` to confirm aggregation via projection
 * Typing cases:
 
   * mixed-type `a + b` warns and chooses left type
   * `--strict-types` enforces error
 * Lowering cases:
 
-  * `same type` wire-merge (two inputs same channel) → no arithmetic combinator
+  * `same type` wire-merge (two simple sources on same channel) → no arithmetic combinator
   * `different type` arithmetic combinator produced
-  * projection of bundle present/absent keys
+  * projection to an unused channel produces zero and emits warning in non-strict mode
 * Integration:
 
   * Produce blueprint string, paste into Factorio (manual) — test sample program.
@@ -551,7 +501,7 @@ output(out_value | "signal-output");  # explicit output channel
 # 21 — Final recommendations & tradeoffs (blunt)
 
 * Keep `mem` atomic initially (makes implementation simpler). Expand to combinator memory later.
-* Keep `bundle` supported but use it only when needed. Default simple-signal model is enough for most programs.
+* Stick with projection-based aggregation; removing the bundle helper keeps the type system predictable and simpler to reason about.
 * Left-operand default is ergonomic — keep it, but *warn* and provide a strict mode.
 * The hardest engineering portion: **placement/layout**. Solve the language and lowering first, then iterate on placement heuristics.
 * Provide a good `signal_map` and compiler warnings — these will pay off hugely for debugging.

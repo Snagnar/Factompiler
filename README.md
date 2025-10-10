@@ -8,19 +8,19 @@ Compile a DSL file to a Factorio blueprint:
 
 ```bash
 # Compile and print blueprint to stdout
-python compile.py input.fcdsl
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl
 
 # Save blueprint to file
-python compile.py input.fcdsl -o output.blueprint
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl -o output.blueprint
 
 # Use strict type checking
-python compile.py input.fcdsl --strict
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --strict
 
 # Verbose output with diagnostics
-python compile.py input.fcdsl --verbose
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --verbose
 
 # Custom blueprint name
-python compile.py input.fcdsl --name "My Circuit"
+python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --name "My Circuit"
 ```
 
 ## Installation
@@ -45,7 +45,7 @@ python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl
 ### Save to File
 ```bash
 # Create a blueprint file
-python compile.py tests/sample_programs/03_bundles.fcdsl -o my_bundles.blueprint
+python compile.py tests/sample_programs/05_entities.fcdsl -o my_entities.blueprint
 ```
 
 ### Strict Mode
@@ -66,11 +66,10 @@ python compile.py tests/sample_programs/04_memory.fcdsl --verbose
 
 The Factorio Circuit DSL supports:
 
-- **Signals**: `Signal a = input("iron-plate", 0);`
+- **Signals**: `Signal a = ("iron-plate", 0);`
 - **Arithmetic**: `Signal result = a + b * 2;`
-- **Memory**: `Memory counter = memory("signal-A", 0);`
-- **Entities**: `Entity lamp = Place("small-lamp", 10, 5);`
-- **Bundles**: Multi-signal containers
+- **Memory**: `Memory counter = memory(0);`
+- **Entities**: `Entity lamp = place("small-lamp", 10, 5);`
 - **Functions**: Reusable circuit components
 - **Type Safety**: Optional strict type checking
 
