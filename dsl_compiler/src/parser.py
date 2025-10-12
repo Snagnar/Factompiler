@@ -192,9 +192,11 @@ class DSLTransformer(Transformer):
             # Convert tokens to appropriate AST nodes
             if item.type == "STRING":
                 # Remove quotes from string literal
-                return StringLiteral(value=item.value[1:-1])  # Remove surrounding quotes
+                return StringLiteral(
+                    value=item.value[1:-1], raw_text=item.value
+                )  # Remove surrounding quotes
             elif item.type == "NUMBER":
-                return NumberLiteral(value=int(item.value))
+                return NumberLiteral(value=int(item.value), raw_text=item.value)
             else:
                 # For other tokens, return the value
                 return item.value
@@ -319,10 +321,29 @@ class DSLTransformer(Transformer):
     def lvalue(self, items) -> LValue:
         """lvalue: NAME ("." NAME)?"""
         if len(items) == 1:
-            return Identifier(name=str(items[0]))
+            token = items[0]
+            if isinstance(token, Token):
+                name = str(token.value)
+                raw_text = token.value
+            else:
+                name = str(token)
+                raw_text = name
+            return Identifier(name=name, raw_text=raw_text)
         else:
+            obj_token, prop_token = items[0], items[1]
+            object_name = (
+                obj_token.value if isinstance(obj_token, Token) else str(obj_token)
+            )
+            property_name = (
+                prop_token.value
+                if isinstance(prop_token, Token)
+                else str(prop_token)
+            )
+            raw_text = f"{object_name}.{property_name}"
             return PropertyAccess(
-                object_name=str(items[0]), property_name=str(items[1])
+                object_name=object_name,
+                property_name=property_name,
+                raw_text=raw_text,
             )
 
     # =========================================================================
@@ -462,13 +483,31 @@ class DSLTransformer(Transformer):
     def signal_with_type(self, items) -> SignalLiteral:
         """signal_literal: "(" type_literal "," expr ")" -> signal_with_type"""
         signal_type = items[0]  # type_literal
-        value = items[1]  # expr
-        return SignalLiteral(value=value, signal_type=signal_type)
+        value = self._unwrap_tree(items[1])
+
+        value_raw = getattr(value, "raw_text", None)
+        raw_text = f"({signal_type}, {value_raw if value_raw is not None else value})"
+
+        # Unwrap nested signal literals produced by NUMBER grammar so that explicit
+        # typed literals carry their numeric payload directly. Without this, we end
+        # up lowering a nested, implicitly typed literal which generates an extra
+        # virtual signal constant and drops the declared item type.
+        if isinstance(value, SignalLiteral) and value.signal_type is None:
+            value = value.value
+
+        return SignalLiteral(value=value, signal_type=signal_type, raw_text=raw_text)
 
     def signal_constant(self, items) -> SignalLiteral:
         """signal_literal: NUMBER -> signal_constant"""
-        value = NumberLiteral(value=int(items[0]))
-        return SignalLiteral(value=value, signal_type=None)  # Implicit type
+        token = items[0]
+        if isinstance(token, Token):
+            raw_number = token.value
+        else:
+            raw_number = str(token)
+        value = NumberLiteral(value=int(raw_number), raw_text=raw_number)
+        return SignalLiteral(
+            value=value, signal_type=None, raw_text=raw_number
+        )  # Implicit type
 
     def type_literal(self, items) -> str:
         """type_literal: STRING | NAME"""
@@ -495,17 +534,22 @@ class DSLTransformer(Transformer):
 
             # Handle identifiers in expression context
             if isinstance(item, Token) and item.type == "NAME":
-                return IdentifierExpr(name=item.value)
+                return IdentifierExpr(name=item.value, raw_text=item.value)
 
             # Handle lvalue -> identifier conversion
             if isinstance(item, Identifier):
-                return IdentifierExpr(name=item.name)
+                return IdentifierExpr(
+                    name=item.name,
+                    raw_text=getattr(item, "raw_text", item.name),
+                )
 
             # Handle property access in expression context
             if isinstance(item, PropertyAccess):
                 # Convert to PropertyAccessExpr for expression context
                 return PropertyAccessExpr(
-                    object_name=item.object_name, property_name=item.property_name
+                    object_name=item.object_name,
+                    property_name=item.property_name,
+                    raw_text=getattr(item, "raw_text", None),
                 )
 
             return item
@@ -587,6 +631,9 @@ class DSLParser:
             # Parse and transform in one step
             ast = self.parser.parse(preprocessed_code)
 
+            # Attach origin filename metadata to all AST nodes for debugging.
+            self._attach_source_file(ast, filename)
+
             if not isinstance(ast, Program):
                 raise RuntimeError(f"Expected Program AST node, got {type(ast)}")
 
@@ -605,3 +652,24 @@ class DSLParser:
             return self.parse(source_code, str(file_path))
         except FileNotFoundError:
             raise FileNotFoundError(f"Source file not found: {file_path}")
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _attach_source_file(self, node: ASTNode, filename: str) -> None:
+        """Recursively annotate AST nodes with their originating filename."""
+
+        if not isinstance(node, ASTNode):
+            return
+
+        if filename:
+            node.source_file = filename
+
+        for attr in vars(node).values():
+            if isinstance(attr, ASTNode):
+                self._attach_source_file(attr, filename)
+            elif isinstance(attr, list):
+                for item in attr:
+                    if isinstance(item, ASTNode):
+                        self._attach_source_file(item, filename)

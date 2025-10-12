@@ -8,9 +8,7 @@ using the factorio-draftsman library to generate blueprint JSON.
 
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Union, Type, Set
-from dataclasses import dataclass
-from abc import ABC, abstractmethod
+from typing import Dict, List, Optional, Tuple, Any, Union, Set
 
 # Add draftsman to path
 sys.path.insert(
@@ -27,9 +25,13 @@ from draftsman.data import signals as signal_data
 from draftsman.signatures import SignalID
 
 
-# Internal compiler imports
 from .ir import *
-from .semantic import DiagnosticCollector
+from .dsl_ast import SignalLiteral
+from .semantic import DiagnosticCollector, render_source_location
+from .emission.signals import EntityPlacement, SignalUsageEntry, SignalGraph, SignalMaterializer
+from .emission.memory import MemoryCircuitBuilder
+from .emission.layout import LayoutEngine
+from .emission.debug_format import format_entity_description
 
 
 # =============================================================================
@@ -37,15 +39,7 @@ from .semantic import DiagnosticCollector
 # =============================================================================
 
 
-@dataclass
-class EntityPlacement:
-    """Information about placed entity for wiring."""
 
-    entity: Entity  # Draftsman entity
-    entity_id: str
-    position: Tuple[int, int]
-    output_signals: Dict[str, str]  # signal_type -> wire_color
-    input_signals: Dict[str, str]  # signal_type -> wire_color
 
 
 # =============================================================================
@@ -53,330 +47,94 @@ class EntityPlacement:
 # =============================================================================
 
 
-class MemoryCircuitBuilder:
-    """Builds proper memory circuits based on real Factorio designs."""
-    
-    def __init__(self, layout_engine, blueprint: Blueprint):
-        self.layout = layout_engine
-        self.blueprint = blueprint
-        self.memory_modules: Dict[str, Dict[str, EntityPlacement]] = {}
-
-    def build_sr_latch(self, memory_id: str, signal_type: str, initial_value: int = 0) -> Dict[str, EntityPlacement]:
-        """
-        Build a 3-combinator memory cell that handles negatives and burst signals.
-        
-        Based on the design from: https://forums.factorio.com/viewtopic.php?f=193&t=60330
-        
-        This creates a robust memory cell with:
-        - Input combinator (detects input and generates reset signal)
-        - Output combinator (handles output during input)  
-        - Memory combinator (stores the value when no input)
-        """
-        from draftsman.entity import DeciderCombinator, ArithmeticCombinator
-        
-        placements = {}
-        
-        # Combinator 1: Input detector and reset generator
-        # If I != 0, output R = 1 (reset signal)
-        input_pos = self.layout.get_next_position()
-        input_combinator = DeciderCombinator(tile_position=input_pos)
-        
-        # Set condition: write pulse detected
-        input_condition = DeciderCombinator.Condition(
-            first_signal="signal-R",
-            comparator="!=",
-            constant=0
-        )
-        input_combinator.conditions = [input_condition]
-        
-        # Output: R = 1 (constant)
-        input_output = DeciderCombinator.Output(
-            signal="signal-R",
-            copy_count_from_input=False,
-            constant=1
-        )
-        input_combinator.outputs.append(input_output)
-        
-        self.blueprint.entities.append(input_combinator, copy=False)
-        
-        # Combinator 2: Output handler during input
-        # If R > 0, output M = I (copy input value)
-        output_pos = self.layout.get_next_position()
-        output_combinator = DeciderCombinator(tile_position=output_pos)
-        
-        # Set condition: R > 0
-        output_condition = DeciderCombinator.Condition(
-            first_signal="signal-R",
-            comparator=">",
-            constant=0
-        )
-        output_combinator.conditions = [output_condition]
-        
-        # Output: M = I (copy input signal)
-        output_output = DeciderCombinator.Output(
-            signal="signal-M",
-            copy_count_from_input=True
-        )
-        output_combinator.outputs.append(output_output)
-        
-        self.blueprint.entities.append(output_combinator, copy=False)
-        
-        # Combinator 3: Memory storage
-        # If R = 0, output M = M (memory feedback)
-        memory_pos = self.layout.get_next_position()
-        memory_combinator = DeciderCombinator(tile_position=memory_pos)
-        
-        # Set condition: R = 0
-        memory_condition = DeciderCombinator.Condition(
-            first_signal="signal-R",
-            comparator="=",
-            constant=0
-        )
-        memory_combinator.conditions = [memory_condition]
-        
-        # Output: M = M (copy memory signal)
-        memory_output = DeciderCombinator.Output(
-            signal="signal-M",
-            copy_count_from_input=True
-        )
-        memory_combinator.outputs.append(memory_output)
-        
-        # Set initial value if specified
-        if initial_value != 0:
-            # Use a constant combinator to initialize the memory
-            from draftsman.entity import ConstantCombinator
-            init_pos = self.layout.get_next_position()
-            init_combinator = ConstantCombinator(tile_position=init_pos)
-            section = init_combinator.add_section()
-            section.set_signal(index=0, signal="signal-M", count=initial_value)
-            self.blueprint.entities.append(init_combinator, copy=False)
-            
-            placements['init_combinator'] = EntityPlacement(
-                entity=init_combinator,
-                entity_id=f"{memory_id}_init",
-                position=init_pos,
-                output_signals={"signal-M": "red"},
-                input_signals={}
-            )
-        
-        self.blueprint.entities.append(memory_combinator, copy=False)
-        
-        # Converter: translate internal signal-M to the memory's declared signal type
-        converter_pos = self.layout.get_next_position()
-        converter = ArithmeticCombinator(tile_position=converter_pos)
-        converter.first_operand = "signal-M"
-        converter.second_operand = 1
-        converter.operation = "*"
-        converter.output_signal = signal_type
-        self.blueprint.entities.append(converter, copy=False)
-
-        # Store placements
-        placements['input_combinator'] = EntityPlacement(
-            entity=input_combinator,
-            entity_id=f"{memory_id}_input",
-            position=input_pos,
-            output_signals={"signal-R": "red"},
-            input_signals={signal_type: "green", "signal-R": "red"}
-        )
-        
-        placements['output_combinator'] = EntityPlacement(
-            entity=output_combinator,
-            entity_id=f"{memory_id}_output",
-            position=output_pos,
-            output_signals={"signal-M": "green"},
-            input_signals={"signal-R": "red", signal_type: "red"}
-        )
-        
-        placements['memory_combinator'] = EntityPlacement(
-            entity=memory_combinator,
-            entity_id=f"{memory_id}_memory",
-            position=memory_pos,
-            output_signals={"signal-M": "green"},
-            input_signals={"signal-R": "red", "signal-M": "green"}
-        )
-
-        placements['output_converter'] = EntityPlacement(
-            entity=converter,
-            entity_id=f"{memory_id}_converter",
-            position=converter_pos,
-            output_signals={signal_type: "red"},
-            input_signals={"signal-M": "green"}
-        )
-        
-        # Store the memory module for later wiring
-        self.memory_modules[memory_id] = placements
-        return placements
-
-    def wire_sr_latch(self, memory_id: str):
-        """Wire up the 3-combinator memory cell components."""
-        if memory_id not in self.memory_modules:
-            return
-
-        module = self.memory_modules[memory_id]
-        input_comb = module.get('input_combinator')
-        output_comb = module.get('output_combinator')
-        memory_comb = module.get('memory_combinator')
-        converter = module.get('output_converter')
-        init_comb = module.get('init_combinator')
-
-        try:
-            if input_comb and output_comb:
-                self.blueprint.add_circuit_connection(
-                    "red",
-                    input_comb.entity,
-                    output_comb.entity,
-                    side_1="output",
-                    side_2="input",
-                )
-
-            if input_comb and memory_comb:
-                self.blueprint.add_circuit_connection(
-                    "red",
-                    input_comb.entity,
-                    memory_comb.entity,
-                    side_1="output",
-                    side_2="input",
-                )
-
-            if memory_comb:
-                # Feedback loop for memory retention
-                self.blueprint.add_circuit_connection(
-                    "green",
-                    memory_comb.entity,
-                    memory_comb.entity,
-                    side_1="output",
-                    side_2="input",
-                )
-
-            if output_comb and memory_comb:
-                # Allow new writes to reach memory storage
-                self.blueprint.add_circuit_connection(
-                    "green",
-                    output_comb.entity,
-                    memory_comb.entity,
-                    side_1="output",
-                    side_2="input",
-                )
-
-            if converter and memory_comb:
-                self.blueprint.add_circuit_connection(
-                    "green",
-                    memory_comb.entity,
-                    converter.entity,
-                    side_1="output",
-                    side_2="input",
-                )
-
-            if converter and output_comb:
-                self.blueprint.add_circuit_connection(
-                    "green",
-                    output_comb.entity,
-                    converter.entity,
-                    side_1="output",
-                    side_2="input",
-                )
-
-            if init_comb and memory_comb:
-                self.blueprint.add_circuit_connection(
-                    "green",
-                    init_comb.entity,
-                    memory_comb.entity,
-                    side_1="output",
-                    side_2="input",
-                )
-
-            if init_comb and converter:
-                self.blueprint.add_circuit_connection(
-                    "green",
-                    init_comb.entity,
-                    converter.entity,
-                    side_1="output",
-                    side_2="input",
-                )
-        except Exception as exc:
-            print(f"Warning: failed to wire memory cell {memory_id}: {exc}")
 
 
-class LayoutEngine:
-    """Simple layout engine for entity placement."""
-
-    def __init__(self):
-        # Start automatic layout in negative coordinates to avoid manual entities
-        self.next_x = -30  # Start well to the left of manual entities
-        self.next_y = 0
-        self.row_height = 2  # Keep rows close enough for wiring while avoiding overlap
-        self.entities_per_row = 6
-        self.current_row_count = 0
-        self.used_positions = set()
-        self.entity_spacing = 2  # Minimum spacing between entities
-
-    def get_next_position(self) -> Tuple[int, int]:
-        """Get next available position for entity placement with proper grid alignment."""
-        # Ensure current position is grid-aligned (integer coordinates)
-        pos = (int(self.next_x), int(self.next_y))
-        
-        # Check if position is available
-        while pos in self.used_positions:
-            self._advance_position()
-            pos = (int(self.next_x), int(self.next_y))
-        
-        # Mark position as used
-        self.used_positions.add(pos)
-        
-        # Advance to next position for the next call
-        self._advance_position()
-        
-        return pos
-
-    def reserve_near(self, target: Tuple[int, int], max_radius: int = 6) -> Tuple[int, int]:
-        """Reserve a position near a target coordinate if available."""
-        tx, ty = self.snap_to_grid(target)
-
-        if (tx, ty) not in self.used_positions:
-            self.used_positions.add((tx, ty))
-            return (tx, ty)
-
-        spacing_x = max(1, self.entity_spacing)
-        spacing_y = max(1, self.row_height)
-
-        for radius in range(1, max_radius + 1):
-            for dx in range(-radius, radius + 1):
-                for dy in range(-radius, radius + 1):
-                    pos = (tx + dx * spacing_x, ty + dy * spacing_y)
-                    if pos not in self.used_positions:
-                        self.used_positions.add(pos)
-                        return pos
-
-        # Fall back to default layout if nearby space is exhausted
-        return self.get_next_position()
-
-    def snap_to_grid(self, pos: Tuple[Union[int, float], Union[int, float]]) -> Tuple[int, int]:
-        """Snap a coordinate to the layout grid respecting spacing and row height."""
-        x, y = pos
-        spacing_x = max(1, self.entity_spacing)
-        spacing_y = max(1, self.row_height)
-
-        snapped_x = int(round(x / spacing_x) * spacing_x)
-        snapped_y = int(round(y / spacing_y) * spacing_y)
-
-        return (snapped_x, snapped_y)
-
-    def _advance_position(self):
-        """Advance to the next grid position."""
-        self.current_row_count += 1
-        if self.current_row_count >= self.entities_per_row:
-            # Move to next row
-            self.next_x = -30  # Reset to left edge for automatic layout
-            self.next_y += self.row_height
-            self.current_row_count = 0
-        else:
-            # Move to next column with proper spacing
-            self.next_x += self.entity_spacing
 
 
 class BlueprintEmitter:
+    def allocate_shared_position(self, producer_ids: List[str]) -> Tuple[int, int]:
+        """Allocate a layout position for shared producers, avoiding duplication."""
+        positions = [self.entities[pid].position for pid in producer_ids if pid in self.entities]
+        if positions:
+            avg_x = sum(pos[0] for pos in positions) / len(positions)
+            avg_y = sum(pos[1] for pos in positions) / len(positions)
+            return self.layout.reserve_near((avg_x, avg_y))
+        return self.layout.get_next_position()
+
+    def get_wire_color(self, signal_type: Optional[str] = None) -> str:
+        """Attach correct wire color based on signal type/category."""
+        if signal_type == "memory":
+            return "green"
+        return "red"
+
+    def annotate_entity_description(self, entity: Entity, debug_info: Optional[dict] = None) -> None:
+        """Attach compiler metadata to the entity description without clobbering user tags."""
+
+        if not self.enable_metadata_annotations or not debug_info:
+            return
+
+        # Ensure we have a human-friendly description string.
+        description = format_entity_description(debug_info)
+        if not description:
+            return
+
+        # Prefer Draftsman's player description support when available so that
+        # the text shows up in Factorio's UI.
+        player_description_applied = False
+        if hasattr(entity, "player_description"):
+            existing = getattr(entity, "player_description", "") or ""
+            if not existing:
+                entity.player_description = description
+            elif description not in existing:
+                entity.player_description = f"{existing}; {description}"[:500]
+            player_description_applied = True
+
+        container: Optional[Dict[str, Any]] = None
+        if hasattr(entity, "tags"):
+            if getattr(entity, "tags") is None:
+                entity.tags = {}
+            container = entity.tags
+        elif hasattr(entity, "extra_keys"):
+            if getattr(entity, "extra_keys") is None:
+                entity.extra_keys = {}
+            container = entity.extra_keys
+
+        if container is None and not player_description_applied:
+            return
+
+        if container is not None:
+            existing = container.get("description")
+            if existing:
+                existing_entries = [entry.strip() for entry in existing.split(";") if entry.strip()]
+                if description in existing_entries:
+                    return
+                existing_entries.append(description)
+                container["description"] = "; ".join(existing_entries)
+            else:
+                container["description"] = description
     """Converts IR operations to Factorio blueprint using Draftsman."""
-    def __init__(self, signal_type_map: Dict[str, str] = None):
+
+    def __init__(
+        self,
+        signal_type_map: Dict[str, str] = None,
+        *,
+        enable_metadata_annotations: bool = True,
+    ):
+        # Persistent configuration
+        self.signal_type_map = signal_type_map or {}
+        self.enable_metadata_annotations = enable_metadata_annotations
+
+        # Runtime placeholders
+        self._reset_for_emit()
+
+    def set_metadata_annotation_mode(self, enabled: bool) -> None:
+        """Toggle compiler-provided metadata descriptions at runtime."""
+
+        self.enable_metadata_annotations = enabled
+
+    def _reset_for_emit(self) -> None:
+        """Reset transient state so the emitter can be reused safely."""
+
         self.blueprint = Blueprint()
         self.blueprint.label = "DSL Generated Blueprint"
         self.blueprint.version = (2, 0)
@@ -385,19 +143,32 @@ class BlueprintEmitter:
         self.diagnostics = DiagnosticCollector()
         self.memory_builder = MemoryCircuitBuilder(self.layout, self.blueprint)
 
-        # Signal type mapping from IR builder
-        self.signal_type_map = signal_type_map or {}
-
         # Entity tracking
-        self.entities: Dict[str, EntityPlacement] = {}
+        self.entities = {}
         self.next_entity_number = 1
 
-        # Signal tracking for wiring
-        self.signal_sources: Dict[str, str] = {}  # signal_id -> entity_id
-        self.signal_sinks: Dict[str, List[str]] = {}  # signal_id -> [entity_ids]
-        
+        # Signal connectivity graph
+        self.signal_graph = SignalGraph()
+
         # Entity property signal tracking (for reads)
-        self.entity_property_signals: Dict[Tuple[str, str], Any] = {}
+        self.entity_property_signals = {}
+
+        # Signal usage/materializer cache
+        self.signal_usage = {}
+        self.materializer = None
+        self._prepared_operations = []
+
+    def prepare(self, ir_operations: List[IRNode]) -> None:
+        """Initialize emission state and analyze the IR prior to realization."""
+
+        self._reset_for_emit()
+        self._prepared_operations = ir_operations
+
+        self.signal_usage = self._analyze_signal_usage(ir_operations)
+        self.materializer = SignalMaterializer(
+            self.signal_usage, self.signal_type_map, self.diagnostics
+        )
+        self.materializer.finalize()
 
     def _extract_dependency_positions(self, value_ref) -> List[Tuple[int, int]]:
         """Find positions of entities that feed a value reference."""
@@ -431,10 +202,179 @@ class BlueprintEmitter:
         """Add an entity to the blueprint and return the stored reference."""
         return self.blueprint.entities.append(entity, copy=False)
 
+    def _compose_debug_info(
+        self, usage_entry: Optional[SignalUsageEntry], fallback_name: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Create a debug info dictionary from signal usage metadata."""
+
+        if usage_entry is None and fallback_name is None:
+            return None
+
+        debug_info: Dict[str, Any] = {}
+
+        if usage_entry is not None:
+            metadata = getattr(usage_entry, "debug_metadata", {}) or {}
+            debug_info.update(metadata)
+
+            if usage_entry.debug_label and "label" not in debug_info:
+                debug_info["label"] = usage_entry.debug_label
+
+            if "name" not in debug_info:
+                debug_info["name"] = (
+                    metadata.get("name")
+                    or usage_entry.debug_label
+                    or fallback_name
+                )
+
+            if usage_entry.resolved_signal_name and "factorio_signal" not in debug_info:
+                debug_info["factorio_signal"] = usage_entry.resolved_signal_name
+
+            if usage_entry.resolved_signal_type and "category" not in debug_info:
+                debug_info["category"] = usage_entry.resolved_signal_type
+
+            if "location" not in debug_info and usage_entry.source_ast:
+                location = render_source_location(usage_entry.source_ast)
+                if location:
+                    debug_info["location"] = location
+
+            if usage_entry.source_ast is not None:
+                debug_info.setdefault("source_ast", usage_entry.source_ast)
+
+        elif fallback_name is not None:
+            debug_info["name"] = fallback_name
+
+        return debug_info or None
+
+    def _analyze_signal_usage(self, ir_operations: List[IRNode]) -> Dict[str, SignalUsageEntry]:
+        """Construct a signal usage index from the IR prior to emission."""
+
+        usage: Dict[str, SignalUsageEntry] = {}
+
+        def ensure_entry(signal_id: str, signal_type: Optional[str] = None) -> SignalUsageEntry:
+            entry = usage.get(signal_id)
+            if entry is None:
+                entry = SignalUsageEntry(signal_id=signal_id)
+                usage[signal_id] = entry
+            if signal_type and not entry.signal_type:
+                entry.signal_type = signal_type
+            return entry
+
+        def record_consumer(ref: Any, consumer_id: str) -> None:
+            if isinstance(ref, SignalRef):
+                entry = ensure_entry(ref.source_id, ref.signal_type)
+                entry.consumers.add(consumer_id)
+            elif isinstance(ref, (list, tuple)):
+                for item in ref:
+                    record_consumer(item, consumer_id)
+
+        def record_export(ref: Any, export_label: str) -> None:
+            if isinstance(ref, SignalRef):
+                entry = ensure_entry(ref.source_id, ref.signal_type)
+                entry.export_targets.add(export_label)
+
+        for op in ir_operations:
+            if isinstance(op, IRValue):
+                entry = ensure_entry(op.node_id, getattr(op, "output_type", None))
+                entry.producer = op
+                if op.source_ast and not entry.source_ast:
+                    entry.source_ast = op.source_ast
+                if getattr(op, "debug_label", None):
+                    entry.debug_label = op.debug_label
+                elif not entry.debug_label:
+                    entry.debug_label = op.node_id
+                if getattr(op, "debug_metadata", None):
+                    entry.debug_metadata.update(op.debug_metadata)
+
+                if isinstance(op, IR_Const):
+                    entry.literal_value = op.value
+                    if isinstance(op.source_ast, SignalLiteral):
+                        declared_type = getattr(op.source_ast, "signal_type", None)
+                        if declared_type:
+                            entry.is_typed_literal = True
+                            entry.literal_declared_type = declared_type
+                        else:
+                            entry.literal_declared_type = getattr(op, "output_type", None)
+
+            if isinstance(op, IR_Arith):
+                record_consumer(op.left, op.node_id)
+                record_consumer(op.right, op.node_id)
+            elif isinstance(op, IR_Decider):
+                record_consumer(op.left, op.node_id)
+                record_consumer(op.right, op.node_id)
+                record_consumer(op.output_value, op.node_id)
+            elif isinstance(op, IR_MemCreate):
+                record_consumer(op.initial_value, op.node_id)
+            elif isinstance(op, IR_MemWrite):
+                record_consumer(op.data_signal, op.node_id)
+                record_consumer(op.write_enable, op.node_id)
+            elif isinstance(op, IR_PlaceEntity):
+                record_consumer(op.x, op.node_id)
+                record_consumer(op.y, op.node_id)
+                for prop_value in op.properties.values():
+                    record_consumer(prop_value, op.node_id)
+            elif isinstance(op, IR_EntityPropWrite):
+                record_consumer(op.value, op.node_id)
+                record_export(op.value, f"entity:{op.entity_id}.{op.property_name}")
+            elif isinstance(op, IR_ConnectToWire):
+                record_export(op.signal, f"wire:{op.channel}")
+
+        return usage
+
+    def _ensure_export_anchors(self):
+        """Create anchor entities for externally visible or dangling signals."""
+
+        for signal_id, usage_entry in self.signal_usage.items():
+            has_external_targets = bool(usage_entry.export_targets)
+            is_dangling_output = (
+                not usage_entry.export_targets
+                and usage_entry.producer is not None
+                and not usage_entry.consumers
+                and not isinstance(usage_entry.producer, IR_Const)
+            )
+
+            if not (has_external_targets or is_dangling_output):
+                continue
+            if usage_entry.export_anchor_id:
+                continue
+            self._create_export_anchor(signal_id, usage_entry)
+
+    def _create_export_anchor(self, signal_id: str, usage_entry: SignalUsageEntry):
+        anchor_id = f"{signal_id}_export_anchor"
+        if anchor_id in self.entities:
+            usage_entry.export_anchor_id = anchor_id
+            return
+
+        pos = self.layout.get_next_position()
+        combinator = new_entity('constant-combinator', tile_position=pos)
+        self._add_entity(combinator)
+        placement = EntityPlacement(
+            entity=combinator,
+            entity_id=anchor_id,
+            position=pos,
+            output_signals={},
+            input_signals={},
+        )
+        self.entities[anchor_id] = placement
+        usage_entry.export_anchor_id = anchor_id
+
+        debug_info = self._compose_debug_info(usage_entry)
+        if debug_info:
+            self.annotate_entity_description(combinator, debug_info)
+
+        # Register as sink so standard wiring connects it to the producer
+        self.signal_graph.add_sink(signal_id, anchor_id)
+
     def emit_blueprint(self, ir_operations: List[IRNode]) -> Blueprint:
         """Convert IR operations to blueprint."""
         import warnings
-        
+
+        # Preserve caller-provided blueprint metadata across resets
+        previous_label = getattr(self.blueprint, "label", "DSL Generated Blueprint")
+
+        # Initialize state and perform IR pre-analysis
+        self.prepare(ir_operations)
+        self.blueprint.label = previous_label
+
         # Collect draftsman warnings during blueprint construction
         captured_warnings = []
         
@@ -447,8 +387,11 @@ class BlueprintEmitter:
         
         try:
             # Process all IR operations
-            for op in ir_operations:
+            for op in self._prepared_operations:
                 self.emit_ir_operation(op)
+
+            # Create export anchors for signals with external targets but no consumers
+            self._ensure_export_anchors()
 
             # Add wiring connections
             self.create_circuit_connections()
@@ -506,51 +449,144 @@ class BlueprintEmitter:
         self.diagnostics.info(f"Generated blueprint with {len(self.blueprint.entities)} entities: {entity_counts}")
 
     def emit_ir_operation(self, op: IRNode):
-        """Emit a single IR operation."""
-        # Dispatch table for IR operation emission
-        operation_handlers = {
-            IR_Const: self.emit_constant,
-            IR_Arith: self.emit_arithmetic,
-            IR_Decider: self.emit_decider,
-            IR_MemCreate: self.emit_memory_create,
-            IR_MemRead: self.emit_memory_read,
-            IR_MemWrite: self.emit_memory_write,
-            IR_PlaceEntity: self.emit_place_entity,
-            IR_EntityPropWrite: self.emit_entity_prop_write,
-            IR_EntityPropRead: self.emit_entity_prop_read,
-        }
-
-        handler = operation_handlers.get(type(op))
-        if handler:
-            handler(op)
+        """Emit a single IR operation, consulting signal usage index for materialization rules."""
+        usage_entry = self.signal_usage.get(getattr(op, 'node_id', None))
+        if isinstance(op, IR_Const):
+            # Only materialize if required by usage index
+            if self.materializer and usage_entry and not usage_entry.should_materialize:
+                return
+            self.emit_constant(op)
+        elif isinstance(op, IR_Arith):
+            self.emit_arithmetic(op)
+        elif isinstance(op, IR_Decider):
+            self.emit_decider(op)
+        elif isinstance(op, IR_MemCreate):
+            self.emit_memory_create(op)
+        elif isinstance(op, IR_MemRead):
+            self.emit_memory_read(op)
+        elif isinstance(op, IR_MemWrite):
+            self.emit_memory_write(op)
+        elif isinstance(op, IR_PlaceEntity):
+            self.emit_place_entity(op)
+        elif isinstance(op, IR_EntityPropWrite):
+            self.emit_entity_prop_write(op)
+        elif isinstance(op, IR_EntityPropRead):
+            self.emit_entity_prop_read(op)
         else:
             self.diagnostics.error(f"Unknown IR operation: {type(op)}")
 
     def emit_constant(self, op: IR_Const):
-        """Emit constant combinator for IR_Const."""
-
+        """Emit constant combinator for IR_Const, only if materialization is required."""
+        usage_entry = self.signal_usage.get(op.node_id)
+        if self.materializer and usage_entry and not usage_entry.should_materialize:
+            print(f"SKIP constant: {op.node_id} (should_materialize={usage_entry.should_materialize}, is_typed_literal={getattr(usage_entry, 'is_typed_literal', None)})")
+            return
         pos = self.layout.get_next_position()
-
         combinator = new_entity('constant-combinator', tile_position=pos)
-
-        # Set the constant signal
         section = combinator.add_section()
-        signal_name = self._get_signal_name(op.output_type)
-        
-        section.set_signal(index=0, name=signal_name, count=op.value)
-
+        # For explicit typed literals, always use the declared type as the signal name
+        if usage_entry and usage_entry.is_typed_literal:
+            base_signal_key = usage_entry.literal_declared_type or op.output_type
+            # Resolve the physical signal name, honoring implicit mappings
+            if self.materializer:
+                signal_name = self.materializer.resolve_signal_name(
+                    base_signal_key, usage_entry
+                )
+            else:
+                signal_name = self._get_signal_name(base_signal_key)
+            # Resolve the correct Factorio signal category (item/virtual/fluid)
+            signal_type = (
+                usage_entry.resolved_signal_type
+                or (
+                    self.materializer.resolve_signal_type(op.output_type, usage_entry)
+                    if self.materializer
+                    else None
+                )
+            )
+            if not signal_type:
+                if signal_name in self.signal_type_map:
+                    mapped = self.signal_type_map[signal_name]
+                    if isinstance(mapped, dict):
+                        signal_type = mapped.get("type")
+                if not signal_type:
+                    if signal_data is not None and signal_name in signal_data.raw:
+                        proto_type = signal_data.raw[signal_name].get("type", "virtual")
+                        signal_type = "virtual" if proto_type == "virtual-signal" else proto_type
+                    elif signal_name.startswith("signal-"):
+                        signal_type = "virtual"
+                    else:
+                        signal_type = "item"
+            value = (
+                usage_entry.literal_value
+                if usage_entry.literal_value is not None
+                else op.value
+            )
+        else:
+            signal_name = (
+                self.materializer.resolve_signal_name(op.output_type, usage_entry)
+                if self.materializer
+                else self._get_signal_name(op.output_type)
+            )
+            signal_type = (
+                usage_entry.resolved_signal_type if usage_entry else None
+            )
+            value = op.value
+        print(f"EMIT constant: {op.node_id} name={signal_name} type={signal_type} value={value}")
+        # For explicit typed literals, emit only if op.value is nonzero and matches literal_value, skip anchor combinators
+        if usage_entry and usage_entry.is_typed_literal:
+            if value == 0:
+                print(
+                    f"EMIT anchor for explicit typed literal: {op.node_id} (value=0, name={signal_name})"
+                )
+            elif op.value != usage_entry.literal_value:
+                print(f"SKIP non-literal for explicit typed literal: {op.node_id} (value={op.value}, expected={usage_entry.literal_value}, name={signal_name})")
+                return
+            print(f"DEBUG explicit typed literal: node_id={op.node_id} declared_type={usage_entry.literal_declared_type} signal_name={signal_name} output_type={op.output_type}")
+            print(f"EMIT explicit typed literal: {op.node_id} name={signal_name} value={value}")
+            if value != 0:
+                try:
+                    if signal_type:
+                        section.set_signal(
+                            index=0,
+                            signal=SignalID(signal_name, type=signal_type),
+                            count=value,
+                        )
+                    else:
+                        section.set_signal(index=0, name=signal_name, count=value)
+                except Exception:
+                    section.set_signal(index=0, name=signal_name, count=value)
+        else:
+            try:
+                if signal_type:
+                    section.set_signal(
+                        index=0,
+                        signal=SignalID(signal_name, type=signal_type),
+                        count=value,
+                    )
+                else:
+                    section.set_signal(
+                        index=0,
+                        signal=SignalID(signal_name),
+                        count=value,
+                    )
+            except Exception:
+                section.set_signal(index=0, name=signal_name, count=value)
         combinator = self._add_entity(combinator)
-
-        # Track entity for wiring
+        debug_info = self._compose_debug_info(usage_entry, fallback_name=signal_name)
+        if debug_info:
+            self.annotate_entity_description(combinator, debug_info)
         placement = EntityPlacement(
             entity=combinator,
             entity_id=op.node_id,
             position=pos,
-            output_signals={signal_name: "red"},  # Output on red wire
+            output_signals={signal_name: "red"},
             input_signals={},
         )
         self.entities[op.node_id] = placement
-        self.signal_sources[op.node_id] = op.node_id
+        self.signal_graph.set_source(op.node_id, op.node_id)
+        # Debug: Print filters for this constant combinator
+        for sec in getattr(combinator, "sections", []):
+            print(f"DEBUG combinator {op.node_id} filters: {getattr(sec, 'filters', None)}")
 
     def emit_arithmetic(self, op: IR_Arith):
         """Emit arithmetic combinator for IR_Arith."""
@@ -562,7 +598,13 @@ class BlueprintEmitter:
         # Configure arithmetic operation with proper signal handling
         left_operand = self._get_operand_for_combinator(op.left)
         right_operand = self._get_operand_for_combinator(op.right)
-        output_signal = self._get_signal_name(op.output_type)
+        output_signal = (
+            self.materializer.resolve_signal_name(
+                op.output_type, self.signal_usage.get(op.node_id)
+            )
+            if self.materializer
+            else self._get_signal_name(op.output_type)
+        )
 
         combinator.first_operand = left_operand
         combinator.second_operand = right_operand
@@ -570,6 +612,16 @@ class BlueprintEmitter:
         combinator.output_signal = output_signal
 
         combinator = self._add_entity(combinator)
+
+        label_candidate = (
+            output_signal
+            if isinstance(output_signal, str)
+            else getattr(output_signal, "name", None)
+        )
+        usage_entry = self.signal_usage.get(op.node_id)
+        debug_info = self._compose_debug_info(usage_entry, fallback_name=label_candidate)
+        if debug_info:
+            self.annotate_entity_description(combinator, debug_info)
 
         # Track entity for wiring
         placement = EntityPlacement(
@@ -580,7 +632,7 @@ class BlueprintEmitter:
             input_signals={},  # Will be populated when wiring
         )
         self.entities[op.node_id] = placement
-        self.signal_sources[op.node_id] = op.node_id
+        self.signal_graph.set_source(op.node_id, op.node_id)
 
         # Track signal dependencies
         self._add_signal_sink(op.left, op.node_id)
@@ -595,7 +647,13 @@ class BlueprintEmitter:
         # Configure decider operation
         left_operand = self._get_operand_for_combinator(op.left)
         right_operand = self._get_operand_value(op.right)
-        output_signal = self._get_signal_name(op.output_type)
+        output_signal = (
+            self.materializer.resolve_signal_name(
+                op.output_type, self.signal_usage.get(op.node_id)
+            )
+            if self.materializer
+            else self._get_signal_name(op.output_type)
+        )
         
         combinator.first_operand = left_operand
         combinator.second_operand = right_operand
@@ -607,6 +665,16 @@ class BlueprintEmitter:
 
         combinator = self._add_entity(combinator)
 
+        label_candidate = (
+            output_signal
+            if isinstance(output_signal, str)
+            else getattr(output_signal, "name", None)
+        )
+        usage_entry = self.signal_usage.get(op.node_id)
+        debug_info = self._compose_debug_info(usage_entry, fallback_name=label_candidate)
+        if debug_info:
+            self.annotate_entity_description(combinator, debug_info)
+
         # Track entity for wiring
         placement = EntityPlacement(
             entity=combinator,
@@ -616,7 +684,7 @@ class BlueprintEmitter:
             input_signals={},
         )
         self.entities[op.node_id] = placement
-        self.signal_sources[op.node_id] = op.node_id
+        self.signal_graph.set_source(op.node_id, op.node_id)
 
         # Track signal dependencies
         self._add_signal_sink(op.left, op.node_id)
@@ -663,7 +731,7 @@ class BlueprintEmitter:
         # The converter is the main interface for this memory
         converter_placement = memory_components.get('output_converter')
         if converter_placement:
-            self.signal_sources[op.memory_id] = converter_placement.entity_id
+            self.signal_graph.set_source(op.memory_id, converter_placement.entity_id)
 
     def emit_memory_read(self, op: IR_MemRead):
         """Emit memory read operation from the 3-combinator memory cell."""
@@ -672,7 +740,7 @@ class BlueprintEmitter:
             memory_components = self.memory_builder.memory_modules[op.memory_id]
             converter = memory_components.get('output_converter')
             if converter:
-                self.signal_sources[op.node_id] = converter.entity_id
+                self.signal_graph.set_source(op.node_id, converter.entity_id)
 
                 if not hasattr(self, 'memory_read_signals'):
                     self.memory_read_signals = {}
@@ -719,7 +787,7 @@ class BlueprintEmitter:
                 input_signals={},
             )
             self.entities[data_entity_id] = data_placement
-            self.signal_sources[data_entity_id] = data_entity_id
+            self.signal_graph.set_source(data_entity_id, data_entity_id)
 
             # Ensure upstream signals connect to the writer
             self._add_signal_sink(op.data_signal, data_entity_id)
@@ -772,7 +840,7 @@ class BlueprintEmitter:
                 input_signals={},
             )
             self.entities[enable_entity_id] = enable_placement
-            self.signal_sources[enable_entity_id] = enable_entity_id
+            self.signal_graph.set_source(enable_entity_id, enable_entity_id)
 
             self._add_signal_sink(op.write_enable, enable_entity_id)
 
@@ -904,7 +972,7 @@ class BlueprintEmitter:
         stored_value = self.entity_property_signals.get(property_key)
 
         if isinstance(stored_value, SignalRef):
-            self.signal_sources[op.node_id] = stored_value.source_id
+            self.signal_graph.set_source(op.node_id, stored_value.source_id)
         elif isinstance(stored_value, int):
             from draftsman.entity import ConstantCombinator
 
@@ -923,11 +991,11 @@ class BlueprintEmitter:
                 input_signals={},
             )
             self.entities[op.node_id] = placement
-            self.signal_sources[op.node_id] = op.node_id
+            self.signal_graph.set_source(op.node_id, op.node_id)
         else:
             # Fallback: expose controlling entity output directly
             if op.entity_id in self.entities:
-                self.signal_sources[op.node_id] = op.entity_id
+                self.signal_graph.set_source(op.node_id, op.entity_id)
 
     def create_circuit_connections(self):
         """Create circuit wire connections between entities."""
@@ -939,10 +1007,8 @@ class BlueprintEmitter:
                 self.diagnostics.error(f"Failed to wire memory {memory_id}: {e}")
 
         # Create connections between signal sources and sinks
-        for signal_id, sink_entities in self.signal_sinks.items():
-            if signal_id in self.signal_sources:
-                source_entity_id = self.signal_sources[signal_id]
-
+        for signal_id, source_entity_id, sink_entities in self.signal_graph.iter_edges():
+            if source_entity_id:
                 if source_entity_id in self.entities:
                     source_placement = self.entities[source_entity_id]
 
@@ -982,7 +1048,9 @@ class BlueprintEmitter:
                                     f"Failed to connect {source_entity_id} -> {sink_entity_id}: {e}"
                                 )
                 else:
-                    self.diagnostics.error(f"Source entity {source_entity_id} not found for signal {signal_id}")
+                    self.diagnostics.error(
+                        f"Source entity {source_entity_id} not found for signal {signal_id}"
+                    )
             else:
                 self.diagnostics.error(f"No source found for signal {signal_id}")
 
@@ -995,6 +1063,15 @@ class BlueprintEmitter:
 
     def _get_signal_name(self, operand) -> str:
         """Get signal name from operand - much simpler approach."""
+        if self.materializer:
+            entry = None
+            operand_key = operand
+            if isinstance(operand, SignalRef):
+                entry = self.signal_usage.get(operand.source_id)
+                operand_key = operand.signal_type
+            if isinstance(operand_key, str):
+                return self.materializer.resolve_signal_name(operand_key, entry)
+
         # Handle SignalRef objects
         if hasattr(operand, 'signal_type'):
             operand_str = operand.signal_type
@@ -1065,6 +1142,14 @@ class BlueprintEmitter:
         if isinstance(operand, int):
             return operand
         elif isinstance(operand, SignalRef):
+            if self.materializer:
+                inlined = self.materializer.inline_value(operand)
+                if inlined is not None:
+                    return inlined
+                usage_entry = self.signal_usage.get(operand.source_id)
+                return self.materializer.resolve_signal_name(
+                    operand.signal_type, usage_entry
+                )
             return self._get_signal_name(operand.signal_type)
         elif isinstance(operand, str):
             return self._get_signal_name(operand)
@@ -1085,15 +1170,22 @@ class BlueprintEmitter:
         signal_ids: List[str] = []
 
         if isinstance(signal_ref, SignalRef):
+            if self.materializer and self.materializer.can_inline_constant(signal_ref):
+                return
             signal_ids.append(signal_ref.source_id)
+        elif isinstance(signal_ref, (list, tuple)):
+            for item in signal_ref:
+                self._add_signal_sink(item, entity_id)
+            return
+        elif isinstance(signal_ref, dict):
+            for item in signal_ref.values():
+                self._add_signal_sink(item, entity_id)
+            return
         elif isinstance(signal_ref, str):
             signal_ids.append(signal_ref)
 
         for signal_id in signal_ids:
-            if signal_id not in self.signal_sinks:
-                self.signal_sinks[signal_id] = []
-            if entity_id not in self.signal_sinks[signal_id]:
-                self.signal_sinks[signal_id].append(entity_id)
+            self.signal_graph.add_sink(signal_id, entity_id)
 
 
 # =============================================================================

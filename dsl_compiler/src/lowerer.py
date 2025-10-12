@@ -18,6 +18,7 @@ from dsl_compiler.src.semantic import (
     IntValue,
     ValueInfo,
     DiagnosticCollector,
+    render_source_location,
 )
 
 from draftsman.data import signals as signal_data
@@ -39,6 +40,48 @@ class ASTLowerer:
 
         # Copy signal type mapping from semantic analyzer
         self.ir_builder.signal_type_map = self.semantic.signal_type_map.copy()
+
+    # ------------------------------------------------------------------
+    # Debug metadata helpers
+    # ------------------------------------------------------------------
+
+    def _annotate_signal_ref(self, name: str, ref: ValueRef, node: ASTNode) -> None:
+        """Attach debug metadata for a lowered signal reference."""
+
+        if not isinstance(ref, SignalRef):
+            return
+
+        location = render_source_location(node, getattr(node, "source_file", None))
+        metadata = {"name": name}
+        if location:
+            metadata["location"] = location
+
+        semantic_info = None
+        if hasattr(self.semantic, "get_signal_debug_payload"):
+            semantic_info = self.semantic.get_signal_debug_payload(name)
+
+        source_ast = node
+        if semantic_info:
+            semantic_payload = semantic_info.as_dict()
+            for key, value in semantic_payload.items():
+                if value is None:
+                    continue
+                if key == "source_ast":
+                    source_ast = value or source_ast
+                    continue
+                metadata.setdefault(key, value)
+
+            # Provide canonical factorio signal name alias for emitters
+            factorio_signal = semantic_payload.get("factorio_signal")
+            if factorio_signal:
+                metadata.setdefault("factorio_signal", factorio_signal)
+                metadata.setdefault("resolved_signal", factorio_signal)
+
+            signal_key = semantic_payload.get("signal_key")
+            if signal_key:
+                metadata.setdefault("signal_key", signal_key)
+
+        self.ir_builder.annotate_signal(ref, label=name, source_ast=source_ast, metadata=metadata)
 
     def _infer_signal_category(self, signal_type: Optional[str]) -> str:
         """Infer the Factorio signal category for the given identifier."""
@@ -149,6 +192,7 @@ class ASTLowerer:
             entity_id, value_ref = self.lower_place_call_with_tracking(stmt.value)
             self.entity_refs[stmt.name] = entity_id
             self.signal_refs[stmt.name] = value_ref
+            self._annotate_signal_ref(stmt.name, value_ref, stmt)
             return
         
         # Special handling for function calls that return entities
@@ -163,6 +207,7 @@ class ASTLowerer:
                 self.returned_entity_id = None
             
             self.signal_refs[stmt.name] = value_ref
+            self._annotate_signal_ref(stmt.name, value_ref, stmt)
             return
 
         value_ref = self.lower_expr(stmt.value)
@@ -170,6 +215,7 @@ class ASTLowerer:
         # Store the reference for later use
         if isinstance(value_ref, SignalRef):
             self.signal_refs[stmt.name] = value_ref
+            self._annotate_signal_ref(stmt.name, value_ref, stmt)
         elif isinstance(value_ref, int):
             # Convert integer to constant signal
             # Get the expected type from semantic analysis
@@ -181,6 +227,7 @@ class ASTLowerer:
 
             const_ref = self.ir_builder.const(signal_type, value_ref, stmt)
             self.signal_refs[stmt.name] = const_ref
+            self._annotate_signal_ref(stmt.name, const_ref, stmt)
 
     def lower_assign_stmt(self, stmt: AssignStmt):
         """Lower assignment statement: target = expr;"""
@@ -190,6 +237,7 @@ class ASTLowerer:
                 entity_id, value_ref = self.lower_place_call_with_tracking(stmt.value)
                 self.entity_refs[stmt.target.name] = entity_id
                 self.signal_refs[stmt.target.name] = value_ref
+                self._annotate_signal_ref(stmt.target.name, value_ref, stmt)
                 return
             
             # Special handling for function calls that return entities
@@ -204,6 +252,7 @@ class ASTLowerer:
                     self.returned_entity_id = None
                 
                 self.signal_refs[stmt.target.name] = value_ref
+                self._annotate_signal_ref(stmt.target.name, value_ref, stmt)
                 return
 
         value_ref = self.lower_expr(stmt.value)
@@ -212,12 +261,22 @@ class ASTLowerer:
             # Simple variable assignment
             if isinstance(value_ref, SignalRef):
                 self.signal_refs[stmt.target.name] = value_ref
+                self._annotate_signal_ref(stmt.target.name, value_ref, stmt)
+            elif isinstance(value_ref, int):
+                symbol = self.semantic.symbol_table.lookup(stmt.target.name)
+                if symbol and isinstance(symbol.value_type, SignalValue):
+                    signal_type = symbol.value_type.signal_type.name
+                else:
+                    signal_type = self.ir_builder.allocate_implicit_type()
+
+                const_ref = self.ir_builder.const(signal_type, value_ref, stmt)
+                self.signal_refs[stmt.target.name] = const_ref
+                self._annotate_signal_ref(stmt.target.name, const_ref, stmt)
 
         elif isinstance(stmt.target, PropertyAccess):
             # Entity property assignment
             entity_name = stmt.target.object_name
             prop_name = stmt.target.property_name
-
             if entity_name in self.entity_refs:
                 entity_id = self.entity_refs[entity_name]
                 prop_write_op = IR_EntityPropWrite(entity_id, prop_name, value_ref)
@@ -439,25 +498,33 @@ class ASTLowerer:
 
     def lower_signal_literal(self, expr: SignalLiteral) -> SignalRef:
         """Lower signal literal: ("type", value) or just value."""
-        if expr.signal_type:
-            # Explicit type specified
-            signal_type = expr.signal_type
+        # For explicit typed literals, always emit IR_Const for the declared type (item signal)
+        if expr.signal_type is not None:
+            signal_name = expr.signal_type
+            output_type = expr.signal_type
+            self._ensure_signal_registered(signal_name)
+            value_ref = self.lower_expr(expr.value)
+            # Emit IR_Const for the item signal with the correct value
+            if isinstance(value_ref, int):
+                ref = self.ir_builder.const(output_type, value_ref, expr)
+            else:
+                ref = self.ir_builder.const(output_type, 0, expr)
+            ref.signal_type = signal_name
+            ref.output_type = signal_name
+            return ref
         else:
-            # Allocate implicit type
-            signal_type = self.ir_builder.allocate_implicit_type()
-
-        self._ensure_signal_registered(signal_type)
-
-        # Lower the value expression
-        value_ref = self.lower_expr(expr.value)
-        
-        # Create a constant with the specified signal type and value
-        if isinstance(value_ref, int):
-            return self.ir_builder.const(signal_type, value_ref, expr)
-        else:
-            # For non-integer values, create a constant with value 0
-            # and let the type system handle the rest
-            return self.ir_builder.const(signal_type, 0, expr)
+            # Fallback: emit IR_Const for virtual signal
+            signal_name = self.ir_builder.allocate_implicit_type()
+            output_type = signal_name
+            self._ensure_signal_registered(signal_name)
+            value_ref = self.lower_expr(expr.value)
+            if isinstance(value_ref, int):
+                ref = self.ir_builder.const(output_type, value_ref, expr)
+            else:
+                ref = self.ir_builder.const(output_type, 0, expr)
+            ref.signal_type = signal_name
+            ref.output_type = signal_name
+            return ref
 
     def lower_dict_literal(self, expr: DictLiteral) -> Dict[str, Any]:
         """Lower dictionary literal to static property map."""

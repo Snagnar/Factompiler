@@ -22,9 +22,20 @@ from dsl_compiler.src.dsl_ast import ASTNode
 class SignalRef:
     """Reference to a signal value in the IR."""
 
-    def __init__(self, signal_type: str, source_id: str):
+    def __init__(
+        self,
+        signal_type: str,
+        source_id: str,
+        *,
+        debug_label: Optional[str] = None,
+        source_ast: Optional[ASTNode] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
         self.signal_type = signal_type  # The signal type (e.g., "iron-plate", "__v1")
         self.source_id = source_id  # ID of the IR node that produces this signal
+        self.debug_label = debug_label
+        self.source_ast = source_ast
+        self.debug_metadata: Dict[str, Any] = metadata.copy() if metadata else {}
 
     def __str__(self) -> str:
         return f"{self.signal_type}@{self.source_id}"
@@ -44,6 +55,7 @@ class IRNode(ABC):
     def __init__(self, node_id: str, source_ast: Optional[ASTNode] = None):
         self.node_id = node_id
         self.source_ast = source_ast  # For diagnostics
+        self.debug_metadata: Dict[str, Any] = {}
 
     def __str__(self) -> str:
         """String representation of the IR node."""
@@ -58,6 +70,7 @@ class IRValue(IRNode):
     ):
         super().__init__(node_id, source_ast)
         self.output_type = output_type  # The signal type this node outputs
+        self.debug_label: Optional[str] = None
 
 
 class IREffect(IRNode):
@@ -309,6 +322,7 @@ class IRBuilder:
         self.node_counter = 0
         self.signal_type_map: Dict[str, str] = {}  # implicit -> factorio signal
         self.implicit_type_counter = 0
+        self._operation_index: Dict[str, IRNode] = {}
 
     def next_id(self, prefix: str = "ir") -> str:
         """Generate next unique IR node ID."""
@@ -318,7 +332,42 @@ class IRBuilder:
     def add_operation(self, op: IRNode) -> IRNode:
         """Add an operation to the IR."""
         self.operations.append(op)
+        self._operation_index[op.node_id] = op
         return op
+
+    def get_operation(self, node_id: str) -> Optional[IRNode]:
+        """Retrieve an operation previously registered with the builder."""
+
+        return self._operation_index.get(node_id)
+
+    def annotate_signal(
+        self,
+        signal: ValueRef,
+        *,
+        label: Optional[str] = None,
+        source_ast: Optional[ASTNode] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Attach debug metadata to the producing IR node backing a signal reference."""
+
+        if not isinstance(signal, SignalRef):
+            return
+
+        op = self.get_operation(signal.source_id)
+        if isinstance(op, IRValue):
+            if label:
+                op.debug_label = label
+            if source_ast and op.source_ast is None:
+                op.source_ast = source_ast
+            if metadata:
+                op.debug_metadata.update(metadata)
+
+        if label:
+            signal.debug_label = label
+        if source_ast:
+            signal.source_ast = source_ast
+        if metadata:
+            signal.debug_metadata.update(metadata)
 
     def const(
         self, signal_type: str, value: int, source_ast: Optional[ASTNode] = None
@@ -328,7 +377,7 @@ class IRBuilder:
         op = IR_Const(node_id, signal_type, source_ast)
         op.value = value
         self.add_operation(op)
-        return SignalRef(signal_type, node_id)
+        return SignalRef(signal_type, node_id, source_ast=source_ast)
 
     def arithmetic(
         self,
@@ -345,7 +394,7 @@ class IRBuilder:
         arith_op.left = left
         arith_op.right = right
         self.add_operation(arith_op)
-        return SignalRef(output_type, node_id)
+        return SignalRef(output_type, node_id, source_ast=source_ast)
 
     def decider(
         self,
@@ -364,7 +413,7 @@ class IRBuilder:
         decider_op.right = right
         decider_op.output_value = output_value
         self.add_operation(decider_op)
-        return SignalRef(output_type, node_id)
+        return SignalRef(output_type, node_id, source_ast=source_ast)
 
     def memory_create(
         self,
@@ -385,7 +434,7 @@ class IRBuilder:
         op = IR_MemRead(node_id, signal_type, source_ast)
         op.memory_id = memory_id
         self.add_operation(op)
-        return SignalRef(signal_type, node_id)
+        return SignalRef(signal_type, node_id, source_ast=source_ast)
 
     def memory_write(
         self,

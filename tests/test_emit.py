@@ -7,9 +7,118 @@ from dsl_compiler.src.parser import DSLParser
 from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
 from dsl_compiler.src.lowerer import lower_program
 from dsl_compiler.src.emit import BlueprintEmitter
+from dsl_compiler.src.emission.debug_format import format_entity_description
 
 
 class TestBlueprintEmitter:
+    def test_entity_descriptions_include_names_and_locations(self, parser, analyzer):
+        """Test that entity descriptions contain variable names and source line numbers when available."""
+        import os
+        file_path = "tests/sample_programs/01_basic_arithmetic.fcdsl"
+        assert os.path.exists(file_path)
+        with open(file_path, 'r') as f:
+            code = f.read()
+        program = parser.parse(code, filename=file_path)
+        analyze_program(program, strict_types=False, analyzer=analyzer)
+        ir_operations, _, signal_map = lower_program(program, analyzer)
+        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        blueprint = emitter.emit_blueprint(ir_operations)
+
+        # Check entity descriptions
+        described_entities = [
+            e for e in emitter.entities.values()
+            if getattr(e.entity, "player_description", "")
+        ]
+        assert described_entities, "At least one entity should expose player_description"
+
+        descriptions = [e.entity.player_description for e in described_entities]
+
+        assert any("signal" in desc for desc in descriptions), "Descriptions should include 'signal' keyword"
+        assert any("(" in desc for desc in descriptions), "Descriptions should include resolved signal hints when available"
+
+        expected_names = {"a", "b", "c", "sum", "diff", "product", "quotient", "remainder", "output_val"}
+        assert any(any(name in desc for name in expected_names) for desc in descriptions), "At least one description should contain a variable name"
+
+        assert any("@ 01_basic_arithmetic.fcdsl:" in desc for desc in descriptions), "Descriptions should include file and line information"
+
+    @pytest.mark.parametrize("sample_file", [
+        "tests/sample_programs/02_mixed_types.fcdsl",
+        "tests/sample_programs/03_bundles.fcdsl",
+    ])
+    def test_chained_arithmetic_no_extra_constants(self, parser, analyzer, sample_file):
+        """Regression: Chained arithmetic should not emit extra constants when reusing outputs."""
+        import os
+        assert os.path.exists(sample_file)
+        with open(sample_file, 'r') as f:
+            code = f.read()
+        program = parser.parse(code)
+        analyze_program(program, strict_types=False, analyzer=analyzer)
+        ir_operations, _, signal_map = lower_program(program, analyzer)
+        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        blueprint = emitter.emit_blueprint(ir_operations)
+
+        # Count constant combinators
+        constant_combinators = [
+            e for e in emitter.entities.values()
+            if hasattr(e.entity, "name") and e.entity.name == "constant-combinator"
+        ]
+        # Should not exceed number of explicit literals and export anchors
+        explicit_literals = [
+            line for line in code.splitlines()
+            if "Signal" in line and '("' in line
+        ]
+        # Allow for anchors (blank combinators)
+        anchor_combinators = []
+        for e in constant_combinators:
+            is_anchor = True
+            for sec in getattr(e.entity, "sections", []):
+                filters = getattr(sec, "filters", None)
+                if filters and any(getattr(s, "count", 0) != 0 for s in filters.values()):
+                    is_anchor = False
+            if is_anchor:
+                anchor_combinators.append(e)
+        # The number of non-anchor constant combinators should match explicit literals
+        non_anchor_constants = [c for c in constant_combinators if c not in anchor_combinators]
+        assert len(non_anchor_constants) == len(explicit_literals), (
+            f"Should only emit constants for explicit literals: found {len(non_anchor_constants)}, expected {len(explicit_literals)}"
+        )
+    def test_basic_arithmetic_literal_and_export_anchor(self, parser, analyzer):
+        """Regression: 01_basic_arithmetic.fcdsl should emit one combinator for typed literal and blank anchor for exported signal."""
+        import os
+        file_path = "tests/sample_programs/01_basic_arithmetic.fcdsl"
+        assert os.path.exists(file_path)
+        with open(file_path, 'r') as f:
+            code = f.read()
+        program = parser.parse(code)
+        analyze_program(program, strict_types=False, analyzer=analyzer)
+        ir_operations, _, signal_map = lower_program(program, analyzer)
+        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        blueprint = emitter.emit_blueprint(ir_operations)
+
+        # Find constant combinators for explicit typed literal (iron-plate)
+        iron_plate_combinators = []
+        for e in emitter.entities.values():
+            if hasattr(e.entity, "name") and e.entity.name == "constant-combinator":
+                for sec in getattr(e.entity, "sections", []):
+                    filters = getattr(sec, "filters", None)
+                    if filters:
+                        for s in filters.values():
+                            if getattr(s, "name", None) == "iron-plate" and getattr(s, "count", 0) == 50:
+                                iron_plate_combinators.append(e)
+        assert len(iron_plate_combinators) == 1, "Should emit exactly one combinator for typed literal 'c'"
+
+        # Check for blank anchor combinator for exported signal (output_val)
+        anchor_combinators = []
+        for e in emitter.entities.values():
+            if hasattr(e.entity, "name") and e.entity.name == "constant-combinator":
+                is_anchor = True
+                for sec in getattr(e.entity, "sections", []):
+                    filters = getattr(sec, "filters", None)
+                    if filters and any(getattr(s, "count", 0) != 0 for s in filters.values()):
+                        is_anchor = False
+                if is_anchor:
+                    anchor_combinators.append(e)
+        assert len(anchor_combinators) >= 1, "Should emit at least one blank anchor for exported signal"
     """Test blueprint emission functionality."""
 
     @pytest.fixture
@@ -71,6 +180,19 @@ class TestBlueprintEmitter:
         # Test that explicit signals pass through
         resolved = emitter._get_signal_name("iron-plate")
         assert resolved == "iron-plate"
+
+
+def test_format_entity_description_round_trip():
+    """Ensure the description formatter produces deterministic output."""
+
+    debug_info = {
+        "name": "sum",
+        "factorio_signal": "signal-A",
+        "location": "example.fcdsl:12",
+    }
+
+    description = format_entity_description(debug_info)
+    assert description == "signal sum (signal-A) @ example.fcdsl:12"
 
 
 class TestWarningAnalysis:

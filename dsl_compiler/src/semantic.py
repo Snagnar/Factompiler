@@ -17,6 +17,30 @@ from pathlib import Path
 from dsl_compiler.src.dsl_ast import *
 
 
+def render_source_location(node: Optional[ASTNode], default_file: Optional[str] = None) -> Optional[str]:
+    """Format a human-friendly ``file:line`` string for an AST node."""
+
+    if node is None:
+        return None
+
+    filename = getattr(node, "source_file", None) or default_file
+    line = getattr(node, "line", 0) or 0
+
+    if not filename and line <= 0:
+        return None
+
+    if filename and line > 0:
+        return f"{Path(filename).name}:{line}"
+
+    if filename:
+        return Path(filename).name
+
+    if line > 0:
+        return f"?:{line}"
+
+    return None
+
+
 # =============================================================================
 # Type System
 # =============================================================================
@@ -37,6 +61,30 @@ class SignalValue:
 
     signal_type: SignalTypeInfo
     count_expr: Optional[Expr] = None  # The expression that computes the count
+
+
+@dataclass
+class SignalDebugInfo:
+    """Metadata describing a logical signal in the source program."""
+
+    identifier: str
+    signal_key: Optional[str]
+    factorio_signal: Optional[str]
+    source_node: ASTNode
+    declared_type: Optional[str] = None
+    location: Optional[str] = None
+    category: Optional[str] = None
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.identifier,
+            "signal_key": self.signal_key,
+            "factorio_signal": self.factorio_signal,
+            "declared_type": self.declared_type,
+            "location": self.location,
+            "category": self.category,
+            "source_ast": self.source_node,
+        }
 
 
 @dataclass
@@ -73,6 +121,7 @@ class Symbol:
     is_mutable: bool = False
     properties: Optional[Dict[str, "Symbol"]] = None  # For modules and entities
     function_def: Optional[ASTNode] = None  # For functions - store AST for inlining
+    debug_info: Dict[str, Any] = field(default_factory=dict)
 
 
 class SymbolTable:
@@ -202,6 +251,9 @@ class SemanticAnalyzer(ASTVisitor):
         self.implicit_type_counter = 0
         self.signal_type_map: Dict[str, str] = {}  # implicit -> factorio signal
 
+        # Debug metadata
+        self.signal_debug_info: Dict[str, SignalDebugInfo] = {}
+
         # Expression type cache (using id() as key since AST nodes aren't hashable)
         self.expr_types: Dict[int, ValueInfo] = {}
 
@@ -225,6 +277,60 @@ class SemanticAnalyzer(ASTVisitor):
             name = alphabet[index % 26] + name
             index = index // 26 - 1
         return f"signal-{name}"
+
+    def _resolve_physical_signal_name(self, signal_key: Optional[str]) -> Optional[str]:
+        if not signal_key:
+            return None
+        mapped = self.signal_type_map.get(signal_key)
+        if isinstance(mapped, dict):
+            return mapped.get("name", signal_key)
+        if isinstance(mapped, str):
+            return mapped
+        return signal_key
+
+    def _lookup_signal_category(self, signal_key: Optional[str]) -> Optional[str]:
+        if not signal_key:
+            return None
+        mapped = self.signal_type_map.get(signal_key)
+        if isinstance(mapped, dict):
+            return mapped.get("type")
+        return None
+
+    def _register_signal_metadata(
+        self,
+        identifier: str,
+        node: ASTNode,
+        value_type: ValueInfo,
+        declared_type: Optional[str] = None,
+    ) -> Optional[SignalDebugInfo]:
+        if not isinstance(value_type, SignalValue):
+            return None
+
+        signal_info = value_type.signal_type
+        signal_key = getattr(signal_info, "name", None)
+        factorio_signal = self._resolve_physical_signal_name(signal_key)
+        location = render_source_location(node, getattr(node, "source_file", None))
+
+        debug_info = SignalDebugInfo(
+            identifier=identifier,
+            signal_key=signal_key,
+            factorio_signal=factorio_signal,
+            source_node=node,
+            declared_type=declared_type,
+            location=location,
+            category=self._lookup_signal_category(signal_key),
+        )
+
+        self.signal_debug_info[identifier] = debug_info
+
+        symbol = self.current_scope.lookup(identifier)
+        if symbol:
+            symbol.debug_info["signal"] = debug_info
+
+        return debug_info
+
+    def get_signal_debug_payload(self, identifier: str) -> Optional[SignalDebugInfo]:
+        return self.signal_debug_info.get(identifier)
 
     def make_signal_type_info(self, type_name: str, implicit: bool = False) -> SignalTypeInfo:
         """Create a SignalTypeInfo with virtual flag inferred from name."""
@@ -497,6 +603,9 @@ class SemanticAnalyzer(ASTVisitor):
             self.current_scope.define(symbol)
         except SemanticError as e:
             self.diagnostics.error(e.message, node)
+            return
+
+        self._register_signal_metadata(node.name, node, value_type, node.type_name)
 
     def _type_name_to_symbol_type(self, type_name: str) -> str:
         """Convert type name to symbol type."""
@@ -744,6 +853,9 @@ class SemanticAnalyzer(ASTVisitor):
             self.current_scope.define(symbol)
         except SemanticError as e:
             self.diagnostics.error(e.message, node)
+            return
+
+        self._register_signal_metadata(node.name, node, memory_type, "Memory")
 
     def visit_FuncDecl(self, node: FuncDecl) -> None:
         """Analyze function declaration."""
@@ -820,6 +932,7 @@ class SemanticAnalyzer(ASTVisitor):
     def visit_AssignStmt(self, node: AssignStmt) -> None:
         """Analyze assignment statement."""
         # Check target exists and is mutable
+        target_symbol = None
         if isinstance(node.target, Identifier):
             symbol = self.current_scope.lookup(node.target.name)
             if symbol is None:
@@ -845,6 +958,8 @@ class SemanticAnalyzer(ASTVisitor):
                 self.diagnostics.error(
                     f"Cannot assign to immutable '{node.target.name}'", node.target
                 )
+            else:
+                target_symbol = symbol
         elif isinstance(node.target, PropertyAccess):
             # Check that the object exists
             object_symbol = self.current_scope.lookup(node.target.object_name)
@@ -861,6 +976,14 @@ class SemanticAnalyzer(ASTVisitor):
         # Type check assignment
         value_type = self.get_expr_type(node.value)
         # Additional type compatibility checks could go here
+
+        if isinstance(node.target, Identifier):
+            self._register_signal_metadata(
+                node.target.name,
+                node.target,
+                value_type,
+                target_symbol.symbol_type if target_symbol else None,
+            )
 
     def visit_ImportStmt(self, node: ImportStmt) -> None:
         """Analyze import statement."""

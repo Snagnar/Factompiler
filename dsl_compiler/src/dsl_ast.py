@@ -18,9 +18,17 @@ from typing import List, Optional, Union, Any, Dict
 class ASTNode(ABC):
     """Base class for all AST nodes."""
 
-    def __init__(self, line: int = 0, column: int = 0):
+    def __init__(
+        self,
+        line: int = 0,
+        column: int = 0,
+        source_file: Optional[str] = None,
+        raw_text: Optional[str] = None,
+    ):
         self.line = line
         self.column = column
+        self.source_file = source_file
+        self.raw_text = raw_text
 
 
 # =============================================================================
@@ -51,8 +59,10 @@ class TopDecl(ASTNode):
 class Statement(ASTNode):
     """Base class for all statements."""
 
-    def __init__(self, line: int = 0, column: int = 0):
-        super().__init__(line, column)
+    def __init__(
+        self, line: int = 0, column: int = 0, raw_text: Optional[str] = None
+    ):
+        super().__init__(line, column, raw_text=raw_text)
 
 
 class DeclStmt(Statement):
@@ -143,15 +153,19 @@ class FuncDecl(TopDecl):
 class LValue(ASTNode):
     """Base class for assignment targets."""
 
-    def __init__(self, line: int = 0, column: int = 0):
-        super().__init__(line, column)
+    def __init__(
+        self, line: int = 0, column: int = 0, raw_text: Optional[str] = None
+    ):
+        super().__init__(line, column, raw_text=raw_text)
 
 
 class Identifier(LValue):
     """Simple variable reference."""
 
-    def __init__(self, name: str, line: int = 0, column: int = 0):
-        super().__init__(line, column)
+    def __init__(
+        self, name: str, line: int = 0, column: int = 0, raw_text: Optional[str] = None
+    ):
+        super().__init__(line, column, raw_text=raw_text)
         self.name = name
 
 
@@ -159,9 +173,14 @@ class PropertyAccess(LValue):
     """entity.property reference."""
 
     def __init__(
-        self, object_name: str, property_name: str, line: int = 0, column: int = 0
+        self,
+        object_name: str,
+        property_name: str,
+        line: int = 0,
+        column: int = 0,
+        raw_text: Optional[str] = None,
     ):
-        super().__init__(line, column)
+        super().__init__(line, column, raw_text=raw_text)
         self.object_name = object_name
         self.property_name = property_name
 
@@ -174,8 +193,10 @@ class PropertyAccess(LValue):
 class Expr(ASTNode):
     """Base class for all expressions."""
 
-    def __init__(self, line: int = 0, column: int = 0):
-        super().__init__(line, column)
+    def __init__(
+        self, line: int = 0, column: int = 0, raw_text: Optional[str] = None
+    ):
+        super().__init__(line, column, raw_text=raw_text)
 
 
 class BinaryOp(Expr):
@@ -202,39 +223,61 @@ class UnaryOp(Expr):
 class Literal(Expr):
     """Base class for literal values."""
 
-    def __init__(self, line: int = 0, column: int = 0):
-        super().__init__(line, column)
+    def __init__(
+        self, line: int = 0, column: int = 0, raw_text: Optional[str] = None
+    ):
+        super().__init__(line, column, raw_text=raw_text)
 
 
 class NumberLiteral(Literal):
     """Numeric literal: 42, -17"""
 
-    def __init__(self, value: int, line: int = 0, column: int = 0):
-        super().__init__(line, column)
+    def __init__(
+        self,
+        value: int,
+        line: int = 0,
+        column: int = 0,
+        raw_text: Optional[str] = None,
+    ):
+        super().__init__(line, column, raw_text=raw_text)
         self.value = value
 
 
 class StringLiteral(Literal):
     """String literal: "iron-plate" """
 
-    def __init__(self, value: str, line: int = 0, column: int = 0):
-        super().__init__(line, column)
+    def __init__(
+        self,
+        value: str,
+        line: int = 0,
+        column: int = 0,
+        raw_text: Optional[str] = None,
+    ):
+        super().__init__(line, column, raw_text=raw_text)
         self.value = value
 
 
 class DictLiteral(Literal):
     """Dictionary literal: { key: value, ... }"""
 
-    def __init__(self, entries: Dict[str, "Expr"], line: int = 0, column: int = 0):
-        super().__init__(line, column)
+    def __init__(
+        self,
+        entries: Dict[str, "Expr"],
+        line: int = 0,
+        column: int = 0,
+        raw_text: Optional[str] = None,
+    ):
+        super().__init__(line, column, raw_text=raw_text)
         self.entries = entries
 
 
 class IdentifierExpr(Expr):
     """Variable reference in expression context."""
 
-    def __init__(self, name: str, line: int = 0, column: int = 0):
-        super().__init__(line, column)
+    def __init__(
+        self, name: str, line: int = 0, column: int = 0, raw_text: Optional[str] = None
+    ):
+        super().__init__(line, column, raw_text=raw_text)
         self.name = name
 
 
@@ -242,9 +285,14 @@ class PropertyAccessExpr(Expr):
     """Property access in expression context: entity.property"""
 
     def __init__(
-        self, object_name: str, property_name: str, line: int = 0, column: int = 0
+        self,
+        object_name: str,
+        property_name: str,
+        line: int = 0,
+        column: int = 0,
+        raw_text: Optional[str] = None,
     ):
-        super().__init__(line, column)
+        super().__init__(line, column, raw_text=raw_text)
         self.object_name = object_name
         self.property_name = property_name
 
@@ -294,8 +342,9 @@ class SignalLiteral(Expr):
         signal_type: Optional[str] = None,
         line: int = 0,
         column: int = 0,
+        raw_text: Optional[str] = None,
     ):
-        super().__init__(line, column)
+        super().__init__(line, column, raw_text=raw_text)
         self.value = value
         self.signal_type = signal_type  # None for implicit type, string for explicit
 
