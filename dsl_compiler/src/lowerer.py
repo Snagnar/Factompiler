@@ -5,10 +5,10 @@ AST to IR lowering pass for the Factorio Circuit DSL.
 This module converts semantic-analyzed AST nodes into IR operations
 following the lowering rules specified in the compiler specification.
 """
+
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Union, Any
-from dataclasses import dataclass
 
 from dsl_compiler.src.dsl_ast import *
 from dsl_compiler.src.ir import *
@@ -16,7 +16,6 @@ from dsl_compiler.src.semantic import (
     SemanticAnalyzer,
     SignalValue,
     IntValue,
-    ValueInfo,
     DiagnosticCollector,
     render_source_location,
 )
@@ -36,7 +35,9 @@ class ASTLowerer:
         self.signal_refs: Dict[str, SignalRef] = {}  # variable_name -> SignalRef
         self.memory_refs: Dict[str, str] = {}  # memory_name -> memory_id
         self.entity_refs: Dict[str, str] = {}  # entity_name -> entity_id
-        self.param_values: Dict[str, ValueRef] = {}  # parameter_name -> value during function inlining
+        self.param_values: Dict[
+            str, ValueRef
+        ] = {}  # parameter_name -> value during function inlining
 
         # Copy signal type mapping from semantic analyzer
         self.ir_builder.signal_type_map = self.semantic.signal_type_map.copy()
@@ -81,7 +82,9 @@ class ASTLowerer:
             if signal_key:
                 metadata.setdefault("signal_key", signal_key)
 
-        self.ir_builder.annotate_signal(ref, label=name, source_ast=source_ast, metadata=metadata)
+        self.ir_builder.annotate_signal(
+            ref, label=name, source_ast=source_ast, metadata=metadata
+        )
 
     def _infer_signal_category(self, signal_type: Optional[str]) -> str:
         """Infer the Factorio signal category for the given identifier."""
@@ -120,7 +123,9 @@ class ASTLowerer:
                 prototype_type = signal_data.raw[mapped].get("type", "virtual")
                 # Normalize Draftsman's "virtual-signal" prototype type to the
                 # canonical "virtual" category before registering custom names.
-                return "virtual" if prototype_type == "virtual-signal" else prototype_type
+                return (
+                    "virtual" if prototype_type == "virtual-signal" else prototype_type
+                )
             if mapped.startswith("signal-"):
                 return "virtual"
 
@@ -186,7 +191,7 @@ class ASTLowerer:
         # Handle Memory type declarations
         if stmt.type_name == "Memory":
             return self.lower_memory_decl(stmt)
-        
+
         # Special handling for place() calls to track entities
         if isinstance(stmt.value, CallExpr) and stmt.value.name == "place":
             entity_id, value_ref = self.lower_place_call_with_tracking(stmt.value)
@@ -194,18 +199,21 @@ class ASTLowerer:
             self.signal_refs[stmt.name] = value_ref
             self._annotate_signal_ref(stmt.name, value_ref, stmt)
             return
-        
+
         # Special handling for function calls that return entities
         if isinstance(stmt.value, CallExpr):
             # Clear any returned entity from previous call
             self.returned_entity_id = None
             value_ref = self.lower_expr(stmt.value)
-            
+
             # If the function call returned an entity, track it
-            if hasattr(self, 'returned_entity_id') and self.returned_entity_id is not None:
+            if (
+                hasattr(self, "returned_entity_id")
+                and self.returned_entity_id is not None
+            ):
                 self.entity_refs[stmt.name] = self.returned_entity_id
                 self.returned_entity_id = None
-            
+
             self.signal_refs[stmt.name] = value_ref
             self._annotate_signal_ref(stmt.name, value_ref, stmt)
             return
@@ -239,18 +247,21 @@ class ASTLowerer:
                 self.signal_refs[stmt.target.name] = value_ref
                 self._annotate_signal_ref(stmt.target.name, value_ref, stmt)
                 return
-            
+
             # Special handling for function calls that return entities
             if isinstance(stmt.value, CallExpr):
                 # Clear any returned entity from previous call
                 self.returned_entity_id = None
                 value_ref = self.lower_expr(stmt.value)
-                
+
                 # If the function call returned an entity, track it
-                if hasattr(self, 'returned_entity_id') and self.returned_entity_id is not None:
+                if (
+                    hasattr(self, "returned_entity_id")
+                    and self.returned_entity_id is not None
+                ):
                     self.entity_refs[stmt.target.name] = self.returned_entity_id
                     self.returned_entity_id = None
-                
+
                 self.signal_refs[stmt.target.name] = value_ref
                 self._annotate_signal_ref(stmt.target.name, value_ref, stmt)
                 return
@@ -351,7 +362,8 @@ class ASTLowerer:
         # Import statements should have been preprocessed and inlined by the parser.
         # If we encounter one here, it means the file wasn't found during preprocessing.
         self.diagnostics.error(
-            f"Import statement found in AST - file not found during preprocessing: {stmt.path}", stmt
+            f"Import statement found in AST - file not found during preprocessing: {stmt.path}",
+            stmt,
         )
 
     def lower_expr(self, expr: Expr) -> ValueRef:
@@ -396,7 +408,9 @@ class ASTLowerer:
             return self.signal_refs[name]
         else:
             self.diagnostics.error(f"Undefined identifier: {name}", expr)
-            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
 
     def lower_binary_op(self, expr: BinaryOp) -> ValueRef:
         """Lower binary operation following mixed-type rules."""
@@ -476,7 +490,9 @@ class ASTLowerer:
             output_type = self.ir_builder.allocate_implicit_type()
 
         operand_signal_type = (
-            result_type.signal_type.name if isinstance(result_type, SignalValue) else None
+            result_type.signal_type.name
+            if isinstance(result_type, SignalValue)
+            else None
         )
         self._ensure_signal_registered(output_type, operand_signal_type)
 
@@ -724,7 +740,9 @@ class ASTLowerer:
         """Lower memory() helper used inside declarations."""
         if not expr.args:
             self.diagnostics.error("memory() requires an initial value", expr)
-            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
 
         initial_ref = self.lower_expr(expr.args[0])
 
@@ -785,21 +803,30 @@ class ASTLowerer:
     def lower_function_call_inline(self, expr: CallExpr) -> ValueRef:
         """Inline a function call by substituting parameters and lowering the body."""
         from dsl_compiler.src.dsl_ast import ReturnStmt
-        
+
         # Look up the function definition
         func_symbol = self.semantic.current_scope.lookup(expr.name)
-        if not func_symbol or func_symbol.symbol_type != "function" or not func_symbol.function_def:
+        if (
+            not func_symbol
+            or func_symbol.symbol_type != "function"
+            or not func_symbol.function_def
+        ):
             self.diagnostics.error(f"Cannot inline function: {expr.name}", expr)
-            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
 
         func_def = func_symbol.function_def
-        
+
         # Check argument count
         if len(expr.args) != len(func_def.params):
             self.diagnostics.error(
-                f"Function {expr.name} expects {len(func_def.params)} arguments, got {len(expr.args)}", expr
+                f"Function {expr.name} expects {len(func_def.params)} arguments, got {len(expr.args)}",
+                expr,
             )
-            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
 
         # Create parameter substitution map by evaluating arguments
         param_values = {}
@@ -819,19 +846,20 @@ class ASTLowerer:
             # Store state to isolate function scope
             old_signal_refs = self.signal_refs.copy()
             old_entity_refs = self.entity_refs.copy()
-            
+
             # Process all function body statements and collect return value
             return_value = None
             for stmt in func_def.body:
                 if isinstance(stmt, ReturnStmt) and stmt.expr:
                     # Check if we're returning an entity variable
                     from dsl_compiler.src.dsl_ast import IdentifierExpr
+
                     if isinstance(stmt.expr, IdentifierExpr):
                         var_name = stmt.expr.name
                         if var_name in self.entity_refs:
                             # Mark this entity as the returned one
                             self.returned_entity_id = self.entity_refs[var_name]
-                    
+
                     return_value = self.lower_expr(stmt.expr)
                     break
                 else:
@@ -843,10 +871,10 @@ class ASTLowerer:
             for name, entity_id in self.entity_refs.items():
                 if name not in old_entity_refs:
                     created_entities[name] = entity_id
-            
+
             self.signal_refs = old_signal_refs
             self.entity_refs = old_entity_refs
-            
+
             # Re-add any newly created entities that weren't restored
             self.entity_refs.update(created_entities)
 
@@ -854,7 +882,9 @@ class ASTLowerer:
             if return_value is not None:
                 return return_value
             else:
-                return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+                return self.ir_builder.const(
+                    self.ir_builder.allocate_implicit_type(), 0, expr
+                )
 
         finally:
             # Restore old parameter values

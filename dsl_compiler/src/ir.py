@@ -7,9 +7,8 @@ Factorio combinators and entities. It provides a canonical representation
 that separates concerns between semantic analysis and combinator generation.
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Dict, List, Optional, Union, Any
-from enum import Enum
 
 from dsl_compiler.src.dsl_ast import ASTNode
 
@@ -356,11 +355,46 @@ class IRBuilder:
         op = self.get_operation(signal.source_id)
         if isinstance(op, IRValue):
             if label:
-                op.debug_label = label
+                current = getattr(op, "debug_label", None)
+                if current is None or current == label:
+                    op.debug_label = label
+                else:
+                    aliases = op.debug_metadata.setdefault("aliases", [])
+                    if label not in aliases:
+                        aliases.append(label)
             if source_ast and op.source_ast is None:
                 op.source_ast = source_ast
             if metadata:
-                op.debug_metadata.update(metadata)
+                for key, value in metadata.items():
+                    if value is None:
+                        continue
+
+                    if key == "name":
+                        existing_name = op.debug_metadata.get("name")
+                        if existing_name in (None, value):
+                            op.debug_metadata["name"] = value
+                        else:
+                            aliases = op.debug_metadata.setdefault("aliases", [])
+                            if value not in aliases:
+                                aliases.append(value)
+                        continue
+
+                    if key == "aliases":
+                        aliases = op.debug_metadata.setdefault("aliases", [])
+                        for alias in value:
+                            if (
+                                alias != op.debug_metadata.get("name")
+                                and alias not in aliases
+                            ):
+                                aliases.append(alias)
+                        continue
+
+                    if key == "location":
+                        op.debug_metadata.setdefault(key, value)
+                        continue
+
+                    if key not in op.debug_metadata:
+                        op.debug_metadata[key] = value
 
         if label:
             signal.debug_label = label
@@ -470,7 +504,9 @@ class IRBuilder:
     ) -> IR_FuncDecl:
         """Create a function declaration."""
         node_id = self.next_id("func")
-        op = IR_FuncDecl(node_id, func_name, params, body_operations, return_ref, source_ast)
+        op = IR_FuncDecl(
+            node_id, func_name, params, body_operations, return_ref, source_ast
+        )
         self.add_operation(op)
         return op
 

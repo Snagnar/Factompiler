@@ -7,7 +7,7 @@ a foundation for semantic analysis and IR generation.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Union, Any, Dict
+from typing import List, Optional, Any, Dict
 
 
 # =============================================================================
@@ -59,9 +59,7 @@ class TopDecl(ASTNode):
 class Statement(ASTNode):
     """Base class for all statements."""
 
-    def __init__(
-        self, line: int = 0, column: int = 0, raw_text: Optional[str] = None
-    ):
+    def __init__(self, line: int = 0, column: int = 0, raw_text: Optional[str] = None):
         super().__init__(line, column, raw_text=raw_text)
 
 
@@ -153,9 +151,7 @@ class FuncDecl(TopDecl):
 class LValue(ASTNode):
     """Base class for assignment targets."""
 
-    def __init__(
-        self, line: int = 0, column: int = 0, raw_text: Optional[str] = None
-    ):
+    def __init__(self, line: int = 0, column: int = 0, raw_text: Optional[str] = None):
         super().__init__(line, column, raw_text=raw_text)
 
 
@@ -193,9 +189,7 @@ class PropertyAccess(LValue):
 class Expr(ASTNode):
     """Base class for all expressions."""
 
-    def __init__(
-        self, line: int = 0, column: int = 0, raw_text: Optional[str] = None
-    ):
+    def __init__(self, line: int = 0, column: int = 0, raw_text: Optional[str] = None):
         super().__init__(line, column, raw_text=raw_text)
 
 
@@ -223,9 +217,7 @@ class UnaryOp(Expr):
 class Literal(Expr):
     """Base class for literal values."""
 
-    def __init__(
-        self, line: int = 0, column: int = 0, raw_text: Optional[str] = None
-    ):
+    def __init__(self, line: int = 0, column: int = 0, raw_text: Optional[str] = None):
         super().__init__(line, column, raw_text=raw_text)
 
 

@@ -1,0 +1,31 @@
+# Test 18: Two-color routing demonstration
+# Purpose: show conflicting producers that now stay isolated thanks to two-color wiring.
+# Prior to the conflict-aware planner, both branches below resolved to the same Factorio
+# signal (signal-A) and merged on the red network. The arithmetic combinator that
+# computes `handshake_status` would therefore see doubled values and the exported
+# readiness flags could not stay independent. The new planner assigns opposite wire
+# colors to `stage_a_ready` and `stage_b_ready`, keeping the logical flows separate
+# even though they share the same physical signal name.
+
+# Two independent readiness pulses intentionally forced onto the same Factorio signal.
+Signal stage_a_pulse = ("signal-A", 10);
+Signal stage_b_pulse = ("signal-A", 15);
+
+# Force both branches to continue using signal-A downstream so the emitter must
+# do the separation work.
+Signal stage_a_forwarded = stage_a_pulse | "signal-A";
+Signal stage_b_forwarded = stage_b_pulse | "signal-A";
+
+# Each branch drives its own decider; both outputs also resolve to signal-A.
+Signal stage_a_ready = stage_a_forwarded > 5;
+Signal stage_b_ready = stage_b_forwarded > 5;
+
+# Combining the ready flags would have shorted without two-color routing; the planner
+# now colors these edges differently so the arithmetic combinator can read the
+# intended per-branch values instead of the merged network sum.
+Signal handshake_status = (stage_a_ready | "signal-A") + (stage_b_ready | "signal-A");
+
+# Export each ready pulse separately for inspection by downstream modules.
+Signal export_a = stage_a_ready | "signal-A";
+Signal export_b = stage_b_ready | "signal-A";
+Signal export_status = handshake_status | "signal-Y";

@@ -30,7 +30,9 @@ def format_entity_description(debug_info: Optional[Dict[str, Any]]) -> Optional[
 
     name = debug_info.get("name")
     label = debug_info.get("label")
-    resolved_signal = debug_info.get("factorio_signal") or debug_info.get("resolved_signal")
+    resolved_signal = debug_info.get("factorio_signal") or debug_info.get(
+        "resolved_signal"
+    )
     declared_type = debug_info.get("declared_type")
     location = _normalize_location(debug_info.get("location"))
 
@@ -48,7 +50,12 @@ def format_entity_description(debug_info: Optional[Dict[str, Any]]) -> Optional[
     if label and label != primary_label:
         description_parts.append(f"as {label}")
 
-    if declared_type and declared_type not in {"Signal", "Memory", "variable", "memory"}:
+    if declared_type and declared_type not in {
+        "Signal",
+        "Memory",
+        "variable",
+        "memory",
+    }:
         description_parts.append(f"type {declared_type}")
 
     if location:

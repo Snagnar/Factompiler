@@ -5,12 +5,11 @@ Parser module for the Factorio Circuit DSL.
 Uses Lark parser with the grammar file to parse DSL source code into AST objects.
 """
 
-import sys
 from pathlib import Path
-from typing import List, Optional, Any, Dict, Set
+from typing import List, Optional, Dict, Set
 
 from lark import Lark, Transformer, Tree, Token
-from lark.exceptions import LarkError, ParseError, LexError
+from lark.exceptions import ParseError, LexError
 
 from dsl_compiler.src.dsl_ast import (
     ASTNode,
@@ -37,10 +36,8 @@ from dsl_compiler.src.dsl_ast import (
     ReadExpr,
     WriteExpr,
     ProjectionExpr,
-    PlaceExpr,
     SignalLiteral,
     DictLiteral,
-    print_ast,
 )
 
 
@@ -335,9 +332,7 @@ class DSLTransformer(Transformer):
                 obj_token.value if isinstance(obj_token, Token) else str(obj_token)
             )
             property_name = (
-                prop_token.value
-                if isinstance(prop_token, Token)
-                else str(prop_token)
+                prop_token.value if isinstance(prop_token, Token) else str(prop_token)
             )
             raw_text = f"{object_name}.{property_name}"
             return PropertyAccess(

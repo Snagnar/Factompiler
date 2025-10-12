@@ -2,9 +2,8 @@
 Tests for ir.py - Intermediate Representation classes and structures.
 """
 
-import pytest
 from dsl_compiler.src.ir import *
-from dsl_compiler.src.dsl_ast import NumberLiteral, StringLiteral
+from dsl_compiler.src.dsl_ast import NumberLiteral
 
 
 class TestSignalAndValueRefs:
@@ -126,10 +125,7 @@ class TestIRContainerNodes:
 
     def test_ir_group(self):
         """Test IR_Group node."""
-        children = [
-            IR_Const("const_1", "signal-A"),
-            IR_Const("const_2", "signal-B")
-        ]
+        children = [IR_Const("const_1", "signal-A"), IR_Const("const_2", "signal-B")]
         node = IR_Group("group_1", children)
         assert node.node_id == "group_1"
         assert node.operations == children
@@ -153,7 +149,7 @@ class TestIRHierarchy:
             IR_MemRead("mem_read_1", "signal-A"),
             IR_EntityPropRead("prop_read_1", "signal-A"),
         ]
-        
+
         for value in values:
             assert isinstance(value, IRValue)
             assert isinstance(value, IRNode)
@@ -167,7 +163,7 @@ class TestIRHierarchy:
             IR_EntityPropWrite("entity_1", "enabled", SignalRef("signal-A", "const_1")),
             IR_ConnectToWire(SignalRef("signal-A", "const_1"), "red"),
         ]
-        
+
         for effect in effects:
             assert isinstance(effect, IREffect)
             assert isinstance(effect, IRNode)

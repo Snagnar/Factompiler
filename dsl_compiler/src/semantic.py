@@ -9,7 +9,7 @@ This module performs:
 - Diagnostic collection and error reporting
 """
 
-from typing import Dict, List, Optional, Set, Any, Union
+from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -17,7 +17,9 @@ from pathlib import Path
 from dsl_compiler.src.dsl_ast import *
 
 
-def render_source_location(node: Optional[ASTNode], default_file: Optional[str] = None) -> Optional[str]:
+def render_source_location(
+    node: Optional[ASTNode], default_file: Optional[str] = None
+) -> Optional[str]:
     """Format a human-friendly ``file:line`` string for an AST node."""
 
     if node is None:
@@ -115,7 +117,9 @@ class Symbol:
     """Symbol table entry."""
 
     name: str
-    symbol_type: str  # "variable", "memory", "function", "parameter", "entity", "module"
+    symbol_type: (
+        str  # "variable", "memory", "function", "parameter", "entity", "module"
+    )
     value_type: ValueInfo
     defined_at: ASTNode
     is_mutable: bool = False
@@ -332,10 +336,14 @@ class SemanticAnalyzer(ASTVisitor):
     def get_signal_debug_payload(self, identifier: str) -> Optional[SignalDebugInfo]:
         return self.signal_debug_info.get(identifier)
 
-    def make_signal_type_info(self, type_name: str, implicit: bool = False) -> SignalTypeInfo:
+    def make_signal_type_info(
+        self, type_name: str, implicit: bool = False
+    ) -> SignalTypeInfo:
         """Create a SignalTypeInfo with virtual flag inferred from name."""
         is_virtual = type_name.startswith("signal-") or type_name.startswith("__")
-        return SignalTypeInfo(name=type_name, is_implicit=implicit, is_virtual=is_virtual)
+        return SignalTypeInfo(
+            name=type_name, is_implicit=implicit, is_virtual=is_virtual
+        )
 
     def get_expr_type(self, expr: Expr) -> ValueInfo:
         """Get the inferred type of an expression."""
@@ -684,15 +692,24 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _expression_uses_identifier(self, expr, identifier_name: str) -> bool:
         """Check if an expression uses a specific identifier."""
-        from dsl_compiler.src.dsl_ast import IdentifierExpr, BinaryOp, CallExpr, PropertyAccess
+        from dsl_compiler.src.dsl_ast import (
+            IdentifierExpr,
+            BinaryOp,
+            CallExpr,
+            PropertyAccess,
+        )
 
         if isinstance(expr, IdentifierExpr):
             return expr.name == identifier_name
         elif isinstance(expr, BinaryOp):
-            return (self._expression_uses_identifier(expr.left, identifier_name) or 
-                    self._expression_uses_identifier(expr.right, identifier_name))
+            return self._expression_uses_identifier(
+                expr.left, identifier_name
+            ) or self._expression_uses_identifier(expr.right, identifier_name)
         elif isinstance(expr, CallExpr):
-            return any(self._expression_uses_identifier(arg, identifier_name) for arg in expr.args)
+            return any(
+                self._expression_uses_identifier(arg, identifier_name)
+                for arg in expr.args
+            )
         elif isinstance(expr, PropertyAccess):
             return expr.object_name == identifier_name
         # Add more expression types as needed
@@ -700,15 +717,21 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _expression_involves_parameter(self, expr) -> bool:
         """Check if an expression involves any function parameters."""
-        from dsl_compiler.src.dsl_ast import IdentifierExpr, BinaryOp, CallExpr, PropertyAccess
+        from dsl_compiler.src.dsl_ast import (
+            IdentifierExpr,
+            BinaryOp,
+            CallExpr,
+            PropertyAccess,
+        )
 
         if isinstance(expr, IdentifierExpr):
             # Check if this identifier is a parameter
             symbol = self.current_scope.lookup(expr.name)
             return symbol and symbol.symbol_type == "parameter"
         elif isinstance(expr, BinaryOp):
-            return (self._expression_involves_parameter(expr.left) or 
-                    self._expression_involves_parameter(expr.right))
+            return self._expression_involves_parameter(
+                expr.left
+            ) or self._expression_involves_parameter(expr.right)
         elif isinstance(expr, CallExpr):
             return any(self._expression_involves_parameter(arg) for arg in expr.args)
         elif isinstance(expr, PropertyAccess):
@@ -723,10 +746,11 @@ class SemanticAnalyzer(ASTVisitor):
     def _binary_op_involves_parameters(self, expr) -> bool:
         """Check if a binary operation involves function parameters."""
         from dsl_compiler.src.dsl_ast import BinaryOp
-        
+
         if isinstance(expr, BinaryOp):
-            return (self._expression_involves_parameter(expr.left) or 
-                    self._expression_involves_parameter(expr.right))
+            return self._expression_involves_parameter(
+                expr.left
+            ) or self._expression_involves_parameter(expr.right)
         return False
 
     def _infer_builtin_call_type(self, expr: CallExpr) -> Optional[ValueInfo]:
@@ -865,10 +889,10 @@ class SemanticAnalyzer(ASTVisitor):
             # For now, assume all parameters are IntValue
             # A more sophisticated implementation would infer from usage
             param_types.append(IntValue())
-        
+
         # Analyze return type by examining return statements in the body
         return_type = self._infer_function_return_type(node.body)
-        
+
         # Create function symbol with proper function type
         func_symbol = Symbol(
             name=node.name,
@@ -913,7 +937,7 @@ class SemanticAnalyzer(ASTVisitor):
     def _infer_function_return_type(self, body: List[Statement]) -> ValueInfo:
         """Infer function return type by analyzing return statements."""
         from dsl_compiler.src.dsl_ast import ReturnStmt
-        
+
         # Look for return statements
         for stmt in body:
             if isinstance(stmt, ReturnStmt) and stmt.expr:
@@ -921,7 +945,7 @@ class SemanticAnalyzer(ASTVisitor):
                 # For now, return IntValue as a safe default
                 # A more sophisticated implementation would analyze the expression
                 return IntValue()
-        
+
         # No return statement found, assume void (represented as IntValue for now)
         return IntValue()
 

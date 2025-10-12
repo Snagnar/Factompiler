@@ -1,4 +1,4 @@
-from typing import Optional, Set, Tuple, Union
+from typing import Set, Tuple, Union
 
 
 class LayoutEngine:
@@ -24,7 +24,9 @@ class LayoutEngine:
         self._advance_position()
         return pos
 
-    def reserve_near(self, target: Tuple[int, int], max_radius: int = 6) -> Tuple[int, int]:
+    def reserve_near(
+        self, target: Tuple[int, int], max_radius: int = 6
+    ) -> Tuple[int, int]:
         tx, ty = self.snap_to_grid(target)
 
         if (tx, ty) not in self.used_positions:
@@ -44,7 +46,9 @@ class LayoutEngine:
 
         return self.get_next_position()
 
-    def snap_to_grid(self, pos: Tuple[Union[int, float], Union[int, float]]) -> Tuple[int, int]:
+    def snap_to_grid(
+        self, pos: Tuple[Union[int, float], Union[int, float]]
+    ) -> Tuple[int, int]:
         x, y = pos
         spacing_x = max(1, self.entity_spacing)
         spacing_y = max(1, self.row_height)

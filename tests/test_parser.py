@@ -4,7 +4,7 @@ Tests for parser.py - Core parsing functionality.
 
 import pytest
 from dsl_compiler.src.parser import DSLParser
-from dsl_compiler.src.dsl_ast import Program, DeclStmt, NumberLiteral
+from dsl_compiler.src.dsl_ast import Program
 from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
 
 
@@ -20,18 +20,19 @@ class TestParser:
         program = parser.parse("Signal x = 42;")
         assert isinstance(program, Program)
         assert len(program.statements) == 1
-        
+
     def test_parse_sample_files(self, parser):
         """Test parsing of sample files."""
         import os
+
         sample_files = [
             "tests/sample_programs/01_basic_arithmetic.fcdsl",
             "tests/sample_programs/04_memory.fcdsl",
         ]
-        
+
         for file_path in sample_files:
             if os.path.exists(file_path):
-                with open(file_path, 'r') as f:
+                with open(file_path, "r") as f:
                     code = f.read()
                 program = parser.parse(code)
                 assert isinstance(program, Program)
@@ -50,7 +51,7 @@ class TestParser:
 
         main_path = tmp_path / "main.fcdsl"
         main_path.write_text(
-            'import "lib/helper.fcdsl";\n' "Signal result = helper_signal + 1;\n",
+            'import "lib/helper.fcdsl";\nSignal result = helper_signal + 1;\n',
             encoding="utf-8",
         )
 

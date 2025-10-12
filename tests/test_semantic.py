@@ -14,7 +14,7 @@ class TestSemanticAnalyzer:
     def parser(self):
         return DSLParser()
 
-    @pytest.fixture 
+    @pytest.fixture
     def analyzer(self):
         return SemanticAnalyzer()
 
@@ -28,22 +28,27 @@ class TestSemanticAnalyzer:
         diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
         # analyze_program returns DiagnosticCollector, not list
         from dsl_compiler.src.semantic import DiagnosticCollector
+
         assert isinstance(diagnostics, DiagnosticCollector)
 
     def test_semantic_analysis_sample_files(self, parser, analyzer):
         """Test semantic analysis on sample files."""
         import os
+
         sample_files = [
             "tests/sample_programs/01_basic_arithmetic.fcdsl",
             "tests/sample_programs/04_memory.fcdsl",
         ]
-        
+
         for file_path in sample_files:
             if os.path.exists(file_path):
-                with open(file_path, 'r') as f:
+                with open(file_path, "r") as f:
                     code = f.read()
                 program = parser.parse(code)
-                diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+                diagnostics = analyze_program(
+                    program, strict_types=False, analyzer=analyzer
+                )
                 # analyze_program returns DiagnosticCollector, not list
                 from dsl_compiler.src.semantic import DiagnosticCollector
+
                 assert isinstance(diagnostics, DiagnosticCollector)

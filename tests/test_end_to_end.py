@@ -15,9 +15,9 @@ from dsl_compiler.src.parser import DSLParser
 from dsl_compiler.src.semantic import analyze_program, SemanticAnalyzer
 from dsl_compiler.src.lowerer import lower_program
 from dsl_compiler.src.emit import emit_blueprint_string
-from compile import compile_dsl_file
 
 sample_files = glob.glob("tests/sample_programs/*.fcdsl")
+
 
 class TestEndToEndCompilation:
     """End-to-end compilation tests using sample programs."""
@@ -164,7 +164,9 @@ class TestEndToEndCompilation:
             ]
             if cond
         ]
-        assert "signal-R" in arithmetic_outputs, "Projected outputs should reuse signal-R"
+        assert "signal-R" in arithmetic_outputs, (
+            "Projected outputs should reuse signal-R"
+        )
 
         constant_filters = [
             filt
@@ -175,9 +177,9 @@ class TestEndToEndCompilation:
             .get("sections", [])
             for filt in section.get("filters", [])
         ]
-        assert any(
-            filt.get("name") == "signal-M" for filt in constant_filters
-        ), "Memory bootstrap should reserve signal-M constants"
+        assert any(filt.get("name") == "signal-M" for filt in constant_filters), (
+            "Memory bootstrap should reserve signal-M constants"
+        )
 
     def test_entity_property_blueprint_behavior(self):
         """Ensure entity property wiring and projections appear in blueprints."""
@@ -205,10 +207,8 @@ class TestEndToEndCompilation:
         assert first_signal.get("type") == "virtual"
 
         inserter = next(ent for ent in entity_dicts if ent["name"] == "inserter")
-        assert (
-            "first_signal"
-            in inserter.get("control_behavior", {})
-            .get("circuit_condition", {})
+        assert "first_signal" in inserter.get("control_behavior", {}).get(
+            "circuit_condition", {}
         )
 
         arithmetic_outputs = {
@@ -224,9 +224,9 @@ class TestEndToEndCompilation:
             if cond.get("output_signal")
         }
         output_types = {output[0] for output in arithmetic_outputs}
-        assert {"virtual", "item"}.issubset(
-            output_types
-        ), "Projection logic should mix virtual and item outputs"
+        assert {"virtual", "item"}.issubset(output_types), (
+            "Projection logic should mix virtual and item outputs"
+        )
 
         # For now, just check that we got a reasonable blueprint string
         # The actual base64 validation can be tricky due to draftsman's encoding quirks
@@ -252,9 +252,9 @@ class TestCompilerPipeline:
 
             program = self.parser.parse(dsl_code)
             assert program is not None, f"Parser failed on {sample_path.name}"
-            assert (
-                len(program.statements) > 0
-            ), f"No statements parsed from {sample_path.name}"
+            assert len(program.statements) > 0, (
+                f"No statements parsed from {sample_path.name}"
+            )
 
     def test_semantic_stage_all_samples(self):
         """Test that semantic analysis can handle all sample programs."""
@@ -270,9 +270,9 @@ class TestCompilerPipeline:
                 program, strict_types=False, analyzer=analyzer
             )
 
-            assert (
-                not diagnostics.has_errors()
-            ), f"Semantic analysis failed on {sample_path.name}: {diagnostics.get_messages()}"
+            assert not diagnostics.has_errors(), (
+                f"Semantic analysis failed on {sample_path.name}: {diagnostics.get_messages()}"
+            )
 
     def test_ir_generation_all_samples(self):
         """Test that IR generation can handle all sample programs."""
@@ -290,12 +290,12 @@ class TestCompilerPipeline:
                 program, analyzer
             )
 
-            assert (
-                not diagnostics.has_errors()
-            ), f"IR generation failed on {sample_path.name}: {diagnostics.get_messages()}"
-            assert (
-                len(ir_operations) > 0
-            ), f"No IR operations generated from {sample_path.name}"
+            assert not diagnostics.has_errors(), (
+                f"IR generation failed on {sample_path.name}: {diagnostics.get_messages()}"
+            )
+            assert len(ir_operations) > 0, (
+                f"No IR operations generated from {sample_path.name}"
+            )
 
 
 if __name__ == "__main__":

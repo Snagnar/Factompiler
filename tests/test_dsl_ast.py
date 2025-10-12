@@ -2,7 +2,6 @@
 Tests for dsl_ast.py - AST node classes and structures.
 """
 
-import pytest
 from dsl_compiler.src.dsl_ast import *
 
 
@@ -145,7 +144,7 @@ class TestASTHierarchy:
             ReturnStmt(NumberLiteral(42)),
             ImportStmt("module", "alias"),
         ]
-        
+
         for stmt in statements:
             assert isinstance(stmt, Statement)
             assert isinstance(stmt, ASTNode)
@@ -159,7 +158,7 @@ class TestASTHierarchy:
             BinaryOp(NumberLiteral(1), "+", NumberLiteral(2)),
             UnaryOp("-", NumberLiteral(5)),
         ]
-        
+
         for expr in expressions:
             assert isinstance(expr, Expr)
             assert isinstance(expr, ASTNode)
@@ -170,7 +169,7 @@ class TestASTHierarchy:
             Identifier("x"),
             PropertyAccess(Identifier("obj"), "field"),
         ]
-        
+
         for lvalue in lvalues:
             assert isinstance(lvalue, LValue)
             assert isinstance(lvalue, ASTNode)

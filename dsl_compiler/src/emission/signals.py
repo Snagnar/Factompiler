@@ -29,6 +29,8 @@ class SignalUsageEntry:
     producer: Optional[IRValue] = None
     consumers: Set[str] = field(default_factory=set)
     export_targets: Set[str] = field(default_factory=set)
+    output_entities: Set[str] = field(default_factory=set)
+    resolved_outputs: Dict[str, str] = field(default_factory=dict)
     source_ast: Optional[Any] = None
     literal_value: Optional[int] = None
     literal_declared_type: Optional[str] = None
@@ -75,6 +77,12 @@ class SignalGraph:
     def iter_edges(self):
         for signal_id, sinks in self._sinks.items():
             yield signal_id, self._sources.get(signal_id), list(sinks)
+
+    def iter_source_sink_pairs(self):
+        for signal_id, sinks in self._sinks.items():
+            source = self._sources.get(signal_id)
+            for sink in sinks:
+                yield signal_id, source, sink
 
 
 class SignalMaterializer:
@@ -155,13 +163,11 @@ class SignalMaterializer:
             if entry.debug_metadata:
                 metadata = entry.debug_metadata
                 named_metadata = any(
-                    key in metadata
-                    for key in ("name", "declared_type", "source_ast")
+                    key in metadata for key in ("name", "declared_type", "source_ast")
                 )
 
             has_user_label = (
-                bool(entry.debug_label)
-                and entry.debug_label != entry.signal_id
+                bool(entry.debug_label) and entry.debug_label != entry.signal_id
             )
 
             entry.should_materialize = bool(
@@ -232,8 +238,14 @@ class SignalMaterializer:
                 if existing is None:
                     signal_data.add_signal(name, target_type)
                 else:
-                    existing_type = existing.get("type") if isinstance(existing, dict) else None
-                    if existing_type and target_type == "virtual" and existing_type != "virtual-signal":
+                    existing_type = (
+                        existing.get("type") if isinstance(existing, dict) else None
+                    )
+                    if (
+                        existing_type
+                        and target_type == "virtual"
+                        and existing_type != "virtual-signal"
+                    ):
                         # Avoid clobbering real prototype types with virtual overrides
                         target_type = existing_type
             except Exception as exc:
@@ -257,7 +269,11 @@ class SignalMaterializer:
         if signal_type and signal_data is not None and signal_type in signal_data.raw:
             return signal_type
 
-        if signal_type and signal_data is not None and signal_type not in signal_data.raw:
+        if (
+            signal_type
+            and signal_data is not None
+            and signal_type not in signal_data.raw
+        ):
             try:
                 signal_data.add_signal(signal_type, "virtual")
             except Exception as exc:
