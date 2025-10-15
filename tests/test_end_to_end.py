@@ -151,12 +151,15 @@ class TestEndToEndCompilation:
             .get("conditions", [])
         ]
         assert any(
-            cond.get("first_signal", {}).get("name") == "signal-R"
+            cond.get("first_signal", {}).get("name") == "signal-W"
             for cond in decider_conditions
-        ), "Memory latch should react to signal-R pulses"
+        ), "Memory latch should react to explicit signal-W write enables"
 
         arithmetic_outputs = [
-            cond.get("output_signal", {}).get("name")
+            (
+                cond.get("first_signal", {}).get("name"),
+                cond.get("output_signal", {}).get("name"),
+            )
             for ent in entity_dicts
             if ent["name"] == "arithmetic-combinator"
             for cond in [
@@ -164,9 +167,21 @@ class TestEndToEndCompilation:
             ]
             if cond
         ]
-        assert "signal-R" in arithmetic_outputs, (
-            "Projected outputs should reuse signal-R"
+        assert any(
+            first == "signal-everything" or first == output
+            for first, output in arithmetic_outputs
+            if output is not None
+        ), (
+            "Projected outputs should normalize or coerce bundles via declared signals"
         )
+
+        projected_outputs = {output for _, output in arithmetic_outputs if output}
+        assert {
+            "iron-plate",
+            "copper-plate",
+            "water",
+            "signal-S",
+        }.issubset(projected_outputs), "Expected materialized outputs from memory pipeline"
 
         constant_filters = [
             filt
@@ -177,8 +192,8 @@ class TestEndToEndCompilation:
             .get("sections", [])
             for filt in section.get("filters", [])
         ]
-        assert any(filt.get("name") == "signal-M" for filt in constant_filters), (
-            "Memory bootstrap should reserve signal-M constants"
+        assert any(filt.get("name") == "signal-U" for filt in constant_filters), (
+            "Memory bootstrap should reserve write-enable helpers (signal-U)"
         )
 
     def test_entity_property_blueprint_behavior(self):

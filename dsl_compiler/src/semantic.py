@@ -261,6 +261,15 @@ class SemanticAnalyzer(ASTVisitor):
         # Expression type cache (using id() as key since AST nodes aren't hashable)
         self.expr_types: Dict[int, ValueInfo] = {}
 
+    @staticmethod
+    def _is_virtual_channel(signal_info: SignalTypeInfo) -> bool:
+        if signal_info is None:
+            return False
+        if signal_info.is_virtual:
+            return True
+        name = signal_info.name
+        return name.startswith("signal-") or name.startswith("__")
+
     def allocate_implicit_type(self) -> SignalTypeInfo:
         """Allocate a new implicit virtual signal type."""
         self.implicit_type_counter += 1
@@ -387,11 +396,55 @@ class SemanticAnalyzer(ASTVisitor):
             return symbol.value_type
 
         elif isinstance(expr, WriteExpr):
-            # write() operations return void, but we model as signal for simplicity
+            if getattr(expr, "legacy_syntax", False):
+                self.diagnostics.error(
+                    "write(memory, value) has been replaced with write(value, memory, when=...).",
+                    expr,
+                )
+
+            value_type = self.get_expr_type(expr.value)
+
+            if expr.when is not None:
+                enable_type = self.get_expr_type(expr.when)
+            else:
+                enable_type = SignalValue(
+                    signal_type=self.make_signal_type_info("signal-W", implicit=False)
+                )
+
+            expr.enable_type = enable_type
+            expr.value_type = value_type
+
             symbol = self.current_scope.lookup(expr.memory_name)
-            if symbol and symbol.symbol_type == "memory":
-                return symbol.value_type
-            return SignalValue(signal_type=self.allocate_implicit_type())
+            if symbol is None:
+                self.diagnostics.error(
+                    f"Undefined memory '{expr.memory_name}' in write().", expr
+                )
+                return SignalValue(signal_type=self.allocate_implicit_type())
+
+            if symbol.symbol_type != "memory":
+                self.diagnostics.error(
+                    f"'{expr.memory_name}' is not a memory symbol.", expr
+                )
+                return SignalValue(signal_type=self.allocate_implicit_type())
+
+            if expr.when is not None and not isinstance(enable_type, (SignalValue, IntValue)):
+                self.diagnostics.error(
+                    "write when= argument must evaluate to a signal or integer.",
+                    expr,
+                )
+
+            if isinstance(symbol.value_type, SignalValue) and isinstance(value_type, SignalValue):
+                if symbol.value_type.signal_type.name != value_type.signal_type.name:
+                    warning_msg = (
+                        f"Writing signal '{value_type.signal_type.name}' to memory '{expr.memory_name}' "
+                        f"of type '{symbol.value_type.signal_type.name}'. Result will coerce to memory's type."
+                    )
+                    if self.strict_types:
+                        self.diagnostics.error(warning_msg, expr)
+                    else:
+                        self.diagnostics.warning(warning_msg, expr)
+
+            return symbol.value_type
 
         elif isinstance(expr, BinaryOp):
             return self.infer_binary_op_type(expr)
@@ -497,9 +550,20 @@ class SemanticAnalyzer(ASTVisitor):
         left_type = self.get_expr_type(expr.left)
         right_type = self.get_expr_type(expr.right)
 
-        # Comparison and logical operators return signals with value 0 or 1
+        # Comparison and logical operators yield virtual signals by default.
+        # When a virtual operand participates, preserve that channel so explicit
+        # projections (e.g. `| "signal-A"`) can become no-ops.
         if expr.op in ["==", "!=", "<", "<=", ">", ">=", "&&", "||"]:
-            # In Factorio, comparisons produce signals, not bare integers
+            if isinstance(left_type, SignalValue) and self._is_virtual_channel(
+                left_type.signal_type
+            ):
+                return left_type
+
+            if isinstance(right_type, SignalValue) and self._is_virtual_channel(
+                right_type.signal_type
+            ):
+                return right_type
+
             signal_type = self.allocate_implicit_type()
             return SignalValue(signal_type=signal_type)
 

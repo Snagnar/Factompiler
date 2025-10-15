@@ -12,6 +12,7 @@
 // Keywords for special forms (must come before NAME to take precedence)
 READ_KW: "read"
 WRITE_KW: "write"
+WHEN_KW: "when"
 MEM_KW: "mem"
 
 // Type keywords
@@ -91,10 +92,10 @@ UNARY_OP: "+" | "-" | "!"
 
 // primary expressions (constructors, calls, memory ops, property access)
 primary: literal
-       | signal_literal                       // New signal literal syntax
-       | READ_KW "(" NAME ")"
-       | WRITE_KW "(" NAME "," expr ")"
-  | dict_literal
+     | signal_literal                       // New signal literal syntax
+     | READ_KW "(" NAME ")"
+     | WRITE_KW "(" expr "," NAME ["," WHEN_KW "=" expr] ")"
+     | dict_literal
        | call_expr                            // General function calls after specific forms
        | method_call
        | lvalue                               // Simple identifiers last

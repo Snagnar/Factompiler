@@ -308,12 +308,23 @@ class ReadExpr(Expr):
 
 
 class WriteExpr(Expr):
-    """write(memory_name, value)"""
+    """write(value, memory_name, when=enable)"""
 
-    def __init__(self, memory_name: str, value: Expr, line: int = 0, column: int = 0):
+    def __init__(
+        self,
+        value: Expr,
+        memory_name: str,
+        when: Optional[Expr] = None,
+        *,
+        line: int = 0,
+        column: int = 0,
+        legacy_syntax: bool = False,
+    ):
         super().__init__(line, column)
-        self.memory_name = memory_name
         self.value = value
+        self.memory_name = memory_name
+        self.when = when
+        self.legacy_syntax = legacy_syntax
 
 
 class ProjectionExpr(Expr):

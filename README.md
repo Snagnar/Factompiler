@@ -86,6 +86,17 @@ Options:
   --name TEXT        Blueprint name (default: derived from input filename)
   -v, --verbose      Show detailed diagnostic messages
   --help             Show this message and exit.
+
+## Advanced Configuration
+
+Programmatic consumers can customize the emitter when embedding the compiler. The `BlueprintEmitter` accepts `WireRelayOptions` to adjust automatic relay pole insertion (enable/disable, Euclidean vs. Manhattan planning, relay caps):
+
+```python
+from dsl_compiler.src.emit import BlueprintEmitter, WireRelayOptions
+
+relay_options = WireRelayOptions(placement_strategy="manhattan", max_relays=4)
+emitter = BlueprintEmitter(signal_type_map=signal_map, wire_relay_options=relay_options)
+```
 ```
 
 ## Blueprint Output

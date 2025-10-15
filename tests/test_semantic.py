@@ -52,3 +52,37 @@ class TestSemanticAnalyzer:
                 from dsl_compiler.src.semantic import DiagnosticCollector
 
                 assert isinstance(diagnostics, DiagnosticCollector)
+
+    def test_write_legacy_syntax_rejected(self, parser, analyzer):
+        """Ensure legacy write(memory, value) form produces a migration error."""
+
+        code = """
+        Memory counter = 0;
+        Signal value = 42;
+        write(counter, value);
+        """
+
+        program = parser.parse(code)
+        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+
+        assert diagnostics.has_errors(), "Legacy write syntax should raise an error"
+        messages = diagnostics.get_messages()
+        assert any("not a memory symbol" in msg for msg in messages), (
+            "Expected a diagnostic explaining that the target must be a memory"
+        )
+
+    def test_write_with_enable_signal_passes(self, parser, analyzer):
+        """Verify semantic analysis accepts write(value, memory, when=signal)."""
+
+        code = """
+        Memory counter = 0;
+        Signal enable = 1;
+        write(read(counter) + 1, counter, when=enable);
+        """
+
+        program = parser.parse(code)
+        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+
+        assert not diagnostics.has_errors(), (
+            diagnostics.get_messages() if diagnostics.has_errors() else ""
+        )

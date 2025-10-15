@@ -33,12 +33,12 @@ Signal next_state =
           (current_state == 1 && status_changed) + 
           (current_state == 2 && !enable_signal))) * current_state;
 
-write(entity_state, next_state);
-write(last_lamp_status, lamp_is_on);
+write(next_state, entity_state, when=1);
+write(lamp_is_on, last_lamp_status, when=1);
 
 # Blinking pattern based on memory
 Signal blink_count = read(blink_counter);
-write(blink_counter, (blink_count + 1) % 20);
+write((blink_count + 1) % 20, blink_counter, when=1);
 Signal should_blink = current_state == 2;
 status_lamp.enable = should_blink && ((blink_count % 10) < 5);
 

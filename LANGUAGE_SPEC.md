@@ -401,36 +401,41 @@ Signal total = read(accumulator);
 
 **Returns:** Signal with memory's stored value
 
-### `write(memory_name, value)`
+### `write(value_expr, memory_name, when=1)`
 
-Writes value to memory.
+Writes a value into memory when the optional enable predicate is non-zero.
 
 **Syntax:**
 ```fcdsl
-write(memory_name, value)
+write(value_expr, memory_name, when=enable_signal);
 ```
+`when` defaults to `1`, so omitting it preserves legacy always-write semantics.
 
 **Examples:**
 ```fcdsl
-write(counter, read(counter) + 1);      # Increment counter
-write(accumulator, total + ("iron-plate", 10)); # Add to accumulator
+write(read(counter) + 1, counter);                # Increment counter every tick
+write(total + ("iron-plate", 10), accumulator);   # Add to accumulator
 
 # Conditional writes
 Signal should_update = condition > 0;
 Signal new_value = read(state) + should_update;
-write(state, new_value);
+write(new_value, state, when=should_update);
+
+# Disable writes explicitly
+write(signal, buffer, when=0);                    # Emits the wiring but latches nothing
 ```
 
 **Parameters:**
-- `memory_name`: Name of declared memory
-- `value`: Expression to write
+- `value_expr`: Expression to store in the memory cell when enabled
+- `memory_name`: Name of the declared memory target
+- `when` *(optional)*: Signal expression that gates the write (treated as true when `> 0`)
 
 ### Memory Usage Patterns
 
 #### Counter
 ```fcdsl
 Memory counter = 0;
-write(counter, read(counter) + 1);
+write(read(counter) + 1, counter);
 ```
 
 #### Accumulator with Reset
@@ -439,7 +444,7 @@ Memory total = 0;
 Signal input_val = ("iron-plate", 10);
 Signal reset = ("signal-R", 1);
 Signal new_total = (read(total) + input_val) * (1 - reset);
-write(total, new_total);
+write(new_total, total, when=1 - reset);
 ```
 
 #### State Machine
@@ -447,7 +452,7 @@ write(total, new_total);
 Memory state = 0;
 Signal current = read(state);
 Signal next = (current + 1) % 4;  # 4-state cycle
-write(state, next);
+write(next, state);
 ```
 
 #### Advanced Memory Patterns
@@ -459,6 +464,12 @@ The repository includes `tests/sample_programs/04_memory_advanced.fcdsl`, which 
 - constructing state machines and swapping stored values without bundle helpers
 
 Use it as a reference when wiring more sophisticated SR latch workflows.
+
+#### Migration Tips (Legacy `write(memory, value)`)
+
+- Reorder arguments to `write(new_value, memory)`; the compiler emits a targeted diagnostic for the old signature.
+- Provide an explicit `when=` predicate when you previously relied on guarding arithmetic. For example, `write(memory, value * guard)` becomes `write(value, memory, when=guard)`.
+- Expect a new virtual enable signal (`signal-W`) in generated blueprints. This line is driven automatically—no manual wiring is required unless you want to integrate external enables.
 
 ---
 
@@ -503,7 +514,7 @@ train_stop.manual_mode = 1;            # Set manual mode
 #### Blinking Lamps
 ```fcdsl
 Memory counter = 0;
-write(counter, read(counter) + 1);
+write(read(counter) + 1, counter);
 Signal blink = read(counter) % 10;
 
 Entity lamp1 = place("small-lamp", 0, 0);
@@ -582,7 +593,7 @@ func toggle_generator() {
     Memory state = 0;
     Signal current = read(state);
     Signal new_state = 1 - current;  # Toggle between 0 and 1
-    write(state, new_state);
+    write(new_state, state);
     return new_state;
 }
 ```
@@ -748,6 +759,13 @@ The emit module converts IR to Factorio blueprint JSON using the `factorio-draft
 4. **Layout**: Automatic entity positioning with collision avoidance
 5. **Validation**: Final blueprint validation and optimization
 
+#### Edge Layout Conventions
+
+- **North Edge (Literals)**: Every materialized literal constant occupies the `north_literals` zone. The compiler reserves a dedicated row along the top of the blueprint so these combinators line up visually by declaration order.
+- **South Edge (Export Anchors)**: Dangling outputs and explicitly exported signals receive zeroed constant combinators in the `south_exports` zone, forming a clean handoff row for external wiring.
+- **Blueprint Metadata**: Generated blueprints append a description note (`Edge layout: literal constants are placed along the north boundary; export anchors align along the south boundary.`) to remind importers of the spatial contract.
+- **Long-Span Wiring**: When edge placements would exceed Factorio's circuit wire reach, the emitter inserts medium electric poles as invisible relays to keep connections valid. Relay heuristics can be tuned through `WireRelayOptions` (Euclidean vs. Manhattan interpolation, relay caps, or full disable) when constructing the `BlueprintEmitter`.
+
 ### Signal Type Resolution
 
 **Implicit Types**: Compiler allocates virtual signals (`__v1`, `__v2`, etc.)
@@ -756,11 +774,16 @@ The emit module converts IR to Factorio blueprint JSON using the `factorio-draft
 
 ### Memory Implementation
 
-Memory cells are implemented as simplified constant combinators (placeholder for full SR latch circuits):
+Memory cells compile into a gated SR latch module backed by `memory_cell.py`:
 
-1. **Creation**: `IR_MemCreate` → Constant combinator with initial value
-2. **Reading**: `IR_MemRead` → Wire connection to memory combinator output  
-3. **Writing**: `IR_MemWrite` → Logic for updating combinator value
+1. **Creation**: `IR_MemCreate` instantiates the multi-entity latch and seeds the stored channel with the declared initial value.
+2. **Reading**: `IR_MemRead` exposes the latched output on a dedicated green channel for downstream combinators.
+3. **Writing**: `IR_MemWrite` drives the module with the requested data value and a `signal-W` enable line; when the enable is zero the latch preserves its previous state.
+
+The compiler automatically inserts enable wiring and repeater constants (such as `signal-U`) required by the latch blueprint.
+
+- **Typed Outputs**: The latch now projects directly onto the declared memory channel instead of relying on `signal-everything`, improving compatibility with typed pipelines.
+- **Safe Initialization**: A dedicated initializer decider injects the starting value only while `signal-W` is zero, preventing the bootstrap constant from holding the write-enable line open after the first tick.
 
 ---
 
@@ -790,7 +813,7 @@ Signal output = remainder | "signal-output";
 # Counter that increments every tick
 mem counter = memory(0);
 Signal current = read(counter);
-write(counter, current + 1);
+write(current + 1, counter);
 
 # Output current count
 Signal count_output = current | "signal-count";
@@ -862,7 +885,7 @@ Signal next_state =
     (current_state == 2 && !copper_low) * 0 +     # State 2→0: Copper restored
     (current_state * ((current_state == 1 && iron_low) || (current_state == 2 && copper_low)));
 
-write(production_state, next_state);
+write(next_state, production_state);
 
 # Output based on state
 Signal iron_needed = (current_state == 1) * 100;
@@ -884,7 +907,7 @@ func smooth_filter(signal, factor) {
     mem smooth_state = memory(0);
     Signal current = read(smooth_state);
     Signal new_value = (current * factor + signal) / (factor + 1);
-    write(smooth_state, new_value);
+    write(new_value, smooth_state);
     return new_value;
 }
 

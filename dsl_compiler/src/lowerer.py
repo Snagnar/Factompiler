@@ -443,17 +443,26 @@ class ASTLowerer:
             )
         elif expr.op in ["==", "!=", "<", "<=", ">", ">=", "&&", "||"]:
             # This should be handled by comparison lowering
-            return self.lower_comparison_op(expr, left_ref, right_ref)
+            return self.lower_comparison_op(expr, left_ref, right_ref, output_type)
         else:
             self.diagnostics.error(f"Unknown binary operator: {expr.op}", expr)
             return self.ir_builder.const(output_type, 0, expr)
 
     def lower_comparison_op(
-        self, expr: BinaryOp, left_ref: ValueRef, right_ref: ValueRef
+        self,
+        expr: BinaryOp,
+        left_ref: ValueRef,
+        right_ref: ValueRef,
+        output_type: Optional[str] = None,
     ) -> ValueRef:
         """Lower comparison operations to decider combinators."""
-        # Get output type for the boolean result
-        output_type = self.ir_builder.allocate_implicit_type()
+        # Use the semantically inferred output type when available
+        if not output_type:
+            result_type = self.semantic.get_expr_type(expr)
+            if isinstance(result_type, SignalValue):
+                output_type = result_type.signal_type.name
+            else:
+                output_type = self.ir_builder.allocate_implicit_type()
 
         if expr.op in ["==", "!=", "<", "<=", ">", ">="]:
             # Use decider combinator
@@ -599,7 +608,7 @@ class ASTLowerer:
         return self.ir_builder.memory_read(memory_id, signal_type, expr)
 
     def lower_write_expr(self, expr: WriteExpr) -> SignalRef:
-        """Lower memory write: write(memory, value)."""
+        """Lower memory write: write(value, memory, when=...)."""
         memory_name = expr.memory_name
 
         if memory_name not in self.memory_refs:
@@ -611,10 +620,11 @@ class ASTLowerer:
         memory_id = self.memory_refs[memory_name]
         data_ref = self.lower_expr(expr.value)
 
-        # Write enable is always 1 (unconditional write)
-        write_enable = self.ir_builder.const(
-            self.ir_builder.allocate_implicit_type(), 1, expr
-        )
+        if expr.when is not None:
+            write_enable = self.lower_expr(expr.when)
+        else:
+            self._ensure_signal_registered("signal-W")
+            write_enable = self.ir_builder.const("signal-W", 1, expr)
 
         self.ir_builder.memory_write(memory_id, data_ref, write_enable, expr)
 

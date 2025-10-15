@@ -6,22 +6,29 @@ This module converts IR operations into actual Factorio combinators and entities
 using the factorio-draftsman library to generate blueprint JSON.
 """
 
+import math
 import sys
 from collections import Counter, defaultdict
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Union, Set
+from typing import Dict, List, Optional, Tuple, Any, Union, Set, Literal
 
 # Add draftsman to path
 sys.path.insert(
     0, str(Path(__file__).parent.parent.parent.parent / "factorio-draftsman")
 )
 
-from draftsman.blueprintable import Blueprint
-from draftsman.entity import new_entity  # Use draftsman's factory
-from draftsman.entity import *  # Import all entities
-from draftsman.classes.entity import Entity
-from draftsman.data import signals as signal_data
-from draftsman.signatures import SignalID
+from draftsman.blueprintable import Blueprint  # type: ignore[import-not-found]
+from draftsman.entity import new_entity  # Use draftsman's factory  # type: ignore[import-not-found]
+from draftsman.entity import *  # Import all entities  # type: ignore[import-not-found]
+from draftsman.entity import (  # type: ignore[import-not-found]
+    ArithmeticCombinator,
+    DeciderCombinator,
+    ConstantCombinator,
+)
+from draftsman.classes.entity import Entity  # type: ignore[import-not-found]
+from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
+from draftsman.signatures import SignalID  # type: ignore[import-not-found]
 
 
 from .ir import *
@@ -38,6 +45,26 @@ from .emission.wiring import (
     collect_circuit_edges,
     plan_wire_colors,
 )
+MAX_CIRCUIT_WIRE_SPAN = 9.0
+WIRE_RELAY_ENTITY = "medium-electric-pole"
+EDGE_LAYOUT_NOTE = (
+    "Edge layout: literal constants are placed along the north boundary; "
+    "export anchors align along the south boundary."
+)
+
+
+@dataclass(frozen=True)
+class WireRelayOptions:
+    """Configuration flags controlling automatic wire relay insertion."""
+
+    enabled: bool = True
+    max_span: float = MAX_CIRCUIT_WIRE_SPAN
+    placement_strategy: Literal["euclidean", "manhattan"] = "euclidean"
+    max_relays: Optional[int] = None
+
+    def normalized_span(self) -> float:
+        span = self.max_span if self.max_span and self.max_span > 0 else MAX_CIRCUIT_WIRE_SPAN
+        return max(1.0, float(span))
 from .emission.memory import MemoryCircuitBuilder
 from .emission.layout import LayoutEngine
 from .emission.debug_format import format_entity_description
@@ -128,10 +155,19 @@ class BlueprintEmitter:
         signal_type_map: Dict[str, str] = None,
         *,
         enable_metadata_annotations: bool = True,
+        wire_relay_options: Optional[WireRelayOptions] = None,
     ):
         # Persistent configuration
         self.signal_type_map = signal_type_map or {}
         self.enable_metadata_annotations = enable_metadata_annotations
+        options = wire_relay_options or WireRelayOptions()
+        if options.placement_strategy not in {"euclidean", "manhattan"}:
+            options = replace(options, placement_strategy="euclidean")
+        if options.max_span is not None and options.max_span <= 0:
+            options = replace(options, max_span=MAX_CIRCUIT_WIRE_SPAN)
+
+        # Clone options to decouple from caller mutations
+        self.wire_relay_options = replace(options)
 
         # Runtime placeholders
         self._reset_for_emit()
@@ -171,6 +207,88 @@ class BlueprintEmitter:
         self._edge_color_map = {}
         self._coloring_conflicts = []
         self._coloring_success = True
+        self._wire_relay_counter = 0
+
+        self._ensure_signal_map_registered()
+
+    def _ensure_signal_map_registered(self) -> None:
+        """Pre-register implicit signal aliases with Draftsman."""
+
+        if signal_data is None:
+            return
+
+        for entry in self.signal_type_map.values():
+            if isinstance(entry, dict):
+                name = entry.get("name")
+                signal_type = entry.get("type") or "virtual"
+            else:
+                name = entry
+                signal_type = "virtual"
+
+            if not name:
+                continue
+
+            existing = signal_data.raw.get(name)
+            if existing is not None:
+                continue
+
+            try:
+                signal_data.add_signal(name, signal_type)
+            except Exception as exc:
+                self.diagnostics.warning(
+                    f"Could not pre-register signal '{name}' as {signal_type}: {exc}"
+                )
+
+    def _entity_footprint(self, entity: Entity) -> Tuple[int, int]:
+        """Return the integer tile footprint for a draftsman entity."""
+
+        width = getattr(entity, "tile_width", 1) or 1
+        height = getattr(entity, "tile_height", 1) or 1
+        return (max(1, math.ceil(width)), max(1, math.ceil(height)))
+
+    def _place_entity(
+        self,
+        entity: Entity,
+        *,
+        dependencies: Tuple[Any, ...] = (),
+        desired: Optional[Tuple[int, int]] = None,
+        max_radius: int = 12,
+        padding: int = 0,
+    ) -> Tuple[int, int]:
+        """Reserve a layout slot for ``entity`` and assign its tile position."""
+
+        footprint = self._entity_footprint(entity)
+
+        if desired is not None:
+            pos = self.layout.reserve_near(
+                desired,
+                max_radius=max_radius,
+                footprint=footprint,
+                padding=padding,
+            )
+        elif dependencies:
+            pos = self._allocate_position(
+                *dependencies, footprint=footprint, padding=padding
+            )
+        else:
+            pos = self.layout.get_next_position(
+                footprint=footprint, padding=padding
+            )
+
+        entity.tile_position = pos
+        return pos
+
+    def _place_entity_in_zone(
+        self,
+        entity: Entity,
+        zone: str,
+        *,
+        padding: int = 0,
+    ) -> Tuple[int, int]:
+        footprint = self._entity_footprint(entity)
+        pos = self.layout.reserve_in_zone(zone, footprint=footprint, padding=padding)
+        entity.tile_position = pos
+        return pos
 
     def prepare(self, ir_operations: List[IRNode]) -> None:
         """Initialize emission state and analyze the IR prior to realization."""
@@ -199,7 +317,12 @@ class BlueprintEmitter:
 
         return positions
 
-    def _allocate_position(self, *value_refs) -> Tuple[int, int]:
+    def _allocate_position(
+        self,
+        *value_refs,
+        footprint: Tuple[int, int] = (1, 1),
+        padding: int = 0,
+    ) -> Tuple[int, int]:
         """Allocate a placement near the average of dependency positions if possible."""
         positions: List[Tuple[int, int]] = []
         for ref in value_refs:
@@ -208,9 +331,15 @@ class BlueprintEmitter:
         if positions:
             avg_x = sum(pos[0] for pos in positions) / len(positions)
             avg_y = sum(pos[1] for pos in positions) / len(positions)
-            return self.layout.reserve_near((avg_x, avg_y))
+            search_radius = max(6, len(positions) * 4)
+            return self.layout.reserve_near(
+                (avg_x, avg_y),
+                max_radius=search_radius,
+                footprint=footprint,
+                padding=padding,
+            )
 
-        return self.layout.get_next_position()
+        return self.layout.get_next_position(footprint=footprint, padding=padding)
 
     def _add_entity(self, entity: Entity) -> Entity:
         """Add an entity to the blueprint and return the stored reference."""
@@ -258,6 +387,26 @@ class BlueprintEmitter:
             debug_info["name"] = fallback_name
 
         return debug_info or None
+
+    def _apply_blueprint_metadata(self, previous_description: str) -> None:
+        """Ensure blueprint metadata advertises edge placement conventions."""
+
+        if not hasattr(self.blueprint, "description"):
+            return
+
+        note = EDGE_LAYOUT_NOTE
+        description = previous_description or ""
+
+        if note in description:
+            self.blueprint.description = description
+            return
+
+        if description:
+            if not description.endswith("\n"):
+                description += "\n"
+            self.blueprint.description = description + note
+        else:
+            self.blueprint.description = note
 
     def _analyze_signal_usage(
         self, ir_operations: List[IRNode]
@@ -352,6 +501,9 @@ class BlueprintEmitter:
                 and not isinstance(usage_entry.producer, IR_Const)
             )
 
+            if has_external_targets and self.signal_graph.iter_sinks(signal_id):
+                continue
+
             if not (has_external_targets or is_dangling_output):
                 continue
             if usage_entry.export_anchor_id:
@@ -364,8 +516,8 @@ class BlueprintEmitter:
             usage_entry.export_anchor_id = anchor_id
             return
 
-        pos = self.layout.get_next_position()
-        combinator = new_entity("constant-combinator", tile_position=pos)
+        combinator = new_entity("constant-combinator")
+        pos = self._place_entity_in_zone(combinator, "south_exports")
         self._add_entity(combinator)
         placement = EntityPlacement(
             entity=combinator,
@@ -373,6 +525,8 @@ class BlueprintEmitter:
             position=pos,
             output_signals={},
             input_signals={},
+            role="export_anchor",
+            zone="south_exports",
         )
         self.entities[anchor_id] = placement
         usage_entry.export_anchor_id = anchor_id
@@ -390,10 +544,12 @@ class BlueprintEmitter:
 
         # Preserve caller-provided blueprint metadata across resets
         previous_label = getattr(self.blueprint, "label", "DSL Generated Blueprint")
+        previous_description = getattr(self.blueprint, "description", "")
 
         # Initialize state and perform IR pre-analysis
         self.prepare(ir_operations)
         self.blueprint.label = previous_label
+        self._apply_blueprint_metadata(previous_description)
 
         # Collect draftsman warnings during blueprint construction
         captured_warnings = []
@@ -510,8 +666,9 @@ class BlueprintEmitter:
                 f"SKIP constant: {op.node_id} (should_materialize={usage_entry.should_materialize}, is_typed_literal={getattr(usage_entry, 'is_typed_literal', None)})"
             )
             return
-        pos = self.layout.get_next_position()
-        combinator = new_entity("constant-combinator", tile_position=pos)
+
+        combinator = new_entity("constant-combinator")
+        pos = self._place_entity_in_zone(combinator, "north_literals")
         section = combinator.add_section()
         # For explicit typed literals, always use the declared type as the signal name
         if usage_entry and usage_entry.is_typed_literal:
@@ -615,6 +772,8 @@ class BlueprintEmitter:
             position=pos,
             output_signals={signal_name: "red"},
             input_signals={},
+            role="literal",
+            zone="north_literals",
         )
         self.entities[op.node_id] = placement
         self.signal_graph.set_source(op.node_id, op.node_id)
@@ -628,9 +787,10 @@ class BlueprintEmitter:
     def emit_arithmetic(self, op: IR_Arith):
         """Emit arithmetic combinator for IR_Arith."""
 
-        pos = self._allocate_position(op.left, op.right)
-
-        combinator = new_entity("arithmetic-combinator", tile_position=pos)
+        combinator = new_entity("arithmetic-combinator")
+        pos = self._place_entity(
+            combinator, dependencies=(op.left, op.right)
+        )
 
         # Configure arithmetic operation with proper signal handling
         left_operand = self._get_operand_for_combinator(op.left)
@@ -680,9 +840,11 @@ class BlueprintEmitter:
 
     def emit_decider(self, op: IR_Decider):
         """Emit decider combinator for IR_Decider."""
-        pos = self._allocate_position(op.left, op.right)
 
-        combinator = new_entity("decider-combinator", tile_position=pos)
+        combinator = new_entity("decider-combinator")
+        pos = self._place_entity(
+            combinator, dependencies=(op.left, op.right)
+        )
 
         # Configure decider operation
         left_operand = self._get_operand_for_combinator(op.left)
@@ -786,10 +948,39 @@ class BlueprintEmitter:
         )
         memory_components["signal_type"] = signal_type
 
+        memory_variable = op.memory_id
+        if memory_variable.startswith("mem_"):
+            memory_variable = memory_variable[4:]
+        source_location = render_source_location(op.source_ast) if op.source_ast else None
+
+        component_labels = {
+            "write_gate": "memory write gate",
+            "hold_gate": "memory latch",
+            "output_converter": "memory type adapter",
+            "init_combinator": "memory initialiser",
+            "init_injector": "memory initialiser gate",
+        }
+
         # Register all components as entities
         for component_name, placement in memory_components.items():
             if isinstance(placement, EntityPlacement):
                 self.entities[placement.entity_id] = placement
+
+                output_signal = next(iter(placement.output_signals), None)
+                debug_info = {
+                    "name": memory_variable,
+                    "label": component_labels.get(
+                        component_name, component_name.replace("_", " ")
+                    ),
+                    "resolved_signal": output_signal,
+                    "declared_type": "Memory",
+                    "location": source_location,
+                    "initial_value": initial_value
+                    if component_name == "init_combinator"
+                    else None,
+                }
+                debug_info = {k: v for k, v in debug_info.items() if v is not None}
+                self.annotate_entity_description(placement.entity, debug_info)
 
         # The converter is the main interface for this memory
         converter_placement = memory_components.get("output_converter")
@@ -828,18 +1019,36 @@ class BlueprintEmitter:
 
         # Get the memory module components
         memory_module = self.memory_builder.memory_modules[memory_id]
-        input_combinator_placement = memory_module["input_combinator"]
-        output_combinator_placement = memory_module["output_combinator"]
-
-        from draftsman.entity import ArithmeticCombinator, DeciderCombinator
+        write_gate_placement = memory_module["write_gate"]
+        hold_gate_placement = memory_module["hold_gate"]
 
         try:
             # Data writer: normalizes incoming signal to the memory's declared channel
             data_signal_name = memory_module.get(
                 "signal_type", self._get_signal_name(op.data_signal)
             )
-            write_pos = self.layout.get_next_position()
-            data_combinator = ArithmeticCombinator(tile_position=write_pos)
+            neighbor_positions = []
+            if write_gate_placement:
+                neighbor_positions.append(write_gate_placement.position)
+            if hold_gate_placement:
+                neighbor_positions.append(hold_gate_placement.position)
+
+            desired_location: Optional[Tuple[int, int]] = None
+            if neighbor_positions:
+                avg_x = sum(pos[0] for pos in neighbor_positions) / len(
+                    neighbor_positions
+                )
+                avg_y = sum(pos[1] for pos in neighbor_positions) / len(
+                    neighbor_positions
+                )
+                desired_location = (int(round(avg_x)), int(round(avg_y)))
+
+            data_combinator = ArithmeticCombinator()
+            write_pos = self._place_entity(
+                data_combinator,
+                desired=desired_location,
+                max_radius=8,
+            )
             data_combinator.first_operand = self._get_operand_for_combinator(
                 op.data_signal
             )
@@ -865,40 +1074,67 @@ class BlueprintEmitter:
             self._add_signal_sink(op.data_signal, data_entity_id)
 
             # Connect writer output to memory components
-            input_combinator = input_combinator_placement.entity
-            output_combinator = output_combinator_placement.entity
+            write_gate = write_gate_placement.entity
+            hold_gate = hold_gate_placement.entity
 
             self.blueprint.add_circuit_connection(
                 "green",
                 data_combinator,
-                input_combinator,
+                write_gate,
                 side_1="output",
                 side_2="input",
             )
             self.blueprint.add_circuit_connection(
                 "red",
                 data_combinator,
-                output_combinator,
+                hold_gate,
                 side_1="output",
                 side_2="input",
             )
 
-            # Enable writer: produce signal-R pulse based on write enable expression
-            enable_pos = self.layout.get_next_position()
-            enable_combinator = DeciderCombinator(tile_position=enable_pos)
-            enable_signal = self._get_signal_name(op.write_enable)
-            condition = DeciderCombinator.Condition(
-                first_signal=enable_signal,
-                comparator="!=",
-                constant=0,
+            # Enable writer: produce signal-W pulse based on write enable expression
+            enable_combinator = DeciderCombinator()
+            enable_pos = self._place_entity(
+                enable_combinator,
+                desired=desired_location,
+                max_radius=8,
             )
+
+            enable_literal: Optional[int] = None
+            if isinstance(op.write_enable, int):
+                enable_literal = op.write_enable
+            elif isinstance(op.write_enable, SignalRef) and self.materializer:
+                enable_literal = self.materializer.inline_value(op.write_enable)
+
+            if enable_literal is not None:
+                # Inline literal enables create a self-sustaining pulse generator so we
+                # don't need a dedicated constant combinator. A positive literal means
+                # "always write".
+                comparator = "="
+                constant = 0 if enable_literal != 0 else 1
+                condition = DeciderCombinator.Condition(
+                    first_signal="signal-0",
+                    comparator=comparator,
+                    constant=constant,
+                )
+                pulse_constant = 1 if enable_literal != 0 else 0
+            else:
+                enable_signal = self._get_signal_name(op.write_enable)
+                condition = DeciderCombinator.Condition(
+                    first_signal=enable_signal,
+                    comparator="!=",
+                    constant=0,
+                )
+                pulse_constant = 1
+
             enable_combinator.conditions = [condition]
 
             enable_output = DeciderCombinator.Output(
-                signal="signal-R",
+                signal="signal-W",
                 copy_count_from_input=False,
-                constant=1,
+                networks={"green": True},
             )
+            enable_output.constant = pulse_constant
             enable_combinator.outputs.append(enable_output)
             enable_combinator = self._add_entity(enable_combinator)
 
@@ -908,19 +1144,27 @@ class BlueprintEmitter:
                 entity=enable_combinator,
                 entity_id=enable_entity_id,
                 position=enable_pos,
-                output_signals={"signal-R": "red"},
+                output_signals={"signal-W": "green"},
                 input_signals={},
             )
             self.entities[enable_entity_id] = enable_placement
             self.signal_graph.set_source(enable_entity_id, enable_entity_id)
             self._track_signal_source(enable_entity_id, enable_entity_id)
 
-            self._add_signal_sink(op.write_enable, enable_entity_id)
+            if enable_literal is None:
+                self._add_signal_sink(op.write_enable, enable_entity_id)
 
             self.blueprint.add_circuit_connection(
-                "red",
+                "green",
                 enable_combinator,
-                input_combinator,
+                write_gate,
+                side_1="output",
+                side_2="input",
+            )
+            self.blueprint.add_circuit_connection(
+                "green",
+                enable_combinator,
+                hold_gate,
                 side_1="output",
                 side_2="input",
             )
@@ -932,21 +1176,26 @@ class BlueprintEmitter:
 
     def emit_place_entity(self, op: IR_PlaceEntity):
         """Emit entity placement using the entity factory."""
-        # Handle both constant and variable coordinates
-        if isinstance(op.x, int) and isinstance(op.y, int):
-            # Use specified position with offset to avoid combinators
-            base_x = op.x + 20  # Offset entities to the right of combinators
-            base_y = op.y
-            pos = (int(base_x), int(base_y))  # Ensure grid alignment
-
-            # Mark this position as used in the layout manager to prevent overlaps
-            self.layout.used_positions.add(pos)
-        else:
-            # Default to layout engine for variable coordinates or fallback
-            pos = self.layout.get_next_position()
-
         try:
-            entity = new_entity(op.prototype, tile_position=pos)
+            entity = new_entity(op.prototype)
+            footprint = self._entity_footprint(entity)
+
+            # Handle both constant and variable coordinates
+            if isinstance(op.x, int) and isinstance(op.y, int):
+                desired = (int(op.x), int(op.y))
+                max_radius = 0
+                if desired in self.layout.used_positions:
+                    max_radius = 4
+                pos = self.layout.reserve_near(
+                    desired,
+                    max_radius=max_radius,
+                    footprint=footprint,
+                )
+            else:
+                # Default to layout engine for variable coordinates or fallback
+                pos = self.layout.get_next_position(footprint=footprint)
+
+            entity.tile_position = pos
 
             # Apply any additional properties
             if op.properties:
@@ -1059,10 +1308,8 @@ class BlueprintEmitter:
             self.signal_graph.set_source(op.node_id, stored_value.source_id)
             self._track_signal_source(op.node_id, stored_value.source_id)
         elif isinstance(stored_value, int):
-            from draftsman.entity import ConstantCombinator
-
-            pos = self.layout.get_next_position()
-            combinator = ConstantCombinator(tile_position=pos)
+            combinator = ConstantCombinator()
+            pos = self._place_entity(combinator)
             section = combinator.add_section()
             signal_name = self._get_signal_name(op.output_type)
             section.set_signal(index=0, name=signal_name, count=stored_value)
@@ -1230,36 +1477,11 @@ class BlueprintEmitter:
                                     source_placement, sink_placement
                                 )
 
-                            # Determine connection sides based on entity capabilities
-                            source_entity = source_placement.entity
-                            sink_entity = sink_placement.entity
-                            source_dual = getattr(
-                                source_entity, "dual_circuit_connectable", False
+                            self._connect_with_wire_path(
+                                source_placement,
+                                sink_placement,
+                                wire_color,
                             )
-                            sink_dual = getattr(
-                                sink_entity, "dual_circuit_connectable", False
-                            )
-
-                            connection_kwargs: Dict[str, Any] = dict(
-                                color=wire_color,
-                                entity_1=source_entity,
-                                entity_2=sink_entity,
-                            )
-
-                            if source_dual:
-                                connection_kwargs["side_1"] = "output"
-                            if sink_dual:
-                                connection_kwargs["side_2"] = "input"
-
-                            # Add circuit connection
-                            try:
-                                self.blueprint.add_circuit_connection(
-                                    **connection_kwargs
-                                )
-                            except Exception as e:
-                                self.diagnostics.error(
-                                    f"Failed to connect {source_entity_id} -> {sink_entity_id}: {e}"
-                                )
                 else:
                     self.diagnostics.error(
                         f"Source entity {source_entity_id} not found for signal {signal_id}"
@@ -1273,6 +1495,178 @@ class BlueprintEmitter:
         if "memory" in source.entity_id and "output" in source.entity_id:
             return "green"
         return "red"
+
+    # ------------------------------------------------------------------
+    # Wiring helpers
+    # ------------------------------------------------------------------
+
+    def _compute_wire_distance(
+        self, source: EntityPlacement, sink: EntityPlacement
+    ) -> float:
+        """Return Euclidean distance between two placements in tile units."""
+
+        sx, sy = source.position
+        tx, ty = sink.position
+        if self.wire_relay_options.placement_strategy == "manhattan":
+            return abs(tx - sx) + abs(ty - sy)
+        return math.dist((sx, sy), (tx, ty))
+
+    def _connect_with_wire_path(
+        self,
+        source: EntityPlacement,
+        sink: EntityPlacement,
+        wire_color: str,
+    ) -> None:
+        """Wire entities, inserting relay poles when range limits are exceeded."""
+
+        source_entity = source.entity
+        sink_entity = sink.entity
+        source_dual = getattr(source_entity, "dual_circuit_connectable", False)
+        sink_dual = getattr(sink_entity, "dual_circuit_connectable", False)
+
+        span_limit = self.wire_relay_options.normalized_span()
+        total_distance = self._compute_wire_distance(source, sink)
+
+        path = [source]
+        relays = self._insert_wire_relays_if_needed(source, sink)
+        if relays:
+            path.extend(relays)
+        path.append(sink)
+
+        if not relays and total_distance > span_limit:
+            self.diagnostics.warning(
+                "Connection %s -> %s spans %.1f tiles which exceeds configured reach %.1f; proceeding without relays."
+                % (source.entity_id, sink.entity_id, total_distance, span_limit)
+            )
+
+        for idx in range(len(path) - 1):
+            first_pos = path[idx].position
+            second_pos = path[idx + 1].position
+            segment_distance = math.dist(first_pos, second_pos)
+            if segment_distance > span_limit + 1e-6:
+                self.diagnostics.warning(
+                    "Segment %s -> %s spans %.1f tiles (limit %.1f)."
+                    % (
+                        path[idx].entity_id,
+                        path[idx + 1].entity_id,
+                        segment_distance,
+                        span_limit,
+                    )
+                )
+        
+        path_length = len(path)
+
+        for idx in range(path_length - 1):
+            first = path[idx]
+            second = path[idx + 1]
+
+            connection_kwargs: Dict[str, Any] = dict(
+                color=wire_color,
+                entity_1=first.entity,
+                entity_2=second.entity,
+            )
+
+            if idx == 0 and source_dual:
+                connection_kwargs["side_1"] = "output"
+            if idx == path_length - 2 and sink_dual:
+                connection_kwargs["side_2"] = "input"
+
+            try:
+                self.blueprint.add_circuit_connection(**connection_kwargs)
+            except Exception as exc:
+                self.diagnostics.error(
+                    f"Failed to connect {first.entity_id} -> {second.entity_id}: {exc}"
+                )
+
+    def _insert_wire_relays_if_needed(
+        self,
+        source: EntityPlacement,
+        sink: EntityPlacement,
+    ) -> List[EntityPlacement]:
+        """Insert medium poles when two endpoints exceed wire reach."""
+
+        options = self.wire_relay_options
+        if not options.enabled:
+            return []
+
+        span_limit = options.normalized_span()
+        distance = self._compute_wire_distance(source, sink)
+        if distance <= span_limit:
+            return []
+
+        segments = max(1, math.ceil(distance / span_limit))
+        required_relays = segments - 1
+
+        relays: List[EntityPlacement] = []
+        if required_relays <= 0:
+            return relays
+
+        if options.max_relays is not None and required_relays > options.max_relays:
+            self.diagnostics.warning(
+                "Connection %s -> %s requires %d relay poles but max_relays=%d; skipping automatic relay placement."
+                % (
+                    source.entity_id,
+                    sink.entity_id,
+                    required_relays,
+                    options.max_relays,
+                )
+            )
+            return relays
+
+        self.diagnostics.info(
+            "Inserting %d wire relay(s) (strategy=%s, span=%.1f) to bridge %.1f tiles between %s and %s."
+            % (
+                required_relays,
+                options.placement_strategy,
+                span_limit,
+                distance,
+                source.entity_id,
+                sink.entity_id,
+            )
+        )
+
+        for idx in range(1, segments):
+            ratio = idx / segments
+
+            try:
+                pole_entity = new_entity(WIRE_RELAY_ENTITY)
+            except Exception as exc:
+                self.diagnostics.error(
+                    f"Failed to instantiate relay pole for {source.entity_id}->{sink.entity_id}: {exc}"
+                )
+                break
+
+            footprint = self._entity_footprint(pole_entity)
+            pos = self.layout.reserve_along_path(
+                source.position,
+                sink.position,
+                ratio,
+                strategy=options.placement_strategy,
+                max_radius=12,
+                footprint=footprint,
+                padding=0,
+            )
+
+            pole_entity.tile_position = pos
+            pole_entity = self._add_entity(pole_entity)
+
+            relay_id = f"__wire_relay_{self._wire_relay_counter}"
+            self._wire_relay_counter += 1
+
+            placement = EntityPlacement(
+                entity=pole_entity,
+                entity_id=relay_id,
+                position=pos,
+                output_signals={},
+                input_signals={},
+                role="wire_relay",
+                zone="infrastructure",
+            )
+
+            self.entities[relay_id] = placement
+            relays.append(placement)
+
+        return relays
 
     def _get_signal_name(self, operand) -> str:
         """Get signal name from operand - much simpler approach."""

@@ -2,13 +2,56 @@
 Tests for emit.py - Blueprint emission functionality.
 """
 
+import math
+from typing import Tuple
+
 import pytest
 from dsl_compiler.src.parser import DSLParser
 from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
 from dsl_compiler.src.lowerer import lower_program
-from dsl_compiler.src.emit import BlueprintEmitter
+from dsl_compiler.src.emit import (
+    BlueprintEmitter,
+    MAX_CIRCUIT_WIRE_SPAN,
+    WireRelayOptions,
+)
+from draftsman.entity import new_entity  # type: ignore[import-not-found]
 from dsl_compiler.src.emission.signals import EntityPlacement, SignalUsageEntry
 from dsl_compiler.src.emission.debug_format import format_entity_description
+
+
+def _make_far_endpoints(
+    emitter: BlueprintEmitter,
+    *,
+    sink_target: Tuple[int, int] = (40, 0),
+    sink_prototype: str = "arithmetic-combinator",
+) -> Tuple[EntityPlacement, EntityPlacement]:
+    source_entity = new_entity("constant-combinator")
+    source_pos = emitter.layout.get_next_position()
+    source_entity.tile_position = source_pos
+    source_entity = emitter._add_entity(source_entity)
+    source = EntityPlacement(
+        entity=source_entity,
+        entity_id="source",
+        position=source_pos,
+        output_signals={},
+        input_signals={},
+    )
+    emitter.entities["source"] = source
+
+    sink_entity = new_entity(sink_prototype)
+    sink_pos = emitter.layout.reserve_near(sink_target, max_radius=200)
+    sink_entity.tile_position = sink_pos
+    sink_entity = emitter._add_entity(sink_entity)
+    sink = EntityPlacement(
+        entity=sink_entity,
+        entity_id="sink",
+        position=sink_pos,
+        output_signals={},
+        input_signals={},
+    )
+    emitter.entities["sink"] = sink
+
+    return source, sink
 
 
 class TestBlueprintEmitter:
@@ -162,6 +205,58 @@ class TestBlueprintEmitter:
             "Should emit at least one blank anchor for exported signal"
         )
 
+    def test_constant_roles_align_with_zones(self, parser, analyzer):
+        """Literals should occupy the north edge, export anchors the south edge."""
+
+        code = """
+        Signal iron = ("iron-plate", 25);
+        Signal copper = ("copper-plate", 50);
+        Signal total = iron + copper;
+        """
+
+        program = parser.parse(code)
+        analyze_program(program, strict_types=False, analyzer=analyzer)
+        ir_operations, _, signal_map = lower_program(program, analyzer)
+
+        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter.emit_blueprint(ir_operations)
+
+        literal_placements = [
+            placement
+            for placement in emitter.entities.values()
+            if placement.role == "literal"
+        ]
+
+        assert literal_placements, "Expected literal placements along the north edge"
+
+        expected_north_y = -emitter.layout.row_height * 3
+        literal_rows = {placement.position[1] for placement in literal_placements}
+
+        assert literal_rows == {expected_north_y}, (
+            f"Literal combinators should align on row {expected_north_y}, got {literal_rows}"
+        )
+        assert all(
+            placement.zone == "north_literals" for placement in literal_placements
+        ), "Literal combinators should be tagged with the north_literals zone"
+
+        anchor_placements = [
+            placement
+            for placement in emitter.entities.values()
+            if placement.role == "export_anchor"
+        ]
+
+        assert anchor_placements, "Expected at least one export anchor on south edge"
+
+        expected_south_y = emitter.layout.row_height * 3
+        anchor_rows = {placement.position[1] for placement in anchor_placements}
+
+        assert anchor_rows == {expected_south_y}, (
+            f"Export anchors should align on row {expected_south_y}, got {anchor_rows}"
+        )
+        assert all(
+            placement.zone == "south_exports" for placement in anchor_placements
+        ), "Export anchors should be tagged with the south_exports zone"
+
     """Test blueprint emission functionality."""
 
     @pytest.fixture
@@ -211,6 +306,34 @@ class TestBlueprintEmitter:
 
                 assert blueprint is not None
                 assert len(emitter.entities) > 0
+
+    def test_memory_write_emits_signal_w_enable(self, parser, analyzer):
+        """Memory writes should emit a signal-W enable combinator and writers wired on green."""
+
+        code = """
+        Memory counter = 0;
+        Signal enable = 1;
+        write(read(counter) + 1, counter, when=enable);
+        """
+
+        program = parser.parse(code)
+        analyze_program(program, strict_types=False, analyzer=analyzer)
+        ir_operations, diagnostics, signal_map = lower_program(program, analyzer)
+
+        assert not diagnostics.has_errors(), diagnostics.get_messages()
+
+        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        blueprint = emitter.emit_blueprint(ir_operations)
+
+        assert blueprint is not None
+
+        enable_outputs = [
+            placement
+            for placement in emitter.entities.values()
+            if placement.output_signals.get("signal-W") == "green"
+        ]
+
+        assert enable_outputs, "Expected a signal-W enable combinator in the blueprint"
 
     def test_signal_name_resolution(self):
         """Test signal name resolution with mapping."""
@@ -317,7 +440,7 @@ class TestWarningAnalysis:
         code = """
         Memory counter = 0;
         Signal current = read(counter);
-        write(counter, current + 1);
+    write(current + 1, counter, when=1);
         """
 
         parser = DSLParser()
@@ -344,3 +467,69 @@ class TestWarningAnalysis:
         assert len(memory_warnings) == 0, (
             f"Found memory signal warnings: {[w.message for w in memory_warnings]}"
         )
+
+
+def test_wire_relays_inserted_for_long_spans():
+    """Connections longer than the wire span should insert relay poles."""
+
+    emitter = BlueprintEmitter()
+    emitter._reset_for_emit()
+
+    source, sink = _make_far_endpoints(emitter, sink_target=(40, 0))
+
+    relays = emitter._insert_wire_relays_if_needed(source, sink)
+
+    assert relays, "Expected relay placements for long-span wiring"
+
+    distance = emitter._compute_wire_distance(source, sink)
+    expected_count = math.ceil(distance / MAX_CIRCUIT_WIRE_SPAN) - 1
+
+    assert len(relays) == expected_count, (
+        f"Expected {expected_count} relays for span {distance}, got {len(relays)}"
+    )
+    assert all(relay.role == "wire_relay" for relay in relays)
+    assert all(relay.zone == "infrastructure" for relay in relays)
+    assert all(relay.entity_id in emitter.entities for relay in relays)
+
+
+def test_wire_relays_respect_disabled_option():
+    emitter = BlueprintEmitter(wire_relay_options=WireRelayOptions(enabled=False))
+    emitter._reset_for_emit()
+
+    source, sink = _make_far_endpoints(emitter, sink_target=(40, 0))
+
+    relays = emitter._insert_wire_relays_if_needed(source, sink)
+
+    assert relays == [], "No relays should be inserted when auto wiring is disabled"
+    assert emitter.diagnostics.warning_count == 0
+
+
+def test_wire_relays_manhattan_strategy_inserts_extra_relays():
+    emitter = BlueprintEmitter(
+        wire_relay_options=WireRelayOptions(placement_strategy="manhattan")
+    )
+    emitter._reset_for_emit()
+
+    source, sink = _make_far_endpoints(emitter, sink_target=(6, 6))
+
+    relays = emitter._insert_wire_relays_if_needed(source, sink)
+
+    assert relays, "Manhattan strategy should require at least one relay on diagonal span"
+    assert len(relays) == 1
+
+
+def test_wire_relays_max_limit_triggers_warning():
+    emitter = BlueprintEmitter(wire_relay_options=WireRelayOptions(max_relays=0))
+    emitter._reset_for_emit()
+
+    source, sink = _make_far_endpoints(emitter, sink_target=(40, 0))
+
+    relays = emitter._insert_wire_relays_if_needed(source, sink)
+
+    assert relays == []
+    warnings = [
+        diag.message
+        for diag in emitter.diagnostics.diagnostics
+        if diag.level.name == "WARNING"
+    ]
+    assert any("requires" in msg for msg in warnings)

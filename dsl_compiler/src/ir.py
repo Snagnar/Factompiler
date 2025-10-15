@@ -164,8 +164,14 @@ class IR_EntityPropRead(IRValue):
 class IR_MemCreate(IREffect):
     """Memory cell creation."""
 
-    def __init__(self, memory_id: str, signal_type: str, initial_value: ValueRef):
-        super().__init__(f"mem_create_{memory_id}")
+    def __init__(
+        self,
+        memory_id: str,
+        signal_type: str,
+        initial_value: ValueRef,
+        source_ast: Optional[ASTNode] = None,
+    ):
+        super().__init__(f"mem_create_{memory_id}", source_ast)
         self.memory_id = memory_id
         self.signal_type = signal_type
         self.initial_value = initial_value
@@ -179,8 +185,14 @@ class IR_MemCreate(IREffect):
 class IR_MemWrite(IREffect):
     """Memory write operation."""
 
-    def __init__(self, memory_id: str, data_signal: ValueRef, write_enable: ValueRef):
-        super().__init__(f"mem_write_{memory_id}")
+    def __init__(
+        self,
+        memory_id: str,
+        data_signal: ValueRef,
+        write_enable: ValueRef,
+        source_ast: Optional[ASTNode] = None,
+    ):
+        super().__init__(f"mem_write_{memory_id}", source_ast)
         self.memory_id = memory_id
         self.data_signal = data_signal
         self.write_enable = (
@@ -457,7 +469,7 @@ class IRBuilder:
         source_ast: Optional[ASTNode] = None,
     ):
         """Create a memory cell."""
-        op = IR_MemCreate(memory_id, signal_type, initial_value)
+        op = IR_MemCreate(memory_id, signal_type, initial_value, source_ast)
         self.add_operation(op)
 
     def memory_read(
@@ -478,7 +490,7 @@ class IRBuilder:
         source_ast: Optional[ASTNode] = None,
     ):
         """Write to memory."""
-        op = IR_MemWrite(memory_id, data_signal, write_enable)
+        op = IR_MemWrite(memory_id, data_signal, write_enable, source_ast)
         self.add_operation(op)
 
     def place_entity(

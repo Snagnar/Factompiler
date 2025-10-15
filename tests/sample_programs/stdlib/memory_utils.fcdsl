@@ -12,8 +12,8 @@ Memory tick_counter = 0;
     Signal current_delayed = read(delayed_value);
     Signal new_delayed = should_update * signal + (1 - should_update) * current_delayed;
     
-    write(delayed_value, new_delayed);
-    write(tick_counter, ticks + 1);
+    write(new_delayed, delayed_value, when=1);
+    write(ticks + 1, tick_counter, when=1);
     
     return current_delayed;
 }
@@ -30,7 +30,7 @@ Memory accumulator = 0;
                   (new_val > max_val) * max_val +
                   ((new_val >= min_val) && (new_val <= max_val)) * new_val;
     
-    write(accumulator, clamped);
+    write(clamped, accumulator, when=1);
     return clamped;
 }
 
@@ -47,7 +47,7 @@ Memory last_value = 0;
                         (abs_change <= max_change_per_tick) * change;
     
     Signal new_value = last + limited_change;
-    write(last_value, new_value);
+    write(new_value, last_value, when=1);
     
     return new_value;
 }

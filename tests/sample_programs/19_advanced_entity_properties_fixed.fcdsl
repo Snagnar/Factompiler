@@ -98,8 +98,8 @@ Memory item_history = 0;
 
 # Update production state based on conditions
 Signal state_change = item_count > read(item_history);
-write(production_state, state_change && 1 || 0);
-write(item_history, item_count);
+write(state_change && 1 || 0, production_state, when=1);
+write(item_count, item_history, when=1);
 
 # =============================================================================
 # COMPLEX CONDITIONAL LOGIC

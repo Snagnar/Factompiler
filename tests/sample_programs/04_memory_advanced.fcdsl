@@ -31,21 +31,21 @@ Memory tick_counter = 0;
 Signal current_iron = read(iron_storage);
 Signal iron_input = 50;
 Signal should_write_iron = (current_iron == 0);  # 1 if true, 0 if false
-Signal iron_write_value = should_write_iron * iron_input + (!should_write_iron) * current_iron;
-write(iron_storage, iron_write_value);  # Writes 50 if storage is 0, otherwise keeps current value
+Signal iron_write_value = iron_input;
+write(iron_write_value, iron_storage, when=should_write_iron);  # Writes 50 if storage is 0, otherwise holds
 
 # Scenario 2: Write only if input exceeds threshold
 Signal copper_input = 75;
 Signal should_store_copper = copper_input > 100;  # Boolean: 1 if true, 0 if false
 Signal copper_current = read(copper_storage);
-Signal copper_write_value = should_store_copper * copper_input + (!should_store_copper) * copper_current;
-write(copper_storage, copper_write_value);  # Writes input if > 100, otherwise keeps current
+Signal copper_write_value = copper_input;
+write(copper_write_value, copper_storage, when=should_store_copper);  # Writes input if > 100, otherwise holds
 
 # Scenario 3: Conditional increment - add to counter only if condition met
 Signal current_count = read(tick_counter);
 Signal enable_counting = 1;  # This could be from any condition
 Signal new_count = current_count + enable_counting;
-write(tick_counter, new_count);  # This always writes (increment by 1 or 0)
+write(new_count, tick_counter, when=enable_counting);  # Only writes when counting is enabled
 
 # =============================================================================
 # COMPLEX CONDITIONAL WRITES - Multiple Conditions
@@ -60,8 +60,8 @@ Signal water_is_low = current_water < 500;
 Signal pump_active = 1;  # Simulated
 Signal water_input = 200;
 Signal should_refill = water_is_low && pump_active;
-Signal water_write_value = should_refill * (current_water + water_input) + (!should_refill) * current_water;
-write(water_level, water_write_value);
+Signal water_refill_value = current_water + water_input;
+write(water_refill_value, water_level, when=should_refill);
 
 # =============================================================================
 # MEMORY-BASED STATE MACHINE
@@ -88,7 +88,7 @@ Signal next_state =
     (any_to_error * 3) +                  # Go to state 3
     (!(idle_to_processing || processing_to_complete || complete_to_idle || any_to_error)) * current_state;  # Stay in current state
 
-write(system_state, next_state | "signal-S");
+write(next_state | "signal-S", system_state, when=1);
 
 # =============================================================================
 # STORING MULTIPLE VALUES - Using Different Memory Cells
@@ -98,23 +98,24 @@ Memory max_iron_seen = ("iron-plate", 0);
 Memory min_copper_seen = ("copper-plate", 999);
 
 Signal current_max = read(max_iron_seen);
-Signal new_max_iron = (iron_input > current_max) * iron_input + (iron_input <= current_max) * current_max;
-write(max_iron_seen, new_max_iron);
+Signal should_update_max = iron_input > current_max;
+Signal new_max_iron = iron_input;
+write(new_max_iron, max_iron_seen, when=should_update_max);
 
 Signal current_min = read(min_copper_seen);
-Signal new_min_copper = (copper_input < current_min) * copper_input + (copper_input >= current_min) * current_min;
-write(min_copper_seen, new_min_copper);
+Signal should_update_min = copper_input < current_min;
+Signal new_min_copper = copper_input;
+write(new_min_copper, min_copper_seen, when=should_update_min);
 
 # =============================================================================
 # CLEARING/RESETTING MEMORY
 # =============================================================================
 
 Signal reset_signal = 0;  # Set to 1 to trigger reset
-Signal iron_cleared = reset_signal * 0 + (!reset_signal) * current_iron;
-Signal copper_cleared = reset_signal * 0 + (!reset_signal) * read(copper_storage);
 
-# Write cleared values back
-write(iron_storage, iron_cleared);
+# Write cleared values back when reset is triggered
+write(0, iron_storage, when=reset_signal);
+write(0, copper_storage, when=reset_signal);
 
 # =============================================================================
 # READING AND COMBINING MEMORY VALUES
@@ -136,8 +137,8 @@ Signal should_swap = 0;  # Condition to swap iron and copper storage
 Signal iron_after_swap = should_swap * read(copper_storage) + (!should_swap) * read(iron_storage);
 Signal copper_after_swap = should_swap * read(iron_storage) + (!should_swap) * read(copper_storage);
 
-write(iron_storage, iron_after_swap);
-write(copper_storage, copper_after_swap);
+write(iron_after_swap, iron_storage, when=should_swap);
+write(copper_after_swap, copper_storage, when=should_swap);
 
 # =============================================================================
 # OUTPUT SIGNALS - Based on Memory State

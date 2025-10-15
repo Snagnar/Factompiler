@@ -32,7 +32,7 @@ Signal next_state =
     (state == 2 && sensor_c > 0) * 0 +
     (state * (sensor_a == 0 && sensor_b == 0 && sensor_c == 0));
 
-write(decision_state, next_state);
+write(next_state, decision_state, when=1);
 
 # Output based on state and sensors
 Signal output_value = 

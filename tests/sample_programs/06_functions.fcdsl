@@ -14,7 +14,7 @@ func memory_toggle() {
     Memory toggle_state = 0;
     Signal current = read(toggle_state);
     Signal new_state = 1 - current;  # toggle between 0 and 1
-    write(toggle_state, new_state);
+    write(new_state, toggle_state, when=1);
     return new_state;
 }
 

@@ -9,19 +9,19 @@ Signal current_count = read(counter);
 Signal current_total = read(accumulator);
 
 # Increment counter every tick
-write(counter, current_count + 1);
+write(current_count + 1, counter, when=1);
 
 # Conditional memory update
 Signal input_value = 50;
 Signal should_add = input_value > 0;
-Signal new_total = current_total + (input_value * should_add);
-write(accumulator, new_total);
+Signal new_total = current_total + input_value;
+write(new_total, accumulator, when=should_add);
 
 # Memory-based state machine
 Memory state = 0;
 Signal current_state = read(state);
 Signal next_state = (current_state + 1) % 4;
-write(state, next_state);
+write(next_state, state, when=1);
 
 # Use state for output
 Signal output_multiplier = (current_state == 2) * 10 + 1;

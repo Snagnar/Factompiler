@@ -22,8 +22,8 @@ Signal new_down =
     reset * 100 + 
     (1 - reset) * (down_val - decrement * (down_val > 0));
 
-write(up_counter, new_up);
-write(down_counter, new_down);
+write(new_up, up_counter, when=1);
+write(new_down, down_counter, when=1);
 
 # Event detection and counting
 Signal up_overflow = (up_val >= 999) && increment;
@@ -31,14 +31,14 @@ Signal down_underflow = (down_val <= 0) && decrement;
 Signal any_event = up_overflow || down_underflow;
 
 Signal events = read(event_count);
-write(event_count, events + any_event);
+write(events + any_event, event_count, when=1);
 
 # Filtered accumulator - only accumulate positive values
 Memory filtered_sum = 0;
 Signal input_val = 130;
 Signal should_accumulate = input_val > 0;
 Signal current_sum = read(filtered_sum);
-write(filtered_sum, current_sum + (input_val * should_accumulate));
+write(current_sum + (input_val * should_accumulate), filtered_sum, when=1);
 
 # Output status projections without bundles
 Signal status_up = up_val | "signal-red";

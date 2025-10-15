@@ -119,7 +119,7 @@ Signal train_contents = train_station.train_contents;
 
 # Memory for state tracking
 Memory entity_counter = 0;
-write(entity_counter, read(entity_counter) + 1);
+write(read(entity_counter) + 1, entity_counter, when=1);
 Signal counter_out = read(entity_counter);
 
 # Complex control logic

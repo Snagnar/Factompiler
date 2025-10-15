@@ -170,20 +170,20 @@ Memory iron_consumed = 0;
 Memory copper_consumed = 0;
 
 Signal iron_increment = iron_plate > 0 && 1 || 0;
-write(iron_consumed, read(iron_consumed) + iron_increment);
+write(read(iron_consumed) + iron_increment, iron_consumed, when=1);
 Signal copper_increment = copper_plate > 0 && 1 || 0;
-write(copper_consumed, read(copper_consumed) + copper_increment);
+write(read(copper_consumed) + copper_increment, copper_consumed, when=1);
 
 # Fluid tracking
 Memory water_used = 0;
 Signal water_amount = water > 0 && water || 0;
-write(water_used, read(water_used) + water_amount);
+write(read(water_used) + water_amount, water_used, when=1);
 
 # Virtual signal state
 Memory system_mode = 1;
 Signal mode_change = signal_A > 1000;
 Signal new_mode = mode_change && 2 || read(system_mode);
-write(system_mode, new_mode);
+write(new_mode, system_mode, when=1);
 
 # =============================================================================
 # OUTPUT AGGREGATE WITH ALL SIGNAL TYPES

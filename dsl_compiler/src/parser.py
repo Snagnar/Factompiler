@@ -556,9 +556,51 @@ class DSLTransformer(Transformer):
                 memory_name = str(items[1])
                 return ReadExpr(memory_name=memory_name)
             elif token_type == "WRITE_KW":
-                memory_name = str(items[1])
-                value = items[2]
-                return WriteExpr(memory_name=memory_name, value=value)
+                if len(items) >= 3:
+                    first_arg = self._unwrap_tree(items[1])
+                    second_arg = items[2]
+
+                    # Legacy order: write(memory, value)
+                    if isinstance(items[1], Token) and items[1].type == "NAME":
+                        memory_name = str(items[1])
+                        value_expr = self._unwrap_tree(items[2])
+                        write_node = WriteExpr(
+                            value=value_expr,
+                            memory_name=memory_name,
+                            when=None,
+                            legacy_syntax=True,
+                        )
+                        return self._set_position(write_node, items[0])
+
+                    # New order: write(value, memory, when=...)
+                    value_expr = first_arg if isinstance(first_arg, Expr) else items[1]
+
+                    if isinstance(second_arg, Token) and second_arg.type == "NAME":
+                        memory_name = str(second_arg)
+                    elif isinstance(second_arg, Identifier):
+                        memory_name = second_arg.name
+                    else:
+                        memory_name = str(second_arg)
+
+                    when_expr = None
+                    if len(items) > 3:
+                        for extra in items[3:]:
+                            candidate = self._unwrap_tree(extra)
+                            if isinstance(candidate, Expr):
+                                when_expr = candidate
+                                break
+
+                    if not isinstance(value_expr, Expr):
+                        value_expr = self._unwrap_tree(value_expr)
+
+                    write_node = WriteExpr(
+                        value=value_expr,
+                        memory_name=memory_name,
+                        when=when_expr,
+                    )
+                    return self._set_position(write_node, items[0])
+                error_node = WriteExpr(value=NumberLiteral(0), memory_name="__error")
+                return self._set_position(error_node, items[0])
 
         # Handle string-based constructs (fallback)
         if len(items) > 0 and isinstance(items[0], str):
@@ -566,9 +608,37 @@ class DSLTransformer(Transformer):
                 memory_name = str(items[1])
                 return ReadExpr(memory_name=memory_name)
             elif items[0] == "write":
-                memory_name = str(items[1])
-                value = items[2]
-                return WriteExpr(memory_name=memory_name, value=value)
+                if len(items) >= 3:
+                    first_arg = items[1]
+                    second_arg = items[2]
+
+                    # Legacy order fallback
+                    if isinstance(first_arg, str) and first_arg.isidentifier():
+                        memory_name = first_arg
+                        value_expr = self._unwrap_tree(second_arg)
+                        return WriteExpr(
+                            value=value_expr,
+                            memory_name=memory_name,
+                            when=None,
+                            legacy_syntax=True,
+                        )
+
+                    value_expr = self._unwrap_tree(first_arg)
+                    memory_name = str(second_arg)
+                    when_expr = None
+
+                    if len(items) > 3:
+                        for extra in items[3:]:
+                            candidate = self._unwrap_tree(extra)
+                            if isinstance(candidate, Expr):
+                                when_expr = candidate
+                                break
+
+                    return WriteExpr(
+                        value=value_expr,
+                        memory_name=memory_name,
+                        when=when_expr,
+                    )
 
         return items[0]
 

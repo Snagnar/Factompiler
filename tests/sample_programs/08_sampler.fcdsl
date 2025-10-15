@@ -6,7 +6,7 @@ Memory tick = 0;
 Signal ONE = 1;
 
 # Increment tick every game tick (unconditional write)
-write(tick, read(tick) + ONE);
+write(read(tick) + ONE, tick, when=1);
 
 Signal tick_mod = read(tick) % 100;
 Signal sample_now = (tick_mod == 0);

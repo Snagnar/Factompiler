@@ -22,7 +22,7 @@ Signal lamp1_status = lamp1.enable;
 
 # More complex entity control with memory
 Memory counter = 0;
-write(counter, read(counter) + 1);  # increment counter each tick
+write(read(counter) + 1, counter, when=1);  # increment counter each tick
 Signal blink_pattern = read(counter) % 10;
 lamp1.enable = (blink_pattern < 5);
 lamp2.enable = (blink_pattern >= 5);

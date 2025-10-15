@@ -18,6 +18,8 @@ class EntityPlacement:
     position: Tuple[int, int]
     output_signals: Dict[str, str]
     input_signals: Dict[str, str]
+    role: Optional[str] = None
+    zone: Optional[str] = None
 
 
 @dataclass
