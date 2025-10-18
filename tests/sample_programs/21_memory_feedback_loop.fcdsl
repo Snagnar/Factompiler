@@ -1,0 +1,29 @@
+# Sample 21: Memory feedback and optimization showcase
+#
+# Highlights runtime features introduced in identified_issues.md:
+# - Memory initialization sugar via inline assignment
+# - Unconditional memory write feedback loop optimization
+# - Constant folding inside signal literals
+# - Redundant projection elimination on same-type casts
+# - Common subexpression elimination for repeated additions
+
+Memory counter: "signal-A" = 0;
+
+# Capture the freshly initialized state.
+Signal current_count = read(counter);
+
+# Constant-folded literal yields a +1 step ( (5 * 2) - 9 -> 1 ).
+Signal increment_step = ("signal-A", (5 * 2) - 9);
+
+# First increment of the counter; emits an unconditional feedback write.
+Signal next_count = current_count + increment_step;
+write(next_count, counter);
+
+# Duplicate expression to exercise common subexpression elimination.
+Signal mirror_next = current_count + increment_step;
+
+# Projection to the same signal type should be removed during lowering.
+Signal same_channel_projection = next_count | "signal-A";
+
+# Combine projected values with an additional constant-folded literal.
+Signal aggregate_output = (same_channel_projection | "signal-R") + (mirror_next | "signal-R") + ("signal-R", (10 + 20) * 3);

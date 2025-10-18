@@ -15,6 +15,7 @@ from enum import Enum
 from pathlib import Path
 
 from dsl_compiler.src.dsl_ast import *
+from dsl_compiler.src.signal_limits import MAX_IMPLICIT_VIRTUAL_SIGNALS
 
 try:  # pragma: no cover - optional dependency
     from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
@@ -386,6 +387,14 @@ class SemanticAnalyzer(ASTVisitor):
 
     def allocate_implicit_type(self) -> SignalTypeInfo:
         """Allocate a new implicit virtual signal type."""
+        if self.implicit_type_counter >= MAX_IMPLICIT_VIRTUAL_SIGNALS:
+            message = (
+                "Ran out of compiler-allocated virtual signals "
+                f"(limit {MAX_IMPLICIT_VIRTUAL_SIGNALS}). Reduce the program size."
+            )
+            self.diagnostics.error(message)
+            raise SemanticError(message)
+
         self.implicit_type_counter += 1
         implicit_name = f"__v{self.implicit_type_counter}"
         factorio_signal = self._virtual_signal_name(self.implicit_type_counter)

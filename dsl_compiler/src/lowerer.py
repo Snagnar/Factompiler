@@ -1023,6 +1023,10 @@ class ASTLowerer:
         result_ref = self.ir_builder.const(
             self.ir_builder.allocate_implicit_type(), 0, expr
         )
+        # Tag the placeholder so the emitter can drop the unused constant combinator.
+        const_op = self.ir_builder.get_operation(result_ref.source_id)
+        if isinstance(const_op, IR_Const):
+            const_op.debug_metadata["suppress_materialization"] = True
         return entity_id, result_ref
 
     def lower_place_call(self, expr: CallExpr) -> SignalRef:

@@ -161,6 +161,10 @@ class SignalMaterializer:
 
     def _decide_materialization(self, entry: SignalUsageEntry) -> None:
         producer = entry.producer
+        if entry.debug_metadata.get("suppress_materialization"):
+            entry.should_materialize = False
+            return
+
         if isinstance(producer, IR_Const):
             named_metadata = False
             if entry.debug_metadata:

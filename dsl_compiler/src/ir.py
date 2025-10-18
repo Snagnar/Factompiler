@@ -11,6 +11,7 @@ from abc import ABC
 from typing import Dict, List, Optional, Union, Any
 
 from dsl_compiler.src.dsl_ast import ASTNode
+from dsl_compiler.src.signal_limits import MAX_IMPLICIT_VIRTUAL_SIGNALS
 
 
 # =============================================================================
@@ -566,6 +567,12 @@ class IRBuilder:
 
     def allocate_implicit_type(self) -> str:
         """Allocate a new implicit signal type."""
+        if self.implicit_type_counter >= MAX_IMPLICIT_VIRTUAL_SIGNALS:
+            raise RuntimeError(
+                "Ran out of compiler-allocated virtual signals "
+                f"(limit {MAX_IMPLICIT_VIRTUAL_SIGNALS}). Reduce the program size."
+            )
+
         self.implicit_type_counter += 1
         implicit_name = f"__v{self.implicit_type_counter}"
 

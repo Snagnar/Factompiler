@@ -4,7 +4,8 @@ Tests for semantic.py - Semantic analysis functionality.
 
 import pytest
 from dsl_compiler.src.parser import DSLParser
-from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
+from dsl_compiler.src.semantic import SemanticAnalyzer, SemanticError, analyze_program
+from dsl_compiler.src.signal_limits import MAX_IMPLICIT_VIRTUAL_SIGNALS
 
 
 class TestSemanticAnalyzer:
@@ -134,3 +135,14 @@ class TestSemanticAnalyzer:
         assert any(
             "signal-W" in message and "reserved" in message for message in messages
         ), "Diagnostic should explain that signal-W is reserved"
+
+    def test_virtual_signal_pool_exhaustion_raises(self, analyzer):
+        """Allocator must fail fast once the implicit virtual pool is exhausted."""
+
+        for _ in range(MAX_IMPLICIT_VIRTUAL_SIGNALS):
+            analyzer.allocate_implicit_type()
+
+        with pytest.raises(SemanticError) as exc_info:
+            analyzer.allocate_implicit_type()
+
+        assert "Ran out of compiler-allocated virtual signals" in str(exc_info.value)
