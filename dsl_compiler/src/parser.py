@@ -165,26 +165,34 @@ class DSLTransformer(Transformer):
             raise ValueError(f"Unexpected decl_stmt structure: {items}")
 
     def mem_decl(self, items) -> Statement:
-        """mem_decl: (Memory|mem) NAME"""
+        """mem_decl: (Memory|mem) NAME ":" STRING"""
         if not items:
             raise ValueError("mem_decl requires a name")
 
-        # Lark aliases can invoke this rule twice: once with the raw tokens,
-        # and again with the already transformed MemDecl instance. In the
-        # latter case just return the transformed node directly.
+        # Lark may invoke this rule twice (raw tokens, then transformed node).
         if len(items) == 1 and isinstance(items[0], MemDecl):
             return items[0]
 
-        name_token = items[-1]
-        while hasattr(name_token, "children") and name_token.children:
-            name_token = name_token.children[-1]
+        name_token = None
+        signal_type: Optional[str] = None
 
-        name = (
-            str(name_token.value)
-            if hasattr(name_token, "value")
-            else str(name_token)
-        )
-        mem_node = MemDecl(name=name)
+        for item in items:
+            if isinstance(item, Token):
+                if item.type == "NAME":
+                    name_token = item
+                elif item.type == "STRING":
+                    signal_type = item.value[1:-1]
+            elif isinstance(item, str):
+                if item.startswith("\"") and item.endswith("\""):
+                    signal_type = item[1:-1]
+
+        if name_token is None:
+            raise ValueError("mem_decl missing memory name token")
+        if signal_type is None:
+            raise ValueError("mem_decl requires explicit signal type literal")
+
+        name = str(name_token.value) if hasattr(name_token, "value") else str(name_token)
+        mem_node = MemDecl(name=name, signal_type=signal_type)
         self._set_position(mem_node, name_token)
         return mem_node
 

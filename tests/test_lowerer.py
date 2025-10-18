@@ -59,7 +59,7 @@ class TestLowerer:
         """Ensure lowering injects a signal-W enable when none is provided."""
 
         code = """
-        Memory counter;
+        Memory counter: "iron-plate";
         write(read(counter) + 1, counter);
         """
 

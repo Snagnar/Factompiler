@@ -163,6 +163,51 @@ class ASTLowerer:
             "type": category or "virtual",
         }
 
+    def _memory_signal_type(self, memory_name: str) -> Optional[str]:
+        """Look up the declared signal type for a memory symbol."""
+
+        mem_info = getattr(self.semantic, "memory_types", {}).get(memory_name)
+        if mem_info and getattr(mem_info, "signal_type", None):
+            return mem_info.signal_type
+
+        symbol = self.semantic.symbol_table.lookup(memory_name)
+        if symbol and isinstance(symbol.value_type, SignalValue):
+            signal_info = symbol.value_type.signal_type
+            if signal_info and getattr(signal_info, "name", None):
+                return signal_info.name
+
+        return None
+
+    def _coerce_to_signal_type(
+        self, value_ref: ValueRef, signal_type: str, node: ASTNode
+    ) -> SignalRef:
+        """Ensure a value is represented as a SignalRef of the desired type."""
+
+        self._ensure_signal_registered(signal_type)
+
+        if isinstance(value_ref, SignalRef):
+            if value_ref.signal_type == signal_type:
+                return value_ref
+
+            # Arithmetic passthrough preserves value while retargeting type.
+            return self.ir_builder.arithmetic(
+                "+", value_ref, 0, signal_type, node
+            )
+
+        if isinstance(value_ref, int):
+            return self.ir_builder.const(signal_type, value_ref, node)
+
+        if hasattr(value_ref, "signal_type") and getattr(
+            value_ref, "signal_type", None
+        ) == signal_type:
+            return value_ref  # type: ignore[return-value]
+
+        self.diagnostics.error(
+            f"Cannot convert value of type '{type(value_ref).__name__}' to signal '{signal_type}' for memory write.",
+            node,
+        )
+        return self.ir_builder.const(signal_type, 0, node)
+
     def lower_program(self, program: Program) -> List[IRNode]:
         """Lower an entire program to IR."""
         for stmt in program.statements:
@@ -293,16 +338,26 @@ class ASTLowerer:
                 self.ir_builder.add_operation(prop_write_op)
 
     def lower_mem_decl(self, stmt: MemDecl):
-        """Lower memory declaration: Memory name = init;"""
+        """Lower memory declaration: Memory name: 'signal';"""
         memory_id = f"mem_{stmt.name}"
         self.memory_refs[stmt.name] = memory_id
 
-        # Get memory type from semantic analysis
-        symbol = self.semantic.symbol_table.lookup(stmt.name)
-        if symbol and isinstance(symbol.value_type, SignalValue):
-            signal_type = symbol.value_type.signal_type.name
+        signal_type: Optional[str] = None
+        mem_info = getattr(self.semantic, "memory_types", {}).get(stmt.name)
+
+        if mem_info:
+            signal_type = mem_info.signal_type
         else:
-            signal_type = self.ir_builder.allocate_implicit_type()
+            symbol = self.semantic.symbol_table.lookup(stmt.name)
+            if symbol and isinstance(symbol.value_type, SignalValue):
+                signal_type = symbol.value_type.signal_type.name
+
+        if signal_type is None:
+            self.diagnostics.error(
+                f"Memory '{stmt.name}' must have an explicit signal type.",
+                stmt,
+            )
+            signal_type = "signal-0"
 
         self._ensure_signal_registered(signal_type)
 
@@ -590,6 +645,18 @@ class ASTLowerer:
         memory_id = self.memory_refs[memory_name]
         data_ref = self.lower_expr(expr.value)
 
+        expected_signal_type = self._memory_signal_type(memory_name)
+        if expected_signal_type is None:
+            self.diagnostics.error(
+                f"Memory '{memory_name}' does not have a resolved signal type during lowering.",
+                expr,
+            )
+            expected_signal_type = self.ir_builder.allocate_implicit_type()
+
+        coerced_data_ref = self._coerce_to_signal_type(
+            data_ref, expected_signal_type, expr
+        )
+
         if getattr(expr, "when_once", False):
             write_enable = self._lower_once_enable(expr)
         elif expr.when is not None:
@@ -598,16 +665,10 @@ class ASTLowerer:
             self._ensure_signal_registered("signal-W")
             write_enable = self.ir_builder.const("signal-W", 1, expr)
 
-        self.ir_builder.memory_write(memory_id, data_ref, write_enable, expr)
+        self.ir_builder.memory_write(memory_id, coerced_data_ref, write_enable, expr)
 
         # Write expressions return the written value
-        return (
-            data_ref
-            if isinstance(data_ref, SignalRef)
-            else self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
-        )
+        return coerced_data_ref
 
     def _lower_once_enable(self, expr: WriteExpr) -> SignalRef:
         """Generate IR for the when=once guard."""
@@ -615,7 +676,7 @@ class ASTLowerer:
         flag_name = f"__once_flag_{self._once_counter}"
         flag_memory_id = f"mem_{flag_name}"
 
-        flag_signal_type = self.ir_builder.allocate_implicit_type()
+        flag_signal_type = "signal-W"
         self._ensure_signal_registered(flag_signal_type)
 
         self.ir_builder.memory_create(flag_memory_id, flag_signal_type, expr)

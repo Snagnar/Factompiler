@@ -1,10 +1,10 @@
 # Test 4: Memory operations and stateful logic
 # Tests: Memory declaration, read(), write(), memory persistence
 
-Memory counter;
-Memory accumulator;
+Memory counter: "signal-A";
+Memory accumulator: "iron-plate";
 
-write(0, counter, when=once);
+write(("signal-A", 0), counter, when=once);
 write(("iron-plate", 100), accumulator, when=once);
 
 # Read current values
@@ -12,17 +12,17 @@ Signal current_count = read(counter);
 Signal current_total = read(accumulator);
 
 # Increment counter every tick
-write(current_count + 1, counter, when=1);
+write(current_count + ("signal-A", 1), counter, when=1);
 
 # Conditional memory update
-Signal input_value = 50;
+Signal input_value = ("iron-plate", 50);
 Signal should_add = input_value > 0;
 Signal new_total = current_total + input_value;
 write(new_total, accumulator, when=should_add);
 
 # Memory-based state machine
-Memory state;
-write(0, state, when=once);
+Memory state: "signal-S";
+write(("signal-S", 0), state, when=once);
 Signal current_state = read(state);
 Signal next_state = (current_state + 1) % 4;
 write(next_state, state, when=1);

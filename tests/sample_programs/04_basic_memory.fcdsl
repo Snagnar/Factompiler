@@ -1,13 +1,11 @@
 # Test 4: Memory operations and stateful logic
 # Tests: Memory declaration, read(), write(), memory persistence
 
-Memory counter;
+Memory counter: "signal-A";
 
-write(0, counter, when=once);
+write((read(counter) + 1) % 10, counter, when=1);
 
-write(read(counter) + 1, counter, when=1);
-
-Signal pulse = (read(counter) % 10) == 0;
+Signal pulse = read(counter) == 0;
 
 Entity pulse_lamp = place("small-lamp", 0, 0);
 pulse_lamp.enable = pulse;

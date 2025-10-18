@@ -23,3 +23,14 @@ There is a collection of sample programs available in the `tests/sample_programs
 # language spec
 
 The `Language_SPEC.md` file in the factompiler repository contains the complete specification of the Factom programming language. This document outlines the syntax, semantics, and features of the language. It serves as a reference for understanding how to write programs in Factom and how the compiler should interpret them.
+
+# coding guidelines
+
+THIS PACKAGE IS NOT RELEASED YET. Ergo, you may never ever need to keep backward compability in mind and in the code. If I tell you to change something, change it and do not regard anything that was there before.
+
+When writing code, please follow these guidelines:
+- Write clear and concise code with appropriate comments.
+- Follow the existing coding style and conventions used in the project.
+- Write unit tests for new features or bug fixes to ensure code quality.
+- Do not use defensive programming unless explicitly told to do so.
+- Letting things fail/throw exceptions is often better than trying to handle every possible error case.

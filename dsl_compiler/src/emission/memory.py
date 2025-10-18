@@ -17,7 +17,15 @@ class MemoryCircuitBuilder:
     def build_sr_latch(
         self, memory_id: str, signal_type: str
     ) -> Dict[str, EntityPlacement]:
-        """Build the simplified 2-combinator memory cell."""
+        """Build the simplified 2-combinator memory cell with explicit signal type.
+
+        Args:
+            memory_id: Unique identifier for this memory module
+            signal_type: The Factorio signal name (e.g., "iron-plate", "signal-A")
+
+        Returns:
+            Dictionary containing write_gate and hold_gate EntityPlacement objects
+        """
 
         placements: Dict[str, EntityPlacement] = {}
 
@@ -35,9 +43,9 @@ class MemoryCircuitBuilder:
             )
         ]
         write_output = DeciderCombinator.Output(
-            signal="signal-each",
+            signal=signal_type,
             copy_count_from_input=True,
-            networks={"green": True, "red": False},
+            networks={"green": False, "red": True},
         )
         write_gate.outputs = [write_output]
         self.blueprint.entities.append(write_gate, copy=False)
@@ -56,7 +64,7 @@ class MemoryCircuitBuilder:
             )
         ]
         hold_output = DeciderCombinator.Output(
-            signal="signal-each",
+            signal=signal_type,
             copy_count_from_input=True,
             networks={"green": False, "red": True},
         )
@@ -67,16 +75,16 @@ class MemoryCircuitBuilder:
             entity=write_gate,
             entity_id=f"{memory_id}_write_gate",
             position=write_pos,
-            output_signals={"signal-each": "red"},
-            input_signals={"signal-each": "green", "signal-W": "green"},
+            output_signals={signal_type: "red"},
+            input_signals={signal_type: "red", "signal-W": "green"},
         )
 
         placements["hold_gate"] = EntityPlacement(
             entity=hold_gate,
             entity_id=f"{memory_id}_hold_gate",
             position=hold_pos,
-            output_signals={"signal-each": "red"},
-            input_signals={"signal-W": "green", "signal-each": "green"},
+            output_signals={signal_type: "red"},
+            input_signals={"signal-W": "green", signal_type: "red"},
         )
 
         self.memory_modules[memory_id] = placements

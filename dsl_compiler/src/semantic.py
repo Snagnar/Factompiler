@@ -16,6 +16,11 @@ from pathlib import Path
 
 from dsl_compiler.src.dsl_ast import *
 
+try:  # pragma: no cover - optional dependency
+    from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - fallback when draftsman data unavailable
+    signal_data = None  # type: ignore[assignment]
+
 
 def render_source_location(
     node: Optional[ASTNode], default_file: Optional[str] = None
@@ -105,6 +110,16 @@ class FunctionValue:
 
 
 ValueInfo = Union[SignalValue, IntValue, FunctionValue]
+
+
+@dataclass
+class MemoryInfo:
+    """Type information captured for memory declarations."""
+
+    name: str
+    signal_type: str
+    signal_info: SignalTypeInfo
+    symbol: "Symbol"
 
 
 # =============================================================================
@@ -262,6 +277,9 @@ class SemanticAnalyzer(ASTVisitor):
         # Debug metadata
         self.signal_debug_info: Dict[str, SignalDebugInfo] = {}
 
+        # Memory typing metadata
+        self.memory_types: Dict[str, MemoryInfo] = {}
+
         # Expression type cache (using id() as key since AST nodes aren't hashable)
         self.expr_types: Dict[int, ValueInfo] = {}
 
@@ -375,6 +393,26 @@ class SemanticAnalyzer(ASTVisitor):
             name=type_name, is_implicit=implicit, is_virtual=is_virtual
         )
 
+    def is_valid_signal_type(self, signal_name: str) -> bool:
+        """Validate that a signal identifier appears valid for Factorio use."""
+        if not signal_name:
+            return False
+
+        if signal_name in self.signal_type_map:
+            return True
+
+        if signal_data is not None:
+            if signal_name in signal_data.raw:
+                return True
+            if signal_name in signal_data.type_of:
+                return True
+
+        if signal_name.startswith("signal-"):
+            return True
+
+        # Permissive fallback for item/fluid names when no database available
+        return True
+
     def get_expr_type(self, expr: Expr) -> ValueInfo:
         """Get the inferred type of an expression."""
         expr_id = id(expr)
@@ -461,16 +499,43 @@ class SemanticAnalyzer(ASTVisitor):
                     expr,
                 )
 
-            if isinstance(symbol.value_type, SignalValue) and isinstance(value_type, SignalValue):
-                if symbol.value_type.signal_type.name != value_type.signal_type.name:
-                    warning_msg = (
-                        f"Writing signal '{value_type.signal_type.name}' to memory '{expr.memory_name}' "
-                        f"of type '{symbol.value_type.signal_type.name}'. Result will coerce to memory's type."
-                    )
-                    if self.strict_types:
-                        self.diagnostics.error(warning_msg, expr)
-                    else:
-                        self.diagnostics.warning(warning_msg, expr)
+            if not isinstance(value_type, SignalValue):
+                self.diagnostics.error(
+                    "write() expects a Signal value; provide a signal literal or projection.",
+                    expr,
+                )
+                return symbol.value_type
+
+            mem_info = self.memory_types.get(expr.memory_name)
+            write_signal_name = (
+                value_type.signal_type.name if value_type.signal_type else None
+            )
+
+            expected_type: Optional[str] = None
+            if mem_info is not None:
+                expected_type = mem_info.signal_type
+            elif isinstance(symbol.value_type, SignalValue) and symbol.value_type.signal_type:
+                expected_type = symbol.value_type.signal_type.name
+
+            if expected_type is None:
+                self.diagnostics.error(
+                    f"Memory '{expr.memory_name}' does not have a resolved signal type.",
+                    expr,
+                )
+                return symbol.value_type
+
+            if write_signal_name is None:
+                self.diagnostics.error(
+                    f"Cannot determine signal type for value written to memory '{expr.memory_name}'.",
+                    expr,
+                )
+                return symbol.value_type
+
+            if write_signal_name != expected_type:
+                self.diagnostics.error(
+                    f"Type mismatch: Memory '{expr.memory_name}' expects '{expected_type}' but write provides '{write_signal_name}'.",
+                    expr,
+                )
 
             return symbol.value_type
 
@@ -958,9 +1023,22 @@ class SemanticAnalyzer(ASTVisitor):
                 "Memory declarations no longer accept initial values; use write(..., when=once) instead.",
                 node,
             )
+        declared_type = node.signal_type
+        if not declared_type:
+            self.diagnostics.error(
+                f"Memory '{node.name}' must declare a signal type using Memory name: \"signal\";",
+                node,
+            )
+            declared_type = "__invalid__"
 
-        signal_type = self.allocate_implicit_type()
-        memory_type = SignalValue(signal_type=signal_type)
+        if not self.is_valid_signal_type(declared_type):
+            self.diagnostics.error(
+                f"Invalid signal type '{declared_type}' for memory '{node.name}'",
+                node,
+            )
+
+        signal_info = self.make_signal_type_info(declared_type)
+        memory_type = SignalValue(signal_type=signal_info)
 
         symbol = Symbol(
             name=node.name,
@@ -975,7 +1053,20 @@ class SemanticAnalyzer(ASTVisitor):
             self.diagnostics.error(e.message, node)
             return
 
-        self._register_signal_metadata(node.name, node, memory_type, "Memory")
+        mem_info = MemoryInfo(
+            name=node.name,
+            signal_type=declared_type,
+            signal_info=signal_info,
+            symbol=symbol,
+        )
+        self.memory_types[node.name] = mem_info
+
+        self._register_signal_metadata(
+            node.name,
+            node,
+            memory_type,
+            declared_type,
+        )
 
     def visit_FuncDecl(self, node: FuncDecl) -> None:
         """Analyze function declaration."""

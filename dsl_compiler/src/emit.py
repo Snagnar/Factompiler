@@ -474,6 +474,9 @@ class BlueprintEmitter:
                 if hasattr(op, "initial_value") and op.initial_value is not None:
                     record_consumer(op.initial_value, op.node_id)
             elif isinstance(op, IR_MemWrite):
+                entry = ensure_entry(op.node_id)
+                if not entry.debug_label:
+                    entry.debug_label = op.memory_id
                 record_consumer(op.data_signal, op.node_id)
                 record_consumer(op.write_enable, op.node_id)
             elif isinstance(op, IR_PlaceEntity):
@@ -1015,10 +1018,15 @@ class BlueprintEmitter:
                 )
                 desired_location = (int(round(avg_x)), int(round(avg_y)))
 
-            # Ensure upstream signals connect directly to the memory latch inputs
-            self._add_signal_sink(op.data_signal, write_gate_placement.entity_id)
-            if hold_gate_placement:
-                self._add_signal_sink(op.data_signal, hold_gate_placement.entity_id)
+            # Memory data channel is provided via a dedicated injector combinator per write.
+            declared_signal = memory_module.get("signal_type")
+            if not declared_signal:
+                base_signal = (
+                    getattr(op.data_signal, "signal_type", None)
+                    if isinstance(op.data_signal, SignalRef)
+                    else op.memory_id
+                )
+                declared_signal = self._get_signal_name(base_signal)
 
             # Enable writer: produce signal-W pulse based on write enable expression
             enable_combinator = DeciderCombinator()
@@ -1093,6 +1101,62 @@ class BlueprintEmitter:
                 "green",
                 enable_combinator,
                 hold_gate,
+                side_1="output",
+                side_2="input",
+            )
+
+            # Build a write injector that gates the data signal with signal-W pulses.
+            injector = DeciderCombinator()
+            injector_pos = self._place_entity(
+                injector,
+                desired=desired_location,
+                max_radius=8,
+            )
+
+            injector_condition = DeciderCombinator.Condition(
+                first_signal="signal-W",
+                comparator=">",
+                constant=0,
+                first_signal_networks={"green": True},
+            )
+            injector_output = DeciderCombinator.Output(
+                signal=declared_signal,
+                copy_count_from_input=True,
+                networks={"red": True},
+            )
+            injector.conditions = [injector_condition]
+            injector.outputs = [injector_output]
+            injector = self._add_entity(injector)
+
+            injector_entity_id = f"{memory_id}_write_data_{self.next_entity_number}"
+            self.next_entity_number += 1
+            injector_placement = EntityPlacement(
+                entity=injector,
+                entity_id=injector_entity_id,
+                position=injector_pos,
+                output_signals={declared_signal: "red"},
+                input_signals={declared_signal: "red", "signal-W": "green"},
+            )
+            self.entities[injector_entity_id] = injector_placement
+            self._track_signal_source(op.node_id, injector_entity_id)
+
+            # Route the value signal into the injector instead of the latch directly.
+            self._add_signal_sink(op.data_signal, injector_entity_id)
+
+            # Feed signal-W into the injector to gate writes.
+            self.blueprint.add_circuit_connection(
+                "green",
+                enable_combinator,
+                injector,
+                side_1="output",
+                side_2="input",
+            )
+
+            # Connect injector output to the memory write gate on the red network.
+            self.blueprint.add_circuit_connection(
+                "red",
+                injector,
+                write_gate,
                 side_1="output",
                 side_2="input",
             )

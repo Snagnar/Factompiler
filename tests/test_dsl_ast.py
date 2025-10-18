@@ -79,11 +79,11 @@ class TestStatementNodes:
         assert node.value == value
 
     def test_memory_declaration(self):
-        """Test MemDecl node."""
-        init_expr = NumberLiteral(0)
-        node = MemDecl("counter", init_expr)
+        """Test MemDecl node with explicit signal type."""
+        node = MemDecl("counter", signal_type="iron-plate")
         assert node.name == "counter"
-        assert node.init_expr == init_expr
+        assert node.init_expr is None
+        assert node.signal_type == "iron-plate"
 
     def test_expr_statement(self):
         """Test ExprStmt node."""
@@ -139,7 +139,7 @@ class TestASTHierarchy:
         statements = [
             DeclStmt("Signal", "x", NumberLiteral(5)),
             AssignStmt(Identifier("x"), NumberLiteral(5)),
-            MemDecl("mem", NumberLiteral(0)),
+            MemDecl("mem", "signal-A", NumberLiteral(0)),
             ExprStmt(NumberLiteral(42)),
             ReturnStmt(NumberLiteral(42)),
             ImportStmt("module", "alias"),

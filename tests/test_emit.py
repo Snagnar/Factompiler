@@ -311,10 +311,10 @@ class TestBlueprintEmitter:
         """Memory writes should emit a signal-W enable combinator and writers wired on green."""
 
         code = """
-        Memory counter;
-        write(0, counter, when=once);
-        Signal enable = 1;
-        write(read(counter) + 1, counter, when=enable);
+        Memory counter: "iron-plate";
+        write(("iron-plate", 0), counter, when=once);
+        Signal enable = ("iron-plate", 1);
+        write(read(counter) + ("iron-plate", 1), counter, when=enable);
         """
 
         program = parser.parse(code)
@@ -336,13 +336,32 @@ class TestBlueprintEmitter:
 
         assert enable_outputs, "Expected a signal-W enable combinator in the blueprint"
 
+        injectors = [
+            placement
+            for placement in emitter.entities.values()
+            if "_write_data_" in placement.entity_id
+        ]
+
+        assert len(injectors) >= 2, (
+            "Expected a dedicated write injector for each write() call"
+        )
+
+        for placement in injectors:
+            assert getattr(placement.entity, "name", "") == "decider-combinator"
+            assert placement.input_signals.get("signal-W") == "green", (
+                "Write injector should read signal-W on the green network"
+            )
+            assert any(color == "red" for color in placement.output_signals.values()), (
+                "Write injector should drive the memory data line on the red network"
+            )
+
     def test_memory_outputs_restrict_input_networks(self, parser, analyzer):
         """Memory gates must read from distinct networks to avoid summing feedback and writes."""
 
         code = """
-        Memory counter;
-        write(0, counter, when=once);
-        write(read(counter) + 1, counter, when=1);
+        Memory counter: "iron-plate";
+        write(("iron-plate", 0), counter, when=once);
+        write(read(counter) + ("iron-plate", 1), counter, when=1);
         """
 
         program = parser.parse(code)
@@ -520,10 +539,10 @@ class TestWarningAnalysis:
         from dsl_compiler.src.emit import BlueprintEmitter
 
         code = """
-        Memory counter;
-        write(0, counter, when=once);
+        Memory counter: "iron-plate";
+        write(("iron-plate", 0), counter, when=once);
         Signal current = read(counter);
-        write(current + 1, counter, when=1);
+        write(current + ("iron-plate", 1), counter, when=1);
         """
 
         parser = DSLParser()

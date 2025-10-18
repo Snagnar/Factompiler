@@ -114,7 +114,7 @@ statement ::= decl_stmt ";"
 
 ```fcdsl
 decl_stmt ::= type_name NAME "=" expr
-mem_decl ::= ("Memory" | "mem") NAME
+mem_decl ::= ("Memory" | "mem") NAME [":" STRING]
 
 type_name ::= "int" | "Signal" | "SignalType" | "Entity"
 ```
@@ -126,8 +126,8 @@ Signal virtual = ("signal-A", 42);       # Virtual signal
 Signal implicit = 5;                     # Signal with implicit type
 int count = 42;                          # Integer variable
 Entity lamp = place("small-lamp", 5, 0); # Entity placement
-Memory counter;                          # Memory declaration (starts empty)
-write(0, counter, when=once);            # Optional one-shot initialization
+Memory counter: "iron-plate";            # Memory declaration (explicit type)
+write(("iron-plate", 0), counter, when=once);  # Optional one-shot initialization
 ```
 
 ### Assignment Statements
@@ -227,9 +227,9 @@ Signal implicit = 5;                    # Implicit type allocation
 Stateful memory cells that can store and retrieve values.
 
 ```fcdsl
-Memory counter;                         # Memory declaration (initially empty)
-Memory accumulator;
-write(0, counter, when=once);           # Optional one-shot seed
+Memory counter: "iron-plate";          # Memory declaration with explicit type
+Memory accumulator: "signal-A";
+write(("iron-plate", 0), counter, when=once);  # Optional one-shot seed
 write(iron, accumulator, when=once);    # Initialize from existing signal
 ```
 
@@ -362,18 +362,36 @@ The DSL models state with compact SR latch circuits composed of a **write gate**
 ### Memory Declaration
 
 ```fcdsl
-Memory counter;
+Memory name: "signal-type";
 ```
 
-Memory declarations no longer accept inline initializers. Newly declared cells start empty (no stored signals) until the first write occurs. The legacy `mem` alias and `memory()` helper have been removed.
+**Examples:**
+
+```fcdsl
+Memory counter: "iron-plate";
+Memory state: "signal-A";
+Memory accumulator: "copper-plate";
+```
+
+Each memory cell stores exactly one Factorio signal type. The declaration's string literal must be a valid signal identifier (item, fluid, virtual, etc.). Inline initializers remain unsupported—newly declared cells start empty until their first write.
+
+For backward compatibility the type suffix may be omitted:
+
+```fcdsl
+Memory counter;
+Signal a = ("iron-plate", 10);
+write(a, counter);
+```
+
+If no type is specified, the compiler infers the memory's signal channel from the first `write()` call. Subsequent writes must reuse the inferred type; inconsistent writes raise warnings (or errors in strict mode). For clarity and future maintenance, explicit typing is strongly recommended.
 
 ### Seeding Memory (`when=once`)
 
 Use the special predicate `when=once` to perform one-time initialization writes:
 
 ```fcdsl
-Memory counter;
-write(0, counter, when=once);          # Runs exactly once at startup
+Memory counter: "iron-plate";
+write(("iron-plate", 0), counter, when=once);  # Runs exactly once at startup
 ```
 
 Internally the compiler expands `when=once` into a hidden flag memory that fires a single write pulse. Each use of `when=once` is independent and does not interfere with other writes.
@@ -427,15 +445,15 @@ write(signal, buffer, when=0);                    # Emits the wiring but latches
 
 #### Counter
 ```fcdsl
-Memory counter;
-write(0, counter, when=once);
-write(read(counter) + 1, counter);
+Memory counter: "signal-A";
+write(("signal-A", 0), counter, when=once);
+write(read(counter) + ("signal-A", 1), counter);
 ```
 
 #### Accumulator with Reset
 ```fcdsl
-Memory total;
-write(0, total, when=once);
+Memory total: "iron-plate";
+write(("iron-plate", 0), total, when=once);
 
 Signal input_val = ("iron-plate", 10);
 Signal reset = ("signal-R", 1);
@@ -445,8 +463,8 @@ write(new_total, total, when=1 - reset);
 
 #### State Machine
 ```fcdsl
-Memory state;
-write(0, state, when=once);
+Memory state: "signal-S";
+write(("signal-S", 0), state, when=once);
 
 Signal current = read(state);
 Signal next = (current + 1) % 4;  # 4-state cycle
@@ -585,10 +603,10 @@ Functions can declare and use local memory:
 
 ```fcdsl
 func toggle_generator() {
-    Memory state;
-    write(0, state, when=once);
+    Memory state: "signal-S";
+    write(("signal-S", 0), state, when=once);
     Signal current = read(state);
-    Signal new_state = 1 - current;  # Toggle between 0 and 1
+    Signal new_state = ("signal-S", 1) - current;  # Toggle between 0 and 1
     write(new_state, state);
     return new_state;
 }
