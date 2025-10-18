@@ -23,7 +23,9 @@ Signal priority_value =
     (sensor_c > 10) * 25;
 
 # State-based decisions
-Memory decision_state = 0;
+Memory decision_state;
+
+write(0, decision_state, when=once);
 Signal state = read(decision_state);
 
 Signal next_state = 

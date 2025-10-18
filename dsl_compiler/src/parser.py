@@ -156,23 +156,44 @@ class DSLTransformer(Transformer):
             )
             name = str(items[1].value) if hasattr(items[1], "value") else str(items[1])
             value = self._unwrap_tree(items[2])  # Handle Tree wrapper
-            type_name = "Memory" if raw_type in ("mem", "Memory") else raw_type
+            type_name = raw_type
 
-            if type_name == "Memory":
-                return self._set_position(MemDecl(name=name, init_expr=value), items[1])
-            else:
-                return self._set_position(
-                    DeclStmt(type_name=type_name, name=name, value=value), items[1]
-                )
+            return self._set_position(
+                DeclStmt(type_name=type_name, name=name, value=value), items[1]
+            )
         else:
             raise ValueError(f"Unexpected decl_stmt structure: {items}")
+
+    def mem_decl(self, items) -> Statement:
+        """mem_decl: (Memory|mem) NAME"""
+        if not items:
+            raise ValueError("mem_decl requires a name")
+
+        # Lark aliases can invoke this rule twice: once with the raw tokens,
+        # and again with the already transformed MemDecl instance. In the
+        # latter case just return the transformed node directly.
+        if len(items) == 1 and isinstance(items[0], MemDecl):
+            return items[0]
+
+        name_token = items[-1]
+        while hasattr(name_token, "children") and name_token.children:
+            name_token = name_token.children[-1]
+
+        name = (
+            str(name_token.value)
+            if hasattr(name_token, "value")
+            else str(name_token)
+        )
+        mem_node = MemDecl(name=name)
+        self._set_position(mem_node, name_token)
+        return mem_node
 
     def type_name(self, items) -> str:
         """type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW | BUNDLE_TYPE_KW | MEMORY_KW"""
         if len(items) == 1:
             token = items[0]
             value = str(token.value) if hasattr(token, "value") else str(token)
-            return "Memory" if value == "mem" else value
+            return value
         else:
             raise ValueError(f"Unexpected type_name structure: {items}")
 
@@ -583,12 +604,24 @@ class DSLTransformer(Transformer):
                         memory_name = str(second_arg)
 
                     when_expr = None
+                    when_once = False
                     if len(items) > 3:
                         for extra in items[3:]:
+                            if isinstance(extra, Token) and extra.type == "ONCE_KW":
+                                when_once = True
+                                continue
+
                             candidate = self._unwrap_tree(extra)
+
                             if isinstance(candidate, Expr):
                                 when_expr = candidate
                                 break
+
+                            if isinstance(candidate, str) and candidate == "once":
+                                when_once = True
+
+                    if when_once:
+                        when_expr = None
 
                     if not isinstance(value_expr, Expr):
                         value_expr = self._unwrap_tree(value_expr)
@@ -597,6 +630,7 @@ class DSLTransformer(Transformer):
                         value=value_expr,
                         memory_name=memory_name,
                         when=when_expr,
+                        when_once=when_once,
                     )
                     return self._set_position(write_node, items[0])
                 error_node = WriteExpr(value=NumberLiteral(0), memory_name="__error")
@@ -626,18 +660,27 @@ class DSLTransformer(Transformer):
                     value_expr = self._unwrap_tree(first_arg)
                     memory_name = str(second_arg)
                     when_expr = None
+                    when_once = False
 
                     if len(items) > 3:
                         for extra in items[3:]:
                             candidate = self._unwrap_tree(extra)
+
                             if isinstance(candidate, Expr):
                                 when_expr = candidate
                                 break
+
+                            if isinstance(candidate, str) and candidate == "once":
+                                when_once = True
+
+                    if when_once:
+                        when_expr = None
 
                     return WriteExpr(
                         value=value_expr,
                         memory_name=memory_name,
                         when=when_expr,
+                        when_once=when_once,
                     )
 
         return items[0]

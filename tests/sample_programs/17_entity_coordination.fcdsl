@@ -16,8 +16,11 @@ Entity lamp_11 = place("small-lamp", grid_size, grid_size);
 Entity lamp_21 = place("small-lamp", grid_size * 2, grid_size);
 
 # Memory for coordination patterns
-Memory pattern_counter = 0;
-Memory sync_counter = 0;
+Memory pattern_counter;
+Memory sync_counter;
+
+write(0, pattern_counter, when=once);
+write(0, sync_counter, when=once);
 
 Signal pattern_tick = read(pattern_counter);
 Signal sync_tick = read(sync_counter);

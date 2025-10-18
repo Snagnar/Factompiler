@@ -168,18 +168,14 @@ class IR_MemCreate(IREffect):
         self,
         memory_id: str,
         signal_type: str,
-        initial_value: ValueRef,
         source_ast: Optional[ASTNode] = None,
     ):
         super().__init__(f"mem_create_{memory_id}", source_ast)
         self.memory_id = memory_id
         self.signal_type = signal_type
-        self.initial_value = initial_value
 
     def __str__(self) -> str:
-        return (
-            f"IR_MemCreate({self.memory_id}: {self.signal_type} = {self.initial_value})"
-        )
+        return f"IR_MemCreate({self.memory_id}: {self.signal_type})"
 
 
 class IR_MemWrite(IREffect):
@@ -465,11 +461,10 @@ class IRBuilder:
         self,
         memory_id: str,
         signal_type: str,
-        initial_value: ValueRef,
         source_ast: Optional[ASTNode] = None,
     ):
         """Create a memory cell."""
-        op = IR_MemCreate(memory_id, signal_type, initial_value, source_ast)
+        op = IR_MemCreate(memory_id, signal_type, source_ast)
         self.add_operation(op)
 
     def memory_read(

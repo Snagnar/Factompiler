@@ -79,11 +79,10 @@ class TestIREffectNodes:
 
     def test_ir_mem_create(self):
         """Test IR_MemCreate node."""
-        initial_value = SignalRef("signal-A", "const_1")
-        node = IR_MemCreate("mem_counter", "signal-A", initial_value)
+        node = IR_MemCreate("mem_counter", "signal-A")
         assert node.memory_id == "mem_counter"
         assert node.signal_type == "signal-A"
-        assert node.initial_value == initial_value
+        assert not hasattr(node, "initial_value")
 
     def test_ir_mem_write(self):
         """Test IR_MemWrite node."""

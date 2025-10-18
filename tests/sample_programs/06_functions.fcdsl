@@ -11,7 +11,9 @@ func conditional_add(a, b, condition) {
 }
 
 func memory_toggle() {
-    Memory toggle_state = 0;
+    Memory toggle_state;
+
+    write(0, toggle_state, when=once);
     Signal current = read(toggle_state);
     Signal new_state = 1 - current;  # toggle between 0 and 1
     write(new_state, toggle_state, when=1);

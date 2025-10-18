@@ -57,7 +57,8 @@ class TestSemanticAnalyzer:
         """Ensure legacy write(memory, value) form produces a migration error."""
 
         code = """
-        Memory counter = 0;
+    Memory counter;
+    write(0, counter, when=once);
         Signal value = 42;
         write(counter, value);
         """
@@ -75,7 +76,8 @@ class TestSemanticAnalyzer:
         """Verify semantic analysis accepts write(value, memory, when=signal)."""
 
         code = """
-        Memory counter = 0;
+    Memory counter;
+    write(0, counter, when=once);
         Signal enable = 1;
         write(read(counter) + 1, counter, when=enable);
         """

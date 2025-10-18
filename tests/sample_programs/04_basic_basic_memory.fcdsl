@@ -1,0 +1,10 @@
+# Test 4: Memory operations and stateful logic
+# Tests: Memory declaration, read(), write(), memory persistence
+
+Memory counter;
+
+Signal a = ("iron-plate", 10);
+
+write(a, counter);
+
+Signal b = read(counter);

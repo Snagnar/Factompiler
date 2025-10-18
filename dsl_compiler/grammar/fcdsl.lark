@@ -14,6 +14,7 @@ READ_KW: "read"
 WRITE_KW: "write"
 WHEN_KW: "when"
 MEM_KW: "mem"
+ONCE_KW: "once"
 
 // Type keywords
 INT_KW: "int"
@@ -38,10 +39,13 @@ statement: decl_stmt ";"                    -> decl_stmt
          | return_stmt ";"                  -> return_stmt
          | import_stmt ";"                  -> import_stmt
          | func_decl                        -> func_decl   // function bodies contain their own semicolons
+         | mem_decl ";"                     -> mem_decl
 
 decl_stmt: type_name NAME "=" expr
 
-type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW | MEMORY_KW | MEM_KW
+mem_decl: (MEMORY_KW | MEM_KW) NAME
+
+type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW
 
 assign_stmt: lvalue "=" expr
 
@@ -94,12 +98,15 @@ UNARY_OP: "+" | "-" | "!"
 primary: literal
      | signal_literal                       // New signal literal syntax
      | READ_KW "(" NAME ")"
-     | WRITE_KW "(" expr "," NAME ["," WHEN_KW "=" expr] ")"
+     | WRITE_KW "(" expr "," NAME ["," WHEN_KW "=" write_when] ")"
      | dict_literal
        | call_expr                            // General function calls after specific forms
        | method_call
        | lvalue                               // Simple identifiers last
        | "(" expr ")"
+
+write_when: expr
+          | ONCE_KW
 
 call_expr: NAME "(" [arglist] ")"
 method_call: NAME "." NAME "(" [arglist] ")"

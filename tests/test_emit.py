@@ -311,7 +311,8 @@ class TestBlueprintEmitter:
         """Memory writes should emit a signal-W enable combinator and writers wired on green."""
 
         code = """
-        Memory counter = 0;
+        Memory counter;
+        write(0, counter, when=once);
         Signal enable = 1;
         write(read(counter) + 1, counter, when=enable);
         """
@@ -334,6 +335,87 @@ class TestBlueprintEmitter:
         ]
 
         assert enable_outputs, "Expected a signal-W enable combinator in the blueprint"
+
+    def test_memory_outputs_restrict_input_networks(self, parser, analyzer):
+        """Memory gates must read from distinct networks to avoid summing feedback and writes."""
+
+        code = """
+        Memory counter;
+        write(0, counter, when=once);
+        write(read(counter) + 1, counter, when=1);
+        """
+
+        program = parser.parse(code)
+        analyze_program(program, strict_types=False, analyzer=analyzer)
+        ir_operations, diagnostics, signal_map = lower_program(program, analyzer)
+
+        assert not diagnostics.has_errors(), diagnostics.get_messages()
+
+        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter.emit_blueprint(ir_operations)
+
+        memory_modules = emitter.memory_builder.memory_modules
+        assert memory_modules, "Expected memory modules to be registered during emission"
+
+        for memory_id, module in memory_modules.items():
+            write_gate = module["write_gate"].entity
+            hold_gate = module["hold_gate"].entity
+
+            write_outputs = getattr(write_gate, "outputs", [])
+            hold_outputs = getattr(hold_gate, "outputs", [])
+
+            assert write_outputs, f"{memory_id} write gate should define outputs"
+            assert hold_outputs, f"{memory_id} hold gate should define outputs"
+
+            write_selection = write_outputs[0].networks
+            hold_selection = hold_outputs[0].networks
+
+            write_green = getattr(write_selection, "green", None)
+            write_red = getattr(write_selection, "red", None)
+            hold_green = getattr(hold_selection, "green", None)
+            hold_red = getattr(hold_selection, "red", None)
+
+            assert write_red is True, (
+                f"{memory_id} write gate outputs must ride the red network"
+            )
+            assert write_green is False, (
+                f"{memory_id} write gate must not drive the green network"
+            )
+            assert hold_red is True, (
+                f"{memory_id} hold gate outputs must ride the red network"
+            )
+            assert hold_green is False, (
+                f"{memory_id} hold gate must not drive the green network"
+            )
+
+            write_condition = write_gate.conditions[0]
+            hold_condition = hold_gate.conditions[0]
+
+            write_enable_networks = getattr(
+                write_condition, "first_signal_networks", None
+            )
+            hold_enable_networks = getattr(
+                hold_condition, "first_signal_networks", None
+            )
+
+            assert write_enable_networks is not None, (
+                f"{memory_id} write gate condition should expose network selection"
+            )
+            assert hold_enable_networks is not None, (
+                f"{memory_id} hold gate condition should expose network selection"
+            )
+
+            write_enable_green = getattr(write_enable_networks, "green", None)
+            write_enable_red = getattr(write_enable_networks, "red", None)
+            hold_enable_green = getattr(hold_enable_networks, "green", None)
+            hold_enable_red = getattr(hold_enable_networks, "red", None)
+
+            assert write_enable_green is True and write_enable_red is False, (
+                f"{memory_id} write gate must read signal-W from the green network only"
+            )
+            assert hold_enable_green is True and hold_enable_red is False, (
+                f"{memory_id} hold gate must read signal-W from the green network only"
+            )
 
     def test_signal_name_resolution(self):
         """Test signal name resolution with mapping."""
@@ -438,9 +520,10 @@ class TestWarningAnalysis:
         from dsl_compiler.src.emit import BlueprintEmitter
 
         code = """
-        Memory counter = 0;
+        Memory counter;
+        write(0, counter, when=once);
         Signal current = read(counter);
-    write(current + 1, counter, when=1);
+        write(current + 1, counter, when=1);
         """
 
         parser = DSLParser()

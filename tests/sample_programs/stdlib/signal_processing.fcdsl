@@ -3,8 +3,11 @@
 
 func smooth_filter(signal, window_size) {
     # Simple moving average filter
-    Memory accumulator = 0;
-    Memory sample_count = 0;
+    Memory accumulator;
+    Memory sample_count;
+
+    write(0, accumulator, when=once);
+    write(0, sample_count, when=once);
     
     Signal current_sum = read(accumulator);
     Signal count = read(sample_count);
@@ -25,8 +28,11 @@ func smooth_filter(signal, window_size) {
 
 func high_pass_filter(signal, cutoff) {
     # Simple high-pass filter
-    Memory last_input = 0;
-    Memory last_output = 0;
+    Memory last_input;
+    Memory last_output;
+
+    write(0, last_input, when=once);
+    write(0, last_output, when=once);
     
     Signal last_in = read(last_input);
     Signal last_out = read(last_output);
@@ -42,7 +48,9 @@ func high_pass_filter(signal, cutoff) {
 
 func low_pass_filter(signal, cutoff) {
     # Simple low-pass filter  
-Memory filtered_value = 0;
+    Memory filtered_value;
+
+    write(0, filtered_value, when=once);
     
     Signal current = read(filtered_value);
     # Low-pass: output = 0.1 * signal + 0.9 * last_output

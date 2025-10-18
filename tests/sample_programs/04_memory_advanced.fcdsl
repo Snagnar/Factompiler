@@ -10,17 +10,23 @@
 # =============================================================================
 
 # Store an item signal
-Memory iron_storage = ("iron-plate", 0);
-Memory copper_storage = ("copper-plate", 0);
+Memory iron_storage;
+Memory copper_storage;
 
 # Store a fluid signal
-Memory water_level = ("water", 1000);
+Memory water_level;
 
 # Store a virtual signal for state
-Memory system_state = ("signal-S", 0);
+Memory system_state;
 
 # Store a counter
-Memory tick_counter = 0;
+Memory tick_counter;
+
+write(("iron-plate", 0), iron_storage, when=once);
+write(("copper-plate", 0), copper_storage, when=once);
+write(("water", 1000), water_level, when=once);
+write(("signal-S", 0), system_state, when=once);
+write(0, tick_counter, when=once);
 
 # =============================================================================
 # CONDITIONAL WRITES - Write only when conditions are met
@@ -94,8 +100,11 @@ write(next_state | "signal-S", system_state, when=1);
 # STORING MULTIPLE VALUES - Using Different Memory Cells
 # =============================================================================
 
-Memory max_iron_seen = ("iron-plate", 0);
-Memory min_copper_seen = ("copper-plate", 999);
+Memory max_iron_seen;
+Memory min_copper_seen;
+
+write(("iron-plate", 0), max_iron_seen, when=once);
+write(("copper-plate", 999), min_copper_seen, when=once);
 
 Signal current_max = read(max_iron_seen);
 Signal should_update_max = iron_input > current_max;

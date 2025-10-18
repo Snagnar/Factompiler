@@ -22,7 +22,6 @@ from draftsman.blueprintable import Blueprint  # type: ignore[import-not-found]
 from draftsman.entity import new_entity  # Use draftsman's factory  # type: ignore[import-not-found]
 from draftsman.entity import *  # Import all entities  # type: ignore[import-not-found]
 from draftsman.entity import (  # type: ignore[import-not-found]
-    ArithmeticCombinator,
     DeciderCombinator,
     ConstantCombinator,
 )
@@ -472,7 +471,8 @@ class BlueprintEmitter:
                 record_consumer(op.right, op.node_id)
                 record_consumer(op.output_value, op.node_id)
             elif isinstance(op, IR_MemCreate):
-                record_consumer(op.initial_value, op.node_id)
+                if hasattr(op, "initial_value") and op.initial_value is not None:
+                    record_consumer(op.initial_value, op.node_id)
             elif isinstance(op, IR_MemWrite):
                 record_consumer(op.data_signal, op.node_id)
                 record_consumer(op.write_enable, op.node_id)
@@ -917,93 +917,66 @@ class BlueprintEmitter:
             self._add_signal_sink(op.right, op.node_id)
 
     def emit_memory_create(self, op: IR_MemCreate):
-        """Emit memory module creation using SR latch circuit."""
-        # Get initial value
-        initial_value = 0
-        if isinstance(op.initial_value, int):
-            initial_value = op.initial_value
-        elif isinstance(op.initial_value, SignalRef):
-            source_id = op.initial_value.source_id
-            placement = self.entities.get(source_id)
-            if placement and hasattr(placement.entity, "sections"):
-                try:
-                    sections = placement.entity.sections
-                    if sections:
-                        signals = sections[0].signals
-                        if signals:
-                            initial_value = signals[0].get("count", 0)
-                except Exception:
-                    self.diagnostics.warning(
-                        f"Unable to extract initial value for memory {op.memory_id} from source {source_id}; defaulting to 0"
-                    )
-        elif hasattr(op.initial_value, "value"):
-            initial_value = getattr(op.initial_value, "value", 0)
-
-        # Validate and resolve signal type
+        """Emit memory module creation using simplified 2-combinator cell."""
         signal_type = self._get_signal_name(op.signal_type)
 
-        # Build the SR latch circuit
         memory_components = self.memory_builder.build_sr_latch(
-            op.memory_id, signal_type, initial_value
+            op.memory_id, signal_type
         )
         memory_components["signal_type"] = signal_type
 
         memory_variable = op.memory_id
         if memory_variable.startswith("mem_"):
             memory_variable = memory_variable[4:]
-        source_location = render_source_location(op.source_ast) if op.source_ast else None
+        source_location = (
+            render_source_location(op.source_ast) if op.source_ast else None
+        )
 
         component_labels = {
             "write_gate": "memory write gate",
             "hold_gate": "memory latch",
-            "output_converter": "memory type adapter",
-            "init_combinator": "memory initialiser",
-            "init_injector": "memory initialiser gate",
         }
 
-        # Register all components as entities
         for component_name, placement in memory_components.items():
-            if isinstance(placement, EntityPlacement):
-                self.entities[placement.entity_id] = placement
+            if not isinstance(placement, EntityPlacement):
+                continue
 
-                output_signal = next(iter(placement.output_signals), None)
-                debug_info = {
-                    "name": memory_variable,
-                    "label": component_labels.get(
-                        component_name, component_name.replace("_", " ")
-                    ),
-                    "resolved_signal": output_signal,
-                    "declared_type": "Memory",
-                    "location": source_location,
-                    "initial_value": initial_value
-                    if component_name == "init_combinator"
-                    else None,
-                }
-                debug_info = {k: v for k, v in debug_info.items() if v is not None}
-                self.annotate_entity_description(placement.entity, debug_info)
+            self.entities[placement.entity_id] = placement
 
-        # The converter is the main interface for this memory
-        converter_placement = memory_components.get("output_converter")
-        if converter_placement:
-            self.signal_graph.set_source(op.memory_id, converter_placement.entity_id)
-            self._track_signal_source(op.memory_id, converter_placement.entity_id)
+            output_signal = next(iter(placement.output_signals), None)
+            debug_info = {
+                "name": memory_variable,
+                "label": component_labels.get(
+                    component_name, component_name.replace("_", " ")
+                ),
+                "resolved_signal": output_signal,
+                "declared_type": "Memory",
+                "location": source_location,
+            }
+            debug_info = {k: v for k, v in debug_info.items() if v is not None}
+            self.annotate_entity_description(placement.entity, debug_info)
+
+        hold_gate = memory_components.get("hold_gate")
+        if hold_gate:
+            self.signal_graph.set_source(op.memory_id, hold_gate.entity_id)
+            self._track_signal_source(op.memory_id, hold_gate.entity_id)
 
     def emit_memory_read(self, op: IR_MemRead):
         """Emit memory read operation from the 3-combinator memory cell."""
         # Memory read connects to the output of the memory combinator
         if op.memory_id in self.memory_builder.memory_modules:
             memory_components = self.memory_builder.memory_modules[op.memory_id]
-            converter = memory_components.get("output_converter")
-            if converter:
-                self.signal_graph.set_source(op.node_id, converter.entity_id)
-                self._track_signal_source(op.node_id, converter.entity_id)
+            hold_gate = memory_components.get("hold_gate")
+            if hold_gate:
+                self.signal_graph.set_source(op.node_id, hold_gate.entity_id)
+                self._track_signal_source(op.node_id, hold_gate.entity_id)
 
                 if not hasattr(self, "memory_read_signals"):
                     self.memory_read_signals = {}
                 declared_type = memory_components.get("signal_type", op.output_type)
                 self.memory_read_signals[op.node_id] = declared_type
             else:
-                self.diagnostics.error(f"Memory converter not found in {op.memory_id}")
+                self.diagnostics.error(f"Memory hold gate not found in {op.memory_id}")
         else:
             self.diagnostics.error(
                 f"Memory {op.memory_id} not found for read operation"
@@ -1023,10 +996,9 @@ class BlueprintEmitter:
         hold_gate_placement = memory_module["hold_gate"]
 
         try:
-            # Data writer: normalizes incoming signal to the memory's declared channel
-            data_signal_name = memory_module.get(
-                "signal_type", self._get_signal_name(op.data_signal)
-            )
+            write_gate = write_gate_placement.entity
+            hold_gate = hold_gate_placement.entity
+
             neighbor_positions = []
             if write_gate_placement:
                 neighbor_positions.append(write_gate_placement.position)
@@ -1043,54 +1015,10 @@ class BlueprintEmitter:
                 )
                 desired_location = (int(round(avg_x)), int(round(avg_y)))
 
-            data_combinator = ArithmeticCombinator()
-            write_pos = self._place_entity(
-                data_combinator,
-                desired=desired_location,
-                max_radius=8,
-            )
-            data_combinator.first_operand = self._get_operand_for_combinator(
-                op.data_signal
-            )
-            data_combinator.second_operand = 1
-            data_combinator.operation = "*"
-            data_combinator.output_signal = data_signal_name
-            data_combinator = self._add_entity(data_combinator)
-
-            data_entity_id = f"{memory_id}_write_data_{self.next_entity_number}"
-            self.next_entity_number += 1
-            data_placement = EntityPlacement(
-                entity=data_combinator,
-                entity_id=data_entity_id,
-                position=write_pos,
-                output_signals={data_signal_name: "green"},
-                input_signals={},
-            )
-            self.entities[data_entity_id] = data_placement
-            self.signal_graph.set_source(data_entity_id, data_entity_id)
-            self._track_signal_source(data_entity_id, data_entity_id)
-
-            # Ensure upstream signals connect to the writer
-            self._add_signal_sink(op.data_signal, data_entity_id)
-
-            # Connect writer output to memory components
-            write_gate = write_gate_placement.entity
-            hold_gate = hold_gate_placement.entity
-
-            self.blueprint.add_circuit_connection(
-                "green",
-                data_combinator,
-                write_gate,
-                side_1="output",
-                side_2="input",
-            )
-            self.blueprint.add_circuit_connection(
-                "red",
-                data_combinator,
-                hold_gate,
-                side_1="output",
-                side_2="input",
-            )
+            # Ensure upstream signals connect directly to the memory latch inputs
+            self._add_signal_sink(op.data_signal, write_gate_placement.entity_id)
+            if hold_gate_placement:
+                self._add_signal_sink(op.data_signal, hold_gate_placement.entity_id)
 
             # Enable writer: produce signal-W pulse based on write enable expression
             enable_combinator = DeciderCombinator()
@@ -1474,7 +1402,9 @@ class BlueprintEmitter:
 
                             if not wire_color:
                                 wire_color = self._get_wire_color(
-                                    source_placement, sink_placement
+                                    source_placement,
+                                    sink_placement,
+                                    resolved_signal,
                                 )
 
                             self._connect_with_wire_path(
@@ -1489,8 +1419,25 @@ class BlueprintEmitter:
             else:
                 self.diagnostics.error(f"No source found for signal {signal_id}")
 
-    def _get_wire_color(self, source: EntityPlacement, sink: EntityPlacement) -> str:
+    def _get_wire_color(
+        self,
+        source: EntityPlacement,
+        sink: EntityPlacement,
+        resolved_signal: Optional[str] = None,
+    ) -> str:
         """Determine appropriate wire color for connection."""
+        if resolved_signal:
+            desired = sink.input_signals.get(resolved_signal)
+            if desired:
+                return desired
+            if resolved_signal != "signal-W":
+                desired = sink.input_signals.get("signal-each")
+                if desired:
+                    return desired
+            desired = sink.input_signals.get("signal-W")
+            if desired and resolved_signal == "signal-W":
+                return desired
+
         # Use red as default, green for memory outputs to avoid conflicts
         if "memory" in source.entity_id and "output" in source.entity_id:
             return "green"

@@ -1,8 +1,11 @@
 # Test 4: Memory operations and stateful logic
 # Tests: Memory declaration, read(), write(), memory persistence
 
-Memory counter = 0;
-Memory accumulator = ("iron-plate", 100);
+Memory counter;
+Memory accumulator;
+
+write(0, counter, when=once);
+write(("iron-plate", 100), accumulator, when=once);
 
 # Read current values
 Signal current_count = read(counter);
@@ -18,7 +21,8 @@ Signal new_total = current_total + input_value;
 write(new_total, accumulator, when=should_add);
 
 # Memory-based state machine
-Memory state = 0;
+Memory state;
+write(0, state, when=once);
 Signal current_state = read(state);
 Signal next_state = (current_state + 1) % 4;
 write(next_state, state, when=1);

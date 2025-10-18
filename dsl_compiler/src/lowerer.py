@@ -42,6 +42,9 @@ class ASTLowerer:
         # Copy signal type mapping from semantic analyzer
         self.ir_builder.signal_type_map = self.semantic.signal_type_map.copy()
 
+        # Hidden structures for compiler-generated helpers
+        self._once_counter = 0
+
     # ------------------------------------------------------------------
     # Debug metadata helpers
     # ------------------------------------------------------------------
@@ -188,10 +191,6 @@ class ASTLowerer:
 
     def lower_decl_stmt(self, stmt: DeclStmt):
         """Lower typed declaration statement: type name = expr;"""
-        # Handle Memory type declarations
-        if stmt.type_name == "Memory":
-            return self.lower_memory_decl(stmt)
-
         # Special handling for place() calls to track entities
         if isinstance(stmt.value, CallExpr) and stmt.value.name == "place":
             entity_id, value_ref = self.lower_place_call_with_tracking(stmt.value)
@@ -307,36 +306,7 @@ class ASTLowerer:
 
         self._ensure_signal_registered(signal_type)
 
-        # Lower initialization expression if present
-        if stmt.init_expr:
-            init_ref = self.lower_expr(stmt.init_expr)
-            if isinstance(init_ref, int):
-                init_ref = self.ir_builder.const(signal_type, init_ref, stmt)
-        else:
-            init_ref = self.ir_builder.const(signal_type, 0, stmt)
-
-        self.ir_builder.memory_create(memory_id, signal_type, init_ref, stmt)
-
-    def lower_memory_decl(self, stmt: DeclStmt):
-        """Lower Memory type declaration: Memory name = init_expr;"""
-        memory_id = f"mem_{stmt.name}"
-        self.memory_refs[stmt.name] = memory_id
-
-        # Get memory type from semantic analysis
-        symbol = self.semantic.symbol_table.lookup(stmt.name)
-        if symbol and isinstance(symbol.value_type, SignalValue):
-            signal_type = symbol.value_type.signal_type.name
-        else:
-            signal_type = self.ir_builder.allocate_implicit_type()
-
-        self._ensure_signal_registered(signal_type)
-
-        # Lower initialization expression
-        init_ref = self.lower_expr(stmt.value)
-        if isinstance(init_ref, int):
-            init_ref = self.ir_builder.const(signal_type, init_ref, stmt)
-
-        self.ir_builder.memory_create(memory_id, signal_type, init_ref, stmt)
+        self.ir_builder.memory_create(memory_id, signal_type, stmt)
 
     def lower_expr_stmt(self, stmt: ExprStmt):
         """Lower expression statement: expr;"""
@@ -620,7 +590,9 @@ class ASTLowerer:
         memory_id = self.memory_refs[memory_name]
         data_ref = self.lower_expr(expr.value)
 
-        if expr.when is not None:
+        if getattr(expr, "when_once", False):
+            write_enable = self._lower_once_enable(expr)
+        elif expr.when is not None:
             write_enable = self.lower_expr(expr.when)
         else:
             self._ensure_signal_registered("signal-W")
@@ -636,6 +608,29 @@ class ASTLowerer:
                 self.ir_builder.allocate_implicit_type(), 0, expr
             )
         )
+
+    def _lower_once_enable(self, expr: WriteExpr) -> SignalRef:
+        """Generate IR for the when=once guard."""
+        self._once_counter += 1
+        flag_name = f"__once_flag_{self._once_counter}"
+        flag_memory_id = f"mem_{flag_name}"
+
+        flag_signal_type = self.ir_builder.allocate_implicit_type()
+        self._ensure_signal_registered(flag_signal_type)
+
+        self.ir_builder.memory_create(flag_memory_id, flag_signal_type, expr)
+
+        flag_read = self.ir_builder.memory_read(
+            flag_memory_id, flag_signal_type, expr
+        )
+        condition = self.ir_builder.decider(
+            "==", flag_read, 0, 1, flag_signal_type, expr
+        )
+
+        one_const = self.ir_builder.const(flag_signal_type, 1, expr)
+        self.ir_builder.memory_write(flag_memory_id, one_const, condition, expr)
+
+        return condition
 
     def lower_projection_expr(self, expr: ProjectionExpr) -> SignalRef:
         """Lower projection: expr | "type"."""

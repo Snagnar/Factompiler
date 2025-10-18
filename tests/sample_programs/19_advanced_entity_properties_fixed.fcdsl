@@ -93,8 +93,11 @@ lamp.enable = system_ok;
 # =============================================================================
 
 # Memory for tracking production state
-Memory production_state = 0;
-Memory item_history = 0;
+Memory production_state;
+Memory item_history;
+
+write(0, production_state, when=once);
+write(0, item_history, when=once);
 
 # Update production state based on conditions
 Signal state_change = item_count > read(item_history);

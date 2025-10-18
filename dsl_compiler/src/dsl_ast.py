@@ -319,12 +319,14 @@ class WriteExpr(Expr):
         line: int = 0,
         column: int = 0,
         legacy_syntax: bool = False,
+        when_once: bool = False,
     ):
         super().__init__(line, column)
         self.value = value
         self.memory_name = memory_name
         self.when = when
         self.legacy_syntax = legacy_syntax
+        self.when_once = when_once
 
 
 class ProjectionExpr(Expr):

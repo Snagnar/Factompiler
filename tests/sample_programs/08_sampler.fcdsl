@@ -1,7 +1,9 @@
 # Test 8: The 100-tick sampler (from spec example)
 # Tests: modulo operations, periodic sampling, complex logic chains
 
-Memory tick = 0;
+Memory tick;
+
+write(0, tick, when=once);
 
 Signal ONE = 1;
 

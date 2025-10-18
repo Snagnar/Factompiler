@@ -1,7 +1,9 @@
 # Test 4: Memory operations and stateful logic
 # Tests: Memory declaration, read(), write(), memory persistence
 
-Memory counter = 0;
+Memory counter;
+
+write(0, counter, when=once);
 
 write(read(counter) + 1, counter, when=1);
 

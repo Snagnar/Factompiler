@@ -9,7 +9,7 @@ This module performs:
 - Diagnostic collection and error reporting
 """
 
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -245,6 +245,10 @@ class SemanticError(Exception):
 class SemanticAnalyzer(ASTVisitor):
     """Main semantic analysis visitor."""
 
+    RESERVED_SIGNAL_RULES: Dict[str, Tuple[str, str]] = {
+        "signal-W": ("error", "the memory write-enable channel"),
+    }
+
     def __init__(self, strict_types: bool = False):
         self.strict_types = strict_types
         self.diagnostics = DiagnosticCollector()
@@ -260,6 +264,23 @@ class SemanticAnalyzer(ASTVisitor):
 
         # Expression type cache (using id() as key since AST nodes aren't hashable)
         self.expr_types: Dict[int, ValueInfo] = {}
+
+    def _emit_reserved_signal_diagnostic(
+        self, signal_name: str, node: ASTNode, context: str
+    ) -> None:
+        rule = self.RESERVED_SIGNAL_RULES.get(signal_name)
+        if not rule:
+            return
+
+        severity, description = rule
+        message = (
+            f"{signal_name} is reserved for {description} and cannot be used {context}."
+        )
+
+        if severity == "error":
+            self.diagnostics.error(message, node)
+        else:
+            self.diagnostics.warning(message, node)
 
     @staticmethod
     def _is_virtual_channel(signal_info: SignalTypeInfo) -> bool:
@@ -404,7 +425,11 @@ class SemanticAnalyzer(ASTVisitor):
 
             value_type = self.get_expr_type(expr.value)
 
-            if expr.when is not None:
+            if getattr(expr, "when_once", False):
+                enable_type = SignalValue(
+                    signal_type=self.make_signal_type_info("signal-W", implicit=False)
+                )
+            elif expr.when is not None:
                 enable_type = self.get_expr_type(expr.when)
             else:
                 enable_type = SignalValue(
@@ -427,7 +452,10 @@ class SemanticAnalyzer(ASTVisitor):
                 )
                 return SignalValue(signal_type=self.allocate_implicit_type())
 
-            if expr.when is not None and not isinstance(enable_type, (SignalValue, IntValue)):
+            if (
+                expr.when is not None
+                and not isinstance(enable_type, (SignalValue, IntValue))
+            ):
                 self.diagnostics.error(
                     "write when= argument must evaluate to a signal or integer.",
                     expr,
@@ -455,12 +483,20 @@ class SemanticAnalyzer(ASTVisitor):
 
         elif isinstance(expr, ProjectionExpr):
             # expr | "type" always returns Signal of specified type
+            if expr.target_type in self.RESERVED_SIGNAL_RULES:
+                self._emit_reserved_signal_diagnostic(
+                    expr.target_type, expr, "as a value channel"
+                )
             target_signal_type = SignalTypeInfo(name=expr.target_type)
             return SignalValue(signal_type=target_signal_type)
 
         elif isinstance(expr, SignalLiteral):
             # Signal literal: ("type", value) or just value
             if expr.signal_type:
+                if expr.signal_type in self.RESERVED_SIGNAL_RULES:
+                    self._emit_reserved_signal_diagnostic(
+                        expr.signal_type, expr, "in signal literals"
+                    )
                 # Explicit type
                 signal_type = SignalTypeInfo(name=expr.signal_type)
             else:
@@ -918,17 +954,13 @@ class SemanticAnalyzer(ASTVisitor):
     def visit_MemDecl(self, node: MemDecl) -> None:
         """Analyze memory declaration."""
         if node.init_expr:
-            init_type = self.get_expr_type(node.init_expr)
-            if isinstance(init_type, IntValue):
-                # Convert int to signal with implicit type
-                signal_type = self.allocate_implicit_type()
-                memory_type = SignalValue(signal_type=signal_type)
-            else:
-                memory_type = init_type
-        else:
-            # Default initialization
-            signal_type = self.allocate_implicit_type()
-            memory_type = SignalValue(signal_type=signal_type)
+            self.diagnostics.error(
+                "Memory declarations no longer accept initial values; use write(..., when=once) instead.",
+                node,
+            )
+
+        signal_type = self.allocate_implicit_type()
+        memory_type = SignalValue(signal_type=signal_type)
 
         symbol = Symbol(
             name=node.name,

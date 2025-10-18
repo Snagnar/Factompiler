@@ -114,8 +114,9 @@ statement ::= decl_stmt ";"
 
 ```fcdsl
 decl_stmt ::= type_name NAME "=" expr
+mem_decl ::= ("Memory" | "mem") NAME
 
-type_name ::= "int" | "Signal" | "SignalType" | "Entity" | "Memory"
+type_name ::= "int" | "Signal" | "SignalType" | "Entity"
 ```
 
 **Examples:**
@@ -125,7 +126,8 @@ Signal virtual = ("signal-A", 42);       # Virtual signal
 Signal implicit = 5;                     # Signal with implicit type
 int count = 42;                          # Integer variable
 Entity lamp = place("small-lamp", 5, 0); # Entity placement
-Memory counter = 0;                      # Memory with initial value
+Memory counter;                          # Memory declaration (starts empty)
+write(0, counter, when=once);            # Optional one-shot initialization
 ```
 
 ### Assignment Statements
@@ -225,8 +227,10 @@ Signal implicit = 5;                    # Implicit type allocation
 Stateful memory cells that can store and retrieve values.
 
 ```fcdsl
-Memory counter = 0;                     # Memory initialized to 0
-Memory accumulator = iron;              # Memory initialized from signal
+Memory counter;                         # Memory declaration (initially empty)
+Memory accumulator;
+write(0, counter, when=once);           # Optional one-shot seed
+write(iron, accumulator, when=once);    # Initialize from existing signal
 ```
 
 #### 4. Entity (`Entity`)
@@ -353,40 +357,30 @@ Entity assembler = place("assembling-machine-1", 0, 10);
 
 ## Memory Operations
 
-The DSL provides stateful memory through SR latch circuits using the Memory type.
+The DSL models state with compact SR latch circuits composed of a **write gate** and a **hold gate**. Each memory cell reserves the virtual signal `signal-W` for write enables; this channel must not be used for user data.
 
 ### Memory Declaration
 
 ```fcdsl
-Memory name = initial_value;
-mem name = memory(initial_value);
-mem name = memory(initial_value, "signal-type");
+Memory counter;
 ```
 
-**Examples:**
+Memory declarations no longer accept inline initializers. Newly declared cells start empty (no stored signals) until the first write occurs. The legacy `mem` alias and `memory()` helper have been removed.
+
+### Seeding Memory (`when=once`)
+
+Use the special predicate `when=once` to perform one-time initialization writes:
+
 ```fcdsl
-Memory counter = 0;                     # Initialize to 0
-Memory accumulator = ("iron-plate", 50); # Initialize from signal
-Memory state = implicit_signal;         # Initialize from variable
-mem history = memory(0);                # Alias syntax using helper
-mem virtual = memory(5, "signal-A");   # Explicit output channel
+Memory counter;
+write(0, counter, when=once);          # Runs exactly once at startup
 ```
 
-`mem` is interchangeable with `Memory` and preferred when using the `memory()` helper for clarity.
-
-### `memory(initial_value, [signal_type])`
-
-Creates a typed initializer for memory declarations.
-
-**Parameters:**
-- `initial_value`: Integer or signal expression used at compile time to seed the SR latch
-- `signal_type` (optional): String literal enforcing the stored channel; defaults to the inferred type of `initial_value` or a fresh virtual signal
-
-**Returns:** Signal typed for the new memory cell. Commonly used only on the right-hand side of a `mem` declaration.
+Internally the compiler expands `when=once` into a hidden flag memory that fires a single write pulse. Each use of `when=once` is independent and does not interfere with other writes.
 
 ### `read(memory_name)`
 
-Reads current value from memory.
+Reads the current value stored in a memory cell.
 
 **Syntax:**
 ```fcdsl
@@ -399,17 +393,16 @@ Signal current = read(counter);
 Signal total = read(accumulator);
 ```
 
-**Returns:** Signal with memory's stored value
+**Returns:** Signal with the memory's stored value.
 
 ### `write(value_expr, memory_name, when=1)`
 
-Writes a value into memory when the optional enable predicate is non-zero.
+Writes `value_expr` into `memory_name` whenever the optional `when` predicate is non-zero. If `when` is omitted, the compiler emits a constant enable on `signal-W` so the write always occurs.
 
 **Syntax:**
 ```fcdsl
 write(value_expr, memory_name, when=enable_signal);
 ```
-`when` defaults to `1`, so omitting it preserves legacy always-write semantics.
 
 **Examples:**
 ```fcdsl
@@ -426,21 +419,24 @@ write(signal, buffer, when=0);                    # Emits the wiring but latches
 ```
 
 **Parameters:**
-- `value_expr`: Expression to store in the memory cell when enabled
-- `memory_name`: Name of the declared memory target
-- `when` *(optional)*: Signal expression that gates the write (treated as true when `> 0`)
+- `value_expr`: Expression to store in the memory cell when enabled.
+- `memory_name`: Name of the declared memory target.
+- `when` *(optional)*: Signal expression that gates the write (treated as true when `> 0`). Use the literal `once` to request a one-shot initialization pulse.
 
 ### Memory Usage Patterns
 
 #### Counter
 ```fcdsl
-Memory counter = 0;
+Memory counter;
+write(0, counter, when=once);
 write(read(counter) + 1, counter);
 ```
 
 #### Accumulator with Reset
 ```fcdsl
-Memory total = 0;
+Memory total;
+write(0, total, when=once);
+
 Signal input_val = ("iron-plate", 10);
 Signal reset = ("signal-R", 1);
 Signal new_total = (read(total) + input_val) * (1 - reset);
@@ -449,7 +445,9 @@ write(new_total, total, when=1 - reset);
 
 #### State Machine
 ```fcdsl
-Memory state = 0;
+Memory state;
+write(0, state, when=once);
+
 Signal current = read(state);
 Signal next = (current + 1) % 4;  # 4-state cycle
 write(next, state);
@@ -461,15 +459,11 @@ The repository includes `tests/sample_programs/04_memory_advanced.fcdsl`, which 
 
 - storing item, fluid, and virtual signals in dedicated memory cells
 - building conditional write expressions that preserve the previous value when a guard is false
-- constructing state machines and swapping stored values without bundle helpers
+- constructing state machines and swapping stored values without bundle helpers using projection
 
 Use it as a reference when wiring more sophisticated SR latch workflows.
 
-#### Migration Tips (Legacy `write(memory, value)`)
-
-- Reorder arguments to `write(new_value, memory)`; the compiler emits a targeted diagnostic for the old signature.
-- Provide an explicit `when=` predicate when you previously relied on guarding arithmetic. For example, `write(memory, value * guard)` becomes `write(value, memory, when=guard)`.
-- Expect a new virtual enable signal (`signal-W`) in generated blueprints. This line is driven automatically—no manual wiring is required unless you want to integrate external enables.
+> **Note:** The compiler materializes the write enable on `signal-W`. Attempting to project or declare user signals on `signal-W` results in a compile-time error.
 
 ---
 
@@ -513,7 +507,8 @@ train_stop.manual_mode = 1;            # Set manual mode
 
 #### Blinking Lamps
 ```fcdsl
-Memory counter = 0;
+Memory counter;
+write(0, counter, when=once);
 write(read(counter) + 1, counter);
 Signal blink = read(counter) % 10;
 
@@ -590,7 +585,8 @@ Functions can declare and use local memory:
 
 ```fcdsl
 func toggle_generator() {
-    Memory state = 0;
+    Memory state;
+    write(0, state, when=once);
     Signal current = read(state);
     Signal new_state = 1 - current;  # Toggle between 0 and 1
     write(new_state, state);
@@ -774,16 +770,12 @@ The emit module converts IR to Factorio blueprint JSON using the `factorio-draft
 
 ### Memory Implementation
 
-Memory cells compile into a gated SR latch module backed by `memory_cell.py`:
-
-1. **Creation**: `IR_MemCreate` instantiates the multi-entity latch and seeds the stored channel with the declared initial value.
-2. **Reading**: `IR_MemRead` exposes the latched output on a dedicated green channel for downstream combinators.
+1. **Creation**: `IR_MemCreate` places the write and hold deciders with no stored value; the cell remains empty until the first write occurs.
+2. **Reading**: `IR_MemRead` exposes the latched output on the red feedback loop for downstream combinators.
 3. **Writing**: `IR_MemWrite` drives the module with the requested data value and a `signal-W` enable line; when the enable is zero the latch preserves its previous state.
 
-The compiler automatically inserts enable wiring and repeater constants (such as `signal-U`) required by the latch blueprint.
-
-- **Typed Outputs**: The latch now projects directly onto the declared memory channel instead of relying on `signal-everything`, improving compatibility with typed pipelines.
-- **Safe Initialization**: A dedicated initializer decider injects the starting value only while `signal-W` is zero, preventing the bootstrap constant from holding the write-enable line open after the first tick.
+- **Typed Outputs**: The latch projects onto the declared memory channel instead of relying on `signal-everything`, improving compatibility with typed pipelines.
+- **Safe Initialization**: Seeding is expressed explicitly through `write(..., when=once)` or other user-provided conditions that pulse `signal-W` for the desired tick.
 
 ---
 
