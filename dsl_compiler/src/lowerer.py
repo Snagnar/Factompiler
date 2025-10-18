@@ -18,6 +18,7 @@ from dsl_compiler.src.semantic import (
     IntValue,
     DiagnosticCollector,
     render_source_location,
+    ValueInfo,
 )
 
 from draftsman.data import signals as signal_data
@@ -137,6 +138,191 @@ class ASTLowerer:
 
         return "virtual"
 
+    def _fold_constant_binary(
+        self, op: str, left: int, right: int, node: ASTNode
+    ) -> Optional[int]:
+        """Evaluate a binary operation at compile time when both operands are integers."""
+
+        if op == "+":
+            return left + right
+        if op == "-":
+            return left - right
+        if op == "*":
+            return left * right
+        if op == "/":
+            if right == 0:
+                self.diagnostics.warning(
+                    "Division by zero in constant expression", node
+                )
+                return 0
+            return left // right
+        if op == "%":
+            if right == 0:
+                self.diagnostics.warning("Modulo by zero in constant expression", node)
+                return 0
+            return left % right
+        if op == "==":
+            return 1 if left == right else 0
+        if op == "!=":
+            return 1 if left != right else 0
+        if op == "<":
+            return 1 if left < right else 0
+        if op == "<=":
+            return 1 if left <= right else 0
+        if op == ">":
+            return 1 if left > right else 0
+        if op == ">=":
+            return 1 if left >= right else 0
+        if op == "&&":
+            return 1 if (left != 0 and right != 0) else 0
+        if op == "||":
+            return 1 if (left != 0 or right != 0) else 0
+
+        return None
+
+    def _extract_constant_int(self, expr: Expr) -> Optional[int]:
+        """Try to evaluate an expression to an integer at compile time."""
+
+        if isinstance(expr, NumberLiteral):
+            return expr.value
+
+        if isinstance(expr, SignalLiteral):
+            inner = expr.value
+            if isinstance(inner, NumberLiteral):
+                return inner.value
+
+        if isinstance(expr, UnaryOp):
+            inner_val = self._extract_constant_int(expr.expr)
+            if inner_val is None:
+                return None
+            if expr.op == "+":
+                return inner_val
+            if expr.op == "-":
+                return -inner_val
+            return None
+
+        if isinstance(expr, BinaryOp):
+            left_const = self._extract_constant_int(expr.left)
+            right_const = self._extract_constant_int(expr.right)
+            if left_const is None or right_const is None:
+                return None
+            return self._fold_constant_binary(expr.op, left_const, right_const, expr)
+
+        return None
+
+    def _is_simple_source_ref(self, value_ref: ValueRef) -> bool:
+        """Return True when a ValueRef originates from a simple source."""
+
+        if isinstance(value_ref, int):
+            return False
+
+        if not isinstance(value_ref, SignalRef):
+            return False
+
+        source_op = self.ir_builder.get_operation(value_ref.source_id)
+        if source_op is None:
+            return False
+
+        if isinstance(source_op, IR_Const):
+            return True
+
+        if isinstance(source_op, IR_EntityPropRead):
+            return True
+
+        if isinstance(source_op, IR_WireMerge):
+            return True
+
+        return False
+
+    def _gather_merge_sources_from_ref(self, value_ref: ValueRef) -> Optional[List[SignalRef]]:
+        """Collect simple SignalRefs that compose the given ValueRef."""
+
+        if not isinstance(value_ref, SignalRef):
+            return None
+
+        source_op = self.ir_builder.get_operation(value_ref.source_id)
+
+        if isinstance(source_op, IR_WireMerge):
+            # Flatten nested merges to reuse original simple sources.
+            return [src for src in source_op.sources if isinstance(src, SignalRef)]
+
+        if self._is_simple_source_ref(value_ref):
+            return [value_ref]
+
+        return None
+
+    def _attempt_wire_merge(
+        self,
+        expr: BinaryOp,
+        left_ref: ValueRef,
+        right_ref: ValueRef,
+        result_type: Optional[ValueInfo],
+    ) -> Optional[SignalRef]:
+        """Try to lower an addition into a wire merge instead of an arithmetic node."""
+
+        if expr.op != "+":
+            return None
+
+        if not isinstance(result_type, SignalValue):
+            return None
+
+        left_sources = self._gather_merge_sources_from_ref(left_ref)
+        right_sources = self._gather_merge_sources_from_ref(right_ref)
+
+        if left_sources is None or right_sources is None:
+            return None
+
+        combined_sources = left_sources + right_sources
+        if len(combined_sources) < 2:
+            return None
+
+        output_type = result_type.signal_type.name
+        if not output_type:
+            return None
+
+        for source in combined_sources:
+            if getattr(source, "signal_type", None) != output_type:
+                return None
+
+        unique_ids = {source.source_id for source in combined_sources}
+        if len(unique_ids) != len(combined_sources):
+            return None
+
+        self._ensure_signal_registered(output_type, combined_sources[0].signal_type)
+
+        merge_op_to_reuse: Optional[IR_WireMerge] = None
+        reuse_ref: Optional[SignalRef] = None
+
+        if isinstance(left_ref, SignalRef):
+            left_source = self.ir_builder.get_operation(left_ref.source_id)
+            if isinstance(left_source, IR_WireMerge) and left_source.source_ast is expr.left:
+                merge_op_to_reuse = left_source
+                reuse_ref = left_ref
+
+        if merge_op_to_reuse is None and isinstance(right_ref, SignalRef):
+            right_source = self.ir_builder.get_operation(right_ref.source_id)
+            if isinstance(right_source, IR_WireMerge) and right_source.source_ast is expr.right:
+                merge_op_to_reuse = right_source
+                reuse_ref = right_ref
+
+        if merge_op_to_reuse is not None and reuse_ref is not None:
+            merge_op_to_reuse.sources = list(combined_sources)
+            merge_op_to_reuse.source_ast = expr
+            merge_op_to_reuse.output_type = output_type
+            reuse_ref.signal_type = output_type
+            self.diagnostics.info(
+                f"Optimized addition to wire-merge ({len(combined_sources)} sources)",
+                expr,
+            )
+            return reuse_ref
+
+        merge_ref = self.ir_builder.wire_merge(combined_sources, output_type, expr)
+        self.diagnostics.info(
+            f"Optimized addition to wire-merge ({len(combined_sources)} sources)",
+            expr,
+        )
+        return merge_ref
+
     def _ensure_signal_registered(
         self, signal_type: Optional[str], source_signal_type: Optional[str] = None
     ) -> None:
@@ -188,6 +374,17 @@ class ASTLowerer:
         if isinstance(value_ref, SignalRef):
             if value_ref.signal_type == signal_type:
                 return value_ref
+
+            source_type = getattr(value_ref, "signal_type", None) or "<unknown>"
+
+            if getattr(self.semantic, "strict_types", False):
+                self.diagnostics.error(
+                    "Type mismatch in memory write:\n"
+                    f"  Expected: '{signal_type}'\n"
+                    f"  Got: '{source_type}'\n"
+                    f"  Fix: Use projection: value | \"{signal_type}\"",
+                    node,
+                )
 
             # Arithmetic passthrough preserves value while retargeting type.
             return self.ir_builder.arithmetic(
@@ -363,6 +560,16 @@ class ASTLowerer:
 
         self.ir_builder.memory_create(memory_id, signal_type, stmt)
 
+        if stmt.init_expr is not None:
+            init_value = self.lower_expr(stmt.init_expr)
+            coerced_init = self._coerce_to_signal_type(init_value, signal_type, stmt)
+
+            once_enable = self._lower_once_enable(stmt)
+            write_op = self.ir_builder.memory_write(
+                memory_id, coerced_init, once_enable, stmt
+            )
+            write_op.is_one_shot = True
+
     def lower_expr_stmt(self, stmt: ExprStmt):
         """Lower expression statement: expr;"""
         self.lower_expr(stmt.expr)
@@ -439,26 +646,41 @@ class ASTLowerer:
 
     def lower_binary_op(self, expr: BinaryOp) -> ValueRef:
         """Lower binary operation following mixed-type rules."""
-        left_ref = self.lower_expr(expr.left)
-        right_ref = self.lower_expr(expr.right)
-
-        # Get type information from semantic analysis
+        # Attempt constant folding before generating IR for operands.
         left_type = self.semantic.get_expr_type(expr.left)
         right_type = self.semantic.get_expr_type(expr.right)
         result_type = self.semantic.get_expr_type(expr)
 
-        # Determine output signal type based on result type
+        left_signal_type = (
+            left_type.signal_type.name if isinstance(left_type, SignalValue) else None
+        )
+
         if isinstance(result_type, SignalValue):
             output_type = result_type.signal_type.name
         elif isinstance(result_type, IntValue):
-            # Integer result - use an implicit type for the signal
             output_type = self.ir_builder.allocate_implicit_type()
         else:
             output_type = self.ir_builder.allocate_implicit_type()
 
-        left_signal_type = (
-            left_type.signal_type.name if isinstance(left_type, SignalValue) else None
-        )
+        left_const = self._extract_constant_int(expr.left)
+        right_const = self._extract_constant_int(expr.right)
+
+        if left_const is not None and right_const is not None:
+            folded = self._fold_constant_binary(expr.op, left_const, right_const, expr)
+            if folded is not None:
+                if isinstance(result_type, SignalValue):
+                    self._ensure_signal_registered(output_type, left_signal_type)
+                    return self.ir_builder.const(output_type, folded, expr)
+                return folded
+
+        left_ref = self.lower_expr(expr.left)
+        right_ref = self.lower_expr(expr.right)
+
+        # Opportunity: replace arithmetic combinator with wire merge for simple sources.
+        merge_candidate = self._attempt_wire_merge(expr, left_ref, right_ref, result_type)
+        if merge_candidate is not None:
+            return merge_candidate
+
         self._ensure_signal_registered(output_type, left_signal_type)
 
         # Handle different operand combinations
@@ -657,7 +879,9 @@ class ASTLowerer:
             data_ref, expected_signal_type, expr
         )
 
-        if getattr(expr, "when_once", False):
+        is_once = getattr(expr, "when_once", False)
+
+        if is_once:
             write_enable = self._lower_once_enable(expr)
         elif expr.when is not None:
             write_enable = self.lower_expr(expr.when)
@@ -665,12 +889,17 @@ class ASTLowerer:
             self._ensure_signal_registered("signal-W")
             write_enable = self.ir_builder.const("signal-W", 1, expr)
 
-        self.ir_builder.memory_write(memory_id, coerced_data_ref, write_enable, expr)
+        write_op = self.ir_builder.memory_write(
+            memory_id, coerced_data_ref, write_enable, expr
+        )
+
+        if is_once:
+            write_op.is_one_shot = True
 
         # Write expressions return the written value
         return coerced_data_ref
 
-    def _lower_once_enable(self, expr: WriteExpr) -> SignalRef:
+    def _lower_once_enable(self, node: ASTNode) -> SignalRef:
         """Generate IR for the when=once guard."""
         self._once_counter += 1
         flag_name = f"__once_flag_{self._once_counter}"
@@ -679,17 +908,20 @@ class ASTLowerer:
         flag_signal_type = "signal-W"
         self._ensure_signal_registered(flag_signal_type)
 
-        self.ir_builder.memory_create(flag_memory_id, flag_signal_type, expr)
+        self.ir_builder.memory_create(flag_memory_id, flag_signal_type, node)
 
         flag_read = self.ir_builder.memory_read(
-            flag_memory_id, flag_signal_type, expr
+            flag_memory_id, flag_signal_type, node
         )
         condition = self.ir_builder.decider(
-            "==", flag_read, 0, 1, flag_signal_type, expr
+            "==", flag_read, 0, 1, flag_signal_type, node
         )
 
-        one_const = self.ir_builder.const(flag_signal_type, 1, expr)
-        self.ir_builder.memory_write(flag_memory_id, one_const, condition, expr)
+        one_const = self.ir_builder.const(flag_signal_type, 1, node)
+        flag_write = self.ir_builder.memory_write(
+            flag_memory_id, one_const, condition, node
+        )
+        flag_write.is_one_shot = True
 
         return condition
 

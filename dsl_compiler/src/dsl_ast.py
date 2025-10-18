@@ -85,12 +85,12 @@ class AssignStmt(Statement):
 
 
 class MemDecl(Statement):
-    """Memory declaration: Memory name: "signal-type";"""
+    """Memory declaration: Memory name [: "signal-type"] [= initial];"""
 
     def __init__(
         self,
         name: str,
-        signal_type: str,
+        signal_type: Optional[str] = None,
         init_expr: Optional["Expr"] = None,
         line: int = 0,
         column: int = 0,

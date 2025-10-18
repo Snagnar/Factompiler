@@ -41,6 +41,7 @@ from .emission.signals import (
 )
 from .emission.wiring import (
     WIRE_COLORS,
+    CircuitEdge,
     collect_circuit_edges,
     plan_wire_colors,
 )
@@ -201,12 +202,15 @@ class BlueprintEmitter:
         self.signal_usage = {}
         self.materializer = None
         self._prepared_operations = []
+        self._prepared_operation_index: Dict[str, IRNode] = {}
+        self._memory_reads_by_memory: Dict[str, List[str]] = defaultdict(list)
         self._circuit_edges = []
         self._node_color_assignments = {}
         self._edge_color_map = {}
         self._coloring_conflicts = []
         self._coloring_success = True
         self._wire_relay_counter = 0
+        self._wire_merge_junctions: Dict[str, Dict[str, Any]] = {}
 
         self._ensure_signal_map_registered()
 
@@ -294,6 +298,15 @@ class BlueprintEmitter:
 
         self._reset_for_emit()
         self._prepared_operations = ir_operations
+        self._prepared_operation_index = {}
+        self._memory_reads_by_memory = defaultdict(list)
+
+        for op in self._prepared_operations:
+            node_id = getattr(op, "node_id", None)
+            if node_id:
+                self._prepared_operation_index[node_id] = op
+            if isinstance(op, IR_MemRead):
+                self._memory_reads_by_memory[op.memory_id].append(node_id)
 
         self.signal_usage = self._analyze_signal_usage(ir_operations)
         self.materializer = SignalMaterializer(
@@ -489,6 +502,8 @@ class BlueprintEmitter:
                 record_export(op.value, f"entity:{op.entity_id}.{op.property_name}")
             elif isinstance(op, IR_ConnectToWire):
                 record_export(op.signal, f"wire:{op.channel}")
+            elif isinstance(op, IR_WireMerge):
+                record_consumer(op.sources, op.node_id)
 
         return usage
 
@@ -658,6 +673,8 @@ class BlueprintEmitter:
             self.emit_entity_prop_write(op)
         elif isinstance(op, IR_EntityPropRead):
             self.emit_entity_prop_read(op)
+        elif isinstance(op, IR_WireMerge):
+            self.emit_wire_merge(op)
         else:
             self.diagnostics.error(f"Unknown IR operation: {type(op)}")
 
@@ -841,6 +858,26 @@ class BlueprintEmitter:
         self._add_signal_sink(op.left, op.node_id)
         self._add_signal_sink(op.right, op.node_id)
 
+    def emit_wire_merge(self, op: IR_WireMerge) -> None:
+        """Register a virtual wire merge junction for later wiring."""
+
+        usage_entry = self.signal_usage.get(op.node_id)
+        if usage_entry and not usage_entry.debug_label:
+            usage_entry.debug_label = op.node_id
+
+        # Register logical source for downstream consumers.
+        self.signal_graph.set_source(op.node_id, op.node_id)
+
+        sources: List[SignalRef] = [
+            source for source in op.sources if isinstance(source, SignalRef)
+        ]
+
+        self._wire_merge_junctions[op.node_id] = {
+            "sources": sources,
+            "output_type": op.output_type,
+            "source_ast": op.source_ast,
+        }
+
     def emit_decider(self, op: IR_Decider):
         """Emit decider combinator for IR_Decider."""
 
@@ -985,24 +1022,165 @@ class BlueprintEmitter:
                 f"Memory {op.memory_id} not found for read operation"
             )
 
+    def _resolve_literal_value(self, value: ValueRef) -> Optional[int]:
+        """Attempt to resolve a ValueRef to a literal integer at emit time."""
+
+        if isinstance(value, int):
+            return value
+
+        if isinstance(value, SignalRef):
+            if self.materializer:
+                inlined = self.materializer.inline_value(value)
+                if inlined is not None:
+                    return inlined
+
+            source_op = self._prepared_operation_index.get(value.source_id)
+            if isinstance(source_op, IR_Const):
+                return getattr(source_op, "value", None)
+
+        return None
+
+    def _determine_write_strategy(self, op: IR_MemWrite) -> str:
+        """Determine the appropriate emission strategy for a memory write."""
+
+        memory_id = op.memory_id
+        if memory_id not in self.memory_builder.memory_modules:
+            return "SR_LATCH"
+
+        enable_literal = self._resolve_literal_value(op.write_enable)
+        if enable_literal is not None and enable_literal != 0:
+            if self._write_references_same_memory(op.data_signal, memory_id):
+                return "FEEDBACK_LOOP"
+
+        if getattr(op, "is_one_shot", False):
+            return "PULSE_GATE"
+
+        return "SR_LATCH"
+
+    def _write_references_same_memory(
+        self, value_signal: ValueRef, memory_id: str
+    ) -> bool:
+        """Check if a value expression ultimately depends on the same memory."""
+
+        visited: Set[str] = set()
+
+        def visit(value: ValueRef) -> bool:
+            if isinstance(value, SignalRef):
+                source_id = value.source_id
+                if source_id in visited:
+                    return False
+                visited.add(source_id)
+
+                source_op = self._prepared_operation_index.get(source_id)
+                if isinstance(source_op, IR_MemRead):
+                    return source_op.memory_id == memory_id
+                if isinstance(source_op, IR_Arith):
+                    return visit(source_op.left) or visit(source_op.right)
+                if isinstance(source_op, IR_Decider):
+                    return (
+                        visit(source_op.left)
+                        or visit(source_op.right)
+                        or visit(source_op.output_value)
+                    )
+                return False
+
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    if visit(item):
+                        return True
+
+            return False
+
+        return visit(value_signal)
+
     def emit_memory_write(self, op: IR_MemWrite):
-        """Emit memory write operation to the 3-combinator memory cell."""
+        """Emit memory write operation using the most suitable strategy."""
         memory_id = op.memory_id
 
         if memory_id not in self.memory_builder.memory_modules:
             self.diagnostics.error(f"Memory {memory_id} not found for write operation")
             return
 
-        # Get the memory module components
-        memory_module = self.memory_builder.memory_modules[memory_id]
-        write_gate_placement = memory_module["write_gate"]
-        hold_gate_placement = memory_module["hold_gate"]
+        strategy = self._determine_write_strategy(op)
+
+        if strategy == "FEEDBACK_LOOP":
+            self._emit_feedback_loop_write(op)
+            return
+        if strategy == "PULSE_GATE":
+            self._emit_pulse_gate_write(op)
+            return
+
+        self._emit_sr_latch_write(op)
+
+    def _emit_feedback_loop_write(self, op: IR_MemWrite) -> None:
+        """Emit optimized feedback loop for unconditional self-referential writes."""
+
+        memory_id = op.memory_id
+        memory_module = self.memory_builder.memory_modules.get(memory_id)
+        if not memory_module:
+            self._emit_sr_latch_write(op)
+            return
+
+        if not isinstance(op.data_signal, SignalRef):
+            self._emit_sr_latch_write(op)
+            return
+
+        source_op = self._prepared_operation_index.get(op.data_signal.source_id)
+        if not isinstance(source_op, IR_Arith):
+            self._emit_sr_latch_write(op)
+            return
+
+        placement = self.entities.get(source_op.node_id)
+        if placement is None:
+            self._emit_sr_latch_write(op)
+            return
+
+        declared_signal = memory_module.get("signal_type")
+        if not declared_signal:
+            declared_signal = self._get_signal_name(op.data_signal.signal_type)
+
+        placement.metadata["feedback_loop"] = True
+        placement.metadata["feedback_signal"] = declared_signal
+        placement.metadata["memory_id"] = memory_id
+
+        for read_node_id in self._memory_reads_by_memory.get(memory_id, []):
+            self.signal_graph.set_source(read_node_id, placement.entity_id)
+            self._track_signal_source(read_node_id, placement.entity_id)
+
+        self.signal_graph.set_source(memory_id, placement.entity_id)
+        self._track_signal_source(memory_id, placement.entity_id)
+        self._track_signal_source(op.node_id, placement.entity_id)
+
+    def _emit_pulse_gate_write(self, op: IR_MemWrite) -> None:
+        """Emit one-shot memory write. Currently delegates to SR latch implementation."""
+
+        self._emit_sr_latch_write(op)
+
+    def _emit_sr_latch_write(self, op: IR_MemWrite) -> None:
+        """Emit traditional SR latch write for conditional writes."""
+
+        memory_id = op.memory_id
+        memory_module = self.memory_builder.memory_modules.get(memory_id)
+        if not memory_module:
+            self.diagnostics.error(
+                f"Memory {memory_id} not found for write operation"
+            )
+            return
+
+        write_gate_placement = memory_module.get("write_gate")
+        hold_gate_placement = memory_module.get("hold_gate")
+
+        if not (write_gate_placement and hold_gate_placement):
+            self.diagnostics.error(
+                f"Incomplete memory module for {memory_id}; expected write and hold gates"
+            )
+            return
 
         try:
             write_gate = write_gate_placement.entity
             hold_gate = hold_gate_placement.entity
 
-            neighbor_positions = []
+            neighbor_positions: List[Tuple[int, int]] = []
             if write_gate_placement:
                 neighbor_positions.append(write_gate_placement.position)
             if hold_gate_placement:
@@ -1018,7 +1196,6 @@ class BlueprintEmitter:
                 )
                 desired_location = (int(round(avg_x)), int(round(avg_y)))
 
-            # Memory data channel is provided via a dedicated injector combinator per write.
             declared_signal = memory_module.get("signal_type")
             if not declared_signal:
                 base_signal = (
@@ -1028,7 +1205,8 @@ class BlueprintEmitter:
                 )
                 declared_signal = self._get_signal_name(base_signal)
 
-            # Enable writer: produce signal-W pulse based on write enable expression
+            enable_literal = self._resolve_literal_value(op.write_enable)
+
             enable_combinator = DeciderCombinator()
             enable_pos = self._place_entity(
                 enable_combinator,
@@ -1036,16 +1214,7 @@ class BlueprintEmitter:
                 max_radius=8,
             )
 
-            enable_literal: Optional[int] = None
-            if isinstance(op.write_enable, int):
-                enable_literal = op.write_enable
-            elif isinstance(op.write_enable, SignalRef) and self.materializer:
-                enable_literal = self.materializer.inline_value(op.write_enable)
-
             if enable_literal is not None:
-                # Inline literal enables create a self-sustaining pulse generator so we
-                # don't need a dedicated constant combinator. A positive literal means
-                # "always write".
                 comparator = "="
                 constant = 0 if enable_literal != 0 else 1
                 condition = DeciderCombinator.Condition(
@@ -1105,7 +1274,6 @@ class BlueprintEmitter:
                 side_2="input",
             )
 
-            # Build a write injector that gates the data signal with signal-W pulses.
             injector = DeciderCombinator()
             injector_pos = self._place_entity(
                 injector,
@@ -1140,10 +1308,8 @@ class BlueprintEmitter:
             self.entities[injector_entity_id] = injector_placement
             self._track_signal_source(op.node_id, injector_entity_id)
 
-            # Route the value signal into the injector instead of the latch directly.
             self._add_signal_sink(op.data_signal, injector_entity_id)
 
-            # Feed signal-W into the injector to gate writes.
             self.blueprint.add_circuit_connection(
                 "green",
                 enable_combinator,
@@ -1152,7 +1318,6 @@ class BlueprintEmitter:
                 side_2="input",
             )
 
-            # Connect injector output to the memory write gate on the red network.
             self.blueprint.add_circuit_connection(
                 "red",
                 injector,
@@ -1161,9 +1326,9 @@ class BlueprintEmitter:
                 side_2="input",
             )
 
-        except Exception as e:
+        except Exception as exc:
             self.diagnostics.warning(
-                f"Could not configure memory write combinator for {memory_id}: {e}"
+                f"Could not configure memory write combinator for {memory_id}: {exc}"
             )
 
     def emit_place_entity(self, op: IR_PlaceEntity):
@@ -1326,9 +1491,37 @@ class BlueprintEmitter:
     def _prepare_wiring_plan(self) -> None:
         """Gather circuit edges and emit early diagnostics for potential conflicts."""
 
-        self._circuit_edges = collect_circuit_edges(
+        base_edges = collect_circuit_edges(
             self.signal_graph, self.signal_usage, self.entities
         )
+
+        expanded_edges: List[CircuitEdge] = []
+        for edge in base_edges:
+            merge_info = self._wire_merge_junctions.get(edge.source_entity_id or "")
+            if merge_info:
+                for source_ref in merge_info.get("sources", []):
+                    if not isinstance(source_ref, SignalRef):
+                        continue
+                    actual_source_id = source_ref.source_id
+                    source_entity_type = None
+                    placement = self.entities.get(actual_source_id)
+                    if placement:
+                        source_entity_type = type(placement.entity).__name__
+                    expanded_edges.append(
+                        CircuitEdge(
+                            logical_signal_id=edge.logical_signal_id,
+                            resolved_signal_name=edge.resolved_signal_name,
+                            source_entity_id=actual_source_id,
+                            sink_entity_id=edge.sink_entity_id,
+                            source_entity_type=source_entity_type,
+                            sink_entity_type=edge.sink_entity_type,
+                            sink_role=edge.sink_role,
+                        )
+                    )
+            else:
+                expanded_edges.append(edge)
+
+        self._circuit_edges = expanded_edges
 
         sink_conflicts: Dict[str, Dict[str, Set[str]]] = defaultdict(
             lambda: defaultdict(set)
@@ -1446,6 +1639,47 @@ class BlueprintEmitter:
             source_entity_id,
             sink_entities,
         ) in self.signal_graph.iter_edges():
+            if source_entity_id in self._wire_merge_junctions:
+                merge_info = self._wire_merge_junctions[source_entity_id]
+                usage_entry = self.signal_usage.get(signal_id)
+                resolved_signal = (
+                    usage_entry.resolved_signal_name
+                    if usage_entry and usage_entry.resolved_signal_name
+                    else signal_id
+                )
+
+                for sink_entity_id in sink_entities:
+                    sink_placement = self.entities.get(sink_entity_id)
+                    if not sink_placement:
+                        continue
+
+                    for source_ref in merge_info.get("sources", []):
+                        if not isinstance(source_ref, SignalRef):
+                            continue
+
+                        actual_source_id = source_ref.source_id
+                        source_placement = self.entities.get(actual_source_id)
+                        if not source_placement:
+                            continue
+
+                        wire_color = self._edge_color_map.get(
+                            (actual_source_id, sink_entity_id, resolved_signal)
+                        )
+
+                        if not wire_color:
+                            wire_color = self._get_wire_color(
+                                source_placement,
+                                sink_placement,
+                                resolved_signal,
+                            )
+
+                        self._connect_with_wire_path(
+                            source_placement,
+                            sink_placement,
+                            wire_color,
+                        )
+                continue
+
             if source_entity_id:
                 if source_entity_id in self.entities:
                     source_placement = self.entities[source_entity_id]

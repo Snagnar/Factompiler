@@ -22,6 +22,9 @@ except Exception:  # pragma: no cover - fallback when draftsman data unavailable
     signal_data = None  # type: ignore[assignment]
 
 
+EXPLAIN_MODE = False
+
+
 def render_source_location(
     node: Optional[ASTNode], default_file: Optional[str] = None
 ) -> Optional[str]:
@@ -117,9 +120,10 @@ class MemoryInfo:
     """Type information captured for memory declarations."""
 
     name: str
-    signal_type: str
-    signal_info: SignalTypeInfo
     symbol: "Symbol"
+    signal_type: Optional[str] = None
+    signal_info: Optional[SignalTypeInfo] = None
+    explicit: bool = False
 
 
 # =============================================================================
@@ -283,6 +287,78 @@ class SemanticAnalyzer(ASTVisitor):
         # Expression type cache (using id() as key since AST nodes aren't hashable)
         self.expr_types: Dict[int, ValueInfo] = {}
 
+        # Simple source tracking for optimizations (constants, entity outputs, etc.)
+        self.simple_sources: set[str] = set()
+        self.computed_values: set[str] = set()
+
+    def mark_as_simple_source(self, name: str) -> None:
+        """Record that a symbol originates from a simple source."""
+
+        self.simple_sources.add(name)
+        self.computed_values.discard(name)
+
+    def mark_as_computed(self, name: str) -> None:
+        """Record that a symbol results from computation."""
+
+        self.computed_values.add(name)
+        self.simple_sources.discard(name)
+
+    def is_simple_source(self, name: str) -> bool:
+        """Return True when a symbol still qualifies as a simple source."""
+
+        return name in self.simple_sources and name not in self.computed_values
+
+    def _track_source_nature(self, target: str, value_expr: Expr) -> None:
+        """Update simple/computed tracking based on an assignment expression."""
+
+        if isinstance(value_expr, (SignalLiteral, NumberLiteral)):
+            self.mark_as_simple_source(target)
+            return
+
+        if isinstance(value_expr, PropertyAccessExpr):
+            self.mark_as_simple_source(target)
+            return
+
+        if isinstance(value_expr, IdentifierExpr):
+            if self.is_simple_source(value_expr.name):
+                self.mark_as_simple_source(target)
+            else:
+                self.mark_as_computed(target)
+            return
+
+        if isinstance(value_expr, (BinaryOp, UnaryOp, CallExpr, ReadExpr, ProjectionExpr)):
+            self.mark_as_computed(target)
+            return
+
+        # Fallback: treat as computed to be safe
+        self.mark_as_computed(target)
+
+    def _warn(self, message: str, node: Optional[ASTNode] = None) -> None:
+        """Emit a warning, augmenting with explanations when requested."""
+
+        if EXPLAIN_MODE and node is not None:
+            explanation = self._get_warning_explanation(message, node)
+            if explanation:
+                message = f"{message}\n\nExplanation: {explanation}"
+
+        self.diagnostics.warning(message, node)
+
+    def _get_warning_explanation(
+        self, message: str, node: Optional[ASTNode] = None
+    ) -> Optional[str]:
+        """Return an explanatory note for well-known warning patterns."""
+
+        if "Mixed signal types" in message:
+            return (
+                "The compiler follows a left-operand-wins rule when arithmetic mixes"
+                " signal channels. The resulting combinator keeps the left signal"
+                " type because Factorio combinators can only output a single signal"
+                " channel at a time. Use projections to align both operands or to"
+                " choose the desired output channel explicitly."
+            )
+
+        return None
+
     def _emit_reserved_signal_diagnostic(
         self, signal_name: str, node: ASTNode, context: str
     ) -> None:
@@ -290,15 +366,14 @@ class SemanticAnalyzer(ASTVisitor):
         if not rule:
             return
 
-        severity, description = rule
+        severity, reserved_context = rule
         message = (
-            f"{signal_name} is reserved for {description} and cannot be used {context}."
+            f"Signal '{signal_name}' is reserved for {reserved_context} and cannot be used {context}."
         )
-
         if severity == "error":
             self.diagnostics.error(message, node)
         else:
-            self.diagnostics.warning(message, node)
+            self._warn(message, node)
 
     @staticmethod
     def _is_virtual_channel(signal_info: SignalTypeInfo) -> bool:
@@ -512,10 +587,47 @@ class SemanticAnalyzer(ASTVisitor):
             )
 
             expected_type: Optional[str] = None
-            if mem_info is not None:
+            if mem_info is not None and mem_info.signal_type:
                 expected_type = mem_info.signal_type
-            elif isinstance(symbol.value_type, SignalValue) and symbol.value_type.signal_type:
-                expected_type = symbol.value_type.signal_type.name
+            elif mem_info is None and isinstance(symbol.value_type, SignalValue):
+                signal_info = symbol.value_type.signal_type
+                if signal_info:
+                    expected_type = signal_info.name
+
+            # Infer storage type for implicitly declared memories the first time
+            # we observe a concrete channel being written.
+            if (
+                expected_type is None
+                and mem_info is not None
+                and write_signal_name is not None
+            ):
+                inferred_info = self.make_signal_type_info(
+                    write_signal_name,
+                    implicit=write_signal_name.startswith("__"),
+                )
+
+                mem_info.signal_type = write_signal_name
+                mem_info.signal_info = inferred_info
+
+                if isinstance(symbol.value_type, SignalValue):
+                    symbol.value_type.signal_type = inferred_info
+
+                decl_node = getattr(mem_info.symbol, "defined_at", None)
+                if isinstance(decl_node, MemDecl):
+                    decl_node.signal_type = write_signal_name
+
+                debug_info = self.signal_debug_info.get(expr.memory_name)
+                if debug_info:
+                    debug_info.signal_key = write_signal_name
+                    debug_info.declared_type = write_signal_name
+                    debug_info.factorio_signal = self._resolve_physical_signal_name(
+                        write_signal_name
+                    )
+                    debug_info.category = self._lookup_signal_category(
+                        write_signal_name
+                    )
+
+                expected_type = write_signal_name
 
             if expected_type is None:
                 self.diagnostics.error(
@@ -532,10 +644,18 @@ class SemanticAnalyzer(ASTVisitor):
                 return symbol.value_type
 
             if write_signal_name != expected_type:
-                self.diagnostics.error(
-                    f"Type mismatch: Memory '{expr.memory_name}' expects '{expected_type}' but write provides '{write_signal_name}'.",
-                    expr,
+                message = (
+                    f"Type mismatch: Memory '{expr.memory_name}' expects '{expected_type}'"
+                    f" but write provides '{write_signal_name}'."
                 )
+
+                if mem_info is not None and not mem_info.explicit:
+                    if self.strict_types:
+                        self.diagnostics.error(message, expr)
+                    else:
+                        self._warn(message, expr)
+                else:
+                    self.diagnostics.error(message, expr)
 
             return symbol.value_type
 
@@ -550,7 +670,7 @@ class SemanticAnalyzer(ASTVisitor):
             # expr | "type" always returns Signal of specified type
             if expr.target_type in self.RESERVED_SIGNAL_RULES:
                 self._emit_reserved_signal_diagnostic(
-                    expr.target_type, expr, "as a value channel"
+                    expr.target_type, expr, "as a projection target"
                 )
             target_signal_type = SignalTypeInfo(name=expr.target_type)
             return SignalValue(signal_type=target_signal_type)
@@ -676,27 +796,33 @@ class SemanticAnalyzer(ASTVisitor):
         elif isinstance(left_type, SignalValue) and isinstance(right_type, IntValue):
             # Signal + Int = Signal (int coerced to signal's type)
             warning_msg = (
-                f"Mixed types in binary operation: "
-                f"signal '{left_type.signal_type.name}' {expr.op} integer. "
-                f"Integer will be coerced to signal type."
+                f"Mixed types in binary operation at line {expr.line}:")
+            warning_msg += (
+                f"\n  Left operand:  '{left_type.signal_type.name}'"
+                f"\n  Right operand: integer"
+                f"\n  Result will keep signal '{left_type.signal_type.name}'"
+                f"\n\n  Fix: Project the integer using ('{left_type.signal_type.name}', value)"
             )
             if self.strict_types:
                 self.diagnostics.error(warning_msg, expr)
             else:
-                self.diagnostics.warning(warning_msg, expr)
+                self._warn(warning_msg, expr)
             return left_type
 
         elif isinstance(left_type, IntValue) and isinstance(right_type, SignalValue):
             # Int + Signal = Signal (int coerced to signal's type)
             warning_msg = (
-                f"Mixed types in binary operation: "
-                f"integer {expr.op} signal '{right_type.signal_type.name}'. "
-                f"Integer will be coerced to signal type."
+                f"Mixed types in binary operation at line {expr.line}:")
+            warning_msg += (
+                f"\n  Left operand:  integer"
+                f"\n  Right operand: '{right_type.signal_type.name}'"
+                f"\n  Result will keep signal '{right_type.signal_type.name}'"
+                f"\n\n  Fix: Wrap the integer as ('{right_type.signal_type.name}', value)"
             )
             if self.strict_types:
                 self.diagnostics.error(warning_msg, expr)
             else:
-                self.diagnostics.warning(warning_msg, expr)
+                self._warn(warning_msg, expr)
             return right_type
 
         elif isinstance(left_type, SignalValue) and isinstance(right_type, SignalValue):
@@ -707,16 +833,21 @@ class SemanticAnalyzer(ASTVisitor):
             else:
                 # Mixed types - left operand wins (with warning)
                 warning_msg = (
-                    f"Mixed signal types in binary operation: "
-                    f"'{left_type.signal_type.name}' {expr.op} '{right_type.signal_type.name}'. "
-                    f"Result will be '{left_type.signal_type.name}'. "
-                    f"Use '| \"type\"' to explicitly set output channel."
+                    f"Mixed signal types in binary operation at line {expr.line}:")
+                warning_msg += (
+                    f"\n  Left operand:  '{left_type.signal_type.name}' {expr.op}"
+                    f"\n  Right operand: '{right_type.signal_type.name}'"
+                    f"\n  Result will use left type: '{left_type.signal_type.name}'"
+                    f"\n\n  To align types, consider:"
+                        f"\n    - (left | \"{right_type.signal_type.name}\") {expr.op} right"
+                        f"\n    - left {expr.op} (right | \"{left_type.signal_type.name}\")"
+                        f"\n    - (... ) | \"desired-type\" to force an explicit channel"
                 )
 
                 if self.strict_types:
                     self.diagnostics.error(warning_msg, expr)
                 else:
-                    self.diagnostics.warning(warning_msg, expr)
+                    self._warn(warning_msg, expr)
 
                 return left_type
 
@@ -779,6 +910,7 @@ class SemanticAnalyzer(ASTVisitor):
             return
 
         self._register_signal_metadata(node.name, node, value_type, node.type_name)
+        self._track_source_nature(node.name, node.value)
 
     def _type_name_to_symbol_type(self, type_name: str) -> str:
         """Convert type name to symbol type."""
@@ -1018,26 +1150,25 @@ class SemanticAnalyzer(ASTVisitor):
 
     def visit_MemDecl(self, node: MemDecl) -> None:
         """Analyze memory declaration."""
-        if node.init_expr:
-            self.diagnostics.error(
-                "Memory declarations no longer accept initial values; use write(..., when=once) instead.",
-                node,
-            )
         declared_type = node.signal_type
-        if not declared_type:
-            self.diagnostics.error(
-                f"Memory '{node.name}' must declare a signal type using Memory name: \"signal\";",
-                node,
-            )
-            declared_type = "__invalid__"
 
-        if not self.is_valid_signal_type(declared_type):
-            self.diagnostics.error(
-                f"Invalid signal type '{declared_type}' for memory '{node.name}'",
-                node,
-            )
+        if declared_type is None:
+            # Allocate a compiler-managed virtual channel placeholder. The
+            # concrete storage channel will be inferred from the first write().
+            signal_info = self.allocate_implicit_type()
+        else:
+            if not self.is_valid_signal_type(declared_type):
+                self.diagnostics.error(
+                    f"Invalid signal type '{declared_type}' for memory '{node.name}'",
+                    node,
+                )
+            elif declared_type in self.RESERVED_SIGNAL_RULES:
+                self._emit_reserved_signal_diagnostic(
+                    declared_type, node, "for memory storage"
+                )
 
-        signal_info = self.make_signal_type_info(declared_type)
+            signal_info = self.make_signal_type_info(declared_type)
+
         memory_type = SignalValue(signal_type=signal_info)
 
         symbol = Symbol(
@@ -1055,11 +1186,40 @@ class SemanticAnalyzer(ASTVisitor):
 
         mem_info = MemoryInfo(
             name=node.name,
+            symbol=symbol,
             signal_type=declared_type,
             signal_info=signal_info,
-            symbol=symbol,
+            explicit=declared_type is not None,
         )
         self.memory_types[node.name] = mem_info
+
+        # Handle inline initialization hints
+        if node.init_expr is not None:
+            init_type = self.get_expr_type(node.init_expr)
+
+            if isinstance(init_type, SignalValue) and init_type.signal_type is not None:
+                init_signal_name = init_type.signal_type.name
+
+                if mem_info.signal_type is None:
+                    mem_info.signal_type = init_signal_name
+                    mem_info.signal_info = init_type.signal_type
+                    memory_type.signal_type = init_type.signal_type
+                    symbol.value_type.signal_type = init_type.signal_type
+                    node.signal_type = init_signal_name
+                    declared_type = init_signal_name
+                elif init_signal_name != mem_info.signal_type:
+                    self._warn(
+                        (
+                            f"Memory '{node.name}' initialization writes '{init_signal_name}'"
+                            f" but declaration expects '{mem_info.signal_type}'."
+                            " Project the initializer to the declared type or update the declaration."
+                        ),
+                        node.init_expr,
+                    )
+            elif isinstance(init_type, IntValue) and mem_info.signal_type is None:
+                # Preserve implicit virtual channel for integer initializers until a
+                # concrete signal type is inferred by a later write.
+                pass
 
         self._register_signal_metadata(
             node.name,
@@ -1195,6 +1355,7 @@ class SemanticAnalyzer(ASTVisitor):
                 value_type,
                 target_symbol.symbol_type if target_symbol else None,
             )
+            self._track_source_nature(node.target.name, node.value)
 
     def visit_ImportStmt(self, node: ImportStmt) -> None:
         """Analyze import statement."""

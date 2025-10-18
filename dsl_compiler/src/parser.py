@@ -165,7 +165,7 @@ class DSLTransformer(Transformer):
             raise ValueError(f"Unexpected decl_stmt structure: {items}")
 
     def mem_decl(self, items) -> Statement:
-        """mem_decl: (Memory|mem) NAME ":" STRING"""
+        """mem_decl: (Memory|mem) NAME [":" STRING] ["=" expr]"""
         if not items:
             raise ValueError("mem_decl requires a name")
 
@@ -175,6 +175,7 @@ class DSLTransformer(Transformer):
 
         name_token = None
         signal_type: Optional[str] = None
+        init_expr: Optional[Expr] = None
 
         for item in items:
             if isinstance(item, Token):
@@ -185,14 +186,18 @@ class DSLTransformer(Transformer):
             elif isinstance(item, str):
                 if item.startswith("\"") and item.endswith("\""):
                     signal_type = item[1:-1]
+            elif isinstance(item, Expr):
+                init_expr = item
+            else:
+                resolved = self._unwrap_tree(item)
+                if isinstance(resolved, Expr):
+                    init_expr = resolved
 
         if name_token is None:
             raise ValueError("mem_decl missing memory name token")
-        if signal_type is None:
-            raise ValueError("mem_decl requires explicit signal type literal")
 
         name = str(name_token.value) if hasattr(name_token, "value") else str(name_token)
-        mem_node = MemDecl(name=name, signal_type=signal_type)
+        mem_node = MemDecl(name=name, signal_type=signal_type, init_expr=init_expr)
         self._set_position(mem_node, name_token)
         return mem_node
 

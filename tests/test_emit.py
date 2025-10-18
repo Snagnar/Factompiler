@@ -406,7 +406,6 @@ class TestBlueprintEmitter:
             assert hold_green is False, (
                 f"{memory_id} hold gate must not drive the green network"
             )
-
             write_condition = write_gate.conditions[0]
             hold_condition = hold_gate.conditions[0]
 
@@ -435,6 +434,64 @@ class TestBlueprintEmitter:
             assert hold_enable_green is True and hold_enable_red is False, (
                 f"{memory_id} hold gate must read signal-W from the green network only"
             )
+
+    def test_unconditional_memory_increment_uses_feedback_loop(self, parser, analyzer):
+        """Unconditional counter increments should reuse the arithmetic combinator via feedback."""
+
+        code = """
+        Memory counter: "signal-A";
+        write(read(counter) + ("signal-A", 1), counter, when=1);
+        """
+
+        program = parser.parse(code)
+        analyze_program(program, strict_types=False, analyzer=analyzer)
+        ir_operations, diagnostics, signal_map = lower_program(program, analyzer)
+
+        assert not diagnostics.has_errors(), diagnostics.get_messages()
+
+        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter.emit_blueprint(ir_operations)
+
+        memory_id = "mem_counter"
+
+        feedback_entities = [
+            placement
+            for placement in emitter.entities.values()
+            if placement.metadata.get("feedback_loop")
+            and placement.metadata.get("memory_id") == memory_id
+        ]
+
+        assert feedback_entities, (
+            "Expected arithmetic combinator to advertise feedback loop metadata"
+        )
+
+        feedback_entity = feedback_entities[0]
+        feedback_entity_id = feedback_entity.entity_id
+
+        assert emitter.signal_graph.get_source(memory_id) == feedback_entity_id, (
+            "Memory source should be redirected to the feedback combinator"
+        )
+        assert not any(
+            entity_id.startswith(f"{memory_id}_write_data_")
+            for entity_id in emitter.entities
+        ), "Feedback loop strategy must avoid creating gated write injectors"
+        assert not any(
+            entity_id.startswith(f"{memory_id}_write_enable_")
+            for entity_id in emitter.entities
+        ), "Feedback loop strategy must avoid creating enable pulse combinators"
+
+        assert feedback_entity.metadata.get("feedback_signal") is not None, (
+            "Feedback metadata should expose the propagated signal identifier"
+        )
+
+        read_nodes = emitter._memory_reads_by_memory.get(memory_id, [])
+
+        assert read_nodes, "Expected at least one memory read to be indexed for feedback wiring"
+
+        assert all(
+            emitter.signal_graph.get_source(read_node_id) == feedback_entity_id
+            for read_node_id in read_nodes
+        ), "Every memory read should redirect to the feedback combinator"
 
     def test_signal_name_resolution(self):
         """Test signal name resolution with mapping."""

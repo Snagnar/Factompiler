@@ -21,10 +21,17 @@ from dsl_compiler.src.parser import DSLParser
 from dsl_compiler.src.semantic import analyze_program, SemanticAnalyzer
 from dsl_compiler.src.lowerer import lower_program
 from dsl_compiler.src.emit import emit_blueprint_string
+from dsl_compiler.src.optimizer import CSEOptimizer
+import dsl_compiler.src.semantic as semantic_module
 
 
 def compile_dsl_file(
-    input_path: Path, strict_types: bool = False, program_name: str = None
+    input_path: Path,
+    strict_types: bool = False,
+    program_name: str = None,
+    *,
+    optimize: bool = True,
+    explain: bool = False,
 ) -> tuple[bool, str, list]:
     """
     Compile a DSL file to blueprint string.
@@ -46,6 +53,9 @@ def compile_dsl_file(
         program_name = input_path.stem.replace("_", " ").title()
 
     all_diagnostics = []
+
+    previous_explain = semantic_module.EXPLAIN_MODE
+    semantic_module.EXPLAIN_MODE = explain
 
     try:
         # Parse
@@ -92,6 +102,9 @@ def compile_dsl_file(
         if lowering_diagnostics.warning_count > 0:
             all_diagnostics.extend(lowering_diagnostics.get_messages())
 
+        if optimize:
+            ir_operations = CSEOptimizer().optimize(ir_operations)
+
         # Blueprint generation
         blueprint_string, emit_diagnostics = emit_blueprint_string(
             ir_operations, f"{program_name} Blueprint", signal_type_map
@@ -122,6 +135,8 @@ def compile_dsl_file(
 
     except Exception as e:
         return False, f"Compilation failed with unexpected error: {e}", all_diagnostics
+    finally:
+        semantic_module.EXPLAIN_MODE = previous_explain
 
 
 @click.command()
@@ -141,7 +156,25 @@ def compile_dsl_file(
     "--name", type=str, help="Blueprint name (default: derived from input filename)"
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed diagnostic messages")
-def main(input_file: Path, output: Path, strict: bool, name: str, verbose: bool):
+@click.option(
+    "--no-optimize",
+    is_flag=True,
+    help="Disable IR optimizations (constant folding always applies)",
+)
+@click.option(
+    "--explain",
+    is_flag=True,
+    help="Add extended explanations to compiler diagnostics",
+)
+def main(
+    input_file: Path,
+    output: Path,
+    strict: bool,
+    name: str,
+    verbose: bool,
+    no_optimize: bool,
+    explain: bool,
+):
     """
     Compile Factorio Circuit DSL files to blueprint format.
 
@@ -154,7 +187,11 @@ def main(input_file: Path, output: Path, strict: bool, name: str, verbose: bool)
 
     # Compile the file
     success, result, diagnostics = compile_dsl_file(
-        input_file, strict_types=strict, program_name=name
+        input_file,
+        strict_types=strict,
+        program_name=name,
+        optimize=not no_optimize,
+        explain=explain,
     )
 
     # Print diagnostics if verbose or if there are warnings

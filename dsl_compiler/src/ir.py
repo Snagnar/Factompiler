@@ -127,6 +127,23 @@ class IR_Decider(IRValue):
         return f"IR_Decider({self.node_id}: {self.output_type} = if({self.left} {self.test_op} {self.right}) then {self.output_value})"
 
 
+class IR_WireMerge(IRValue):
+    """Logical wire merge of multiple simple sources on the same signal."""
+
+    def __init__(
+        self, node_id: str, output_type: str, source_ast: Optional[ASTNode] = None
+    ):
+        super().__init__(node_id, output_type, source_ast)
+        self.sources: List[ValueRef] = []
+
+    def add_source(self, source: ValueRef) -> None:
+        self.sources.append(source)
+
+    def __str__(self) -> str:
+        joined = ", ".join(str(src) for src in self.sources)
+        return f"IR_WireMerge({self.node_id}: {self.output_type} = wire_merge({joined}))"
+
+
 class IR_MemRead(IRValue):
     """Memory read operation."""
 
@@ -194,6 +211,7 @@ class IR_MemWrite(IREffect):
         self.write_enable = (
             write_enable  # Signal that enables the write (usually constant 1)
         )
+        self.is_one_shot: bool = False
 
     def __str__(self) -> str:
         return f"IR_MemWrite({self.memory_id} <- {self.data_signal} when {self.write_enable})"
@@ -457,6 +475,21 @@ class IRBuilder:
         self.add_operation(decider_op)
         return SignalRef(output_type, node_id, source_ast=source_ast)
 
+    def wire_merge(
+        self,
+        sources: List[ValueRef],
+        output_type: str,
+        source_ast: Optional[ASTNode] = None,
+    ) -> SignalRef:
+        """Create a virtual wire merge combining multiple simple sources."""
+
+        node_id = self.next_id("wire_merge")
+        merge_op = IR_WireMerge(node_id, output_type, source_ast)
+        for source in sources:
+            merge_op.add_source(source)
+        self.add_operation(merge_op)
+        return SignalRef(output_type, node_id, source_ast=source_ast)
+
     def memory_create(
         self,
         memory_id: str,
@@ -483,10 +516,11 @@ class IRBuilder:
         data_signal: ValueRef,
         write_enable: ValueRef,
         source_ast: Optional[ASTNode] = None,
-    ):
+    ) -> IR_MemWrite:
         """Write to memory."""
         op = IR_MemWrite(memory_id, data_signal, write_enable, source_ast)
         self.add_operation(op)
+        return op
 
     def place_entity(
         self,

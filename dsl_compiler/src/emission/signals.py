@@ -20,6 +20,7 @@ class EntityPlacement:
     input_signals: Dict[str, str]
     role: Optional[str] = None
     zone: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

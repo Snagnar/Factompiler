@@ -88,3 +88,49 @@ class TestSemanticAnalyzer:
         assert not diagnostics.has_errors(), (
             diagnostics.get_messages() if diagnostics.has_errors() else ""
         )
+
+    def test_signal_w_literal_is_rejected(self, parser, analyzer):
+        """User-declared signal literals must not target the reserved signal-W channel."""
+
+        code = 'Signal bad = ("signal-W", 10);'
+
+        program = parser.parse(code)
+        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+
+        assert diagnostics.has_errors(), "Expected an error when using reserved signal-W"
+        messages = diagnostics.get_messages()
+        assert any(
+            "signal-W" in message and "reserved" in message for message in messages
+        ), "Diagnostic should explain that signal-W is reserved"
+
+    def test_signal_w_projection_is_rejected(self, parser, analyzer):
+        """Projecting onto signal-W must surface a reservation error."""
+
+        code = 'Signal x = 10 | "signal-W";'
+
+        program = parser.parse(code)
+        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+
+        assert diagnostics.has_errors(), (
+            "Expected an error when projecting onto reserved signal-W"
+        )
+        messages = diagnostics.get_messages()
+        assert any(
+            "signal-W" in message and "reserved" in message for message in messages
+        ), "Diagnostic should explain that signal-W is reserved"
+
+    def test_signal_w_memory_declaration_is_rejected(self, parser, analyzer):
+        """Memory declarations must not claim the reserved signal-W channel."""
+
+        code = 'Memory w: "signal-W";'
+
+        program = parser.parse(code)
+        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+
+        assert diagnostics.has_errors(), (
+            "Expected an error when reserving signal-W for memory storage"
+        )
+        messages = diagnostics.get_messages()
+        assert any(
+            "signal-W" in message and "reserved" in message for message in messages
+        ), "Diagnostic should explain that signal-W is reserved"

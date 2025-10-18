@@ -3,7 +3,7 @@ Tests for lowerer.py - IR lowering functionality.
 """
 
 import pytest
-from dsl_compiler.src.ir import IR_MemWrite, SignalRef
+from dsl_compiler.src.ir import IR_Arith, IR_Const, IR_MemCreate, IR_MemWrite, SignalRef
 from dsl_compiler.src.lowerer import lower_program
 from dsl_compiler.src.parser import DSLParser
 from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
@@ -79,3 +79,68 @@ class TestLowerer:
         assert write_op.write_enable.signal_type == "signal-W", (
             "Write enable should default to signal-W"
         )
+
+    def test_constant_folding_eliminates_arith(self, parser, analyzer):
+        """Constant arithmetic should fold to IR constants with no combinators."""
+
+        code = """
+        Signal a = 10 + 20;
+        Signal b = 100 * 2;
+        Signal c = 50 / 5;
+        """
+
+        program = parser.parse(code)
+        analyze_program(program, strict_types=False, analyzer=analyzer)
+        ir_operations, diagnostics, _ = lower_program(program, analyzer)
+
+        assert not diagnostics.has_errors(), diagnostics.get_messages()
+
+        consts = [op for op in ir_operations if isinstance(op, IR_Const)]
+        ariths = [op for op in ir_operations if isinstance(op, IR_Arith)]
+
+        assert len(consts) >= 3
+        assert len(ariths) == 0
+
+    def test_redundant_projection_eliminated(self, parser, analyzer):
+        """Projecting to the same signal should not create arithmetic nodes."""
+
+        code = """
+        Signal iron = ("iron-plate", 100);
+        Signal same = iron | "iron-plate";
+        """
+
+        program = parser.parse(code)
+        analyze_program(program, strict_types=False, analyzer=analyzer)
+        ir_operations, diagnostics, _ = lower_program(program, analyzer)
+
+        assert not diagnostics.has_errors(), diagnostics.get_messages()
+
+        ariths = [op for op in ir_operations if isinstance(op, IR_Arith)]
+        assert len(ariths) == 0
+
+    def test_memory_initialization_sugar(self, parser, analyzer):
+        """Memory declarations with initializers should emit one-shot writes."""
+
+        code = 'Memory counter: "signal-A" = ("signal-A", 5);'
+
+        program = parser.parse(code)
+        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+        assert not diagnostics.has_errors(), diagnostics.get_messages()
+
+        ir_operations, lower_diag, _ = lower_program(program, analyzer)
+        assert not lower_diag.has_errors(), lower_diag.get_messages()
+
+        mem_creates = [
+            op
+            for op in ir_operations
+            if isinstance(op, IR_MemCreate) and op.memory_id == "mem_counter"
+        ]
+        mem_writes = [
+            op
+            for op in ir_operations
+            if isinstance(op, IR_MemWrite) and op.memory_id == "mem_counter"
+        ]
+
+        assert len(mem_creates) == 1
+        assert len(mem_writes) == 1
+        assert mem_writes[0].is_one_shot is True

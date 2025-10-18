@@ -754,6 +754,7 @@ The compiler generates IR operations that represent Factorio combinators:
 - `IR_Const`: Constant combinator with fixed value
 - `IR_Arith`: Arithmetic combinator (+, -, *, /, %)
 - `IR_Decider`: Decider combinator with conditional logic
+- `IR_WireMerge`: Virtual node that merges multiple simple sources onto one signal wire
 
 #### Effect Operations
 - `IR_MemCreate`: Memory cell creation (SR latch circuit)
@@ -785,6 +786,31 @@ The emit module converts IR to Factorio blueprint JSON using the `factorio-draft
 **Implicit Types**: Compiler allocates virtual signals (`__v1`, `__v2`, etc.)
 **Explicit Types**: User-specified types validated against Factorio signal database
 **Type Mapping**: Final signal mapping exported for debugging
+
+### Wire Merge Optimization
+
+The emitter can eliminate arithmetic combinators for addition chains when every
+operand is a *simple source* (constant combinator output, entity property read, or
+the result of an earlier wire merge) and all signals share the same channel.
+
+```fcdsl
+Signal iron_a = ("iron-plate", 100);
+Signal iron_b = ("iron-plate", 200);
+Signal iron_c = ("iron-plate", 50);
+
+Signal total = iron_a + iron_b + iron_c;  # wired together with no arithmetic entity
+```
+
+The compiler verifies that:
+
+- The operator is `+` throughout the addition chain.
+- Each operand resolves to a unique simple source. Expressions such as `a + a`
+    still allocate a combinator so the doubled signal is preserved.
+- All operands agree on signal type (mixed-type additions fall back to arithmetic).
+
+When these conditions hold, the lowerer emits `IR_WireMerge` and the emitter wires
+all contributing sources directly to each consumer. No additional combinators are
+placed in the blueprint, reducing entity count and latency while preserving semantics.
 
 ### Memory Implementation
 
