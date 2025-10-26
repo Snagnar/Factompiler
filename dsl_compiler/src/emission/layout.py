@@ -7,7 +7,7 @@ class LayoutEngine:
     """Heuristic layout engine that keeps related entities clustered."""
 
     def __init__(self):
-        self.entity_spacing = 2
+        self.entity_spacing = 1
         self.row_height = 2
         self._origin = (0, 0)
         self.used_positions: Set[Tuple[int, int]] = set()
@@ -131,6 +131,36 @@ class LayoutEngine:
                 padding,
                 enqueue_neighbors=False,
             )
+
+    def reserve_exact(
+        self,
+        pos: Tuple[int, int],
+        *,
+        footprint: Tuple[int, int] = (1, 1),
+        padding: int = 0,
+    ) -> Optional[Tuple[int, int]]:
+        """Attempt to claim the exact snapped position if it is currently unused."""
+
+        snapped = self.snap_to_grid(pos)
+        if snapped in self.used_positions:
+            return None
+        if not self._position_available(snapped, footprint, padding):
+            return None
+        return self._claim_position(snapped, footprint, padding)
+
+    def can_reserve(
+        self,
+        pos: Tuple[int, int],
+        *,
+        footprint: Tuple[int, int] = (1, 1),
+        padding: int = 0,
+    ) -> bool:
+        """Check whether a position is available without mutating layout state."""
+
+        snapped = self.snap_to_grid(pos)
+        if snapped in self.used_positions:
+            return False
+        return self._position_available(snapped, footprint, padding)
 
     def snap_to_grid(
         self, pos: Tuple[Union[int, float], Union[int, float]]
@@ -263,9 +293,7 @@ class LayoutEngine:
     def _mark_occupied(
         self, pos: Tuple[int, int], footprint: Tuple[int, int], padding: int
     ) -> None:
-        self._occupied_tiles.update(
-            self._iter_footprint_tiles(pos, footprint, padding)
-        )
+        self._occupied_tiles.update(self._iter_footprint_tiles(pos, footprint, padding))
 
     def _iter_footprint_tiles(
         self, pos: Tuple[int, int], footprint: Tuple[int, int], padding: int
@@ -282,6 +310,7 @@ class LayoutEngine:
         for x in range(start_x, end_x + 1):
             for y in range(start_y, end_y + 1):
                 yield (x, y)
+
     def _create_zone_state(self, zone: str) -> Dict[str, Any]:
         origin_y = self._zone_defaults.get(zone)
         if origin_y is None:

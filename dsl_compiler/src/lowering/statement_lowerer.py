@@ -69,7 +69,9 @@ class StatementLowerer:
 
     def lower_decl_stmt(self, stmt: DeclStmt) -> None:
         if isinstance(stmt.value, CallExpr) and stmt.value.name == "place":
-            entity_id, value_ref = self.parent.expr_lowerer.lower_place_call_with_tracking(stmt.value)
+            entity_id, value_ref = (
+                self.parent.expr_lowerer.lower_place_call_with_tracking(stmt.value)
+            )
             self.parent.entity_refs[stmt.name] = entity_id
             self.parent.signal_refs[stmt.name] = value_ref
             self.parent.annotate_signal_ref(stmt.name, value_ref, stmt)
@@ -108,7 +110,9 @@ class StatementLowerer:
     def lower_assign_stmt(self, stmt: AssignStmt) -> None:
         if isinstance(stmt.target, Identifier):
             if isinstance(stmt.value, CallExpr) and stmt.value.name == "place":
-                entity_id, value_ref = self.parent.expr_lowerer.lower_place_call_with_tracking(stmt.value)
+                entity_id, value_ref = (
+                    self.parent.expr_lowerer.lower_place_call_with_tracking(stmt.value)
+                )
                 self.parent.entity_refs[stmt.target.name] = entity_id
                 self.parent.signal_refs[stmt.target.name] = value_ref
                 self.parent.annotate_signal_ref(stmt.target.name, value_ref, stmt)
@@ -119,7 +123,9 @@ class StatementLowerer:
                 value_ref = self.parent.expr_lowerer.lower_expr(stmt.value)
 
                 if self.parent.returned_entity_id is not None:
-                    self.parent.entity_refs[stmt.target.name] = self.parent.returned_entity_id
+                    self.parent.entity_refs[stmt.target.name] = (
+                        self.parent.returned_entity_id
+                    )
                     self.parent.returned_entity_id = None
 
                 self.parent.signal_refs[stmt.target.name] = value_ref

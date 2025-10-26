@@ -97,7 +97,7 @@ class DSLTransformer(Transformer):
                 elif item.type == "STRING":
                     signal_type = item.value[1:-1]
             elif isinstance(item, str):
-                if item.startswith("\"") and item.endswith("\""):
+                if item.startswith('"') and item.endswith('"'):
                     signal_type = item[1:-1]
             elif isinstance(item, Expr):
                 init_expr = item
@@ -109,7 +109,9 @@ class DSLTransformer(Transformer):
         if name_token is None:
             raise ValueError("mem_decl missing memory name token")
 
-        name = str(name_token.value) if hasattr(name_token, "value") else str(name_token)
+        name = (
+            str(name_token.value) if hasattr(name_token, "value") else str(name_token)
+        )
         mem_node = MemDecl(name=name, signal_type=signal_type, init_expr=init_expr)
         self._set_position(mem_node, name_token)
         return mem_node
@@ -249,7 +251,9 @@ class DSLTransformer(Transformer):
             return Identifier(name=name, raw_text=raw_text)
 
         obj_token, prop_token = items[0], items[1]
-        object_name = obj_token.value if isinstance(obj_token, Token) else str(obj_token)
+        object_name = (
+            obj_token.value if isinstance(obj_token, Token) else str(obj_token)
+        )
         property_name = (
             prop_token.value if isinstance(prop_token, Token) else str(prop_token)
         )

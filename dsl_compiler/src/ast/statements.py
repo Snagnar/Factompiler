@@ -12,7 +12,9 @@ from .literals import LValue
 class Program(ASTNode):
     """Root node representing an entire DSL program."""
 
-    def __init__(self, statements: List["Statement"], line: int = 0, column: int = 0) -> None:
+    def __init__(
+        self, statements: List["Statement"], line: int = 0, column: int = 0
+    ) -> None:
         super().__init__(line, column)
         self.statements = statements
 
@@ -27,7 +29,9 @@ class TopDecl(ASTNode):
 class Statement(ASTNode):
     """Base class for all statements."""
 
-    def __init__(self, line: int = 0, column: int = 0, raw_text: Optional[str] = None) -> None:
+    def __init__(
+        self, line: int = 0, column: int = 0, raw_text: Optional[str] = None
+    ) -> None:
         super().__init__(line, column, raw_text=raw_text)
 
 
@@ -46,7 +50,9 @@ class DeclStmt(Statement):
 class AssignStmt(Statement):
     """variable = expression; or variable.property = expression;"""
 
-    def __init__(self, target: LValue, value: Expr, line: int = 0, column: int = 0) -> None:
+    def __init__(
+        self, target: LValue, value: Expr, line: int = 0, column: int = 0
+    ) -> None:
         super().__init__(line, column)
         self.target = target
         self.value = value

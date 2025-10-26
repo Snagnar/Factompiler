@@ -125,7 +125,9 @@ class ASTLowerer:
         if isinstance(mapped, str):
             if signal_data is not None and mapped in signal_data.raw:
                 prototype_type = signal_data.raw[mapped].get("type", "virtual")
-                return "virtual" if prototype_type == "virtual-signal" else prototype_type
+                return (
+                    "virtual" if prototype_type == "virtual-signal" else prototype_type
+                )
             if mapped.startswith("signal-"):
                 return "virtual"
 
@@ -149,7 +151,9 @@ class ASTLowerer:
             return
 
         category = (
-            self._infer_signal_category(source_signal_type) if source_signal_type else None
+            self._infer_signal_category(source_signal_type)
+            if source_signal_type
+            else None
         )
         if not category:
             category = self._infer_signal_category(signal_type)
@@ -208,7 +212,9 @@ class ASTLowerer:
         right_ref: ValueRef,
         output_type: Optional[str] = None,
     ) -> ValueRef:
-        return self.expr_lowerer.lower_comparison_op(expr, left_ref, right_ref, output_type)
+        return self.expr_lowerer.lower_comparison_op(
+            expr, left_ref, right_ref, output_type
+        )
 
     def lower_unary_op(self, expr: UnaryOp) -> ValueRef:
         return self.expr_lowerer.lower_unary_op(expr)

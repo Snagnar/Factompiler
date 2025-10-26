@@ -14,6 +14,8 @@ from dsl_compiler.src.emission import (
     MAX_CIRCUIT_WIRE_SPAN,
     WireRelayOptions,
 )
+from dsl_compiler.src.emission.emitter import POWER_POLE_CONFIG
+from dsl_compiler.src.emission.layout import LayoutEngine
 from draftsman.entity import new_entity  # type: ignore[import-not-found]
 from dsl_compiler.src.emission.signals import EntityPlacement, SignalUsageEntry
 from dsl_compiler.src.emission.debug_format import format_entity_description
@@ -54,6 +56,15 @@ def _make_far_endpoints(
     return source, sink
 
 
+def test_layout_engine_packs_entities_tightly():
+    engine = LayoutEngine()
+    first = engine.get_next_position()
+    second = engine.get_next_position()
+
+    assert second[0] - first[0] == 1, "LayoutEngine should use unit horizontal spacing"
+    assert second[1] == first[1], "Adjacent placements should remain on the same row by default"
+
+
 class TestBlueprintEmitter:
     def test_entity_descriptions_include_names_and_locations(self, parser, analyzer):
         """Test that entity descriptions contain variable names and source line numbers when available."""
@@ -75,18 +86,18 @@ class TestBlueprintEmitter:
             for e in emitter.entities.values()
             if getattr(e.entity, "player_description", "")
         ]
-        assert described_entities, (
-            "At least one entity should expose player_description"
-        )
+        assert (
+            described_entities
+        ), "At least one entity should expose player_description"
 
         descriptions = [e.entity.player_description for e in described_entities]
 
-        assert any("signal" in desc for desc in descriptions), (
-            "Descriptions should include 'signal' keyword"
-        )
-        assert any("(" in desc for desc in descriptions), (
-            "Descriptions should include resolved signal hints when available"
-        )
+        assert any(
+            "signal" in desc for desc in descriptions
+        ), "Descriptions should include 'signal' keyword"
+        assert any(
+            "(" in desc for desc in descriptions
+        ), "Descriptions should include resolved signal hints when available"
 
         expected_names = {
             "a",
@@ -103,9 +114,9 @@ class TestBlueprintEmitter:
             any(name in desc for name in expected_names) for desc in descriptions
         ), "At least one description should contain a variable name"
 
-        assert any("@ 01_basic_arithmetic.fcdsl:" in desc for desc in descriptions), (
-            "Descriptions should include file and line information"
-        )
+        assert any(
+            "@ 01_basic_arithmetic.fcdsl:" in desc for desc in descriptions
+        ), "Descriptions should include file and line information"
 
     @pytest.mark.parametrize(
         "sample_file",
@@ -153,9 +164,9 @@ class TestBlueprintEmitter:
         non_anchor_constants = [
             c for c in constant_combinators if c not in anchor_combinators
         ]
-        assert len(non_anchor_constants) == len(explicit_literals), (
-            f"Should only emit constants for explicit literals: found {len(non_anchor_constants)}, expected {len(explicit_literals)}"
-        )
+        assert len(non_anchor_constants) == len(
+            explicit_literals
+        ), f"Should only emit constants for explicit literals: found {len(non_anchor_constants)}, expected {len(explicit_literals)}"
 
     def test_basic_arithmetic_literal_and_export_anchor(self, parser, analyzer):
         """Regression: 01_basic_arithmetic.fcdsl should emit one combinator for typed literal and blank anchor for exported signal."""
@@ -184,9 +195,9 @@ class TestBlueprintEmitter:
                                 and getattr(s, "count", 0) == 50
                             ):
                                 iron_plate_combinators.append(e)
-        assert len(iron_plate_combinators) == 1, (
-            "Should emit exactly one combinator for typed literal 'c'"
-        )
+        assert (
+            len(iron_plate_combinators) == 1
+        ), "Should emit exactly one combinator for typed literal 'c'"
 
         # Check for blank anchor combinator for exported signal (output_val)
         anchor_combinators = []
@@ -201,9 +212,9 @@ class TestBlueprintEmitter:
                         is_anchor = False
                 if is_anchor:
                     anchor_combinators.append(e)
-        assert len(anchor_combinators) >= 1, (
-            "Should emit at least one blank anchor for exported signal"
-        )
+        assert (
+            len(anchor_combinators) >= 1
+        ), "Should emit at least one blank anchor for exported signal"
 
     def test_constant_roles_align_with_zones(self, parser, analyzer):
         """Literals should occupy the north edge, export anchors the south edge."""
@@ -232,9 +243,9 @@ class TestBlueprintEmitter:
         expected_north_y = -emitter.layout.row_height * 3
         literal_rows = {placement.position[1] for placement in literal_placements}
 
-        assert literal_rows == {expected_north_y}, (
-            f"Literal combinators should align on row {expected_north_y}, got {literal_rows}"
-        )
+        assert literal_rows == {
+            expected_north_y
+        }, f"Literal combinators should align on row {expected_north_y}, got {literal_rows}"
         assert all(
             placement.zone == "north_literals" for placement in literal_placements
         ), "Literal combinators should be tagged with the north_literals zone"
@@ -250,9 +261,9 @@ class TestBlueprintEmitter:
         expected_south_y = emitter.layout.row_height * 3
         anchor_rows = {placement.position[1] for placement in anchor_placements}
 
-        assert anchor_rows == {expected_south_y}, (
-            f"Export anchors should align on row {expected_south_y}, got {anchor_rows}"
-        )
+        assert anchor_rows == {
+            expected_south_y
+        }, f"Export anchors should align on row {expected_south_y}, got {anchor_rows}"
         assert all(
             placement.zone == "south_exports" for placement in anchor_placements
         ), "Export anchors should be tagged with the south_exports zone"
@@ -283,6 +294,113 @@ class TestBlueprintEmitter:
 
         assert blueprint is not None
         assert len(emitter.entities) > 0
+
+    def test_power_poles_cover_entities_and_form_chain(self, parser, analyzer):
+        """Power pole planner should cover every entity tile and remain connected."""
+
+        code = """
+        Signal a = 1;
+        Signal b = a + 1;
+        Signal c = b + a;
+        Signal d = c + b;
+        Signal e = d + c;
+        """
+
+        program = parser.parse(code)
+        analyze_program(program, strict_types=False, analyzer=analyzer)
+        ir_operations, _, signal_map = lower_program(program, analyzer)
+
+        emitter = BlueprintEmitter(
+            signal_type_map=signal_map,
+            power_pole_type="medium",
+        )
+        emitter.emit_blueprint(ir_operations)
+
+        placements = [
+            placement
+            for placement in emitter.entities.values()
+            if placement.role != "power"
+        ]
+        assert placements, "Expected circuit entities to require power coverage"
+
+        poles = emitter.power_poles
+        assert poles, "Power pole deployment should materialize poles"
+
+        config = POWER_POLE_CONFIG["medium"]
+        supply_radius = float(config["supply_radius"])
+        wire_reach = float(config["wire_reach"])
+
+        def iter_tiles(placement: EntityPlacement):
+            width = getattr(placement.entity, "tile_width", 1) or 1
+            height = getattr(placement.entity, "tile_height", 1) or 1
+            for dx in range(width):
+                for dy in range(height):
+                    yield (
+                        placement.position[0] + dx,
+                        placement.position[1] + dy,
+                    )
+
+        coverage_tiles = {
+            tile
+            for placement in placements
+            for tile in iter_tiles(placement)
+        }
+
+        pole_centers = [
+            (
+                pole.position[0]
+                + (getattr(pole.entity, "tile_width", 1) or 1) / 2.0,
+                pole.position[1]
+                + (getattr(pole.entity, "tile_height", 1) or 1) / 2.0,
+            )
+            for pole in poles
+        ]
+
+        for tile in coverage_tiles:
+            tile_center = (tile[0] + 0.5, tile[1] + 0.5)
+            assert any(
+                math.hypot(tile_center[0] - cx, tile_center[1] - cy)
+                <= supply_radius + 0.5
+                for cx, cy in pole_centers
+            ), f"Tile {tile} lacks power coverage"
+
+        reach_sq = wire_reach * wire_reach
+
+        def neighbors(index: int):
+            origin = pole_centers[index]
+            for offset, centre in enumerate(pole_centers):
+                if index == offset:
+                    continue
+                if (
+                    (origin[0] - centre[0]) ** 2
+                    + (origin[1] - centre[1]) ** 2
+                    <= reach_sq
+                ):
+                    yield offset
+
+        visited = {0}
+        stack = [0]
+        while stack:
+            idx = stack.pop()
+            for neighbour in neighbors(idx):
+                if neighbour not in visited:
+                    visited.add(neighbour)
+                    stack.append(neighbour)
+
+        assert (
+            len(visited) == len(pole_centers)
+        ), "Power poles should form a connected network through copper reach"
+
+        tile_xs = [tile[0] for tile in coverage_tiles]
+        tile_ys = [tile[1] for tile in coverage_tiles]
+        min_x, max_x = min(tile_xs), max(tile_xs)
+        min_y, max_y = min(tile_ys), max(tile_ys)
+        margin = math.ceil(supply_radius) + 2
+
+        for pole in poles:
+            px, py = pole.position
+            assert min_x - margin <= px <= max_x + margin
+            assert min_y - margin <= py <= max_y + margin
 
     def test_emission_sample_files(self, parser, analyzer):
         """Test emission on sample files."""
@@ -342,18 +460,18 @@ class TestBlueprintEmitter:
             if "_write_data_" in placement.entity_id
         ]
 
-        assert len(injectors) >= 2, (
-            "Expected a dedicated write injector for each write() call"
-        )
+        assert (
+            len(injectors) >= 2
+        ), "Expected a dedicated write injector for each write() call"
 
         for placement in injectors:
             assert getattr(placement.entity, "name", "") == "decider-combinator"
-            assert placement.input_signals.get("signal-W") == "green", (
-                "Write injector should read signal-W on the green network"
-            )
-            assert any(color == "red" for color in placement.output_signals.values()), (
-                "Write injector should drive the memory data line on the red network"
-            )
+            assert (
+                placement.input_signals.get("signal-W") == "green"
+            ), "Write injector should read signal-W on the green network"
+            assert any(
+                color == "red" for color in placement.output_signals.values()
+            ), "Write injector should drive the memory data line on the red network"
 
     def test_memory_outputs_restrict_input_networks(self, parser, analyzer):
         """Memory gates must read from distinct networks to avoid summing feedback and writes."""
@@ -374,7 +492,9 @@ class TestBlueprintEmitter:
         emitter.emit_blueprint(ir_operations)
 
         memory_modules = emitter.memory_builder.memory_modules
-        assert memory_modules, "Expected memory modules to be registered during emission"
+        assert (
+            memory_modules
+        ), "Expected memory modules to be registered during emission"
 
         for memory_id, module in memory_modules.items():
             write_gate = module["write_gate"].entity
@@ -394,18 +514,18 @@ class TestBlueprintEmitter:
             hold_green = getattr(hold_selection, "green", None)
             hold_red = getattr(hold_selection, "red", None)
 
-            assert write_red is True, (
-                f"{memory_id} write gate outputs must ride the red network"
-            )
-            assert write_green is False, (
-                f"{memory_id} write gate must not drive the green network"
-            )
-            assert hold_red is True, (
-                f"{memory_id} hold gate outputs must ride the red network"
-            )
-            assert hold_green is False, (
-                f"{memory_id} hold gate must not drive the green network"
-            )
+            assert (
+                write_red is True
+            ), f"{memory_id} write gate outputs must ride the red network"
+            assert (
+                write_green is False
+            ), f"{memory_id} write gate must not drive the green network"
+            assert (
+                hold_red is True
+            ), f"{memory_id} hold gate outputs must ride the red network"
+            assert (
+                hold_green is False
+            ), f"{memory_id} hold gate must not drive the green network"
             write_condition = write_gate.conditions[0]
             hold_condition = hold_gate.conditions[0]
 
@@ -416,24 +536,24 @@ class TestBlueprintEmitter:
                 hold_condition, "first_signal_networks", None
             )
 
-            assert write_enable_networks is not None, (
-                f"{memory_id} write gate condition should expose network selection"
-            )
-            assert hold_enable_networks is not None, (
-                f"{memory_id} hold gate condition should expose network selection"
-            )
+            assert (
+                write_enable_networks is not None
+            ), f"{memory_id} write gate condition should expose network selection"
+            assert (
+                hold_enable_networks is not None
+            ), f"{memory_id} hold gate condition should expose network selection"
 
             write_enable_green = getattr(write_enable_networks, "green", None)
             write_enable_red = getattr(write_enable_networks, "red", None)
             hold_enable_green = getattr(hold_enable_networks, "green", None)
             hold_enable_red = getattr(hold_enable_networks, "red", None)
 
-            assert write_enable_green is True and write_enable_red is False, (
-                f"{memory_id} write gate must read signal-W from the green network only"
-            )
-            assert hold_enable_green is True and hold_enable_red is False, (
-                f"{memory_id} hold gate must read signal-W from the green network only"
-            )
+            assert (
+                write_enable_green is True and write_enable_red is False
+            ), f"{memory_id} write gate must read signal-W from the green network only"
+            assert (
+                hold_enable_green is True and hold_enable_red is False
+            ), f"{memory_id} hold gate must read signal-W from the green network only"
 
     def test_unconditional_memory_increment_uses_feedback_loop(self, parser, analyzer):
         """Unconditional counter increments should reuse the arithmetic combinator via feedback."""
@@ -461,16 +581,16 @@ class TestBlueprintEmitter:
             and placement.metadata.get("memory_id") == memory_id
         ]
 
-        assert feedback_entities, (
-            "Expected arithmetic combinator to advertise feedback loop metadata"
-        )
+        assert (
+            feedback_entities
+        ), "Expected arithmetic combinator to advertise feedback loop metadata"
 
         feedback_entity = feedback_entities[0]
         feedback_entity_id = feedback_entity.entity_id
 
-        assert emitter.signal_graph.get_source(memory_id) == feedback_entity_id, (
-            "Memory source should be redirected to the feedback combinator"
-        )
+        assert (
+            emitter.signal_graph.get_source(memory_id) == feedback_entity_id
+        ), "Memory source should be redirected to the feedback combinator"
         assert not any(
             entity_id.startswith(f"{memory_id}_write_data_")
             for entity_id in emitter.entities
@@ -480,13 +600,15 @@ class TestBlueprintEmitter:
             for entity_id in emitter.entities
         ), "Feedback loop strategy must avoid creating enable pulse combinators"
 
-        assert feedback_entity.metadata.get("feedback_signal") is not None, (
-            "Feedback metadata should expose the propagated signal identifier"
-        )
+        assert (
+            feedback_entity.metadata.get("feedback_signal") is not None
+        ), "Feedback metadata should expose the propagated signal identifier"
 
         read_nodes = emitter._memory_reads_by_memory.get(memory_id, [])
 
-        assert read_nodes, "Expected at least one memory read to be indexed for feedback wiring"
+        assert (
+            read_nodes
+        ), "Expected at least one memory read to be indexed for feedback wiring"
 
         assert all(
             emitter.signal_graph.get_source(read_node_id) == feedback_entity_id
@@ -630,9 +752,9 @@ class TestWarningAnalysis:
         memory_warnings = [
             w for w in warnings if "Unknown signal type for memory" in w.message
         ]
-        assert len(memory_warnings) == 0, (
-            f"Found memory signal warnings: {[w.message for w in memory_warnings]}"
-        )
+        assert (
+            len(memory_warnings) == 0
+        ), f"Found memory signal warnings: {[w.message for w in memory_warnings]}"
 
 
 def test_wire_relays_inserted_for_long_spans():
@@ -652,9 +774,9 @@ def test_wire_relays_inserted_for_long_spans():
     distance = builder._compute_wire_distance(source, sink)
     expected_count = math.ceil(distance / MAX_CIRCUIT_WIRE_SPAN) - 1
 
-    assert len(relays) == expected_count, (
-        f"Expected {expected_count} relays for span {distance}, got {len(relays)}"
-    )
+    assert (
+        len(relays) == expected_count
+    ), f"Expected {expected_count} relays for span {distance}, got {len(relays)}"
     assert all(relay.role == "wire_relay" for relay in relays)
     assert all(relay.zone == "infrastructure" for relay in relays)
     assert all(relay.entity_id in emitter.entities for relay in relays)
@@ -686,7 +808,9 @@ def test_wire_relays_manhattan_strategy_inserts_extra_relays():
 
     relays = builder._insert_wire_relays_if_needed(source, sink)
 
-    assert relays, "Manhattan strategy should require at least one relay on diagonal span"
+    assert (
+        relays
+    ), "Manhattan strategy should require at least one relay on diagonal span"
     assert len(relays) == 1
 
 

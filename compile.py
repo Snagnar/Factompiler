@@ -2,12 +2,12 @@
 """
 Factorio Circuit DSL Compiler
 
-Main compilation script that takes DSL source files and produces Factorio blueprints.
-
 Usage:
     python compile.py input.fcdsl                    # Print blueprint to stdout
     python compile.py input.fcdsl -o output.blueprint # Save blueprint to file
     python compile.py input.fcdsl --strict           # Enable strict type checking
+    python compile.py input.fcdsl --power-poles      # Add medium power poles
+    python compile.py input.fcdsl --power-poles big  # Add big power poles
 """
 
 import sys
@@ -25,209 +25,166 @@ from dsl_compiler.src.ir import CSEOptimizer
 import dsl_compiler.src.semantic as semantic_module
 
 
+def validate_power_poles(ctx, param, value):
+    """Validate power pole type."""
+    if value is None:
+        return None
+    
+    valid_types = ['small', 'medium', 'big', 'substation']
+    if value.lower() not in valid_types:
+        raise click.BadParameter(f"must be one of: {', '.join(valid_types)}")
+    
+    return value.lower()
+
+
 def compile_dsl_file(
     input_path: Path,
     strict_types: bool = False,
     program_name: str = None,
-    *,
     optimize: bool = True,
     explain: bool = False,
+    power_pole_type: str | None = None,
 ) -> tuple[bool, str, list]:
     """
     Compile a DSL file to blueprint string.
-
+    
     Returns:
         (success: bool, result: str, diagnostics: list)
     """
     if not input_path.exists():
         return False, f"Input file '{input_path}' does not exist", []
-
-    # Read the DSL source
+    
+    # Read source file
     try:
-        with open(input_path, "r", encoding="utf-8") as f:
-            dsl_code = f.read()
+        dsl_code = input_path.read_text(encoding="utf-8")
     except Exception as e:
         return False, f"Failed to read input file: {e}", []
-
+    
     if program_name is None:
         program_name = input_path.stem.replace("_", " ").title()
-
+    
     all_diagnostics = []
-
     previous_explain = semantic_module.EXPLAIN_MODE
     semantic_module.EXPLAIN_MODE = explain
-
+    
     try:
         # Parse
         parser = DSLParser()
         program = parser.parse(dsl_code.strip(), str(input_path.resolve()))
-
+        
         # Semantic analysis
         analyzer = SemanticAnalyzer(strict_types=strict_types)
         semantic_diagnostics = analyze_program(
-            program,
-            strict_types=strict_types,
-            analyzer=analyzer,
-            file_path=str(input_path),
+            program, strict_types=strict_types, analyzer=analyzer, file_path=str(input_path)
         )
-
+        
         if semantic_diagnostics.has_errors():
-            error_msgs = semantic_diagnostics.get_messages()
-            all_diagnostics.extend(error_msgs)
-            return (
-                False,
-                "Semantic analysis failed:\n" + "\n".join(error_msgs),
-                all_diagnostics,
-            )
-
-        # Collect warnings from semantic analysis
-        if semantic_diagnostics.warning_count > 0:
             all_diagnostics.extend(semantic_diagnostics.get_messages())
-
+            return False, "Semantic analysis failed", all_diagnostics
+        
+        all_diagnostics.extend(semantic_diagnostics.get_messages())
+        
         # IR generation
-        ir_operations, lowering_diagnostics, signal_type_map = lower_program(
-            program, analyzer
-        )
-
+        ir_operations, lowering_diagnostics, signal_type_map = lower_program(program, analyzer)
+        
         if lowering_diagnostics.has_errors():
-            error_msgs = lowering_diagnostics.get_messages()
-            all_diagnostics.extend(error_msgs)
-            return (
-                False,
-                "IR lowering failed:\n" + "\n".join(error_msgs),
-                all_diagnostics,
-            )
-
-        # Collect warnings from lowering
-        if lowering_diagnostics.warning_count > 0:
             all_diagnostics.extend(lowering_diagnostics.get_messages())
-
+            return False, "IR lowering failed", all_diagnostics
+        
+        all_diagnostics.extend(lowering_diagnostics.get_messages())
+        
+        # Optimize
         if optimize:
             ir_operations = CSEOptimizer().optimize(ir_operations)
-
-        # Blueprint generation
+        
+        # Emit blueprint
         blueprint_string, emit_diagnostics = emit_blueprint_string(
-            ir_operations, f"{program_name} Blueprint", signal_type_map
+            ir_operations,
+            f"{program_name} Blueprint",
+            signal_type_map,
+            power_pole_type=power_pole_type,
         )
-
+        
         if emit_diagnostics.has_errors():
-            error_msgs = emit_diagnostics.get_messages()
-            all_diagnostics.extend(error_msgs)
-            return (
-                False,
-                "Blueprint emission failed:\n" + "\n".join(error_msgs),
-                all_diagnostics,
-            )
-
-        # Collect warnings from emission
-        if emit_diagnostics.warning_count > 0:
             all_diagnostics.extend(emit_diagnostics.get_messages())
-
-        # Validate blueprint string
-        if (
-            not blueprint_string
-            or len(blueprint_string) < 10
-            or not blueprint_string.startswith("0eN")
-        ):
+            return False, "Blueprint emission failed", all_diagnostics
+        
+        all_diagnostics.extend(emit_diagnostics.get_messages())
+        
+        # Validate blueprint
+        if not blueprint_string or len(blueprint_string) < 10 or not blueprint_string.startswith("0eN"):
             return False, "Invalid blueprint string generated", all_diagnostics
-
+        
         return True, blueprint_string, all_diagnostics
-
+    
     except Exception as e:
-        return False, f"Compilation failed with unexpected error: {e}", all_diagnostics
+        return False, f"Compilation failed: {e}", all_diagnostics
     finally:
         semantic_module.EXPLAIN_MODE = previous_explain
 
 
 @click.command()
-@click.argument("input_file", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "-o",
-    "--output",
-    type=click.Path(path_type=Path),
-    help="Output file for the blueprint (default: print to stdout)",
-)
-@click.option(
-    "--strict",
-    is_flag=True,
-    help="Enable strict type checking (warnings become errors)",
-)
-@click.option(
-    "--name", type=str, help="Blueprint name (default: derived from input filename)"
-)
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed diagnostic messages")
-@click.option(
-    "--no-optimize",
-    is_flag=True,
-    help="Disable IR optimizations (constant folding always applies)",
-)
-@click.option(
-    "--explain",
-    is_flag=True,
-    help="Add extended explanations to compiler diagnostics",
-)
-def main(
-    input_file: Path,
-    output: Path,
-    strict: bool,
-    name: str,
-    verbose: bool,
-    no_optimize: bool,
-    explain: bool,
-):
-    """
-    Compile Factorio Circuit DSL files to blueprint format.
-
-    INPUT_FILE: Path to the .fcdsl source file to compile
-    """
+@click.argument('input_file', type=click.Path(exists=True, path_type=Path))
+@click.option('-o', '--output', type=click.Path(path_type=Path),
+              help='Output file for the blueprint (default: stdout)')
+@click.option('--strict', is_flag=True,
+              help='Enable strict type checking')
+@click.option('--name', type=str,
+              help='Blueprint name (default: derived from input filename)')
+@click.option('-v', '--verbose', is_flag=True,
+              help='Show detailed diagnostic messages')
+@click.option('--no-optimize', is_flag=True,
+              help='Disable IR optimizations')
+@click.option('--explain', is_flag=True,
+              help='Add extended explanations to diagnostics')
+@click.option('--power-poles', is_flag=False, flag_value='medium', default=None,
+              callback=validate_power_poles,
+              help='Add power poles (small/medium/big/substation, defaults to medium if no value)')
+def main(input_file, output, strict, name, verbose, no_optimize, explain, power_poles):
+    """Compile Factorio Circuit DSL files to blueprint format."""
+    
     if verbose:
         click.echo(f"Compiling {input_file}...")
         if strict:
             click.echo("Using strict type checking mode.")
-
-    # Compile the file
+    
+    # Compile
     success, result, diagnostics = compile_dsl_file(
         input_file,
         strict_types=strict,
         program_name=name,
         optimize=not no_optimize,
         explain=explain,
+        power_pole_type=power_poles,
     )
-
-    # Print diagnostics if verbose or if there are warnings
+    
+    # Print diagnostics if needed
     if diagnostics and (verbose or not success):
         click.echo("Diagnostics:", err=True)
         for msg in diagnostics:
             click.echo(f"  {msg}", err=True)
-        if diagnostics:
-            click.echo("", err=True)  # Empty line after diagnostics
-
+        click.echo("", err=True)
+    
     if not success:
         click.echo(f"Compilation failed: {result}", err=True)
         sys.exit(1)
-
-    # Output the blueprint
+    
+    # Output blueprint
     if output:
         try:
             output.parent.mkdir(parents=True, exist_ok=True)
-            with open(output, "w", encoding="utf-8") as f:
-                f.write(result)
+            output.write_text(result, encoding="utf-8")
             if verbose:
                 click.echo(f"Blueprint saved to {output}")
         except Exception as e:
             click.echo(f"Failed to write output file: {e}", err=True)
             sys.exit(1)
     else:
-        # Print to stdout
         click.echo(result)
-
-    if verbose and diagnostics:
-        click.echo(
-            f"Compilation completed with {len(diagnostics)} diagnostic message(s).",
-            err=True,
-        )
-    elif verbose:
-        click.echo("Compilation completed successfully.", err=True)
+    
+    if verbose:
+        msg = f"Compilation completed with {len(diagnostics)} diagnostic(s)." if diagnostics else "Compilation completed successfully."
+        click.echo(msg, err=True)
 
 
 if __name__ == "__main__":

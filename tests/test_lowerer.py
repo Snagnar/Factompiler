@@ -73,12 +73,12 @@ class TestLowerer:
         assert mem_writes, "Expected at least one memory write operation"
 
         write_op = mem_writes[0]
-        assert isinstance(write_op.write_enable, SignalRef), (
-            "Write enable should be materialized as a SignalRef"
-        )
-        assert write_op.write_enable.signal_type == "signal-W", (
-            "Write enable should default to signal-W"
-        )
+        assert isinstance(
+            write_op.write_enable, SignalRef
+        ), "Write enable should be materialized as a SignalRef"
+        assert (
+            write_op.write_enable.signal_type == "signal-W"
+        ), "Write enable should default to signal-W"
 
     def test_constant_folding_eliminates_arith(self, parser, analyzer):
         """Constant arithmetic should fold to IR constants with no combinators."""

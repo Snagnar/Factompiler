@@ -98,7 +98,9 @@ class MemoryLowerer:
 
         if memory_name not in self.parent.memory_refs:
             self.diagnostics.error(f"Undefined memory: {memory_name}", expr)
-            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
 
         memory_id = self.parent.memory_refs[memory_name]
         data_ref = self.parent.expr_lowerer.lower_expr(expr.value)
@@ -111,7 +113,9 @@ class MemoryLowerer:
             )
             expected_signal_type = self.ir_builder.allocate_implicit_type()
 
-        coerced_data_ref = self._coerce_to_signal_type(data_ref, expected_signal_type, expr)
+        coerced_data_ref = self._coerce_to_signal_type(
+            data_ref, expected_signal_type, expr
+        )
 
         is_once = getattr(expr, "when_once", False)
 
@@ -165,7 +169,7 @@ class MemoryLowerer:
                     "Type mismatch in memory write:\n"
                     f"  Expected: '{signal_type}'\n"
                     f"  Got: '{source_type}'\n"
-                    f"  Fix: Use projection: value | \"{signal_type}\"",
+                    f'  Fix: Use projection: value | "{signal_type}"',
                     node,
                 )
 
@@ -174,7 +178,10 @@ class MemoryLowerer:
         if isinstance(value_ref, int):
             return self.ir_builder.const(signal_type, value_ref, node)
 
-        if hasattr(value_ref, "signal_type") and getattr(value_ref, "signal_type", None) == signal_type:
+        if (
+            hasattr(value_ref, "signal_type")
+            and getattr(value_ref, "signal_type", None) == signal_type
+        ):
             return value_ref  # type: ignore[return-value]
 
         self.diagnostics.error(
@@ -194,7 +201,9 @@ class MemoryLowerer:
         self.ir_builder.memory_create(flag_memory_id, flag_signal_type, node)
 
         flag_read = self.ir_builder.memory_read(flag_memory_id, flag_signal_type, node)
-        condition = self.ir_builder.decider("==", flag_read, 0, 1, flag_signal_type, node)
+        condition = self.ir_builder.decider(
+            "==", flag_read, 0, 1, flag_signal_type, node
+        )
 
         one_const = self.ir_builder.const(flag_signal_type, 1, node)
         flag_write = self.ir_builder.memory_write(

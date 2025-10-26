@@ -128,7 +128,9 @@ class IR_WireMerge(IRValue):
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         joined = ", ".join(str(src) for src in self.sources)
-        return f"IR_WireMerge({self.node_id}: {self.output_type} = wire_merge({joined}))"
+        return (
+            f"IR_WireMerge({self.node_id}: {self.output_type} = wire_merge({joined}))"
+        )
 
 
 class IR_MemRead(IRValue):
@@ -197,9 +199,7 @@ class IR_MemWrite(IREffect):
         self.is_one_shot: bool = False
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
-        return (
-            f"IR_MemWrite({self.memory_id} <- {self.data_signal} when {self.write_enable})"
-        )
+        return f"IR_MemWrite({self.memory_id} <- {self.data_signal} when {self.write_enable})"
 
 
 class IR_PlaceEntity(IREffect):
@@ -222,9 +222,7 @@ class IR_PlaceEntity(IREffect):
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         props_str = f", {self.properties}" if self.properties else ""
-        return (
-            f"IR_PlaceEntity({self.entity_id}: {self.prototype} at ({self.x}, {self.y}){props_str})"
-        )
+        return f"IR_PlaceEntity({self.entity_id}: {self.prototype} at ({self.x}, {self.y}){props_str})"
 
 
 class IR_EntityPropWrite(IREffect):

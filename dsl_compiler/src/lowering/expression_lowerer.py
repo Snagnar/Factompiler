@@ -144,14 +144,18 @@ class ExpressionLowerer:
         left_ref = self.lower_expr(expr.left)
         right_ref = self.lower_expr(expr.right)
 
-        merge_candidate = self._attempt_wire_merge(expr, left_ref, right_ref, result_type)
+        merge_candidate = self._attempt_wire_merge(
+            expr, left_ref, right_ref, result_type
+        )
         if merge_candidate is not None:
             return merge_candidate
 
         self.parent.ensure_signal_registered(output_type, left_signal_type)
 
         if expr.op in ["+", "-", "*", "/", "%"]:
-            return self.ir_builder.arithmetic(expr.op, left_ref, right_ref, output_type, expr)
+            return self.ir_builder.arithmetic(
+                expr.op, left_ref, right_ref, output_type, expr
+            )
         if expr.op in ["==", "!=", "<", "<=", ">", ">=", "&&", "||"]:
             return self.lower_comparison_op(expr, left_ref, right_ref, output_type)
 
@@ -173,11 +177,17 @@ class ExpressionLowerer:
                 output_type = self.ir_builder.allocate_implicit_type()
 
         if expr.op in ["==", "!=", "<", "<=", ">", ">="]:
-            return self.ir_builder.decider(expr.op, left_ref, right_ref, 1, output_type, expr)
+            return self.ir_builder.decider(
+                expr.op, left_ref, right_ref, 1, output_type, expr
+            )
         if expr.op == "&&":
-            return self.ir_builder.arithmetic("*", left_ref, right_ref, output_type, expr)
+            return self.ir_builder.arithmetic(
+                "*", left_ref, right_ref, output_type, expr
+            )
         if expr.op == "||":
-            sum_ref = self.ir_builder.arithmetic("+", left_ref, right_ref, output_type, expr)
+            sum_ref = self.ir_builder.arithmetic(
+                "+", left_ref, right_ref, output_type, expr
+            )
             return self.ir_builder.decider(">", sum_ref, 0, 1, output_type, expr)
 
         self.diagnostics.error(f"Unknown binary operator: {expr.op}", expr)
@@ -196,7 +206,9 @@ class ExpressionLowerer:
             output_type = self.ir_builder.allocate_implicit_type()
 
         operand_signal_type = (
-            result_type.signal_type.name if isinstance(result_type, SignalValue) else None
+            result_type.signal_type.name
+            if isinstance(result_type, SignalValue)
+            else None
         )
         self.parent.ensure_signal_registered(output_type, operand_signal_type)
 
@@ -204,7 +216,9 @@ class ExpressionLowerer:
             return operand_ref
         if expr.op == "-":
             neg_one = self.ir_builder.const(output_type, -1, expr)
-            return self.ir_builder.arithmetic("*", operand_ref, neg_one, output_type, expr)
+            return self.ir_builder.arithmetic(
+                "*", operand_ref, neg_one, output_type, expr
+            )
         if expr.op == "!":
             return self.ir_builder.decider("==", operand_ref, 0, 1, output_type, expr)
 
@@ -218,14 +232,18 @@ class ExpressionLowerer:
         if isinstance(source_ref, SignalRef):
             if getattr(source_ref, "signal_type", None) == target_type:
                 return source_ref
-            self.parent.ensure_signal_registered(target_type, getattr(source_ref, "signal_type", None))
+            self.parent.ensure_signal_registered(
+                target_type, getattr(source_ref, "signal_type", None)
+            )
             return self.ir_builder.arithmetic("+", source_ref, 0, target_type, expr)
 
         if isinstance(source_ref, int):
             self.parent.ensure_signal_registered(target_type)
             return self.ir_builder.const(target_type, source_ref, expr)
 
-        self.diagnostics.error(f"Cannot project {type(source_ref)} to {target_type}", expr)
+        self.diagnostics.error(
+            f"Cannot project {type(source_ref)} to {target_type}", expr
+        )
         self.parent.ensure_signal_registered(target_type)
         return self.ir_builder.const(target_type, 0, expr)
 
@@ -303,7 +321,9 @@ class ExpressionLowerer:
         if entity_name in self.parent.entity_refs:
             entity_id = self.parent.entity_refs[entity_name]
             signal_type = self.ir_builder.allocate_implicit_type()
-            read_op = IR_EntityPropRead(f"prop_read_{entity_id}_{prop_name}", signal_type, expr)
+            read_op = IR_EntityPropRead(
+                f"prop_read_{entity_id}_{prop_name}", signal_type, expr
+            )
             read_op.entity_id = entity_id
             read_op.property_name = prop_name
             self.ir_builder.add_operation(read_op)
@@ -319,7 +339,9 @@ class ExpressionLowerer:
         if entity_name in self.parent.entity_refs:
             entity_id = self.parent.entity_refs[entity_name]
             signal_type = self.ir_builder.allocate_implicit_type()
-            read_op = IR_EntityPropRead(f"prop_read_{entity_id}_{prop_name}", signal_type, expr)
+            read_op = IR_EntityPropRead(
+                f"prop_read_{entity_id}_{prop_name}", signal_type, expr
+            )
             read_op.entity_id = entity_id
             read_op.property_name = prop_name
             self.ir_builder.add_operation(read_op)
@@ -349,7 +371,9 @@ class ExpressionLowerer:
     def lower_memory_call(self, expr: CallExpr) -> ValueRef:
         if not expr.args:
             self.diagnostics.error("memory() requires an initial value", expr)
-            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
         return self.lower_expr(expr.args[0])
 
     def lower_function_call_inline(self, expr: CallExpr) -> ValueRef:
@@ -360,7 +384,9 @@ class ExpressionLowerer:
             or not func_symbol.function_def
         ):
             self.diagnostics.error(f"Cannot inline function: {expr.name}", expr)
-            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
 
         func_def = func_symbol.function_def
 
@@ -369,7 +395,9 @@ class ExpressionLowerer:
                 f"Function {expr.name} expects {len(func_def.params)} arguments, got {len(expr.args)}",
                 expr,
             )
-            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
 
         param_values = {
             param_name: self.lower_expr(arg_expr)
@@ -394,7 +422,9 @@ class ExpressionLowerer:
                     if isinstance(stmt.expr, IdentifierExpr):
                         var_name = stmt.expr.name
                         if var_name in self.parent.entity_refs:
-                            self.parent.returned_entity_id = self.parent.entity_refs[var_name]
+                            self.parent.returned_entity_id = self.parent.entity_refs[
+                                var_name
+                            ]
                     return_value = self.lower_expr(stmt.expr)
                     break
                 else:
@@ -412,7 +442,9 @@ class ExpressionLowerer:
 
             if return_value is not None:
                 return return_value
-            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
         finally:
             for param_name in func_def.params:
                 if param_name in old_param_values:
@@ -436,7 +468,9 @@ class ExpressionLowerer:
             return True
         return False
 
-    def _gather_merge_sources_from_ref(self, value_ref: ValueRef) -> Optional[List[SignalRef]]:
+    def _gather_merge_sources_from_ref(
+        self, value_ref: ValueRef
+    ) -> Optional[List[SignalRef]]:
         if not isinstance(value_ref, SignalRef):
             return None
 
@@ -480,20 +514,28 @@ class ExpressionLowerer:
         if len(unique_ids) != len(combined_sources):
             return None
 
-        self.parent.ensure_signal_registered(output_type, combined_sources[0].signal_type)
+        self.parent.ensure_signal_registered(
+            output_type, combined_sources[0].signal_type
+        )
 
         merge_op_to_reuse: Optional[IR_WireMerge] = None
         reuse_ref: Optional[SignalRef] = None
 
         if isinstance(left_ref, SignalRef):
             left_source = self.ir_builder.get_operation(left_ref.source_id)
-            if isinstance(left_source, IR_WireMerge) and left_source.source_ast is expr.left:
+            if (
+                isinstance(left_source, IR_WireMerge)
+                and left_source.source_ast is expr.left
+            ):
                 merge_op_to_reuse = left_source
                 reuse_ref = left_ref
 
         if merge_op_to_reuse is None and isinstance(right_ref, SignalRef):
             right_source = self.ir_builder.get_operation(right_ref.source_id)
-            if isinstance(right_source, IR_WireMerge) and right_source.source_ast is expr.right:
+            if (
+                isinstance(right_source, IR_WireMerge)
+                and right_source.source_ast is expr.right
+            ):
                 merge_op_to_reuse = right_source
                 reuse_ref = right_ref
 
@@ -520,7 +562,9 @@ class ExpressionLowerer:
     # ------------------------------------------------------------------
 
     def _extract_coordinate(self, coord_expr: Expr) -> Union[int, ValueRef]:
-        if isinstance(coord_expr, SignalLiteral) and isinstance(coord_expr.value, NumberLiteral):
+        if isinstance(coord_expr, SignalLiteral) and isinstance(
+            coord_expr.value, NumberLiteral
+        ):
             return coord_expr.value.value
         if isinstance(coord_expr, NumberLiteral):
             return coord_expr.value
@@ -528,8 +572,12 @@ class ExpressionLowerer:
 
     def _lower_place_core(self, expr: CallExpr) -> tuple[str, SignalRef]:
         if len(expr.args) < 3:
-            self.diagnostics.error("place() requires at least 3 arguments: (prototype, x, y)", expr)
-            dummy = self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            self.diagnostics.error(
+                "place() requires at least 3 arguments: (prototype, x, y)", expr
+            )
+            dummy = self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
             return "error_entity", dummy
 
         prototype_expr = expr.args[0]
@@ -539,8 +587,12 @@ class ExpressionLowerer:
         if isinstance(prototype_expr, StringLiteral):
             prototype = prototype_expr.value
         else:
-            self.diagnostics.error("place() prototype must be a string literal", prototype_expr)
-            dummy = self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+            self.diagnostics.error(
+                "place() prototype must be a string literal", prototype_expr
+            )
+            dummy = self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
             return "error_entity", dummy
 
         x_coord = self._extract_coordinate(x_expr)
@@ -567,7 +619,9 @@ class ExpressionLowerer:
             source_ast=expr,
         )
 
-        result_ref = self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+        result_ref = self.ir_builder.const(
+            self.ir_builder.allocate_implicit_type(), 0, expr
+        )
         const_op = self.ir_builder.get_operation(result_ref.source_id)
         if isinstance(const_op, IR_Const):
             const_op.debug_metadata["suppress_materialization"] = True

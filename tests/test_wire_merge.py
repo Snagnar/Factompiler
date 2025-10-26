@@ -66,9 +66,7 @@ class TestWireMerge:
         ir_operations, _ = _lower_ir(parser, code)
 
         assert not any(isinstance(op, IR_WireMerge) for op in ir_operations)
-        assert any(
-            isinstance(op, IR_Arith) and op.op == "+" for op in ir_operations
-        )
+        assert any(isinstance(op, IR_Arith) and op.op == "+" for op in ir_operations)
 
     def test_mixed_types_do_not_wire_merge(self, parser):
         code = """

@@ -10,14 +10,18 @@ from .base import ASTNode
 class Expr(ASTNode):
     """Base class for all expressions."""
 
-    def __init__(self, line: int = 0, column: int = 0, raw_text: Optional[str] = None) -> None:
+    def __init__(
+        self, line: int = 0, column: int = 0, raw_text: Optional[str] = None
+    ) -> None:
         super().__init__(line, column, raw_text=raw_text)
 
 
 class BinaryOp(Expr):
     """Binary operation: left op right"""
 
-    def __init__(self, op: str, left: "Expr", right: "Expr", line: int = 0, column: int = 0) -> None:
+    def __init__(
+        self, op: str, left: "Expr", right: "Expr", line: int = 0, column: int = 0
+    ) -> None:
         super().__init__(line, column)
         self.op = op  # +, -, *, /, %, ==, !=, <, <=, >, >=, &&, ||
         self.left = left
@@ -36,7 +40,9 @@ class UnaryOp(Expr):
 class CallExpr(Expr):
     """Function call: func(args...)"""
 
-    def __init__(self, name: str, args: List["Expr"], line: int = 0, column: int = 0) -> None:
+    def __init__(
+        self, name: str, args: List["Expr"], line: int = 0, column: int = 0
+    ) -> None:
         super().__init__(line, column)
         self.name = name
         self.args = args
@@ -76,7 +82,9 @@ class WriteExpr(Expr):
 class ProjectionExpr(Expr):
     """expr | "type" - project signal/bundle to specific channel"""
 
-    def __init__(self, expr: "Expr", target_type: str, line: int = 0, column: int = 0) -> None:
+    def __init__(
+        self, expr: "Expr", target_type: str, line: int = 0, column: int = 0
+    ) -> None:
         super().__init__(line, column)
         self.expr = expr
         self.target_type = target_type  # the type literal after |

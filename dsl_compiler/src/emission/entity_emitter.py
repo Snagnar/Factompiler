@@ -37,7 +37,9 @@ if TYPE_CHECKING:  # pragma: no cover - type checking aid
 class EntityEmitter:
     """Emit Factorio entities from lowered IR operations."""
 
-    def __init__(self, parent: "BlueprintEmitter") -> None:  # pragma: no cover - thin wrapper
+    def __init__(
+        self, parent: "BlueprintEmitter"
+    ) -> None:  # pragma: no cover - thin wrapper
         self._parent = parent
 
     def __getattr__(self, name):  # pragma: no cover - delegation helper
@@ -177,9 +179,7 @@ class EntityEmitter:
 
         resolver = self._require_resolver()
         combinator = new_entity("arithmetic-combinator")
-        pos = self._place_entity(
-            combinator, dependencies=(op.left, op.right)
-        )
+        pos = self._place_entity(combinator, dependencies=(op.left, op.right))
 
         left_operand = resolver.get_operand_for_combinator(op.left)
         right_operand = resolver.get_operand_for_combinator(op.right)
@@ -248,9 +248,7 @@ class EntityEmitter:
 
         resolver = self._require_resolver()
         combinator = new_entity("decider-combinator")
-        pos = self._place_entity(
-            combinator, dependencies=(op.left, op.right)
-        )
+        pos = self._place_entity(combinator, dependencies=(op.left, op.right))
 
         left_operand = resolver.get_operand_for_combinator(op.left)
         right_operand = resolver.get_operand_value(op.right)
@@ -323,12 +321,23 @@ class EntityEmitter:
         resolver = self._require_resolver()
         signal_type = resolver.get_signal_name(op.signal_type)
 
-        memory_components = self.memory_builder.build_sr_latch(
-            op.memory_id, signal_type
-        )
-        memory_components["signal_type"] = signal_type
+        memory_id = op.memory_id
+        strategies = self._parent._memory_write_strategies.get(memory_id, set())
+        needs_sr_latch = not strategies or "SR_LATCH" in strategies
 
-        memory_variable = op.memory_id
+        if not needs_sr_latch:
+            memory_components = {
+                "signal_type": signal_type,
+                "uses_feedback_only": True,
+            }
+            self.memory_builder.memory_modules[memory_id] = memory_components
+            return
+
+        memory_components = self.memory_builder.build_sr_latch(memory_id, signal_type)
+        memory_components["signal_type"] = signal_type
+        memory_components["uses_feedback_only"] = False
+
+        memory_variable = memory_id
         if memory_variable.startswith("mem_"):
             memory_variable = memory_variable[4:]
         source_location = (
@@ -368,17 +377,25 @@ class EntityEmitter:
         """Emit memory read operation from the 3-combinator memory cell."""
         if op.memory_id in self.memory_builder.memory_modules:
             memory_components = self.memory_builder.memory_modules[op.memory_id]
-            hold_gate = memory_components.get("hold_gate")
-            if hold_gate:
-                self.signal_graph.set_source(op.node_id, hold_gate.entity_id)
-                self._track_signal_source(op.node_id, hold_gate.entity_id)
-
+            if memory_components.get("uses_feedback_only"):
                 if not hasattr(self, "memory_read_signals"):
                     self.memory_read_signals = {}
                 declared_type = memory_components.get("signal_type", op.output_type)
                 self.memory_read_signals[op.node_id] = declared_type
             else:
-                self.diagnostics.error(f"Memory hold gate not found in {op.memory_id}")
+                hold_gate = memory_components.get("hold_gate")
+                if hold_gate:
+                    self.signal_graph.set_source(op.node_id, hold_gate.entity_id)
+                    self._track_signal_source(op.node_id, hold_gate.entity_id)
+
+                    if not hasattr(self, "memory_read_signals"):
+                        self.memory_read_signals = {}
+                    declared_type = memory_components.get("signal_type", op.output_type)
+                    self.memory_read_signals[op.node_id] = declared_type
+                else:
+                    self.diagnostics.error(
+                        f"Memory hold gate not found in {op.memory_id}"
+                    )
         else:
             self.diagnostics.error(
                 f"Memory {op.memory_id} not found for read operation"
@@ -408,6 +425,10 @@ class EntityEmitter:
         memory_id = op.memory_id
         if memory_id not in self.memory_builder.memory_modules:
             return "SR_LATCH"
+
+        module = self.memory_builder.memory_modules.get(memory_id, {})
+        if module.get("uses_feedback_only"):
+            return "FEEDBACK_LOOP"
 
         enable_literal = self._resolve_literal_value(op.write_enable)
         if enable_literal is not None and enable_literal != 0:
@@ -489,11 +510,7 @@ class EntityEmitter:
             return
 
         source_op = self._prepared_operation_index.get(op.data_signal.source_id)
-        if not isinstance(source_op, IR_Arith):
-            self._emit_sr_latch_write(op)
-            return
-
-        if not self._is_simple_feedback_candidate(source_op, memory_id):
+        if not isinstance(source_op, (IR_Arith, IR_Decider)):
             self._emit_sr_latch_write(op)
             return
 
@@ -518,38 +535,6 @@ class EntityEmitter:
         self._track_signal_source(memory_id, placement.entity_id)
         self._track_signal_source(op.node_id, placement.entity_id)
 
-    def _is_simple_feedback_candidate(
-        self, arith_op: IR_Arith, memory_id: str
-    ) -> bool:
-        """Return True when the arithmetic op models a direct memory increment."""
-
-        def is_memory_read(value: ValueRef) -> bool:
-            if not isinstance(value, SignalRef):
-                return False
-            source = self._prepared_operation_index.get(value.source_id)
-            return isinstance(source, IR_MemRead) and source.memory_id == memory_id
-
-        def is_immediate(value: ValueRef) -> bool:
-            if isinstance(value, int):
-                return True
-            if isinstance(value, SignalRef):
-                source = self._prepared_operation_index.get(value.source_id)
-                return isinstance(source, IR_Const)
-            return False
-
-        if arith_op.op not in {"+", "-"}:
-            return False
-
-        left_mem = is_memory_read(arith_op.left)
-        right_mem = is_memory_read(arith_op.right)
-
-        if left_mem and not right_mem and is_immediate(arith_op.right):
-            return True
-        if right_mem and not left_mem and is_immediate(arith_op.left):
-            return True
-
-        return False
-
     def _emit_pulse_gate_write(self, op: IR_MemWrite) -> None:
         """Emit one-shot memory write. Currently delegates to SR latch implementation."""
 
@@ -562,9 +547,7 @@ class EntityEmitter:
         memory_id = op.memory_id
         memory_module = self.memory_builder.memory_modules.get(memory_id)
         if not memory_module:
-            self.diagnostics.error(
-                f"Memory {memory_id} not found for write operation"
-            )
+            self.diagnostics.error(f"Memory {memory_id} not found for write operation")
             return
 
         write_gate_placement = memory_module.get("write_gate")

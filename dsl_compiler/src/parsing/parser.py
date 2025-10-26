@@ -20,9 +20,7 @@ class DSLParser:
         """Initialize parser with grammar file."""
         if grammar_path is None:
             grammar_path = (
-                Path(__file__).resolve().parent.parent.parent
-                / "grammar"
-                / "fcdsl.lark"
+                Path(__file__).resolve().parent.parent.parent / "grammar" / "fcdsl.lark"
             )
 
         self.grammar_path = grammar_path
@@ -44,7 +42,9 @@ class DSLParser:
                 debug=False,
             )
         except FileNotFoundError as exc:
-            raise FileNotFoundError(f"Grammar file not found: {self.grammar_path}") from exc
+            raise FileNotFoundError(
+                f"Grammar file not found: {self.grammar_path}"
+            ) from exc
         except Exception as exc:  # pragma: no cover - unexpected
             raise RuntimeError(f"Failed to load grammar: {exc}") from exc
 

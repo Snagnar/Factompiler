@@ -90,7 +90,9 @@ class SemanticAnalyzer(ASTVisitor):
                 self.mark_as_computed(target)
             return
 
-        if isinstance(value_expr, (BinaryOp, UnaryOp, CallExpr, ReadExpr, ProjectionExpr)):
+        if isinstance(
+            value_expr, (BinaryOp, UnaryOp, CallExpr, ReadExpr, ProjectionExpr)
+        ):
             self.mark_as_computed(target)
             return
 
@@ -131,9 +133,7 @@ class SemanticAnalyzer(ASTVisitor):
             return
 
         severity, reserved_context = rule
-        message = (
-            f"Signal '{signal_name}' is reserved for {reserved_context} and cannot be used {context}."
-        )
+        message = f"Signal '{signal_name}' is reserved for {reserved_context} and cannot be used {context}."
         if severity == "error":
             self.diagnostics.error(message, node)
         else:
@@ -312,9 +312,8 @@ class SemanticAnalyzer(ASTVisitor):
                 )
                 return SignalValue(signal_type=self.allocate_implicit_type())
 
-            if (
-                expr.when is not None
-                and not isinstance(enable_type, (SignalValue, IntValue))
+            if expr.when is not None and not isinstance(
+                enable_type, (SignalValue, IntValue)
             ):
                 self.diagnostics.error(
                     "write when= argument must evaluate to a signal or integer.",
@@ -542,8 +541,7 @@ class SemanticAnalyzer(ASTVisitor):
 
         elif isinstance(left_type, SignalValue) and isinstance(right_type, IntValue):
             # Signal + Int = Signal (int coerced to signal's type)
-            warning_msg = (
-                f"Mixed types in binary operation at line {expr.line}:")
+            warning_msg = f"Mixed types in binary operation at line {expr.line}:"
             warning_msg += (
                 f"\n  Left operand:  '{left_type.signal_type.name}'"
                 f"\n  Right operand: integer"
@@ -558,8 +556,7 @@ class SemanticAnalyzer(ASTVisitor):
 
         elif isinstance(left_type, IntValue) and isinstance(right_type, SignalValue):
             # Int + Signal = Signal (int coerced to signal's type)
-            warning_msg = (
-                f"Mixed types in binary operation at line {expr.line}:")
+            warning_msg = f"Mixed types in binary operation at line {expr.line}:"
             warning_msg += (
                 f"\n  Left operand:  integer"
                 f"\n  Right operand: '{right_type.signal_type.name}'"
@@ -580,15 +577,16 @@ class SemanticAnalyzer(ASTVisitor):
             else:
                 # Mixed types - left operand wins (with warning)
                 warning_msg = (
-                    f"Mixed signal types in binary operation at line {expr.line}:")
+                    f"Mixed signal types in binary operation at line {expr.line}:"
+                )
                 warning_msg += (
                     f"\n  Left operand:  '{left_type.signal_type.name}' {expr.op}"
                     f"\n  Right operand: '{right_type.signal_type.name}'"
                     f"\n  Result will use left type: '{left_type.signal_type.name}'"
                     f"\n\n  To align types, consider:"
-                        f"\n    - (left | \"{right_type.signal_type.name}\") {expr.op} right"
-                        f"\n    - left {expr.op} (right | \"{left_type.signal_type.name}\")"
-                        f"\n    - (... ) | \"desired-type\" to force an explicit channel"
+                    f'\n    - (left | "{right_type.signal_type.name}") {expr.op} right'
+                    f'\n    - left {expr.op} (right | "{left_type.signal_type.name}")'
+                    f'\n    - (... ) | "desired-type" to force an explicit channel'
                 )
 
                 if self.strict_types:
