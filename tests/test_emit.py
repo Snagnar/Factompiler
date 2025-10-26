@@ -6,10 +6,10 @@ import math
 from typing import Tuple
 
 import pytest
-from dsl_compiler.src.parser import DSLParser
+from dsl_compiler.src.parsing import DSLParser
 from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
-from dsl_compiler.src.lowerer import lower_program
-from dsl_compiler.src.emit import (
+from dsl_compiler.src.lowering import lower_program
+from dsl_compiler.src.emission import (
     BlueprintEmitter,
     MAX_CIRCUIT_WIRE_SPAN,
     WireRelayOptions,
@@ -498,17 +498,24 @@ class TestBlueprintEmitter:
         signal_map = {"__v1": "signal-A", "__v2": "signal-B"}
         emitter = BlueprintEmitter(signal_type_map=signal_map)
 
+        emitter.prepare([])
+        resolver = emitter.signal_resolver
+        assert resolver is not None
+
         # Test that implicit signals are resolved
-        resolved = emitter._get_signal_name("__v1")
+        resolved = resolver.get_signal_name("__v1")
         assert resolved == "signal-A"
 
         # Test that explicit signals pass through
-        resolved = emitter._get_signal_name("iron-plate")
+        resolved = resolver.get_signal_name("iron-plate")
         assert resolved == "iron-plate"
 
     def test_wire_color_planner_assigns_opposite_colors(self):
         emitter = BlueprintEmitter()
-        emitter._reset_for_emit()
+        emitter.prepare([])
+
+        builder = emitter.connection_builder
+        assert builder is not None
 
         class DummyEntity:
             dual_circuit_connectable = False
@@ -563,11 +570,11 @@ class TestBlueprintEmitter:
         emitter._track_signal_source("sig_a", "source_a")
         emitter._track_signal_source("sig_b", "source_b")
 
-        emitter._prepare_wiring_plan()
+        builder.prepare_wiring_plan()
 
         # Ensure the planner chose distinct colors for the conflicting producers
-        color_a = emitter._edge_color_map[("source_a", "sink", "signal-A")]
-        color_b = emitter._edge_color_map[("source_b", "sink", "signal-A")]
+        color_a = builder._edge_color_map[("source_a", "sink", "signal-A")]
+        color_b = builder._edge_color_map[("source_b", "sink", "signal-A")]
 
         assert color_a != color_b
 
@@ -590,10 +597,10 @@ class TestWarningAnalysis:
 
     def test_no_memory_signal_warnings(self):
         """Test that memory signal warnings are eliminated."""
-        from dsl_compiler.src.parser import DSLParser
+        from dsl_compiler.src.parsing import DSLParser
         from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
-        from dsl_compiler.src.lowerer import lower_program
-        from dsl_compiler.src.emit import BlueprintEmitter
+        from dsl_compiler.src.lowering import lower_program
+        from dsl_compiler.src.emission import BlueprintEmitter
 
         code = """
         Memory counter: "iron-plate";
@@ -632,15 +639,17 @@ def test_wire_relays_inserted_for_long_spans():
     """Connections longer than the wire span should insert relay poles."""
 
     emitter = BlueprintEmitter()
-    emitter._reset_for_emit()
+    emitter.prepare([])
+    builder = emitter.connection_builder
+    assert builder is not None
 
     source, sink = _make_far_endpoints(emitter, sink_target=(40, 0))
 
-    relays = emitter._insert_wire_relays_if_needed(source, sink)
+    relays = builder._insert_wire_relays_if_needed(source, sink)
 
     assert relays, "Expected relay placements for long-span wiring"
 
-    distance = emitter._compute_wire_distance(source, sink)
+    distance = builder._compute_wire_distance(source, sink)
     expected_count = math.ceil(distance / MAX_CIRCUIT_WIRE_SPAN) - 1
 
     assert len(relays) == expected_count, (
@@ -653,11 +662,13 @@ def test_wire_relays_inserted_for_long_spans():
 
 def test_wire_relays_respect_disabled_option():
     emitter = BlueprintEmitter(wire_relay_options=WireRelayOptions(enabled=False))
-    emitter._reset_for_emit()
+    emitter.prepare([])
+    builder = emitter.connection_builder
+    assert builder is not None
 
     source, sink = _make_far_endpoints(emitter, sink_target=(40, 0))
 
-    relays = emitter._insert_wire_relays_if_needed(source, sink)
+    relays = builder._insert_wire_relays_if_needed(source, sink)
 
     assert relays == [], "No relays should be inserted when auto wiring is disabled"
     assert emitter.diagnostics.warning_count == 0
@@ -667,11 +678,13 @@ def test_wire_relays_manhattan_strategy_inserts_extra_relays():
     emitter = BlueprintEmitter(
         wire_relay_options=WireRelayOptions(placement_strategy="manhattan")
     )
-    emitter._reset_for_emit()
+    emitter.prepare([])
+    builder = emitter.connection_builder
+    assert builder is not None
 
     source, sink = _make_far_endpoints(emitter, sink_target=(6, 6))
 
-    relays = emitter._insert_wire_relays_if_needed(source, sink)
+    relays = builder._insert_wire_relays_if_needed(source, sink)
 
     assert relays, "Manhattan strategy should require at least one relay on diagonal span"
     assert len(relays) == 1
@@ -679,11 +692,13 @@ def test_wire_relays_manhattan_strategy_inserts_extra_relays():
 
 def test_wire_relays_max_limit_triggers_warning():
     emitter = BlueprintEmitter(wire_relay_options=WireRelayOptions(max_relays=0))
-    emitter._reset_for_emit()
+    emitter.prepare([])
+    builder = emitter.connection_builder
+    assert builder is not None
 
     source, sink = _make_far_endpoints(emitter, sink_target=(40, 0))
 
-    relays = emitter._insert_wire_relays_if_needed(source, sink)
+    relays = builder._insert_wire_relays_if_needed(source, sink)
 
     assert relays == []
     warnings = [

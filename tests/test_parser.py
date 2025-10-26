@@ -3,8 +3,8 @@ Tests for parser.py - Core parsing functionality.
 """
 
 import pytest
-from dsl_compiler.src.parser import DSLParser
-from dsl_compiler.src.dsl_ast import Program
+from dsl_compiler.src.parsing import DSLParser
+from dsl_compiler.src.ast import Program
 from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
 
 

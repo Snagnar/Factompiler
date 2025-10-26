@@ -3,9 +3,8 @@ Tests for semantic.py - Semantic analysis functionality.
 """
 
 import pytest
-from dsl_compiler.src.parser import DSLParser
-from dsl_compiler.src.semantic import SemanticAnalyzer, SemanticError, analyze_program
-from dsl_compiler.src.signal_limits import MAX_IMPLICIT_VIRTUAL_SIGNALS
+from dsl_compiler.src.parsing import DSLParser
+from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
 
 
 class TestSemanticAnalyzer:
@@ -136,13 +135,13 @@ class TestSemanticAnalyzer:
             "signal-W" in message and "reserved" in message for message in messages
         ), "Diagnostic should explain that signal-W is reserved"
 
-    def test_virtual_signal_pool_exhaustion_raises(self, analyzer):
-        """Allocator must fail fast once the implicit virtual pool is exhausted."""
+    def test_virtual_signal_allocation_unbounded(self, analyzer):
+        """Allocator must keep producing unique implicit virtual signals."""
 
-        for _ in range(MAX_IMPLICIT_VIRTUAL_SIGNALS):
-            analyzer.allocate_implicit_type()
+        allocations = [analyzer.allocate_implicit_type() for _ in range(60)]
+        names = [info.name for info in allocations]
 
-        with pytest.raises(SemanticError) as exc_info:
-            analyzer.allocate_implicit_type()
-
-        assert "Ran out of compiler-allocated virtual signals" in str(exc_info.value)
+        assert len(names) == len(set(names))
+        assert analyzer.signal_type_map[names[0]] == "signal-A"
+        assert analyzer.signal_type_map[names[25]] == "signal-Z"
+        assert analyzer.signal_type_map[names[26]] == "signal-AA"

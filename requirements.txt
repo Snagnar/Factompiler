@@ -7,7 +7,7 @@ lark>=1.1.8
 click>=8.0.0
 
 # For blueprint generation
-# (factorio-draftsman is already in workspace)
+factorio-draftsman
 
 # Development and testing
 pytest>=7.0.0

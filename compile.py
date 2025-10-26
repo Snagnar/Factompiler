@@ -17,11 +17,11 @@ from pathlib import Path
 # Add the compiler to the path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from dsl_compiler.src.parser import DSLParser
+from dsl_compiler.src.parsing import DSLParser
 from dsl_compiler.src.semantic import analyze_program, SemanticAnalyzer
-from dsl_compiler.src.lowerer import lower_program
-from dsl_compiler.src.emit import emit_blueprint_string
-from dsl_compiler.src.optimizer import CSEOptimizer
+from dsl_compiler.src.lowering import lower_program
+from dsl_compiler.src.emission import emit_blueprint_string
+from dsl_compiler.src.ir import CSEOptimizer
 import dsl_compiler.src.semantic as semantic_module
 
 

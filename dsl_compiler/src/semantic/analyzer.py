@@ -1,265 +1,28 @@
-# semantic.py
-"""
-Semantic analysis for the Factorio Circuit DSL.
+"""Semantic analysis for the Factorio Circuit DSL."""
 
-This module performs:
-- Symbol table construction and name resolution
-- Type inference with implicit signal type allocation
-- Mixed-type arithmetic validation and warnings
-- Diagnostic collection and error reporting
-"""
-
-from typing import Dict, List, Optional, Any, Union, Tuple
-from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from dsl_compiler.src.dsl_ast import *
-from dsl_compiler.src.signal_limits import MAX_IMPLICIT_VIRTUAL_SIGNALS
+from dsl_compiler.src.ast import *
+
+from .diagnostics import DiagnosticCollector, SemanticError
+from .signal_allocator import SignalAllocator
+from .symbol_table import SymbolTable, Symbol
+from .type_system import (
+    FunctionValue,
+    IntValue,
+    MemoryInfo,
+    SignalDebugInfo,
+    SignalTypeInfo,
+    SignalValue,
+    ValueInfo,
+)
+from .validators import EXPLAIN_MODE, render_source_location
 
 try:  # pragma: no cover - optional dependency
     from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
 except Exception:  # pragma: no cover - fallback when draftsman data unavailable
     signal_data = None  # type: ignore[assignment]
-
-
-EXPLAIN_MODE = False
-
-
-def render_source_location(
-    node: Optional[ASTNode], default_file: Optional[str] = None
-) -> Optional[str]:
-    """Format a human-friendly ``file:line`` string for an AST node."""
-
-    if node is None:
-        return None
-
-    filename = getattr(node, "source_file", None) or default_file
-    line = getattr(node, "line", 0) or 0
-
-    if not filename and line <= 0:
-        return None
-
-    if filename and line > 0:
-        return f"{Path(filename).name}:{line}"
-
-    if filename:
-        return Path(filename).name
-
-    if line > 0:
-        return f"?:{line}"
-
-    return None
-
-
-# =============================================================================
-# Type System
-# =============================================================================
-
-
-@dataclass
-class SignalTypeInfo:
-    """Information about a signal type."""
-
-    name: str  # e.g. "iron-plate", "signal-A", "__v1"
-    is_implicit: bool = False  # True for compiler-allocated virtual signals
-    is_virtual: bool = False  # True for Factorio virtual signals
-
-
-@dataclass
-class SignalValue:
-    """A single-channel signal value."""
-
-    signal_type: SignalTypeInfo
-    count_expr: Optional[Expr] = None  # The expression that computes the count
-
-
-@dataclass
-class SignalDebugInfo:
-    """Metadata describing a logical signal in the source program."""
-
-    identifier: str
-    signal_key: Optional[str]
-    factorio_signal: Optional[str]
-    source_node: ASTNode
-    declared_type: Optional[str] = None
-    location: Optional[str] = None
-    category: Optional[str] = None
-
-    def as_dict(self) -> Dict[str, Any]:
-        return {
-            "name": self.identifier,
-            "signal_key": self.signal_key,
-            "factorio_signal": self.factorio_signal,
-            "declared_type": self.declared_type,
-            "location": self.location,
-            "category": self.category,
-            "source_ast": self.source_node,
-        }
-
-
-@dataclass
-class IntValue:
-    """A plain integer value."""
-
-    value: Optional[int] = None  # None for computed values
-
-
-@dataclass
-class FunctionValue:
-    """Value type for functions"""
-
-    param_types: List["ValueInfo"] = field(default_factory=list)
-    return_type: "ValueInfo" = field(default_factory=lambda: IntValue())
-
-
-ValueInfo = Union[SignalValue, IntValue, FunctionValue]
-
-
-@dataclass
-class MemoryInfo:
-    """Type information captured for memory declarations."""
-
-    name: str
-    symbol: "Symbol"
-    signal_type: Optional[str] = None
-    signal_info: Optional[SignalTypeInfo] = None
-    explicit: bool = False
-
-
-# =============================================================================
-# Symbol Table
-# =============================================================================
-
-
-@dataclass
-class Symbol:
-    """Symbol table entry."""
-
-    name: str
-    symbol_type: (
-        str  # "variable", "memory", "function", "parameter", "entity", "module"
-    )
-    value_type: ValueInfo
-    defined_at: ASTNode
-    is_mutable: bool = False
-    properties: Optional[Dict[str, "Symbol"]] = None  # For modules and entities
-    function_def: Optional[ASTNode] = None  # For functions - store AST for inlining
-    debug_info: Dict[str, Any] = field(default_factory=dict)
-
-
-class SymbolTable:
-    """Hierarchical symbol table with scoping."""
-
-    def __init__(self, parent: Optional["SymbolTable"] = None):
-        self.parent = parent
-        self.symbols: Dict[str, Symbol] = {}
-        self.children: List["SymbolTable"] = []
-
-    def define(self, symbol: Symbol) -> None:
-        """Define a symbol in this scope."""
-        if symbol.name in self.symbols:
-            existing = self.symbols[symbol.name]
-            raise SemanticError(
-                f"Symbol '{symbol.name}' already defined", symbol.defined_at
-            )
-        self.symbols[symbol.name] = symbol
-
-    def lookup(self, name: str) -> Optional[Symbol]:
-        """Look up a symbol in this scope or parent scopes."""
-        if name in self.symbols:
-            return self.symbols[name]
-        if self.parent:
-            return self.parent.lookup(name)
-        return None
-
-    def create_child_scope(self) -> "SymbolTable":
-        """Create a child scope."""
-        child = SymbolTable(parent=self)
-        self.children.append(child)
-        return child
-
-
-# =============================================================================
-# Diagnostics
-# =============================================================================
-
-
-class DiagnosticLevel(Enum):
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
-
-
-@dataclass
-class Diagnostic:
-    """A compiler diagnostic message."""
-
-    level: DiagnosticLevel
-    message: str
-    node: Optional[ASTNode] = None
-    line: int = 0
-    column: int = 0
-
-    def __post_init__(self):
-        if self.node:
-            self.line = self.node.line
-            self.column = self.node.column
-
-
-class DiagnosticCollector:
-    """Collects and manages diagnostic messages."""
-
-    def __init__(self):
-        self.diagnostics: List[Diagnostic] = []
-        self.error_count = 0
-        self.warning_count = 0
-
-    def info(self, message: str, node: Optional[ASTNode] = None) -> None:
-        """Add an info diagnostic."""
-        diag = Diagnostic(DiagnosticLevel.INFO, message, node)
-        self.diagnostics.append(diag)
-
-    def warning(self, message: str, node: Optional[ASTNode] = None) -> None:
-        """Add a warning diagnostic."""
-        diag = Diagnostic(DiagnosticLevel.WARNING, message, node)
-        self.diagnostics.append(diag)
-        self.warning_count += 1
-
-    def error(self, message: str, node: Optional[ASTNode] = None) -> None:
-        """Add an error diagnostic."""
-        diag = Diagnostic(DiagnosticLevel.ERROR, message, node)
-        self.diagnostics.append(diag)
-        self.error_count += 1
-
-    def has_errors(self) -> bool:
-        """Check if any errors were collected."""
-        return self.error_count > 0
-
-    def get_messages(self, level: Optional[DiagnosticLevel] = None) -> List[str]:
-        """Get formatted diagnostic messages."""
-        messages = []
-        for diag in self.diagnostics:
-            if level is None or diag.level == level:
-                prefix = diag.level.value.upper()
-                location = f"{diag.line}:{diag.column}" if diag.line > 0 else "?"
-                messages.append(f"{prefix} [{location}]: {diag.message}")
-        return messages
-
-
-class SemanticError(Exception):
-    """Exception raised for semantic analysis errors."""
-
-    def __init__(self, message: str, node: Optional[ASTNode] = None):
-        self.message = message
-        self.node = node
-        location = f" at {node.line}:{node.column}" if node and node.line > 0 else ""
-        super().__init__(f"{message}{location}")
-
-
-# =============================================================================
-# Type Inference and Analysis
-# =============================================================================
 
 
 class SemanticAnalyzer(ASTVisitor):
@@ -276,8 +39,8 @@ class SemanticAnalyzer(ASTVisitor):
         self.current_scope = self.symbol_table
 
         # Type allocation
-        self.implicit_type_counter = 0
-        self.signal_type_map: Dict[str, str] = {}  # implicit -> factorio signal
+        self.signal_allocator = SignalAllocator()
+        self.signal_type_map: Dict[str, str] = self.signal_allocator.signal_type_map
 
         # Debug metadata
         self.signal_debug_info: Dict[str, SignalDebugInfo] = {}
@@ -387,32 +150,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def allocate_implicit_type(self) -> SignalTypeInfo:
         """Allocate a new implicit virtual signal type."""
-        if self.implicit_type_counter >= MAX_IMPLICIT_VIRTUAL_SIGNALS:
-            message = (
-                "Ran out of compiler-allocated virtual signals "
-                f"(limit {MAX_IMPLICIT_VIRTUAL_SIGNALS}). Reduce the program size."
-            )
-            self.diagnostics.error(message)
-            raise SemanticError(message)
-
-        self.implicit_type_counter += 1
-        implicit_name = f"__v{self.implicit_type_counter}"
-        factorio_signal = self._virtual_signal_name(self.implicit_type_counter)
-
-        # Store mapping for debugging
-        self.signal_type_map[implicit_name] = factorio_signal
-
-        return SignalTypeInfo(name=implicit_name, is_implicit=True, is_virtual=True)
-
-    def _virtual_signal_name(self, index: int) -> str:
-        """Map implicit index to a unique Factorio virtual signal name."""
-        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        index -= 1  # Convert to zero-based
-        name = ""
-        while index >= 0:
-            name = alphabet[index % 26] + name
-            index = index // 26 - 1
-        return f"signal-{name}"
+        return self.signal_allocator.allocate_implicit_type()
 
     def _resolve_physical_signal_name(self, signal_key: Optional[str]) -> Optional[str]:
         if not signal_key:
@@ -957,7 +695,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _function_returns_entity(self, function_name: str) -> bool:
         """Check if a function returns an entity by examining its definition."""
-        from dsl_compiler.src.dsl_ast import ReturnStmt, CallExpr
+        from dsl_compiler.src.ast import ReturnStmt, CallExpr
 
         func_symbol = self.current_scope.lookup(function_name)
         if not func_symbol or func_symbol.symbol_type != "function":
@@ -974,7 +712,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _get_function_return_type(self, function_name: str) -> ValueInfo:
         """Determine the return type of a function by analyzing its return statements."""
-        from dsl_compiler.src.dsl_ast import ReturnStmt
+        from dsl_compiler.src.ast import ReturnStmt
 
         func_symbol = self.current_scope.lookup(function_name)
         if not func_symbol or func_symbol.symbol_type != "function":
@@ -998,7 +736,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _expression_uses_identifier(self, expr, identifier_name: str) -> bool:
         """Check if an expression uses a specific identifier."""
-        from dsl_compiler.src.dsl_ast import (
+        from dsl_compiler.src.ast import (
             IdentifierExpr,
             BinaryOp,
             CallExpr,
@@ -1023,7 +761,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _expression_involves_parameter(self, expr) -> bool:
         """Check if an expression involves any function parameters."""
-        from dsl_compiler.src.dsl_ast import (
+        from dsl_compiler.src.ast import (
             IdentifierExpr,
             BinaryOp,
             CallExpr,
@@ -1051,7 +789,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _binary_op_involves_parameters(self, expr) -> bool:
         """Check if a binary operation involves function parameters."""
-        from dsl_compiler.src.dsl_ast import BinaryOp
+        from dsl_compiler.src.ast import BinaryOp
 
         if isinstance(expr, BinaryOp):
             return self._expression_involves_parameter(
@@ -1292,7 +1030,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _infer_function_return_type(self, body: List[Statement]) -> ValueInfo:
         """Infer function return type by analyzing return statements."""
-        from dsl_compiler.src.dsl_ast import ReturnStmt
+        from dsl_compiler.src.ast import ReturnStmt
 
         # Look for return statements
         for stmt in body:
@@ -1456,7 +1194,7 @@ def analyze_program(
 
 def analyze_file(file_path: str, strict_types: bool = False) -> DiagnosticCollector:
     """Analyze a DSL file."""
-    from dsl_compiler.src.parser import DSLParser
+    from dsl_compiler.src.parsing import DSLParser
 
     parser = DSLParser()
     try:

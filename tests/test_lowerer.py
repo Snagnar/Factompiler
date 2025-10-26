@@ -4,8 +4,8 @@ Tests for lowerer.py - IR lowering functionality.
 
 import pytest
 from dsl_compiler.src.ir import IR_Arith, IR_Const, IR_MemCreate, IR_MemWrite, SignalRef
-from dsl_compiler.src.lowerer import lower_program
-from dsl_compiler.src.parser import DSLParser
+from dsl_compiler.src.lowering import lower_program
+from dsl_compiler.src.parsing import DSLParser
 from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
 
 

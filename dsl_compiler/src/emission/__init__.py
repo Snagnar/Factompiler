@@ -14,6 +14,13 @@ from .signals import (  # noqa: F401
 )
 from .layout import LayoutEngine  # noqa: F401
 from .memory import MemoryCircuitBuilder  # noqa: F401
+from .emitter import (  # noqa: F401
+    BlueprintEmitter,
+    WireRelayOptions,
+    MAX_CIRCUIT_WIRE_SPAN,
+    emit_blueprint,
+    emit_blueprint_string,
+)
 
 __all__ = [
     "EntityPlacement",
@@ -22,4 +29,9 @@ __all__ = [
     "SignalUsageEntry",
     "LayoutEngine",
     "MemoryCircuitBuilder",
+    "BlueprintEmitter",
+    "WireRelayOptions",
+    "MAX_CIRCUIT_WIRE_SPAN",
+    "emit_blueprint",
+    "emit_blueprint_string",
 ]

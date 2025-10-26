@@ -2,7 +2,7 @@
 Tests for dsl_ast.py - AST node classes and structures.
 """
 
-from dsl_compiler.src.dsl_ast import *
+from dsl_compiler.src.ast import *
 
 
 class TestLiteralNodes:

@@ -4,21 +4,15 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from dsl_compiler.src.ir import (
-    IRNode,
-    IR_Arith,
-    IR_Decider,
-    IR_MemWrite,
-    SignalRef,
-)
+from .nodes import IRNode, IR_Arith, IR_Decider, IR_MemWrite, SignalRef
 
 
 class CSEOptimizer:
     """Common subexpression elimination for IR nodes."""
 
     def __init__(self) -> None:
-        self.expr_cache: Dict[str, str] = {}  # expression key -> canonical node id
-        self.replacements: Dict[str, str] = {}  # removed node id -> canonical node id
+        self.expr_cache: Dict[str, str] = {}
+        self.replacements: Dict[str, str] = {}
 
     def optimize(self, ir_operations: List[IRNode]) -> List[IRNode]:
         """Eliminate redundant arithmetic and decider operations."""
@@ -102,3 +96,6 @@ class CSEOptimizer:
                     metadata=value.debug_metadata,
                 )
         return value
+
+
+__all__ = ["CSEOptimizer"]
