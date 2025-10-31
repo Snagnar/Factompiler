@@ -1,10 +1,11 @@
+"""Wire routing and color assignment algorithms."""
+
 from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from .signals import EntityPlacement, SignalUsageEntry, SignalGraph
 
 WIRE_COLORS: Tuple[str, str] = ("red", "green")
 
@@ -26,7 +27,7 @@ class CircuitEdge:
 class ConflictNode:
     """A node in the conflict graph representing a source entity for a signal."""
 
-    node_key: Tuple[str, str]  # (source_entity_id, resolved_signal_name)
+    node_key: Tuple[str, str]
     edges: Set[str] = field(default_factory=set)
     locked_color: Optional[str] = None
 
@@ -46,10 +47,31 @@ class ColoringResult:
     is_bipartite: bool
 
 
+def _resolve_entity_type(placement: Any) -> Optional[str]:
+    """Best-effort extraction of an entity type from a placement object."""
+
+    if placement is None:
+        return None
+
+    entity_type = getattr(placement, "entity_type", None)
+    if entity_type:
+        return entity_type
+
+    entity = getattr(placement, "entity", None)
+    if entity is not None:
+        return type(entity).__name__
+
+    proto = getattr(placement, "prototype", None)
+    if proto:
+        return str(proto)
+
+    return None
+
+
 def collect_circuit_edges(
-    signal_graph: SignalGraph,
-    signal_usage: Dict[str, SignalUsageEntry],
-    entities: Dict[str, EntityPlacement],
+    signal_graph: Any,
+    signal_usage: Dict[str, Any],
+    entities: Dict[str, Any],
 ) -> List[CircuitEdge]:
     """Compute all source→sink edges with resolved signal metadata."""
 
@@ -73,14 +95,15 @@ def collect_circuit_edges(
 
         if source_entity_id:
             source_placement = entities.get(source_entity_id)
-            if source_placement:
-                source_entity_type = type(source_placement.entity).__name__
+            source_entity_type = _resolve_entity_type(source_placement)
 
         sink_placement = entities.get(sink_entity_id)
-        if sink_placement:
-            sink_entity_type = type(sink_placement.entity).__name__
-            if sink_entity_id.endswith("_export_anchor"):
-                sink_role = "export"
+        if sink_placement is not None:
+            sink_entity_type = _resolve_entity_type(sink_placement)
+            sink_role = getattr(sink_placement, "role", None)
+
+        if sink_role is None and sink_entity_id.endswith("_export_anchor"):
+            sink_role = "export"
 
         edges.append(
             CircuitEdge(
@@ -101,7 +124,6 @@ def detect_multi_source_conflicts(edges: Sequence[CircuitEdge]) -> List[Conflict
     """Identify sinks that receive the same resolved signal from multiple sources."""
 
     conflicts_by_pair: Dict[Tuple[str, str], ConflictEdge] = {}
-
     sinks_by_name: Dict[Tuple[str, str], Set[str]] = defaultdict(set)
 
     for edge in edges:
@@ -162,7 +184,7 @@ def plan_wire_colors(
         sink_groups[(edge.sink_entity_id, edge.resolved_signal_name)].append(node_key)
 
     for (sink_id, resolved_name), nodes in sink_groups.items():
-        unique_nodes = list(dict.fromkeys(nodes))  # preserve order while deduplicating
+        unique_nodes = list(dict.fromkeys(nodes))
         if len(unique_nodes) <= 1:
             continue
 
@@ -231,7 +253,6 @@ def plan_wire_colors(
                     continue
 
                 if neighbor_locked and neighbor_locked == desired_color:
-                    # Locked neighbor forces same color, record conflict but keep assignment
                     is_bipartite = False
                     pair = tuple(sorted((node, neighbor)))
                     if pair not in conflict_pairs_recorded:

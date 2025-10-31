@@ -6,12 +6,15 @@ This module converts IR operations into actual Factorio combinators and entities
 using the factorio-draftsman library to generate blueprint JSON.
 """
 
+from __future__ import annotations
+
+import copy
 import math
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Literal, Set, Iterable
+from typing import Dict, List, Optional, Tuple, Any, Literal, Set, Iterable, TYPE_CHECKING
 
 # Add draftsman to path
 sys.path.insert(
@@ -35,18 +38,7 @@ from draftsman.signatures import SignalID  # type: ignore[import-not-found]
 from ..ir import *
 from ..ast import SignalLiteral
 from ..semantic import DiagnosticCollector, render_source_location
-from .signals import (
-    EntityPlacement,
-    SignalUsageEntry,
-    SignalGraph,
-    SignalMaterializer,
-)
-from .wiring import (
-    WIRE_COLORS,
-    CircuitEdge,
-    collect_circuit_edges,
-    plan_wire_colors,
-)
+from dsl_compiler.src.layout.layout_plan import EntityPlacement as EmittedEntityPlacement
 
 MAX_CIRCUIT_WIRE_SPAN = 9.0
 EDGE_LAYOUT_NOTE = (
@@ -73,44 +65,34 @@ class WireRelayOptions:
         return max(1.0, float(span))
 
 
-from .memory import MemoryCircuitBuilder
-from .layout import LayoutEngine
+WIRE_RELAY_ENTITY = "medium-electric-pole"
+
+
+from dsl_compiler.src.layout.memory import MemoryCircuitBuilder
+from dsl_compiler.src.layout.layout_engine import LayoutEngine
+from dsl_compiler.src.layout.layout_plan import (
+    LayoutPlan,
+    EntityPlacement as LayoutEntityPlacement,
+    PowerPolePlacement,
+)
+from dsl_compiler.src.layout.legacy_signals import (
+    EntityPlacement as EmittedEntityPlacement,
+)
+from dsl_compiler.src.layout.signal_graph import SignalGraph
+from dsl_compiler.src.layout.connection_planner import ConnectionPlanner
+from dsl_compiler.src.layout.power_planner import PowerPlanner, PlannedPowerPole
+from dsl_compiler.src.layout.signal_analyzer import (
+    SignalAnalyzer,
+    SignalMaterializer,
+    SignalUsageEntry,
+)
 from .debug_format import format_entity_description
-from .entity_emitter import EntityEmitter
-from .connection_builder import ConnectionBuilder
-from .signal_resolver import SignalResolver
+from .entity_emitter import PlanEntityEmitter
+from dsl_compiler.src.layout.legacy_entity_emitter import EntityEmitter
+from dsl_compiler.src.layout.legacy_signal_resolver import SignalResolver
 
-
-POWER_POLE_CONFIG = {
-    "small": {
-        "prototype": "small-electric-pole",
-        "footprint": (1, 1),
-        "supply_radius": 2,
-        "padding": 0,
-        "wire_reach": 9,
-    },
-    "medium": {
-        "prototype": "medium-electric-pole",
-        "footprint": (1, 1),
-        "supply_radius": 3,
-        "padding": 0,
-        "wire_reach": 9,
-    },
-    "big": {
-        "prototype": "big-electric-pole",
-        "footprint": (2, 2),
-        "supply_radius": 5,
-        "padding": 1,
-        "wire_reach": 30,
-    },
-    "substation": {
-        "prototype": "substation",
-        "footprint": (2, 2),
-        "supply_radius": 9,
-        "padding": 1,
-        "wire_reach": 18,
-    },
-}
+if TYPE_CHECKING:  # pragma: no cover - type checking helper
+    from dsl_compiler.src.layout.planner import LayoutPlanner
 
 
 # =============================================================================
@@ -123,7 +105,23 @@ POWER_POLE_CONFIG = {
 # =============================================================================
 
 
-class BlueprintEmitter:
+class _PlanOnlyBlueprintProxy:
+    """Lightweight proxy that ignores circuit wiring during plan-only runs."""
+
+    def __init__(self, blueprint: Blueprint) -> None:
+        object.__setattr__(self, "_blueprint", blueprint)
+
+    def add_circuit_connection(self, *args, **kwargs):
+        return None
+
+    def __getattr__(self, name):
+        return getattr(object.__getattribute__(self, "_blueprint"), name)
+
+    def __setattr__(self, name, value):
+        setattr(object.__getattribute__(self, "_blueprint"), name, value)
+
+
+class LayoutBuilder:
     def allocate_shared_position(self, producer_ids: List[str]) -> Tuple[int, int]:
         """Allocate a layout position for shared producers, avoiding duplication."""
         positions = [
@@ -200,11 +198,13 @@ class BlueprintEmitter:
         enable_metadata_annotations: bool = True,
         wire_relay_options: Optional[WireRelayOptions] = None,
         power_pole_type: Optional[str] = None,
+        plan_only_mode: bool = False,
     ):
         # Persistent configuration
         self.signal_type_map = signal_type_map or {}
         self.enable_metadata_annotations = enable_metadata_annotations
         self.power_pole_type = power_pole_type.lower() if power_pole_type else None
+        self._plan_only_mode = plan_only_mode
         options = wire_relay_options or WireRelayOptions()
         if options.placement_strategy not in {"euclidean", "manhattan"}:
             options = replace(options, placement_strategy="euclidean")
@@ -225,11 +225,17 @@ class BlueprintEmitter:
     def _reset_for_emit(self) -> None:
         """Reset transient state so the emitter can be reused safely."""
 
-        self.blueprint = Blueprint()
+        raw_blueprint = Blueprint()
+        self.blueprint = (
+            _PlanOnlyBlueprintProxy(raw_blueprint)
+            if self._plan_only_mode
+            else raw_blueprint
+        )
         self.blueprint.label = "DSL Generated Blueprint"
         self.blueprint.version = (2, 0)
 
         self.layout = LayoutEngine()
+        self.layout_plan = LayoutPlan()
         self.diagnostics = DiagnosticCollector()
         self.memory_builder = MemoryCircuitBuilder(self.layout, self.blueprint)
 
@@ -245,18 +251,20 @@ class BlueprintEmitter:
 
         # Signal usage/materializer cache
         self.signal_usage = {}
+        self.signal_analyzer = None
         self.materializer = None
         self._prepared_operations = []
         self._prepared_operation_index: Dict[str, IRNode] = {}
         self._memory_reads_by_memory: Dict[str, List[str]] = defaultdict(list)
         self._memory_write_strategies: Dict[str, Set[str]] = defaultdict(set)
         self._wire_merge_junctions: Dict[str, Dict[str, Any]] = {}
-        self.power_poles: List[EntityPlacement] = []
+        self.power_poles: List[EmittedEntityPlacement] = []
+        self._wire_relay_counter = 0
 
         # Helper components constructed during prepare()
         self.signal_resolver: Optional[SignalResolver] = None
         self.entity_emitter: Optional[EntityEmitter] = None
-        self.connection_builder: Optional[ConnectionBuilder] = None
+        self.connection_planner: Optional[ConnectionPlanner] = None
 
         self._ensure_signal_map_registered()
 
@@ -356,7 +364,9 @@ class BlueprintEmitter:
                 strategy = self._analyze_write_strategy_early(op)
                 self._memory_write_strategies[op.memory_id].add(strategy)
 
-        self.signal_usage = self._analyze_signal_usage(ir_operations)
+        signal_analyzer = SignalAnalyzer(self.diagnostics)
+        self.signal_usage = signal_analyzer.analyze(ir_operations)
+        self.signal_analyzer = signal_analyzer
         self.materializer = SignalMaterializer(
             self.signal_usage, self.signal_type_map, self.diagnostics
         )
@@ -375,7 +385,13 @@ class BlueprintEmitter:
             )
 
         self.entity_emitter = EntityEmitter(self)
-        self.connection_builder = ConnectionBuilder(self)
+        self.connection_planner = ConnectionPlanner(
+            self.layout_plan,
+            self.signal_usage,
+            self.diagnostics,
+            self.layout,
+            max_wire_span=self.wire_relay_options.normalized_span(),
+        )
 
     def _analyze_write_strategy_early(self, op: IR_MemWrite) -> str:
         """Determine memory write strategy before entities are emitted."""
@@ -475,6 +491,26 @@ class BlueprintEmitter:
         """Add an entity to the blueprint and return the stored reference."""
         return self.blueprint.entities.append(entity, copy=False)
 
+    def _record_entity_placement(self, placement: EmittedEntityPlacement) -> None:
+        """Record placement in emission lookup and mirrored layout plan."""
+
+        self.entities[placement.entity_id] = placement
+
+        entity = placement.entity
+        entity_type: str = getattr(entity, "name", None) or type(entity).__name__
+        metadata: Dict[str, Any] = dict(getattr(placement, "metadata", {}) or {})
+        metadata.setdefault("footprint", self._entity_footprint(entity))
+        metadata.setdefault("entity_obj", entity)
+        layout_entry = LayoutEntityPlacement(
+            ir_node_id=placement.entity_id,
+            entity_type=entity_type,
+            position=placement.position,
+            properties=metadata,
+            role=placement.role,
+            zone=placement.zone,
+        )
+        self.layout_plan.add_placement(layout_entry)
+
     def _compose_debug_info(
         self,
         usage_entry: Optional[SignalUsageEntry],
@@ -538,93 +574,6 @@ class BlueprintEmitter:
         else:
             self.blueprint.description = note
 
-    def _analyze_signal_usage(
-        self, ir_operations: List[IRNode]
-    ) -> Dict[str, SignalUsageEntry]:
-        """Construct a signal usage index from the IR prior to emission."""
-
-        usage: Dict[str, SignalUsageEntry] = {}
-
-        def ensure_entry(
-            signal_id: str, signal_type: Optional[str] = None
-        ) -> SignalUsageEntry:
-            entry = usage.get(signal_id)
-            if entry is None:
-                entry = SignalUsageEntry(signal_id=signal_id)
-                usage[signal_id] = entry
-            if signal_type and not entry.signal_type:
-                entry.signal_type = signal_type
-            return entry
-
-        def record_consumer(ref: Any, consumer_id: str) -> None:
-            if isinstance(ref, SignalRef):
-                entry = ensure_entry(ref.source_id, ref.signal_type)
-                entry.consumers.add(consumer_id)
-            elif isinstance(ref, (list, tuple)):
-                for item in ref:
-                    record_consumer(item, consumer_id)
-
-        def record_export(ref: Any, export_label: str) -> None:
-            if isinstance(ref, SignalRef):
-                entry = ensure_entry(ref.source_id, ref.signal_type)
-                entry.export_targets.add(export_label)
-
-        for op in ir_operations:
-            if isinstance(op, IRValue):
-                entry = ensure_entry(op.node_id, getattr(op, "output_type", None))
-                entry.producer = op
-                if op.source_ast and not entry.source_ast:
-                    entry.source_ast = op.source_ast
-                if getattr(op, "debug_label", None):
-                    entry.debug_label = op.debug_label
-                elif not entry.debug_label:
-                    entry.debug_label = op.node_id
-                if getattr(op, "debug_metadata", None):
-                    entry.debug_metadata.update(op.debug_metadata)
-
-                if isinstance(op, IR_Const):
-                    entry.literal_value = op.value
-                    if isinstance(op.source_ast, SignalLiteral):
-                        declared_type = getattr(op.source_ast, "signal_type", None)
-                        if declared_type:
-                            entry.is_typed_literal = True
-                            entry.literal_declared_type = declared_type
-                        else:
-                            entry.literal_declared_type = getattr(
-                                op, "output_type", None
-                            )
-
-            if isinstance(op, IR_Arith):
-                record_consumer(op.left, op.node_id)
-                record_consumer(op.right, op.node_id)
-            elif isinstance(op, IR_Decider):
-                record_consumer(op.left, op.node_id)
-                record_consumer(op.right, op.node_id)
-                record_consumer(op.output_value, op.node_id)
-            elif isinstance(op, IR_MemCreate):
-                if hasattr(op, "initial_value") and op.initial_value is not None:
-                    record_consumer(op.initial_value, op.node_id)
-            elif isinstance(op, IR_MemWrite):
-                entry = ensure_entry(op.node_id)
-                if not entry.debug_label:
-                    entry.debug_label = op.memory_id
-                record_consumer(op.data_signal, op.node_id)
-                record_consumer(op.write_enable, op.node_id)
-            elif isinstance(op, IR_PlaceEntity):
-                record_consumer(op.x, op.node_id)
-                record_consumer(op.y, op.node_id)
-                for prop_value in op.properties.values():
-                    record_consumer(prop_value, op.node_id)
-            elif isinstance(op, IR_EntityPropWrite):
-                record_consumer(op.value, op.node_id)
-                record_export(op.value, f"entity:{op.entity_id}.{op.property_name}")
-            elif isinstance(op, IR_ConnectToWire):
-                record_export(op.signal, f"wire:{op.channel}")
-            elif isinstance(op, IR_WireMerge):
-                record_consumer(op.sources, op.node_id)
-
-        return usage
-
     def _ensure_export_anchors(self):
         """Create anchor entities for externally visible or dangling signals."""
 
@@ -655,7 +604,7 @@ class BlueprintEmitter:
         combinator = new_entity("constant-combinator")
         pos = self._place_entity_in_zone(combinator, "south_exports")
         self._add_entity(combinator)
-        placement = EntityPlacement(
+        placement = EmittedEntityPlacement(
             entity=combinator,
             entity_id=anchor_id,
             position=pos,
@@ -664,7 +613,7 @@ class BlueprintEmitter:
             role="export_anchor",
             zone="south_exports",
         )
-        self.entities[anchor_id] = placement
+        self._record_entity_placement(placement)
         usage_entry.export_anchor_id = anchor_id
 
         debug_info = self._compose_debug_info(usage_entry)
@@ -678,14 +627,62 @@ class BlueprintEmitter:
         """Convert IR operations to blueprint."""
         import warnings
 
+        from dsl_compiler.src.layout.planner import LayoutPlanner
+
         # Preserve caller-provided blueprint metadata across resets
         previous_label = getattr(self.blueprint, "label", "DSL Generated Blueprint")
         previous_description = getattr(self.blueprint, "description", "")
 
-        # Initialize state and perform IR pre-analysis
-        self.prepare(ir_operations)
+        # Reset state for a fresh emission run
+        self._reset_for_emit()
         self.blueprint.label = previous_label
-        self._apply_blueprint_metadata(previous_description)
+
+        planner = LayoutPlanner(
+            self.signal_type_map,
+            diagnostics=self.diagnostics,
+            power_pole_type=self.power_pole_type,
+            max_wire_span=self.wire_relay_options.normalized_span(),
+        )
+
+        layout_plan = planner.plan_layout(
+            ir_operations,
+            blueprint_label=previous_label,
+            blueprint_description=previous_description,
+        )
+
+        # Synchronise internal state with the planner output
+        self.layout = planner.layout_engine
+        self.layout_plan = layout_plan
+        self.signal_analyzer = planner.signal_analyzer
+        self.signal_usage = planner.signal_usage
+        self.materializer = planner.materializer
+        self.connection_planner = planner.connection_planner
+        self.signal_graph = planner.signal_graph
+        self._wire_merge_junctions = dict(
+            getattr(getattr(planner, "_emitter", None), "_wire_merge_junctions", {})
+        )
+        self.memory_builder = MemoryCircuitBuilder(self.layout, self.blueprint)
+        self._prepared_operations = list(ir_operations)
+        self._prepared_operation_index = {}
+        self._memory_reads_by_memory = defaultdict(list)
+        self._memory_write_strategies = defaultdict(set)
+
+        source_emitter = getattr(planner, "_emitter", None)
+        if source_emitter is not None:
+            source_reads = getattr(source_emitter, "_memory_reads_by_memory", None)
+            if source_reads:
+                for memory_id, reads in source_reads.items():
+                    self._memory_reads_by_memory[memory_id].extend(reads)
+
+            source_strategies = getattr(
+                source_emitter, "_memory_write_strategies", None
+            )
+            if source_strategies:
+                for memory_id, strategies in source_strategies.items():
+                    self._memory_write_strategies[memory_id].update(strategies)
+
+        self.blueprint.label = layout_plan.blueprint_label
+        self._apply_blueprint_metadata(layout_plan.blueprint_description or previous_description)
 
         # Collect draftsman warnings during blueprint construction
         captured_warnings = []
@@ -698,29 +695,9 @@ class BlueprintEmitter:
         warnings.showwarning = warning_handler
 
         try:
-            # Process all IR operations
-            for op in self._prepared_operations:
-                self.emit_ir_operation(op)
-
-            # Create export anchors for signals with external targets but no consumers
-            self._ensure_export_anchors()
-
-            if self.connection_builder is None:
-                raise RuntimeError(
-                    "ConnectionBuilder not initialised; call prepare() first"
-                )
-
-            # Analyze wiring edges prior to creating physical connections
-            self.connection_builder.prepare_wiring_plan()
-
-            # Add wiring connections
-            self.connection_builder.create_circuit_connections()
-
-            if self.power_pole_type:
-                self._deploy_power_poles()
-
-            if self.power_poles:
-                self._connect_power_grid()
+            self._materialize_entities_from_plan(planner)
+            self._realize_circuit_connections()
+            self._materialize_power_grid()
 
             # Validate the final blueprint and process captured warnings
             self._validate_blueprint_with_warnings(captured_warnings)
@@ -777,6 +754,74 @@ class BlueprintEmitter:
         self.diagnostics.info(
             f"Generated blueprint with {len(self.blueprint.entities)} entities: {entity_counts}"
         )
+
+    def _materialize_entities_from_plan(self, planner: LayoutPlanner) -> None:
+        """Instantiate blueprint entities from a completed layout plan."""
+
+        emitter_state = getattr(planner, "_emitter", None)
+        source_entities = planner.entities or {}
+
+        self.entities = {}
+        self.power_poles = []
+
+        for entity_id, placement in source_entities.items():
+            entity_copy = copy.deepcopy(placement.entity)
+            entity_copy.id = entity_id
+            entity_copy.tile_position = placement.position
+            entity_copy = self._add_entity(entity_copy)
+
+            cloned = replace(placement, entity=entity_copy)
+            self.entities[entity_id] = cloned
+
+            layout_entry = self.layout_plan.entity_placements.get(entity_id)
+            if layout_entry is not None:
+                layout_entry.properties["entity_obj"] = entity_copy
+
+        self.next_entity_number = len(self.entities) + 1
+
+        # Reconstruct memory module bookkeeping for SR latch wiring
+        self.memory_builder.memory_modules.clear()
+        source_builder = getattr(emitter_state, "memory_builder", None)
+        source_modules = getattr(source_builder, "memory_modules", {}) or {}
+        for memory_id, components in source_modules.items():
+            new_components = {}
+            for component_name, component_placement in components.items():
+                if isinstance(component_placement, EmittedEntityPlacement):
+                    cloned = self.entities.get(component_placement.entity_id)
+                    if cloned is not None:
+                        new_components[component_name] = cloned
+                else:
+                    new_components[component_name] = component_placement
+            if new_components:
+                self.memory_builder.memory_modules[memory_id] = new_components
+
+    def _materialize_power_grid(self) -> None:
+        """Instantiate planned power poles and connect the power grid."""
+
+        self.power_poles = []
+        if not self.layout_plan.power_poles:
+            return
+
+        for pole in self.layout_plan.power_poles:
+            pole_entity = new_entity(pole.pole_type)
+            pole_entity.tile_position = pole.position
+            pole_entity = self._add_entity(pole_entity)
+
+            pole_id = pole.pole_id or f"power_pole_{self.next_entity_number}"
+            placement = EmittedEntityPlacement(
+                entity=pole_entity,
+                entity_id=pole_id,
+                position=pole.position,
+                output_signals={},
+                input_signals={},
+                role="power",
+            )
+            self.power_poles.append(placement)
+
+        if self.power_poles:
+            self._connect_power_grid()
+
+        self.next_entity_number = len(self.blueprint.entities) + 1
 
     def emit_ir_operation(self, op: IRNode):
         """Emit a single IR operation, consulting signal usage index for materialization rules."""
@@ -848,415 +893,319 @@ class BlueprintEmitter:
         for signal_id in signal_ids:
             self.signal_graph.add_sink(signal_id, entity_id)
 
-    def _iter_entity_tiles(self, placement: EntityPlacement) -> Iterable[Tuple[int, int]]:
-        """Yield every tile coordinate occupied by an entity placement."""
+    def _determine_locked_wire_colors(self) -> Dict[Tuple[str, str], str]:
+        """Collect wire color locks for memory modules requiring green outputs."""
 
-        footprint = self._entity_footprint(placement.entity)
-        base_x, base_y = placement.position
-        for dx in range(footprint[0]):
-            for dy in range(footprint[1]):
-                yield (base_x + dx, base_y + dy)
+        locked: Dict[Tuple[str, str], str] = {}
 
-    def _position_center(
+        for module in self.memory_builder.memory_modules.values():
+            if not isinstance(module, dict):
+                continue
+            for placement in module.values():
+                if not isinstance(placement, EmittedEntityPlacement):
+                    continue
+                for signal_name, color in placement.output_signals.items():
+                    if color == "green":
+                        locked[(placement.entity_id, signal_name)] = color
+
+        return locked
+
+    def _resolve_wire_color(
         self,
-        pos: Tuple[int, int],
-        footprint: Tuple[int, int],
-    ) -> Tuple[float, float]:
-        """Return the geometric centre of an entity footprint at ``pos``."""
+        source: EmittedEntityPlacement,
+        sink: EmittedEntityPlacement,
+        resolved_signal: Optional[str] = None,
+    ) -> str:
+        """Determine preferred wire color based on sink expectations."""
 
-        return (
-            pos[0] + footprint[0] / 2.0,
-            pos[1] + footprint[1] / 2.0,
-        )
+        if resolved_signal:
+            desired = sink.input_signals.get(resolved_signal)
+            if desired:
+                return desired
+            if resolved_signal != "signal-W":
+                desired = sink.input_signals.get("signal-each")
+                if desired:
+                    return desired
+            desired = sink.input_signals.get("signal-W")
+            if desired and resolved_signal == "signal-W":
+                return desired
 
-    def _distance_tile_to_position(
-        self,
-        tile: Tuple[int, int],
-        pos: Tuple[int, int],
-        footprint: Tuple[int, int],
+        if "memory" in source.entity_id and "output" in source.entity_id:
+            return "green"
+        return "red"
+
+    def _compute_wire_distance(
+        self, source: EmittedEntityPlacement, sink: EmittedEntityPlacement
     ) -> float:
-        tile_center = (tile[0] + 0.5, tile[1] + 0.5)
-        position_center = self._position_center(pos, footprint)
-        return math.hypot(
-            tile_center[0] - position_center[0],
-            tile_center[1] - position_center[1],
+        """Return distance between two placements honoring configured metric."""
+
+        sx, sy = source.position
+        tx, ty = sink.position
+        if self.wire_relay_options.placement_strategy == "manhattan":
+            return abs(tx - sx) + abs(ty - sy)
+        return math.dist((sx, sy), (tx, ty))
+
+    def _connect_with_wire_path(
+        self,
+        source: EmittedEntityPlacement,
+        sink: EmittedEntityPlacement,
+        wire_color: str,
+        resolved_signal: Optional[str] = None,
+    ) -> None:
+        """Wire entities, inserting relay poles when range limits are exceeded."""
+
+        source_entity = source.entity
+        sink_entity = sink.entity
+        source_dual = getattr(source_entity, "dual_circuit_connectable", False)
+        sink_dual = getattr(sink_entity, "dual_circuit_connectable", False)
+
+        span_limit = self.wire_relay_options.normalized_span()
+        total_distance = self._compute_wire_distance(source, sink)
+
+        path = [source]
+        relays = self._insert_wire_relays_if_needed(source, sink)
+        if relays:
+            path.extend(relays)
+        path.append(sink)
+
+        if self._plan_only_mode:
+            return
+
+        if not relays and total_distance > span_limit:
+            self.diagnostics.warning(
+                "Connection %s -> %s spans %.1f tiles which exceeds configured reach %.1f; proceeding without relays."
+                % (source.entity_id, sink.entity_id, total_distance, span_limit)
+            )
+
+        for idx in range(len(path) - 1):
+            first_pos = path[idx].position
+            second_pos = path[idx + 1].position
+            segment_distance = math.dist(first_pos, second_pos)
+            if segment_distance > span_limit + 1e-6:
+                self.diagnostics.warning(
+                    "Segment %s -> %s spans %.1f tiles (limit %.1f)."
+                    % (
+                        path[idx].entity_id,
+                        path[idx + 1].entity_id,
+                        segment_distance,
+                        span_limit,
+                    )
+                )
+
+        path_length = len(path)
+
+        for idx in range(path_length - 1):
+            first = path[idx]
+            second = path[idx + 1]
+
+            connection_kwargs: Dict[str, Any] = dict(
+                color=wire_color,
+                entity_1=first.entity,
+                entity_2=second.entity,
+            )
+
+            if idx == 0 and source_dual:
+                connection_kwargs["side_1"] = "output"
+            if idx == path_length - 2 and sink_dual:
+                connection_kwargs["side_2"] = "input"
+
+            try:
+                self.blueprint.add_circuit_connection(**connection_kwargs)
+            except Exception as exc:
+                self.diagnostics.error(
+                    f"Failed to connect {first.entity_id} -> {second.entity_id}: {exc}"
+                )
+
+    def _insert_wire_relays_if_needed(
+        self,
+        source: EmittedEntityPlacement,
+        sink: EmittedEntityPlacement,
+    ) -> List[EmittedEntityPlacement]:
+        """Insert relay poles when two endpoints exceed wire reach."""
+
+        if self._plan_only_mode:
+            return []
+
+        options = self.wire_relay_options
+        if not options.enabled:
+            return []
+
+        span_limit = options.normalized_span()
+        distance = self._compute_wire_distance(source, sink)
+        if distance <= span_limit:
+            return []
+
+        segments = max(1, math.ceil(distance / span_limit))
+        required_relays = segments - 1
+
+        relays: List[EmittedEntityPlacement] = []
+        if required_relays <= 0:
+            return relays
+
+        if options.max_relays is not None and required_relays > options.max_relays:
+            self.diagnostics.warning(
+                "Connection %s -> %s requires %d relay poles but max_relays=%d; skipping automatic relay placement."
+                % (
+                    source.entity_id,
+                    sink.entity_id,
+                    required_relays,
+                    options.max_relays,
+                )
+            )
+            return relays
+
+        self.diagnostics.info(
+            "Inserting %d wire relay(s) (strategy=%s, span=%.1f) to bridge %.1f tiles between %s and %s."
+            % (
+                required_relays,
+                options.placement_strategy,
+                span_limit,
+                distance,
+                source.entity_id,
+                sink.entity_id,
+            )
         )
 
-    def _tiles_covered_by_position(
-        self,
-        pos: Tuple[int, int],
-        tiles: Iterable[Tuple[int, int]],
-        supply_radius: float,
-        footprint: Tuple[int, int],
-    ) -> Set[Tuple[int, int]]:
-        """Return tiles covered by a power pole at ``pos`` with the given radius."""
+        for idx in range(1, segments):
+            ratio = idx / segments
 
-        cx, cy = self._position_center(pos, footprint)
-        radius = float(supply_radius) + 0.45
-        radius_sq = radius * radius
-        covered: Set[Tuple[int, int]] = set()
-        for tile in tiles:
-            tx = tile[0] + 0.5
-            ty = tile[1] + 0.5
-            if (tx - cx) ** 2 + (ty - cy) ** 2 <= radius_sq:
-                covered.add(tile)
-        return covered
+            try:
+                pole_entity = new_entity(WIRE_RELAY_ENTITY)
+            except Exception as exc:
+                self.diagnostics.error(
+                    f"Failed to instantiate relay pole for {source.entity_id}->{sink.entity_id}: {exc}"
+                )
+                break
 
-    def _candidate_power_pole_positions(
-        self,
-        target_tile: Tuple[int, int],
-        footprint: Tuple[int, int],
-        padding: int,
-        supply_radius: float,
-        bounds: Tuple[int, int, int, int],
-    ) -> Iterable[Tuple[int, int]]:
-        """Enumerate feasible candidate slots near a target tile."""
+            footprint = self._entity_footprint(pole_entity)
+            pos = self.layout.reserve_along_path(
+                source.position,
+                sink.position,
+                ratio,
+                strategy=options.placement_strategy,
+                max_radius=12,
+                footprint=footprint,
+                padding=0,
+            )
 
-        tx, ty = target_tile
-        min_x, min_y, max_x, max_y = bounds
-        search_radius = max(1, math.ceil(supply_radius) + max(footprint))
-        seen: Set[Tuple[int, int]] = set()
+            pole_entity.tile_position = pos
+            pole_entity = self._add_entity(pole_entity)
 
-        for dx in range(-search_radius, search_radius + max(footprint) + 1):
-            for dy in range(-search_radius, search_radius + max(footprint) + 1):
-                raw_x = tx + dx
-                raw_y = ty + dy
-                if raw_x < min_x or raw_x > max_x or raw_y < min_y or raw_y > max_y:
-                    continue
-                candidate = self.layout.snap_to_grid((raw_x, raw_y))
-                if candidate in seen:
-                    continue
-                seen.add(candidate)
-                if not self.layout.can_reserve(
-                    candidate, footprint=footprint, padding=padding
-                ):
-                    continue
-                yield candidate
+            relay_id = f"__wire_relay_{self._wire_relay_counter}"
+            self._wire_relay_counter += 1
 
-    def _spawn_power_pole(
-        self, config: Dict[str, Any], position: Tuple[int, int]
-    ) -> EntityPlacement:
-        """Create and register a power pole entity at ``position``."""
+            placement = EmittedEntityPlacement(
+                entity=pole_entity,
+                entity_id=relay_id,
+                position=pos,
+                output_signals={},
+                input_signals={},
+                role="wire_relay",
+                zone="infrastructure",
+            )
 
-        pole_entity = new_entity(config["prototype"])
-        pole_entity.tile_position = position
+            self._record_entity_placement(placement)
+            relays.append(placement)
+
+        return relays
+
+    def _plan_connections(self) -> None:
+        """Run the connection planner to populate the layout wire plan."""
+
+        if self.connection_planner is None:
+            raise RuntimeError(
+                "ConnectionPlanner not initialised; call prepare() first"
+            )
+
+        locked_colors = self._determine_locked_wire_colors()
+        self.connection_planner.plan_connections(
+            self.signal_graph,
+            self.entities,
+            wire_merge_junctions=self._wire_merge_junctions,
+            locked_colors=locked_colors,
+        )
+
+    def _realize_circuit_connections(self) -> None:
+        """Convert planned wire connections into blueprint wiring."""
+
+        for memory_id in self.memory_builder.memory_modules:
+            try:
+                self.memory_builder.wire_sr_latch(memory_id)
+            except Exception as exc:
+                self.diagnostics.error(f"Failed to wire memory {memory_id}: {exc}")
+
+        if self.connection_planner is None:
+            raise RuntimeError(
+                "ConnectionPlanner not initialised; call prepare() first"
+            )
+
+        for connection in self.layout_plan.wire_connections:
+            source = self.entities.get(connection.source_entity_id)
+            sink = self.entities.get(connection.sink_entity_id)
+
+            if source is None:
+                self.diagnostics.error(
+                    f"Source entity {connection.source_entity_id} missing for signal {connection.signal_name}"
+                )
+                continue
+
+            if sink is None:
+                self.diagnostics.error(
+                    f"Sink entity {connection.sink_entity_id} missing for signal {connection.signal_name}"
+                )
+                continue
+
+            wire_color = connection.wire_color or self._resolve_wire_color(
+                source,
+                sink,
+                connection.signal_name,
+            )
+
+            self._connect_with_wire_path(
+                source,
+                sink,
+                wire_color,
+                resolved_signal=connection.signal_name,
+            )
+
+    def _instantiate_power_pole(self, plan: PlannedPowerPole) -> EmittedEntityPlacement:
+        """Create and register a power pole entity from a planner result."""
+
+        pole_entity = new_entity(plan.prototype)
+        pole_entity.tile_position = plan.position
         pole_entity = self._add_entity(pole_entity)
         pole_id = f"power_pole_{self.next_entity_number}"
         self.next_entity_number += 1
-        placement = EntityPlacement(
+        placement = EmittedEntityPlacement(
             entity=pole_entity,
             entity_id=pole_id,
-            position=position,
+            position=plan.position,
             output_signals={},
             input_signals={},
             role="power",
         )
-        self.entities[pole_id] = placement
+        self._record_entity_placement(placement)
         self.power_poles.append(placement)
+        self.layout_plan.add_power_pole(
+            PowerPolePlacement(
+                pole_id=pole_id,
+                pole_type=plan.prototype,
+                position=plan.position,
+            )
+        )
         return placement
 
-    def _power_pole_center(self, placement: EntityPlacement) -> Tuple[float, float]:
-        footprint = self._entity_footprint(placement.entity)
-        return self._position_center(placement.position, footprint)
-
-    def _compute_power_components(
-        self, wire_reach: float
-    ) -> List[List[EntityPlacement]]:
-        if not self.power_poles:
-            return []
-
-        reach_sq = float(wire_reach) * float(wire_reach)
-        centers = [self._power_pole_center(p) for p in self.power_poles]
-        components: List[List[EntityPlacement]] = []
-        visited: Set[int] = set()
-
-        for idx in range(len(self.power_poles)):
-            if idx in visited:
-                continue
-            stack = [idx]
-            component_indices: List[int] = []
-            while stack:
-                current = stack.pop()
-                if current in visited:
-                    continue
-                visited.add(current)
-                component_indices.append(current)
-                cx, cy = centers[current]
-                for other in range(len(self.power_poles)):
-                    if other == current or other in visited:
-                        continue
-                    ox, oy = centers[other]
-                    if (ox - cx) ** 2 + (oy - cy) ** 2 <= reach_sq:
-                        stack.append(other)
-            components.append([self.power_poles[i] for i in component_indices])
-
-        return components
-
-    def _ensure_power_pole_connectivity(self, config: Dict[str, Any]) -> None:
-        wire_reach = float(config.get("wire_reach", 0) or 0)
-        if wire_reach <= 0 or len(self.power_poles) < 2:
-            return
-
-        max_attempts = len(self.power_poles) + 8
-        attempts = 0
-
-        while attempts < max_attempts:
-            components = self._compute_power_components(wire_reach)
-            if len(components) <= 1:
-                break
-
-            base_component = components[0]
-            best_distance = float("inf")
-            closest_pair: Optional[Tuple[EntityPlacement, EntityPlacement]] = None
-
-            for candidate_component in components[1:]:
-                for pole_a in base_component:
-                    center_a = self._power_pole_center(pole_a)
-                    for pole_b in candidate_component:
-                        center_b = self._power_pole_center(pole_b)
-                        distance = math.dist(center_a, center_b)
-                        if distance < best_distance:
-                            best_distance = distance
-                            closest_pair = (pole_a, pole_b)
-
-            if not closest_pair:
-                break
-
-            if best_distance <= wire_reach:
-                attempts += 1
-                continue
-
-            pole_a, pole_b = closest_pair
-            needed = max(1, math.ceil(best_distance / wire_reach) - 1)
-            center_a = self._power_pole_center(pole_a)
-            center_b = self._power_pole_center(pole_b)
-            footprint = config["footprint"]
-            padding = config["padding"]
-
-            for index in range(1, needed + 1):
-                ratio = index / (needed + 1)
-                target_center = (
-                    center_a[0] + (center_b[0] - center_a[0]) * ratio,
-                    center_a[1] + (center_b[1] - center_a[1]) * ratio,
-                )
-                approx_top_left = (
-                    target_center[0] - footprint[0] / 2.0,
-                    target_center[1] - footprint[1] / 2.0,
-                )
-                placement_pos = self.layout.reserve_near(
-                    approx_top_left,
-                    max_radius=max(6, math.ceil(wire_reach)),
-                    footprint=footprint,
-                    padding=padding,
-                )
-                if placement_pos is None:
-                    placement_pos = self.layout.get_next_position(
-                        footprint=footprint,
-                        padding=padding,
-                    )
-                self._spawn_power_pole(config, placement_pos)
-
-            attempts += 1
-
-    def _tiles_missing_power(
-        self,
-        tiles: Iterable[Tuple[int, int]],
-        supply_radius: float,
-    ) -> Set[Tuple[int, int]]:
-        radius_sq = (float(supply_radius) + 0.5) ** 2
-        centers = [self._power_pole_center(pole) for pole in self.power_poles]
-        if not centers:
-            return set(tiles)
-
-        uncovered: Set[Tuple[int, int]] = set()
-        for tile in tiles:
-            tx = tile[0] + 0.5
-            ty = tile[1] + 0.5
-            if not any((tx - cx) ** 2 + (ty - cy) ** 2 <= radius_sq for cx, cy in centers):
-                uncovered.add(tile)
-        return uncovered
-
     def _deploy_power_poles(self) -> None:
-        """Place power poles of the configured type to cover all circuit entities."""
+        """Delegate power pole placement to the layout power planner."""
 
         if not self.power_pole_type:
             return
 
-        config = POWER_POLE_CONFIG.get(self.power_pole_type)
-        if not config:
-            self.diagnostics.warning(
-                f"Unknown power pole type '{self.power_pole_type}'; skipping power grid deployment"
-            )
-            return
+        planner = PowerPlanner(self.layout, self.layout_plan, self.diagnostics)
+        planned_poles = planner.plan_power_grid(self.power_pole_type)
 
-        footprint: Tuple[int, int] = tuple(config["footprint"])
-        padding = int(config["padding"])
-        supply_radius = float(config["supply_radius"])
-
-        placements = [
-            placement
-            for placement in self.entities.values()
-            if placement.role != "power"
-        ]
-
-        if not placements:
-            return
-
-        coverage_tiles: Set[Tuple[int, int]] = set()
-        for placement in placements:
-            coverage_tiles.update(self._iter_entity_tiles(placement))
-
-        if not coverage_tiles:
-            return
-
-        margin = max(
-            2,
-            math.ceil(supply_radius) + max(footprint) + padding,
-        )
-        min_x = min(tile[0] for tile in coverage_tiles) - margin
-        min_y = min(tile[1] for tile in coverage_tiles) - margin
-        max_x = max(tile[0] for tile in coverage_tiles) + margin
-        max_y = max(tile[1] for tile in coverage_tiles) + margin
-        bounds = (min_x, min_y, max_x, max_y)
-
-        uncovered_tiles = set(coverage_tiles)
-        coverage_cache: Dict[Tuple[int, int], Set[Tuple[int, int]]] = {}
-
-        while uncovered_tiles:
-            target_tile = next(iter(uncovered_tiles))
-            best_pos: Optional[Tuple[int, int]] = None
-            best_total_cover: Set[Tuple[int, int]] = set()
-            best_cover: Set[Tuple[int, int]] = set()
-            best_distance = float("inf")
-
-            for candidate in self._candidate_power_pole_positions(
-                target_tile,
-                footprint,
-                padding,
-                supply_radius,
-                bounds,
-            ):
-                total_cover = coverage_cache.get(candidate)
-                if total_cover is None:
-                    total_cover = self._tiles_covered_by_position(
-                        candidate,
-                        coverage_tiles,
-                        supply_radius,
-                        footprint,
-                    )
-                    coverage_cache[candidate] = total_cover
-                new_cover = total_cover & uncovered_tiles
-                if not new_cover:
-                    continue
-
-                distance = self._distance_tile_to_position(
-                    target_tile,
-                    candidate,
-                    footprint,
-                )
-
-                if len(new_cover) > len(best_cover) or (
-                    len(new_cover) == len(best_cover) and distance < best_distance
-                ):
-                    best_pos = candidate
-                    best_total_cover = total_cover
-                    best_cover = new_cover
-                    best_distance = distance
-
-            if best_pos is not None:
-                claimed = self.layout.reserve_exact(
-                    best_pos,
-                    footprint=footprint,
-                    padding=padding,
-                )
-                if claimed is None:
-                    claimed = self.layout.reserve_near(
-                        best_pos,
-                        max_radius=max(6, math.ceil(supply_radius) + max(footprint)),
-                        footprint=footprint,
-                        padding=padding,
-                    )
-                if claimed is None:
-                    claimed = self.layout.get_next_position(
-                        footprint=footprint,
-                        padding=padding,
-                    )
-                placement = self._spawn_power_pole(config, claimed)
-                if claimed == best_pos and best_total_cover:
-                    coverage = best_total_cover
-                else:
-                    coverage = self._tiles_covered_by_position(
-                        placement.position,
-                        coverage_tiles,
-                        supply_radius,
-                        footprint,
-                    )
-            else:
-                claimed = self.layout.reserve_near(
-                    target_tile,
-                    max_radius=max(6, math.ceil(supply_radius) + max(footprint)),
-                    footprint=footprint,
-                    padding=padding,
-                )
-                if claimed is None:
-                    claimed = self.layout.get_next_position(
-                        footprint=footprint,
-                        padding=padding,
-                    )
-                placement = self._spawn_power_pole(config, claimed)
-                coverage = self._tiles_covered_by_position(
-                    placement.position,
-                    coverage_tiles,
-                    supply_radius,
-                    footprint,
-                )
-
-            if not coverage:
-                coverage = {target_tile}
-
-            coverage_cache[placement.position] = coverage
-            uncovered_tiles.difference_update(coverage)
-
-        residual_uncovered = self._tiles_missing_power(coverage_tiles, supply_radius)
-        safety_guard = 0
-        max_attempts = len(coverage_tiles) * 2 + 8
-
-        while residual_uncovered and safety_guard < max_attempts:
-            target_tile = residual_uncovered.pop()
-            placement_pos = self.layout.reserve_near(
-                target_tile,
-                max_radius=max(
-                    8,
-                    math.ceil(supply_radius) + max(footprint) + padding,
-                ),
-                footprint=footprint,
-                padding=padding,
-            )
-            if placement_pos is None:
-                placement_pos = self.layout.get_next_position(
-                    footprint=footprint,
-                    padding=padding,
-                )
-            self._spawn_power_pole(config, placement_pos)
-            residual_uncovered = self._tiles_missing_power(
-                coverage_tiles,
-                supply_radius,
-            )
-            safety_guard += 1
-
-        if residual_uncovered:
-            self.diagnostics.warning(
-                "Unable to guarantee power coverage for all tiles after fallback placement"
-            )
-
-        if not self.power_poles:
-            fallback = self.layout.get_next_position(
-                footprint=footprint,
-                padding=padding,
-            )
-            self._spawn_power_pole(config, fallback)
-
-        self._ensure_power_pole_connectivity(config)
+        for plan in planned_poles:
+            self._instantiate_power_pole(plan)
 
     def _connect_power_grid(self) -> None:
         """Ensure all placed power poles are connected via copper wires."""
@@ -1272,6 +1221,165 @@ class BlueprintEmitter:
             )
 
 
+class BlueprintEmitter:
+    """Materialize a :class:`LayoutPlan` into a Factorio blueprint."""
+
+    def __init__(
+        self,
+        signal_type_map: Optional[Dict[str, str]] = None,
+    ) -> None:
+        self.signal_type_map = signal_type_map or {}
+        self.diagnostics = DiagnosticCollector()
+        self.blueprint = Blueprint()
+        self._ensure_signal_map_registered()
+        self.entity_factory = PlanEntityEmitter(self.diagnostics)
+
+    def emit_from_plan(self, layout_plan: LayoutPlan) -> Blueprint:
+        """Emit a blueprint from a completed layout plan."""
+
+        self.blueprint = Blueprint()
+        self.blueprint.label = layout_plan.blueprint_label or "DSL Generated"
+        self.blueprint.description = layout_plan.blueprint_description or ""
+        self.blueprint.version = (2, 0)
+
+        entity_map: Dict[str, Entity] = {}
+
+        for placement in layout_plan.entity_placements.values():
+            entity = self.entity_factory.create_entity(placement)
+            if entity is None:
+                continue
+            entity_map[placement.ir_node_id] = entity
+            self.blueprint.entities.append(entity, copy=False)
+
+        self._materialize_power_grid(layout_plan, entity_map)
+        self._materialize_connections(layout_plan, entity_map)
+        self._apply_blueprint_metadata(self.blueprint.description)
+
+        return self.blueprint
+
+    # ------------------------------------------------------------------
+    # Connection materialisation
+    # ------------------------------------------------------------------
+
+    def _materialize_connections(
+        self,
+        layout_plan: LayoutPlan,
+        entity_map: Dict[str, Entity],
+    ) -> None:
+        for connection in layout_plan.wire_connections:
+            source = entity_map.get(connection.source_entity_id)
+            sink = entity_map.get(connection.sink_entity_id)
+
+            if source is None or sink is None:
+                missing_id = (
+                    connection.source_entity_id
+                    if source is None
+                    else connection.sink_entity_id
+                )
+                self.diagnostics.warning(
+                    f"Skipped wire for '{connection.signal_name}' due to missing entity '{missing_id}'."
+                )
+                continue
+
+            kwargs: Dict[str, Any] = {
+                "color": connection.wire_color,
+                "entity_1": source,
+                "entity_2": sink,
+            }
+            if connection.source_side:
+                kwargs["side_1"] = connection.source_side
+            if connection.sink_side:
+                kwargs["side_2"] = connection.sink_side
+
+            try:
+                self.blueprint.add_circuit_connection(**kwargs)
+            except Exception as exc:  # pragma: no cover - draftsman errors
+                self.diagnostics.error(
+                    f"Failed to wire {source.id} -> {sink.id} ({connection.signal_name}): {exc}"
+                )
+
+    def _materialize_power_grid(
+        self,
+        layout_plan: LayoutPlan,
+        entity_map: Dict[str, Entity],
+    ) -> None:
+        if not layout_plan.power_poles:
+            return
+
+        for pole in layout_plan.power_poles:
+            try:
+                entity = new_entity(pole.pole_type)
+            except Exception as exc:  # pragma: no cover - draftsman errors
+                self.diagnostics.error(
+                    f"Failed to instantiate power pole '{pole.pole_type}': {exc}"
+                )
+                continue
+
+            entity.id = pole.pole_id or entity.id
+            entity.tile_position = pole.position
+            self.blueprint.entities.append(entity, copy=False)
+            entity_map[entity.id] = entity
+
+        try:
+            self.blueprint.generate_power_connections()
+        except Exception as exc:  # pragma: no cover - draftsman warnings
+            self.diagnostics.warning(
+                f"Failed to auto-generate power connections: {exc}"
+            )
+
+    # ------------------------------------------------------------------
+    # Metadata helpers
+    # ------------------------------------------------------------------
+
+    def _ensure_signal_map_registered(self) -> None:
+        if signal_data is None:
+            return
+
+        for entry in self.signal_type_map.values():
+            if isinstance(entry, dict):
+                name = entry.get("name")
+                signal_type = entry.get("type") or "virtual"
+            else:
+                name = entry
+                signal_type = "virtual"
+
+            if not name:
+                continue
+
+            existing = signal_data.raw.get(name)
+            if existing is not None:
+                continue
+
+            try:
+                signal_data.add_signal(name, signal_type)
+            except Exception as exc:  # pragma: no cover - draftsman errors
+                self.diagnostics.warning(
+                    f"Could not register signal '{name}' as {signal_type}: {exc}"
+                )
+
+    def _apply_blueprint_metadata(self, previous_description: str) -> None:
+        if not hasattr(self.blueprint, "description"):
+            return
+
+        description = previous_description or ""
+        note = EDGE_LAYOUT_NOTE
+
+        if note in description:
+            self.blueprint.description = description
+            return
+
+        if description:
+            if not description.endswith("\n"):
+                description += "\n"
+            self.blueprint.description = description + note
+        else:
+            self.blueprint.description = note
+
+
+# Transitional: expose legacy planning emitter until layout pipeline fully migrates.
+LegacyBlueprintEmitter = LayoutBuilder
+
+
 # =============================================================================
 # Public API
 # =============================================================================
@@ -1285,18 +1393,37 @@ def emit_blueprint(
     power_pole_type: Optional[str] = None,
 ) -> Tuple[Blueprint, DiagnosticCollector]:
     """Convert IR operations to Factorio blueprint."""
-    emitter = BlueprintEmitter(
-        signal_type_map,
-        power_pole_type=power_pole_type,
-    )
-    emitter.blueprint.label = label
+    signal_type_map = signal_type_map or {}
 
-    try:
-        blueprint = emitter.emit_blueprint(ir_operations)
-        return blueprint, emitter.diagnostics
-    except Exception as e:
-        emitter.diagnostics.error(f"Blueprint emission failed: {e}")
-        return emitter.blueprint, emitter.diagnostics
+    emitter = BlueprintEmitter(signal_type_map)
+
+    planner_diagnostics = DiagnosticCollector()
+    from dsl_compiler.src.layout.planner import LayoutPlanner
+
+    planner = LayoutPlanner(
+        signal_type_map,
+        diagnostics=planner_diagnostics,
+        power_pole_type=power_pole_type,
+        max_wire_span=MAX_CIRCUIT_WIRE_SPAN,
+    )
+
+    layout_plan = planner.plan_layout(
+        ir_operations,
+        blueprint_label=label,
+        blueprint_description="",
+    )
+
+    combined_diagnostics = DiagnosticCollector()
+    combined_diagnostics.diagnostics.extend(planner.diagnostics.diagnostics)
+
+    if planner.diagnostics.has_errors():
+        return Blueprint(), combined_diagnostics
+
+    blueprint = emitter.emit_from_plan(layout_plan)
+
+    combined_diagnostics.diagnostics.extend(emitter.diagnostics.diagnostics)
+
+    return blueprint, combined_diagnostics
 
 
 def emit_blueprint_string(

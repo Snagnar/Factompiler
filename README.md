@@ -92,7 +92,8 @@ Options:
 Programmatic consumers can customize the emitter when embedding the compiler. The `BlueprintEmitter` accepts `WireRelayOptions` to adjust automatic relay pole insertion (enable/disable, Euclidean vs. Manhattan planning, relay caps):
 
 ```python
-from dsl_compiler.src.emission import BlueprintEmitter, WireRelayOptions
+from dsl_compiler.src.emission import BlueprintEmitter
+from dsl_compiler.src.emission.emitter import WireRelayOptions
 
 relay_options = WireRelayOptions(placement_strategy="manhattan", max_relays=4)
 emitter = BlueprintEmitter(signal_type_map=signal_map, wire_relay_options=relay_options)

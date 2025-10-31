@@ -1,4 +1,4 @@
-from dsl_compiler.src.emission.wiring import CircuitEdge, plan_wire_colors
+from dsl_compiler.src.layout import CircuitEdge, plan_wire_colors
 
 
 def make_edge(source: str, sink: str, signal: str) -> CircuitEdge:

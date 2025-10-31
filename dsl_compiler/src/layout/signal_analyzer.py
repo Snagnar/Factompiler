@@ -1,26 +1,26 @@
-from collections import defaultdict
+"""Signal usage analysis and materialization decisions."""
+
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
-from draftsman.classes.entity import Entity
-from draftsman.data import signals as signal_data
+from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
 
-from ..ir import IRValue, IR_Const, SignalRef
-from ..semantic import DiagnosticCollector
-
-
-@dataclass
-class EntityPlacement:
-    """Information about placed entity for wiring."""
-
-    entity: Entity
-    entity_id: str
-    position: Tuple[int, int]
-    output_signals: Dict[str, str]
-    input_signals: Dict[str, str]
-    role: Optional[str] = None
-    zone: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+from dsl_compiler.src.ast import SignalLiteral
+from dsl_compiler.src.ir import (
+    IRNode,
+    IRValue,
+    IR_Const,
+    IR_Arith,
+    IR_Decider,
+    IR_MemCreate,
+    IR_MemWrite,
+    IR_PlaceEntity,
+    IR_EntityPropWrite,
+    IR_ConnectToWire,
+    IR_WireMerge,
+    SignalRef,
+)
+from dsl_compiler.src.semantic import DiagnosticCollector
 
 
 @dataclass
@@ -46,50 +46,102 @@ class SignalUsageEntry:
     resolved_signal_type: Optional[str] = None
 
 
-class SignalGraph:
-    """Minimal signal connectivity graph for emitter wiring decisions."""
+class SignalAnalyzer:
+    """Analyzes IR to determine signal usage patterns."""
 
-    def __init__(self) -> None:
-        self._sources: Dict[str, str] = {}
-        self._sinks: Dict[str, List[str]] = defaultdict(list)
+    def __init__(self, diagnostics: DiagnosticCollector):
+        self.diagnostics = diagnostics
+        self.signal_usage: Dict[str, SignalUsageEntry] = {}
 
-    def reset(self) -> None:
-        self._sources.clear()
-        self._sinks.clear()
+    def analyze(self, ir_operations: List[IRNode]) -> Dict[str, SignalUsageEntry]:
+        """Analyze IR operations to build a signal usage index."""
 
-    def set_source(self, signal_id: str, entity_id: str) -> None:
-        self._sources[signal_id] = entity_id
+        usage: Dict[str, SignalUsageEntry] = {}
 
-    def get_source(self, signal_id: str) -> Optional[str]:
-        return self._sources.get(signal_id)
+        def ensure_entry(
+            signal_id: str, signal_type: Optional[str] = None
+        ) -> SignalUsageEntry:
+            entry = usage.get(signal_id)
+            if entry is None:
+                entry = SignalUsageEntry(signal_id=signal_id)
+                usage[signal_id] = entry
+            if signal_type and not entry.signal_type:
+                entry.signal_type = signal_type
+            return entry
 
-    def add_sink(self, signal_id: str, entity_id: str) -> None:
-        sinks = self._sinks[signal_id]
-        if entity_id not in sinks:
-            sinks.append(entity_id)
+        def record_consumer(ref: Any, consumer_id: str) -> None:
+            if isinstance(ref, SignalRef):
+                entry = ensure_entry(ref.source_id, ref.signal_type)
+                entry.consumers.add(consumer_id)
+            elif isinstance(ref, (list, tuple)):
+                for item in ref:
+                    record_consumer(item, consumer_id)
 
-    def has_sink(self, signal_id: str, entity_id: str) -> bool:
-        return entity_id in self._sinks.get(signal_id, [])
+        def record_export(ref: Any, export_label: str) -> None:
+            if isinstance(ref, SignalRef):
+                entry = ensure_entry(ref.source_id, ref.signal_type)
+                entry.export_targets.add(export_label)
 
-    def iter_sinks(self, signal_id: str) -> List[str]:
-        return list(self._sinks.get(signal_id, []))
+        for op in ir_operations:
+            if isinstance(op, IRValue):
+                entry = ensure_entry(op.node_id, getattr(op, "output_type", None))
+                entry.producer = op
+                if op.source_ast and not entry.source_ast:
+                    entry.source_ast = op.source_ast
+                if getattr(op, "debug_label", None):
+                    entry.debug_label = op.debug_label
+                elif not entry.debug_label:
+                    entry.debug_label = op.node_id
+                if getattr(op, "debug_metadata", None):
+                    entry.debug_metadata.update(op.debug_metadata)
 
-    def signals(self) -> Set[str]:
-        return set(self._sinks.keys()) | set(self._sources.keys())
+                if isinstance(op, IR_Const):
+                    entry.literal_value = op.value
+                    if isinstance(op.source_ast, SignalLiteral):
+                        declared_type = getattr(op.source_ast, "signal_type", None)
+                        if declared_type:
+                            entry.is_typed_literal = True
+                            entry.literal_declared_type = declared_type
+                        else:
+                            entry.literal_declared_type = getattr(
+                                op, "output_type", None
+                            )
 
-    def iter_edges(self):
-        for signal_id, sinks in self._sinks.items():
-            yield signal_id, self._sources.get(signal_id), list(sinks)
+            if isinstance(op, IR_Arith):
+                record_consumer(op.left, op.node_id)
+                record_consumer(op.right, op.node_id)
+            elif isinstance(op, IR_Decider):
+                record_consumer(op.left, op.node_id)
+                record_consumer(op.right, op.node_id)
+                record_consumer(op.output_value, op.node_id)
+            elif isinstance(op, IR_MemCreate):
+                if hasattr(op, "initial_value") and op.initial_value is not None:
+                    record_consumer(op.initial_value, op.node_id)
+            elif isinstance(op, IR_MemWrite):
+                entry = ensure_entry(op.node_id)
+                if not entry.debug_label:
+                    entry.debug_label = op.memory_id
+                record_consumer(op.data_signal, op.node_id)
+                record_consumer(op.write_enable, op.node_id)
+            elif isinstance(op, IR_PlaceEntity):
+                record_consumer(op.x, op.node_id)
+                record_consumer(op.y, op.node_id)
+                for prop_value in op.properties.values():
+                    record_consumer(prop_value, op.node_id)
+            elif isinstance(op, IR_EntityPropWrite):
+                record_consumer(op.value, op.node_id)
+                record_export(op.value, f"entity:{op.entity_id}.{op.property_name}")
+            elif isinstance(op, IR_ConnectToWire):
+                record_export(op.signal, f"wire:{op.channel}")
+            elif isinstance(op, IR_WireMerge):
+                record_consumer(op.sources, op.node_id)
 
-    def iter_source_sink_pairs(self):
-        for signal_id, sinks in self._sinks.items():
-            source = self._sources.get(signal_id)
-            for sink in sinks:
-                yield signal_id, source, sink
+        self.signal_usage = usage
+        return usage
 
 
 class SignalMaterializer:
-    """Helper for deciding when and how to materialize logical signals."""
+    """Decides when and how to materialize logical signals."""
 
     def __init__(
         self,
@@ -237,7 +289,6 @@ class SignalMaterializer:
         entry.resolved_signal_name = name
         entry.resolved_signal_type = category
 
-        # Ensure the resolved signal exists in the Draftsman registry
         if signal_data is not None and name:
             existing = signal_data.raw.get(name)
             target_type = category or "virtual"
@@ -253,7 +304,6 @@ class SignalMaterializer:
                         and target_type == "virtual"
                         and existing_type != "virtual-signal"
                     ):
-                        # Avoid clobbering real prototype types with virtual overrides
                         target_type = existing_type
             except Exception as exc:
                 self.diagnostics.warning(
@@ -298,11 +348,3 @@ class SignalMaterializer:
         if name.startswith("signal-"):
             return "virtual"
         return "virtual"
-
-
-__all__ = [
-    "EntityPlacement",
-    "SignalUsageEntry",
-    "SignalGraph",
-    "SignalMaterializer",
-]

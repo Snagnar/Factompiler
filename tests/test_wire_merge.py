@@ -5,7 +5,7 @@ import pytest
 from dsl_compiler.src.parsing import DSLParser
 from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
 from dsl_compiler.src.lowering import lower_program
-from dsl_compiler.src.emission import BlueprintEmitter
+from dsl_compiler.src.emission.emitter import emit_blueprint
 from dsl_compiler.src.ir import IR_Arith, IR_WireMerge
 
 
@@ -88,8 +88,12 @@ class TestWireMerge:
         """
 
         ir_merge, signal_map_merge = _lower_ir(parser, code_with_merge)
-        emitter_merge = BlueprintEmitter(signal_type_map=signal_map_merge)
-        blueprint_merge = emitter_merge.emit_blueprint(ir_merge)
+        blueprint_merge, diagnostics_merge = emit_blueprint(
+            ir_merge,
+            label="Merge",
+            signal_type_map=signal_map_merge,
+        )
+        assert not diagnostics_merge.has_errors(), diagnostics_merge.get_messages()
         entities_with_merge = len(blueprint_merge.entities)
 
         code_without_merge = """
@@ -102,8 +106,12 @@ class TestWireMerge:
         """
 
         ir_no_merge, signal_map_no_merge = _lower_ir(parser, code_without_merge)
-        emitter_no_merge = BlueprintEmitter(signal_type_map=signal_map_no_merge)
-        blueprint_no_merge = emitter_no_merge.emit_blueprint(ir_no_merge)
+        blueprint_no_merge, diagnostics_no_merge = emit_blueprint(
+            ir_no_merge,
+            label="No Merge",
+            signal_type_map=signal_map_no_merge,
+        )
+        assert not diagnostics_no_merge.has_errors(), diagnostics_no_merge.get_messages()
         entities_without_merge = len(blueprint_no_merge.entities)
 
         assert entities_with_merge < entities_without_merge

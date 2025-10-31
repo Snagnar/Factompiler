@@ -9,15 +9,15 @@ import pytest
 from dsl_compiler.src.parsing import DSLParser
 from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
 from dsl_compiler.src.lowering import lower_program
-from dsl_compiler.src.emission import (
+from dsl_compiler.src.emission.emitter import (
     BlueprintEmitter,
+    LegacyBlueprintEmitter,
     MAX_CIRCUIT_WIRE_SPAN,
     WireRelayOptions,
 )
-from dsl_compiler.src.emission.emitter import POWER_POLE_CONFIG
-from dsl_compiler.src.emission.layout import LayoutEngine
+from dsl_compiler.src.layout import POWER_POLE_CONFIG, LayoutEngine, SignalUsageEntry
 from draftsman.entity import new_entity  # type: ignore[import-not-found]
-from dsl_compiler.src.emission.signals import EntityPlacement, SignalUsageEntry
+from dsl_compiler.src.layout.legacy_signals import EntityPlacement
 from dsl_compiler.src.emission.debug_format import format_entity_description
 
 
@@ -38,7 +38,7 @@ def _make_far_endpoints(
         output_signals={},
         input_signals={},
     )
-    emitter.entities["source"] = source
+    emitter._record_entity_placement(source)
 
     sink_entity = new_entity(sink_prototype)
     sink_pos = emitter.layout.reserve_near(sink_target, max_radius=200)
@@ -51,7 +51,7 @@ def _make_far_endpoints(
         output_signals={},
         input_signals={},
     )
-    emitter.entities["sink"] = sink
+    emitter._record_entity_placement(sink)
 
     return source, sink
 
@@ -77,7 +77,7 @@ class TestBlueprintEmitter:
         program = parser.parse(code, filename=file_path)
         analyze_program(program, strict_types=False, analyzer=analyzer)
         ir_operations, _, signal_map = lower_program(program, analyzer)
-        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter = LegacyBlueprintEmitter(signal_type_map=signal_map)
         blueprint = emitter.emit_blueprint(ir_operations)
 
         # Check entity descriptions
@@ -135,7 +135,7 @@ class TestBlueprintEmitter:
         program = parser.parse(code)
         analyze_program(program, strict_types=False, analyzer=analyzer)
         ir_operations, _, signal_map = lower_program(program, analyzer)
-        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter = LegacyBlueprintEmitter(signal_type_map=signal_map)
         blueprint = emitter.emit_blueprint(ir_operations)
 
         # Count constant combinators
@@ -179,7 +179,7 @@ class TestBlueprintEmitter:
         program = parser.parse(code)
         analyze_program(program, strict_types=False, analyzer=analyzer)
         ir_operations, _, signal_map = lower_program(program, analyzer)
-        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter = LegacyBlueprintEmitter(signal_type_map=signal_map)
         blueprint = emitter.emit_blueprint(ir_operations)
 
         # Find constant combinators for explicit typed literal (iron-plate)
@@ -229,7 +229,7 @@ class TestBlueprintEmitter:
         analyze_program(program, strict_types=False, analyzer=analyzer)
         ir_operations, _, signal_map = lower_program(program, analyzer)
 
-        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter = LegacyBlueprintEmitter(signal_type_map=signal_map)
         emitter.emit_blueprint(ir_operations)
 
         literal_placements = [
@@ -280,7 +280,7 @@ class TestBlueprintEmitter:
 
     def test_emitter_initialization(self):
         """Test emitter can be initialized."""
-        emitter = BlueprintEmitter()
+        emitter = LegacyBlueprintEmitter()
         assert emitter is not None
 
     def test_basic_emission(self, parser, analyzer):
@@ -289,7 +289,7 @@ class TestBlueprintEmitter:
         analyze_program(program, strict_types=False, analyzer=analyzer)
         ir_operations, _, signal_map = lower_program(program, analyzer)
 
-        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter = LegacyBlueprintEmitter(signal_type_map=signal_map)
         blueprint = emitter.emit_blueprint(ir_operations)
 
         assert blueprint is not None
@@ -310,7 +310,7 @@ class TestBlueprintEmitter:
         analyze_program(program, strict_types=False, analyzer=analyzer)
         ir_operations, _, signal_map = lower_program(program, analyzer)
 
-        emitter = BlueprintEmitter(
+        emitter = LegacyBlueprintEmitter(
             signal_type_map=signal_map,
             power_pole_type="medium",
         )
@@ -419,7 +419,7 @@ class TestBlueprintEmitter:
                 analyze_program(program, strict_types=False, analyzer=analyzer)
                 ir_operations, _, signal_map = lower_program(program, analyzer)
 
-                emitter = BlueprintEmitter(signal_type_map=signal_map)
+                emitter = LegacyBlueprintEmitter(signal_type_map=signal_map)
                 blueprint = emitter.emit_blueprint(ir_operations)
 
                 assert blueprint is not None
@@ -441,7 +441,7 @@ class TestBlueprintEmitter:
 
         assert not diagnostics.has_errors(), diagnostics.get_messages()
 
-        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter = LegacyBlueprintEmitter(signal_type_map=signal_map)
         blueprint = emitter.emit_blueprint(ir_operations)
 
         assert blueprint is not None
@@ -488,7 +488,7 @@ class TestBlueprintEmitter:
 
         assert not diagnostics.has_errors(), diagnostics.get_messages()
 
-        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter = LegacyBlueprintEmitter(signal_type_map=signal_map)
         emitter.emit_blueprint(ir_operations)
 
         memory_modules = emitter.memory_builder.memory_modules
@@ -569,7 +569,7 @@ class TestBlueprintEmitter:
 
         assert not diagnostics.has_errors(), diagnostics.get_messages()
 
-        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter = LegacyBlueprintEmitter(signal_type_map=signal_map)
         emitter.emit_blueprint(ir_operations)
 
         memory_id = "mem_counter"
@@ -618,7 +618,7 @@ class TestBlueprintEmitter:
     def test_signal_name_resolution(self):
         """Test signal name resolution with mapping."""
         signal_map = {"__v1": "signal-A", "__v2": "signal-B"}
-        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter = LegacyBlueprintEmitter(signal_type_map=signal_map)
 
         emitter.prepare([])
         resolver = emitter.signal_resolver
@@ -633,17 +633,19 @@ class TestBlueprintEmitter:
         assert resolved == "iron-plate"
 
     def test_wire_color_planner_assigns_opposite_colors(self):
-        emitter = BlueprintEmitter()
+        emitter = LegacyBlueprintEmitter()
         emitter.prepare([])
-
-        builder = emitter.connection_builder
-        assert builder is not None
+        planner = emitter.connection_planner
+        assert planner is not None
 
         class DummyEntity:
             dual_circuit_connectable = False
 
             def __init__(self, name: str):
                 self.name = name
+
+        emitter.entities.clear()
+        emitter.layout_plan.entity_placements.clear()
 
         source_a = EntityPlacement(
             entity=DummyEntity("constant-combinator"),
@@ -667,21 +669,22 @@ class TestBlueprintEmitter:
             input_signals={},
         )
 
-        emitter.entities = {
-            "source_a": source_a,
-            "source_b": source_b,
-            "sink": sink,
-        }
+        emitter._record_entity_placement(source_a)
+        emitter._record_entity_placement(source_b)
+        emitter._record_entity_placement(sink)
 
         entry_a = SignalUsageEntry(signal_id="sig_a")
         entry_a.resolved_signal_name = "signal-A"
         entry_b = SignalUsageEntry(signal_id="sig_b")
         entry_b.resolved_signal_name = "signal-A"
 
-        emitter.signal_usage = {
-            "sig_a": entry_a,
-            "sig_b": entry_b,
-        }
+        emitter.signal_usage.clear()
+        emitter.signal_usage.update(
+            {
+                "sig_a": entry_a,
+                "sig_b": entry_b,
+            }
+        )
 
         emitter.signal_graph.set_source("sig_a", "source_a")
         emitter.signal_graph.add_sink("sig_a", "sink")
@@ -692,11 +695,12 @@ class TestBlueprintEmitter:
         emitter._track_signal_source("sig_a", "source_a")
         emitter._track_signal_source("sig_b", "source_b")
 
-        builder.prepare_wiring_plan()
+        emitter._plan_connections()
 
         # Ensure the planner chose distinct colors for the conflicting producers
-        color_a = builder._edge_color_map[("source_a", "sink", "signal-A")]
-        color_b = builder._edge_color_map[("source_b", "sink", "signal-A")]
+        edge_map = planner.edge_color_map()
+        color_a = edge_map[("source_a", "sink", "signal-A")]
+        color_b = edge_map[("source_b", "sink", "signal-A")]
 
         assert color_a != color_b
 
@@ -738,7 +742,7 @@ class TestWarningAnalysis:
         analyze_program(program, strict_types=False, analyzer=analyzer)
         ir_operations, _, signal_map = lower_program(program, analyzer)
 
-        emitter = BlueprintEmitter(signal_type_map=signal_map)
+        emitter = LegacyBlueprintEmitter(signal_type_map=signal_map)
         blueprint = emitter.emit_blueprint(ir_operations)
 
         # Check for warnings
@@ -760,18 +764,16 @@ class TestWarningAnalysis:
 def test_wire_relays_inserted_for_long_spans():
     """Connections longer than the wire span should insert relay poles."""
 
-    emitter = BlueprintEmitter()
+    emitter = LegacyBlueprintEmitter()
     emitter.prepare([])
-    builder = emitter.connection_builder
-    assert builder is not None
 
     source, sink = _make_far_endpoints(emitter, sink_target=(40, 0))
 
-    relays = builder._insert_wire_relays_if_needed(source, sink)
+    relays = emitter._insert_wire_relays_if_needed(source, sink)
 
     assert relays, "Expected relay placements for long-span wiring"
 
-    distance = builder._compute_wire_distance(source, sink)
+    distance = emitter._compute_wire_distance(source, sink)
     expected_count = math.ceil(distance / MAX_CIRCUIT_WIRE_SPAN) - 1
 
     assert (
@@ -783,30 +785,26 @@ def test_wire_relays_inserted_for_long_spans():
 
 
 def test_wire_relays_respect_disabled_option():
-    emitter = BlueprintEmitter(wire_relay_options=WireRelayOptions(enabled=False))
+    emitter = LegacyBlueprintEmitter(wire_relay_options=WireRelayOptions(enabled=False))
     emitter.prepare([])
-    builder = emitter.connection_builder
-    assert builder is not None
 
     source, sink = _make_far_endpoints(emitter, sink_target=(40, 0))
 
-    relays = builder._insert_wire_relays_if_needed(source, sink)
+    relays = emitter._insert_wire_relays_if_needed(source, sink)
 
     assert relays == [], "No relays should be inserted when auto wiring is disabled"
     assert emitter.diagnostics.warning_count == 0
 
 
 def test_wire_relays_manhattan_strategy_inserts_extra_relays():
-    emitter = BlueprintEmitter(
+    emitter = LegacyBlueprintEmitter(
         wire_relay_options=WireRelayOptions(placement_strategy="manhattan")
     )
     emitter.prepare([])
-    builder = emitter.connection_builder
-    assert builder is not None
 
     source, sink = _make_far_endpoints(emitter, sink_target=(6, 6))
 
-    relays = builder._insert_wire_relays_if_needed(source, sink)
+    relays = emitter._insert_wire_relays_if_needed(source, sink)
 
     assert (
         relays
@@ -815,14 +813,12 @@ def test_wire_relays_manhattan_strategy_inserts_extra_relays():
 
 
 def test_wire_relays_max_limit_triggers_warning():
-    emitter = BlueprintEmitter(wire_relay_options=WireRelayOptions(max_relays=0))
+    emitter = LegacyBlueprintEmitter(wire_relay_options=WireRelayOptions(max_relays=0))
     emitter.prepare([])
-    builder = emitter.connection_builder
-    assert builder is not None
 
     source, sink = _make_far_endpoints(emitter, sink_target=(40, 0))
 
-    relays = builder._insert_wire_relays_if_needed(source, sink)
+    relays = emitter._insert_wire_relays_if_needed(source, sink)
 
     assert relays == []
     warnings = [

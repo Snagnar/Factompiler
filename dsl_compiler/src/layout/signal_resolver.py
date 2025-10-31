@@ -1,4 +1,4 @@
-"""Signal resolution helpers for blueprint emission."""
+"""Signal resolution helpers for layout planning."""
 
 from __future__ import annotations
 
@@ -6,9 +6,10 @@ from typing import Any, Dict, Optional, Union
 
 from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
 
-from ..ir import SignalRef
-from ..semantic import DiagnosticCollector
-from .signals import SignalMaterializer, SignalUsageEntry
+from dsl_compiler.src.ir import SignalRef
+from dsl_compiler.src.semantic import DiagnosticCollector
+
+from .signal_analyzer import SignalMaterializer, SignalUsageEntry
 
 
 class SignalResolver:
@@ -33,20 +34,12 @@ class SignalResolver:
         materializer: Optional[SignalMaterializer] = None,
         signal_usage: Optional[Dict[str, SignalUsageEntry]] = None,
     ) -> None:
-        """Refresh references when the emitter recalculates materializers."""
-
         if materializer is not None:
             self.materializer = materializer
         if signal_usage is not None:
             self.signal_usage = signal_usage
 
-    # ------------------------------------------------------------------
-    # Public helpers
-    # ------------------------------------------------------------------
-
     def get_signal_name(self, operand: Union[str, int, SignalRef, object]) -> str:
-        """Return the Factorio signal name for ``operand``."""
-
         materializer = self.materializer
         usage_index = self.signal_usage or {}
 
@@ -57,7 +50,9 @@ class SignalResolver:
                 entry = usage_index.get(operand.source_id)
                 operand_key = operand.signal_type
             if isinstance(operand_key, str):
-                return materializer.resolve_signal_name(operand_key, entry)
+                resolved = materializer.resolve_signal_name(operand_key, entry)
+                if resolved:
+                    return resolved
 
         if isinstance(operand, int):
             return "signal-0"
@@ -118,8 +113,6 @@ class SignalResolver:
     def get_operand_for_combinator(
         self, operand: Union[str, int, SignalRef, object]
     ) -> Union[str, int]:
-        """Return a combinator-ready operand (signal name or constant)."""
-
         if isinstance(operand, int):
             return operand
 
@@ -143,8 +136,6 @@ class SignalResolver:
         return self.get_signal_name(str(operand))
 
     def get_operand_value(self, operand: Union[str, int, SignalRef, object]):
-        """Return an operand value for decider combinators."""
-
         if isinstance(operand, int):
             return operand
 
@@ -168,3 +159,6 @@ class SignalResolver:
             return self.get_signal_name(operand)
 
         return str(operand)
+
+
+__all__ = ["SignalResolver"]

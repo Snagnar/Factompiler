@@ -18,9 +18,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from dsl_compiler.src.parsing import DSLParser
-from dsl_compiler.src.semantic import analyze_program, SemanticAnalyzer
+from dsl_compiler.src.semantic import (
+    analyze_program,
+    DiagnosticCollector,
+    SemanticAnalyzer,
+)
 from dsl_compiler.src.lowering import lower_program
-from dsl_compiler.src.emission import emit_blueprint_string
+from dsl_compiler.src.layout import LayoutPlanner
+from dsl_compiler.src.emission import BlueprintEmitter
 from dsl_compiler.src.ir import CSEOptimizer
 import dsl_compiler.src.semantic as semantic_module
 
@@ -97,24 +102,45 @@ def compile_dsl_file(
         if optimize:
             ir_operations = CSEOptimizer().optimize(ir_operations)
         
-        # Emit blueprint
-        blueprint_string, emit_diagnostics = emit_blueprint_string(
-            ir_operations,
-            f"{program_name} Blueprint",
+        # Layout planning
+        planner = LayoutPlanner(
             signal_type_map,
+            diagnostics=DiagnosticCollector(),
             power_pole_type=power_pole_type,
         )
-        
-        if emit_diagnostics.has_errors():
-            all_diagnostics.extend(emit_diagnostics.get_messages())
+
+        layout_plan = planner.plan_layout(
+            ir_operations,
+            blueprint_label=f"{program_name} Blueprint",
+            blueprint_description="",
+        )
+
+        all_diagnostics.extend(planner.diagnostics.get_messages())
+
+        if planner.diagnostics.has_errors():
+            return False, "Layout planning failed", all_diagnostics
+
+        # Blueprint emission (materialization only)
+        emitter = BlueprintEmitter(signal_type_map)
+        blueprint = emitter.emit_from_plan(layout_plan)
+
+        all_diagnostics.extend(emitter.diagnostics.get_messages())
+
+        if emitter.diagnostics.has_errors():
             return False, "Blueprint emission failed", all_diagnostics
-        
-        all_diagnostics.extend(emit_diagnostics.get_messages())
-        
+
+        # Serialize blueprint
+        try:
+            blueprint_string = blueprint.to_string()
+        except Exception as e:
+            emitter.diagnostics.error(f"Blueprint string generation failed: {e}")
+            all_diagnostics.extend(emitter.diagnostics.get_messages())
+            return False, "Blueprint emission failed", all_diagnostics
+
         # Validate blueprint
         if not blueprint_string or len(blueprint_string) < 10 or not blueprint_string.startswith("0eN"):
             return False, "Invalid blueprint string generated", all_diagnostics
-        
+
         return True, blueprint_string, all_diagnostics
     
     except Exception as e:

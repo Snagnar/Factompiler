@@ -1,4 +1,4 @@
-"""Utilities for formatting debug metadata into blueprint-friendly annotations."""
+"""Utilities for formatting compiler metadata into player descriptions."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 
 def _normalize_location(location: Any) -> Optional[str]:
+
     if location is None:
         return None
     if isinstance(location, str):
@@ -17,13 +18,8 @@ def _normalize_location(location: Any) -> Optional[str]:
 
 
 def format_entity_description(debug_info: Optional[Dict[str, Any]]) -> Optional[str]:
-    """Compose a human-readable description string from debug metadata.
 
-    The formatter prefers the logical signal name when available, appends the
-    resolved physical Factorio signal in parentheses when it differs, and
-    optionally suffixes the source location (``file:line``) for quick lookup in
-    the original DSL program.
-    """
+    """Compose a human-readable entity description from debug metadata."""
 
     if not debug_info:
         return None
