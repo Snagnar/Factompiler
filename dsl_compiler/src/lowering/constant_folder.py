@@ -14,7 +14,7 @@ from dsl_compiler.src.ast import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - type checking only
-    from dsl_compiler.src.semantic import DiagnosticCollector
+    from dsl_compiler.src.common import ProgramDiagnostics
 
 
 class ConstantFolder:
@@ -26,7 +26,7 @@ class ConstantFolder:
         left: int,
         right: int,
         node: ASTNode,
-        diagnostics: Optional["DiagnosticCollector"] = None,
+        diagnostics: Optional["ProgramDiagnostics"] = None,
     ) -> Optional[int]:
         """Evaluate a binary integer operation at compile time."""
 
@@ -39,13 +39,21 @@ class ConstantFolder:
         if op == "/":
             if right == 0:
                 if diagnostics is not None:
-                    diagnostics.warning("Division by zero in constant expression", node)
+                    diagnostics.warning(
+                        "Division by zero in constant expression",
+                        stage="lowering",
+                        node=node,
+                    )
                 return 0
             return left // right
         if op == "%":
             if right == 0:
                 if diagnostics is not None:
-                    diagnostics.warning("Modulo by zero in constant expression", node)
+                    diagnostics.warning(
+                        "Modulo by zero in constant expression",
+                        stage="lowering",
+                        node=node,
+                    )
                 return 0
             return left % right
         if op == "==":
@@ -71,7 +79,7 @@ class ConstantFolder:
     def extract_constant_int(
         cls,
         expr: Expr,
-        diagnostics: Optional["DiagnosticCollector"] = None,
+        diagnostics: Optional["ProgramDiagnostics"] = None,
     ) -> Optional[int]:
         """Attempt to evaluate an expression to an integer constant."""
 

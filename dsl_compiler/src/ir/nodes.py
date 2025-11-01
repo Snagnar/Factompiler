@@ -1,11 +1,9 @@
-"""IR node and signal representations for the Factorio Circuit DSL."""
-
 from __future__ import annotations
-
 from abc import ABC
 from typing import Any, Dict, List, Optional, Union
-
 from dsl_compiler.src.ast import ASTNode
+
+"""IR node and signal representations for the Factorio Circuit DSL."""
 
 
 class SignalRef:

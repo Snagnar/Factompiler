@@ -15,7 +15,7 @@ from dsl_compiler.src.lowering.lowerer import lower_program
 from dsl_compiler.src.layout.planner import LayoutPlanner
 from dsl_compiler.src.emission.emitter import emit_blueprint
 from dsl_compiler.src.ast import Program
-from dsl_compiler.src.semantic import DiagnosticCollector
+from dsl_compiler.src.common import ProgramDiagnostics
 
 
 class TestParserInterface:
@@ -58,14 +58,14 @@ class TestSemanticAnalyzerInterface:
     """Test semantic analyzer stage interface."""
 
     def test_analyze_program_returns_diagnostics(self):
-        """Semantic analyzer should return DiagnosticCollector."""
+        """Semantic analyzer should return ProgramDiagnostics."""
         parser = DSLParser()
         source = "Signal x = 5;"
         ast = parser.parse(source)
 
         diagnostics = analyze_program(ast)
 
-        assert isinstance(diagnostics, DiagnosticCollector)
+        assert isinstance(diagnostics, ProgramDiagnostics)
 
     def test_analyze_program_with_errors(self):
         """Semantic analyzer should collect errors in diagnostics."""
@@ -84,7 +84,7 @@ class TestSemanticAnalyzerInterface:
         ast = parser.parse(source)
 
         analyzer = SemanticAnalyzer()
-        diagnostics = analyze_program(ast, analyzer=analyzer)
+        analyze_program(ast, analyzer=analyzer)
 
         # Should have allocated an implicit virtual signal
         assert analyzer.signal_registry is not None
@@ -97,7 +97,7 @@ class TestSemanticAnalyzerInterface:
         ast = parser.parse(source)
 
         analyzer = SemanticAnalyzer()
-        diagnostics = analyze_program(ast, analyzer=analyzer)
+        analyze_program(ast, analyzer=analyzer)
 
         # Signal allocator should have used the same registry
         assert analyzer.signal_allocator.signal_registry is analyzer.signal_registry
@@ -118,7 +118,7 @@ class TestLowererInterface:
         ir_ops, diagnostics, signal_map = lower_program(ast, analyzer)
 
         assert isinstance(ir_ops, list)
-        assert isinstance(diagnostics, DiagnosticCollector)
+        assert isinstance(diagnostics, ProgramDiagnostics)
         assert isinstance(signal_map, dict)
 
     def test_lowerer_shares_signal_registry(self):
@@ -131,8 +131,6 @@ class TestLowererInterface:
         analyze_program(ast, analyzer=analyzer)
 
         # Get the registry before lowering
-        original_registry = analyzer.signal_registry
-
         ir_ops, diagnostics, signal_map = lower_program(ast, analyzer)
 
         # Signal map should contain allocated virtual signals as dicts
@@ -196,9 +194,9 @@ class TestLayoutPlannerInterface:
 
         ir_ops, _, signal_map = lower_program(ast, analyzer)
 
-        planner_diagnostics = DiagnosticCollector()
+        planner_diagnostics = ProgramDiagnostics()
         planner = LayoutPlanner(signal_map, diagnostics=planner_diagnostics)
-        layout_plan = planner.plan_layout(ir_ops)
+        planner.plan_layout(ir_ops)
 
         # Diagnostics should be accessible
         assert planner.diagnostics is not None
@@ -223,7 +221,7 @@ class TestBlueprintEmitterInterface:
         from draftsman.blueprintable import Blueprint
 
         assert isinstance(blueprint, Blueprint)
-        assert isinstance(diagnostics, DiagnosticCollector)
+        assert isinstance(diagnostics, ProgramDiagnostics)
 
     def test_emit_blueprint_with_label(self):
         """Blueprint emitter should use provided label."""
@@ -251,11 +249,6 @@ class TestStageIsolation:
         parser = DSLParser()
         source = "Signal x = 5;"
         ast = parser.parse(source)
-
-        # Make a shallow copy to detect modifications
-        import copy
-
-        ast_copy_attrs = copy.copy(vars(ast))
 
         analyzer = SemanticAnalyzer()
         analyze_program(ast, analyzer=analyzer)
@@ -288,10 +281,10 @@ class TestStageIsolation:
         analyzer = SemanticAnalyzer()
         semantic_diagnostics = analyze_program(ast, analyzer=analyzer)
 
-        ir_ops, lowering_diagnostics, signal_map = lower_program(ast, analyzer)
+        _, lowering_diagnostics, _ = lower_program(ast, analyzer)
 
         # Should be able to combine diagnostics
-        combined = DiagnosticCollector()
+        combined = ProgramDiagnostics()
         combined.diagnostics.extend(semantic_diagnostics.diagnostics)
         combined.diagnostics.extend(lowering_diagnostics.diagnostics)
 
@@ -321,7 +314,7 @@ class TestEndToEndPipeline:
         assert not semantic_diagnostics.has_errors()
 
         # Stage 3: Lower to IR
-        ir_ops, lowering_diagnostics, signal_map = lower_program(ast, analyzer)
+        ir_ops, _, signal_map = lower_program(ast, analyzer)
         assert len(ir_ops) > 0
 
         # Stage 4: Plan Layout
@@ -360,8 +353,6 @@ class TestEndToEndPipeline:
         assert len(signal_map) > 0
 
         # Complete pipeline
-        planner = LayoutPlanner(signal_map)
-        layout_plan = planner.plan_layout(ir_ops)
-        blueprint, diagnostics = emit_blueprint(ir_ops, signal_type_map=signal_map)
+        blueprint, _ = emit_blueprint(ir_ops, signal_type_map=signal_map)
 
         assert blueprint.to_string().startswith("0eN")

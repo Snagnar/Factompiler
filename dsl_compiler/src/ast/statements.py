@@ -1,12 +1,10 @@
-"""Statement node definitions for the Factorio Circuit DSL."""
-
 from __future__ import annotations
-
 from typing import List, Optional
-
 from .base import ASTNode
 from .expressions import Expr
 from .literals import LValue
+
+"""Statement node definitions for the Factorio Circuit DSL."""
 
 
 class Program(ASTNode):

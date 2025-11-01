@@ -1,10 +1,8 @@
-"""IR optimization passes for the Factorio Circuit DSL."""
-
 from __future__ import annotations
-
 from typing import Dict, List
-
 from .nodes import IRNode, IR_Arith, IR_Decider, IR_MemWrite, SignalRef
+
+"""IR optimization passes for the Factorio Circuit DSL."""
 
 
 class CSEOptimizer:

@@ -28,6 +28,7 @@ from dsl_compiler.src.ir import (
     SignalRef,
     ValueRef,
 )
+from dsl_compiler.src.common import SymbolType
 from dsl_compiler.src.semantic import IntValue, SignalValue, ValueInfo
 
 from .constant_folder import ConstantFolder
@@ -90,7 +91,7 @@ class ExpressionLowerer:
         if isinstance(expr, WriteExpr):
             return self.parent.mem_lowerer.lower_write_expr(expr)
 
-        self.diagnostics.error(f"Unknown expression type: {type(expr)}", expr)
+        self._error(f"Unknown expression type: {type(expr)}", expr)
         return 0
 
     # ------------------------------------------------------------------
@@ -105,7 +106,7 @@ class ExpressionLowerer:
         if name in self.parent.signal_refs:
             return self.parent.signal_refs[name]
 
-        self.diagnostics.error(f"Undefined identifier: {name}", expr)
+        self._error(f"Undefined identifier: {name}", expr)
         return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
     # ------------------------------------------------------------------
@@ -159,7 +160,7 @@ class ExpressionLowerer:
         if expr.op in ["==", "!=", "<", "<=", ">", ">=", "&&", "||"]:
             return self.lower_comparison_op(expr, left_ref, right_ref, output_type)
 
-        self.diagnostics.error(f"Unknown binary operator: {expr.op}", expr)
+        self._error(f"Unknown binary operator: {expr.op}", expr)
         return self.ir_builder.const(output_type, 0, expr)
 
     def lower_comparison_op(
@@ -190,7 +191,7 @@ class ExpressionLowerer:
             )
             return self.ir_builder.decider(">", sum_ref, 0, 1, output_type, expr)
 
-        self.diagnostics.error(f"Unknown binary operator: {expr.op}", expr)
+        self._error(f"Unknown binary operator: {expr.op}", expr)
         return self.ir_builder.const(output_type, 0, expr)
 
     # ------------------------------------------------------------------
@@ -222,30 +223,44 @@ class ExpressionLowerer:
         if expr.op == "!":
             return self.ir_builder.decider("==", operand_ref, 0, 1, output_type, expr)
 
-        self.diagnostics.error(f"Unknown unary operator: {expr.op}", expr)
+        self._error(f"Unknown unary operator: {expr.op}", expr)
         return operand_ref
 
     def lower_projection_expr(self, expr: ProjectionExpr) -> SignalRef:
+        """Lower projection expression with type conversion."""
         source_ref = self.lower_expr(expr.expr)
         target_type = expr.target_type
 
         if isinstance(source_ref, SignalRef):
-            if getattr(source_ref, "signal_type", None) == target_type:
-                return source_ref
-            self.parent.ensure_signal_registered(
-                target_type, getattr(source_ref, "signal_type", None)
-            )
-            return self.ir_builder.arithmetic("+", source_ref, 0, target_type, expr)
+            return self._lower_projection_from_signal(expr, source_ref, target_type)
 
         if isinstance(source_ref, int):
-            self.parent.ensure_signal_registered(target_type)
-            return self.ir_builder.const(target_type, source_ref, expr)
+            return self._lower_projection_from_int(expr, source_ref, target_type)
 
-        self.diagnostics.error(
-            f"Cannot project {type(source_ref)} to {target_type}", expr
-        )
+        self._error(f"Cannot project {type(source_ref)} to {target_type}", expr)
         self.parent.ensure_signal_registered(target_type)
         return self.ir_builder.const(target_type, 0, expr)
+
+    def _lower_projection_from_signal(
+        self, expr: ProjectionExpr, source_ref: SignalRef, target_type: str
+    ) -> SignalRef:
+        """Handle projection from signal (no-op if same type, otherwise convert)."""
+        if getattr(source_ref, "signal_type", None) == target_type:
+            # No-op projection: same type
+            return source_ref
+
+        # Type-converting projection
+        self.parent.ensure_signal_registered(
+            target_type, getattr(source_ref, "signal_type", None)
+        )
+        return self.ir_builder.arithmetic("+", source_ref, 0, target_type, expr)
+
+    def _lower_projection_from_int(
+        self, expr: ProjectionExpr, source_value: int, target_type: str
+    ) -> SignalRef:
+        """Handle projection from integer literal to signal type."""
+        self.parent.ensure_signal_registered(target_type)
+        return self.ir_builder.const(target_type, source_value, expr)
 
     # ------------------------------------------------------------------
     # Literals and dictionary lowering
@@ -295,7 +310,7 @@ class ExpressionLowerer:
                     if isinstance(lowered, (int, str)):
                         properties[key] = lowered
                     else:
-                        self.diagnostics.error(
+                        self._error(
                             f"Unsupported value for property '{key}' in place() call",
                             value_expr,
                         )
@@ -304,7 +319,7 @@ class ExpressionLowerer:
                 if isinstance(lowered, (int, str)):
                     properties[key] = lowered
                 else:
-                    self.diagnostics.error(
+                    self._error(
                         f"Unsupported value for property '{key}' in place() call",
                         value_expr,
                     )
@@ -329,7 +344,7 @@ class ExpressionLowerer:
             self.ir_builder.add_operation(read_op)
             return SignalRef(signal_type, read_op.node_id)
 
-        self.diagnostics.error(f"Undefined entity: {entity_name}", expr)
+        self._error(f"Undefined entity: {entity_name}", expr)
         return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
     def lower_property_access_expr(self, expr: PropertyAccessExpr) -> ValueRef:
@@ -347,7 +362,7 @@ class ExpressionLowerer:
             self.ir_builder.add_operation(read_op)
             return SignalRef(signal_type, read_op.node_id)
 
-        self.diagnostics.error(f"Undefined entity: {entity_name}", expr)
+        self._error(f"Undefined entity: {entity_name}", expr)
         return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
     # ------------------------------------------------------------------
@@ -370,7 +385,7 @@ class ExpressionLowerer:
 
     def lower_memory_call(self, expr: CallExpr) -> ValueRef:
         if not expr.args:
-            self.diagnostics.error("memory() requires an initial value", expr)
+            self._error("memory() requires an initial value", expr)
             return self.ir_builder.const(
                 self.ir_builder.allocate_implicit_type(), 0, expr
             )
@@ -380,10 +395,10 @@ class ExpressionLowerer:
         func_symbol = self.semantic.current_scope.lookup(expr.name)
         if (
             not func_symbol
-            or func_symbol.symbol_type != "function"
+            or func_symbol.symbol_type != SymbolType.FUNCTION
             or not func_symbol.function_def
         ):
-            self.diagnostics.error(f"Cannot inline function: {expr.name}", expr)
+            self._error(f"Cannot inline function: {expr.name}", expr)
             return self.ir_builder.const(
                 self.ir_builder.allocate_implicit_type(), 0, expr
             )
@@ -391,7 +406,7 @@ class ExpressionLowerer:
         func_def = func_symbol.function_def
 
         if len(expr.args) != len(func_def.params):
-            self.diagnostics.error(
+            self._error(
                 f"Function {expr.name} expects {len(func_def.params)} arguments, got {len(expr.args)}",
                 expr,
             )
@@ -571,8 +586,9 @@ class ExpressionLowerer:
         return self.lower_expr(coord_expr)
 
     def _lower_place_core(self, expr: CallExpr) -> tuple[str, SignalRef]:
+        """Lower place() builtin into IR operations."""
         if len(expr.args) < 3:
-            self.diagnostics.error(
+            self._error(
                 "place() requires at least 3 arguments: (prototype, x, y)", expr
             )
             dummy = self.ir_builder.const(
@@ -580,35 +596,18 @@ class ExpressionLowerer:
             )
             return "error_entity", dummy
 
-        prototype_expr = expr.args[0]
-        x_expr = expr.args[1]
-        y_expr = expr.args[2]
-
-        if isinstance(prototype_expr, StringLiteral):
-            prototype = prototype_expr.value
-        else:
-            self.diagnostics.error(
-                "place() prototype must be a string literal", prototype_expr
-            )
+        # Extract arguments
+        prototype = self._extract_place_prototype(expr)
+        if prototype is None:
             dummy = self.ir_builder.const(
                 self.ir_builder.allocate_implicit_type(), 0, expr
             )
             return "error_entity", dummy
 
-        x_coord = self._extract_coordinate(x_expr)
-        y_coord = self._extract_coordinate(y_expr)
+        x_coord, y_coord = self._extract_place_coordinates(expr)
+        properties = self._extract_place_properties(expr)
 
-        properties: Optional[Dict[str, Any]] = None
-        if len(expr.args) >= 4:
-            prop_expr = expr.args[3]
-            if isinstance(prop_expr, DictLiteral):
-                properties = self.lower_dict_literal(prop_expr)
-            else:
-                self.diagnostics.error(
-                    "place() properties argument must be a dictionary literal",
-                    prop_expr,
-                )
-
+        # Create entity placement IR
         entity_id = f"entity_{self.ir_builder.next_id()}"
         self.ir_builder.place_entity(
             entity_id,
@@ -619,6 +618,7 @@ class ExpressionLowerer:
             source_ast=expr,
         )
 
+        # Create result reference (suppressed from materialization)
         result_ref = self.ir_builder.const(
             self.ir_builder.allocate_implicit_type(), 0, expr
         )
@@ -626,3 +626,35 @@ class ExpressionLowerer:
         if isinstance(const_op, IR_Const):
             const_op.debug_metadata["suppress_materialization"] = True
         return entity_id, result_ref
+
+    def _extract_place_prototype(self, expr: CallExpr) -> Optional[str]:
+        """Extract prototype string from place() call."""
+        prototype_expr = expr.args[0]
+        if isinstance(prototype_expr, StringLiteral):
+            return prototype_expr.value
+
+        self._error("place() prototype must be a string literal", prototype_expr)
+        return None
+
+    def _extract_place_coordinates(self, expr: CallExpr) -> tuple[ValueRef, ValueRef]:
+        """Extract x, y coordinates from place() call."""
+        x_expr = expr.args[1]
+        y_expr = expr.args[2]
+        x_coord = self._extract_coordinate(x_expr)
+        y_coord = self._extract_coordinate(y_expr)
+        return x_coord, y_coord
+
+    def _extract_place_properties(self, expr: CallExpr) -> Optional[Dict[str, Any]]:
+        """Extract properties dict from place() call."""
+        if len(expr.args) < 4:
+            return None
+
+        prop_expr = expr.args[3]
+        if isinstance(prop_expr, DictLiteral):
+            return self.lower_dict_literal(prop_expr)
+
+        self._error(
+            "place() properties argument must be a dictionary literal",
+            prop_expr,
+        )
+        return None

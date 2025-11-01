@@ -1,33 +1,24 @@
-"""Implicit signal allocation for semantic analysis."""
-
-from typing import Dict, Optional
-
+from typing import Optional
 from dsl_compiler.src.common import SignalTypeRegistry
 from .type_system import SignalTypeInfo
 
+"""Implicit signal allocation for semantic analysis."""
+
 
 class SignalAllocator:
-    """Manages allocation of implicit virtual signal types."""
+    """Manages allocation of implicit virtual signal types.
+
+    Allocates new implicit virtual signal types (__v1, __v2, ...) during semantic
+    analysis. Wraps SignalTypeRegistry for allocation-specific logic.
+
+    See dsl_compiler.src.common.signal_types for the complete architecture overview.
+    """
 
     def __init__(self, signal_registry: Optional[SignalTypeRegistry] = None) -> None:
         if signal_registry is None:
             self.signal_registry = SignalTypeRegistry()
         else:
             self.signal_registry = signal_registry
-
-    @property
-    def signal_type_map(self) -> Dict[str, str]:
-        """Backward compatibility: get signal type map from registry as strings."""
-        # Old code expected Dict[str, str] mapping signal keys to factorio signal names
-        # New registry stores Dict[str, Dict] with "name" and "type" keys
-        # Extract just the "name" for backward compatibility
-        result = {}
-        for key, value in self.signal_registry.get_all_mappings().items():
-            if isinstance(value, dict):
-                result[key] = value.get("name", key)
-            else:
-                result[key] = value
-        return result
 
     def allocate_implicit_type(self) -> SignalTypeInfo:
         """Allocate and record a new implicit virtual signal."""

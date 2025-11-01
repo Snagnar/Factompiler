@@ -477,7 +477,7 @@ The repository includes `tests/sample_programs/04_memory_advanced.fcdsl`, which 
 
 - storing item, fluid, and virtual signals in dedicated memory cells
 - building conditional write expressions that preserve the previous value when a guard is false
-- constructing state machines and swapping stored values without bundle helpers using projection
+- constructing state machines and swapping stored values using projection
 
 Use it as a reference when wiring more sophisticated SR latch workflows.
 
@@ -667,16 +667,16 @@ Signal converted = iron | "copper-plate";    # Convert to copper-plate signal
 Signal virtual = iron | "signal-A";          # Convert to virtual signal
 ```
 
-### Channel Aggregation (Bundle Helper Removed)
+### Channel Aggregation
 
-Bundles were removed from the language. To combine different channels, explicitly project each source into the desired output type and sum the projected values.
+To combine different channels, explicitly project each source into the desired output type and sum the projected values.
 
 ```fcdsl
 Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 80);
 Signal coal = ("coal", 50);
 
-# Aggregate totals without bundle()
+# Aggregate totals
 Signal total_resources = (iron | "signal-output")
                       + (copper | "signal-output")
                       + (coal | "signal-output");
@@ -734,7 +734,7 @@ Signal copper_virtual = copper | "signal-B";
 Signal sum = iron_virtual + copper_virtual | "signal-output";
 ```
 
-> Sample references: `tests/sample_programs/02_mixed_types.fcdsl`, `03_bundles.fcdsl`, and `09_advanced_patterns.fcdsl` showcase projection-based aggregation patterns in full programs.
+> Sample references: `tests/sample_programs/02_mixed_types.fcdsl` and `09_advanced_patterns.fcdsl` showcase projection-based aggregation patterns in full programs.
 
 ## Compilation Model
 
@@ -880,7 +880,7 @@ Entity status_lamp = place("small-lamp", 20, 0);
 status_lamp.enable = should_produce;
 ```
 
-### Multi-Signal Processing (Bundle-Free)
+### Multi-Signal Processing
 
 ```fcdsl
 # External feeds (wire these signals after import)
@@ -893,7 +893,7 @@ Signal iron_plates = (iron_feed | "iron-plate") * 2;
 Signal copper_plates = copper_feed | "copper-plate";
 Signal coal_passthrough = coal_feed | "coal";
 
-# Aggregate totals without bundle()
+# Aggregate totals
 Signal total_output = (iron_plates | "signal-total")
                     + (copper_plates | "signal-total")
                     + (coal_passthrough | "signal-total");
@@ -1046,7 +1046,7 @@ This specification describes the language as currently implemented. The followin
 ✅ **Built-in Functions**: Signal literals, `memory()`, `place()` implemented  
 ✅ **Memory Operations**: Memory type, `read()`, `write()` implemented  
 ✅ **Entity System**: Entity placement and property control functional  
-⚠️ **Bundle Helper**: `bundle()` removed; use projection patterns for aggregation  
+✅ **Projection Patterns**: Channel aggregation via explicit projection  
 ✅ **Functions**: User-defined functions with parameters and local variables  
 ✅ **Compilation Pipeline**: Complete AST → IR → Blueprint generation  
 ✅ **Blueprint Export**: Generates valid Factorio blueprint strings  

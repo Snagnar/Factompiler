@@ -1,7 +1,7 @@
-"""Data structures for physical layout planning."""
-
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Any
+
+"""Data structures for physical layout planning."""
 
 
 @dataclass

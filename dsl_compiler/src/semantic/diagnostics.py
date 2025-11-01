@@ -1,10 +1,13 @@
-"""Diagnostic utilities used during semantic analysis."""
-
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
-
 from dsl_compiler.src.ast import ASTNode
+
+"""DEPRECATED: Use dsl_compiler.src.common.ProgramDiagnostics instead.
+
+This module is kept only for the SemanticError exception.
+DiagnosticCollector has been replaced by ProgramDiagnostics.
+"""
 
 
 class DiagnosticLevel(Enum):

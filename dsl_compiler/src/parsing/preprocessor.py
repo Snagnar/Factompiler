@@ -1,9 +1,8 @@
-"""Import preprocessing utilities for the Factorio Circuit DSL."""
-
 from __future__ import annotations
-
 from pathlib import Path
 from typing import Optional, Set
+
+"""Import preprocessing utilities for the Factorio Circuit DSL."""
 
 
 def preprocess_imports(

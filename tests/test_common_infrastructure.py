@@ -42,4 +42,3 @@ def test_source_location():
     loc = SourceLocation(file="test.fcdsl", line=10, column=5)
     assert "test.fcdsl" in str(loc)
     assert "10" in str(loc)
-    assert loc.is_valid()

@@ -1,16 +1,13 @@
-"""Parser entry point for the Factorio Circuit DSL."""
-
 from __future__ import annotations
-
 from pathlib import Path
 from typing import Optional
-
 from lark import Lark
 from lark.exceptions import LexError, ParseError
-
 from dsl_compiler.src.ast import ASTNode, Program
 from .preprocessor import preprocess_imports
 from .transformer import DSLTransformer
+
+"""Parser entry point for the Factorio Circuit DSL."""
 
 
 class DSLParser:

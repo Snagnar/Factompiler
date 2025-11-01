@@ -9,9 +9,8 @@ using the factorio-draftsman library to generate blueprint JSON.
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Literal, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, Any, TYPE_CHECKING
 
 # Add draftsman to path
 sys.path.insert(
@@ -28,34 +27,13 @@ from draftsman.data import signals as signal_data  # type: ignore[import-not-fou
 
 
 from ..ir import *
-from ..semantic import DiagnosticCollector
+from ..common import ProgramDiagnostics
 
 MAX_CIRCUIT_WIRE_SPAN = 9.0
 EDGE_LAYOUT_NOTE = (
     "Edge layout: literal constants are placed along the north boundary; "
     "export anchors align along the south boundary."
 )
-
-
-@dataclass(frozen=True)
-class WireRelayOptions:
-    """Configuration flags controlling automatic wire relay insertion."""
-
-    enabled: bool = True
-    max_span: float = MAX_CIRCUIT_WIRE_SPAN
-    placement_strategy: Literal["euclidean", "manhattan"] = "euclidean"
-    max_relays: Optional[int] = None
-
-    def normalized_span(self) -> float:
-        span = (
-            self.max_span
-            if self.max_span and self.max_span > 0
-            else MAX_CIRCUIT_WIRE_SPAN
-        )
-        return max(1.0, float(span))
-
-
-WIRE_RELAY_ENTITY = "medium-electric-pole"
 
 
 from dsl_compiler.src.layout.layout_plan import (
@@ -100,25 +78,6 @@ def format_entity_description(debug_info: Optional[dict]) -> str:
 # =============================================================================
 
 
-class _PlanOnlyBlueprintProxy:
-    """Lightweight proxy that ignores circuit wiring during plan-only runs."""
-
-    def __init__(self, blueprint: Blueprint) -> None:
-        object.__setattr__(self, "_blueprint", blueprint)
-
-    def add_circuit_connection(self, *args, **kwargs):
-        return None
-
-    def __getattr__(self, name):
-        return getattr(object.__getattribute__(self, "_blueprint"), name)
-
-    def __setattr__(self, name, value):
-        setattr(object.__getattribute__(self, "_blueprint"), name, value)
-
-
-# LayoutBuilder class removed (dead code)
-
-
 class BlueprintEmitter:
     """Materialize a :class:`LayoutPlan` into a Factorio blueprint."""
 
@@ -127,10 +86,10 @@ class BlueprintEmitter:
         signal_type_map: Optional[Dict[str, str]] = None,
     ) -> None:
         self.signal_type_map = signal_type_map or {}
-        self.diagnostics = DiagnosticCollector()
+        self.diagnostics = ProgramDiagnostics()
         self.blueprint = Blueprint()
         self._ensure_signal_map_registered()
-        self.entity_factory = PlanEntityEmitter(self.diagnostics)
+        self.entity_factory = PlanEntityEmitter(self.diagnostics, self.signal_type_map)
 
     def emit_from_plan(self, layout_plan: LayoutPlan) -> Blueprint:
         """Emit a blueprint from a completed layout plan."""
@@ -285,13 +244,13 @@ def emit_blueprint(
     signal_type_map: Dict[str, str] = None,
     *,
     power_pole_type: Optional[str] = None,
-) -> Tuple[Blueprint, DiagnosticCollector]:
+) -> Tuple[Blueprint, ProgramDiagnostics]:
     """Convert IR operations to Factorio blueprint."""
     signal_type_map = signal_type_map or {}
 
     emitter = BlueprintEmitter(signal_type_map)
 
-    planner_diagnostics = DiagnosticCollector()
+    planner_diagnostics = ProgramDiagnostics()
     from dsl_compiler.src.layout.planner import LayoutPlanner
 
     planner = LayoutPlanner(
@@ -307,7 +266,7 @@ def emit_blueprint(
         blueprint_description="",
     )
 
-    combined_diagnostics = DiagnosticCollector()
+    combined_diagnostics = ProgramDiagnostics()
     combined_diagnostics.diagnostics.extend(planner.diagnostics.diagnostics)
 
     if planner.diagnostics.has_errors():
@@ -326,7 +285,7 @@ def emit_blueprint_string(
     signal_type_map: Dict[str, str] = None,
     *,
     power_pole_type: Optional[str] = None,
-) -> Tuple[str, DiagnosticCollector]:
+) -> Tuple[str, ProgramDiagnostics]:
     """Convert IR operations to Factorio blueprint string."""
     blueprint, diagnostics = emit_blueprint(
         ir_operations,

@@ -1,6 +1,12 @@
-"""Entity placement planning for the layout module."""
-
 from typing import Any, Dict, Optional, Tuple
+from dsl_compiler.src.common import ProgramDiagnostics
+from dsl_compiler.src.common import get_entity_footprint, get_entity_alignment
+from .layout_engine import LayoutEngine
+from .layout_plan import LayoutPlan, EntityPlacement, WireConnection
+from .signal_analyzer import SignalUsageEntry, SignalMaterializer
+from .signal_resolver import SignalResolver
+from .signal_graph import SignalGraph
+
 
 from dsl_compiler.src.ir import (
     IRNode,
@@ -17,14 +23,6 @@ from dsl_compiler.src.ir import (
     SignalRef,
     ValueRef,
 )
-from dsl_compiler.src.semantic import DiagnosticCollector
-from dsl_compiler.src.common import get_entity_footprint, get_entity_alignment
-
-from .layout_engine import LayoutEngine
-from .layout_plan import LayoutPlan, EntityPlacement
-from .signal_analyzer import SignalUsageEntry, SignalMaterializer
-from .signal_resolver import SignalResolver
-from .signal_graph import SignalGraph
 
 
 class EntityPlacer:
@@ -37,7 +35,7 @@ class EntityPlacer:
         signal_usage: Dict[str, SignalUsageEntry],
         materializer: SignalMaterializer,
         signal_resolver: SignalResolver,
-        diagnostics: DiagnosticCollector,
+        diagnostics: ProgramDiagnostics,
     ):
         self.layout = layout_engine
         self.plan = layout_plan
@@ -48,7 +46,7 @@ class EntityPlacer:
         self.signal_graph = SignalGraph()
 
         self.next_entity_number = 1
-        self._memory_modules: Dict[str, Dict[str, EntityPlacement]] = {}
+        self._memory_modules: Dict[str, Dict[str, Any]] = {}
         self._wire_merge_junctions: Dict[str, Dict[str, Any]] = {}
         self._entity_property_signals: Dict[str, str] = {}
 
@@ -274,11 +272,117 @@ class EntityPlacer:
         # The actual wiring will be handled by connection planner
 
     def _place_memory_write(self, op: IR_MemWrite) -> None:
-        """Place memory write circuitry."""
-        # Memory writes are complex and depend on the write strategy
-        # For now, we'll create a simple placeholder that the memory builder will handle
-        # The actual write gate placement is handled by the memory builder during create
-        pass
+        """Place memory write circuitry and record necessary wiring."""
+        memory_module = self._memory_modules.get(op.memory_id)
+        if not memory_module:
+            self.diagnostics.warning(
+                f"Memory write to undefined memory: {op.memory_id}"
+            )
+            return
+
+        write_gate = memory_module.get("write_gate")
+        hold_gate = memory_module.get("hold_gate")
+
+        if not isinstance(write_gate, EntityPlacement) or not isinstance(
+            hold_gate, EntityPlacement
+        ):
+            self.diagnostics.warning(
+                f"Memory module '{op.memory_id}' is missing gate placements"
+            )
+            return
+
+        self._add_signal_sink(op.data_signal, write_gate.ir_node_id)
+        self._add_signal_sink(op.data_signal, hold_gate.ir_node_id)
+
+        enable_source = self._ensure_constant_write_enable(op)
+        if enable_source:
+            self.signal_graph.add_sink(enable_source, write_gate.ir_node_id)
+            self.signal_graph.add_sink(enable_source, hold_gate.ir_node_id)
+        else:
+            self._add_signal_sink(op.write_enable, write_gate.ir_node_id)
+            self._add_signal_sink(op.write_enable, hold_gate.ir_node_id)
+
+        if not memory_module.get("_feedback_connected"):
+            signal_name = memory_module.get("signal_type")
+            if signal_name:
+                # Hard-wire SR latch feedback so the memory module remains stable.
+                feedback_conn = WireConnection(
+                    source_entity_id=write_gate.ir_node_id,
+                    sink_entity_id=hold_gate.ir_node_id,
+                    signal_name=signal_name,
+                    wire_color="red",
+                    source_side="output",
+                    sink_side="input",
+                )
+                self.plan.add_wire_connection(feedback_conn)
+
+                hold_feedback = WireConnection(
+                    source_entity_id=hold_gate.ir_node_id,
+                    sink_entity_id=hold_gate.ir_node_id,
+                    signal_name=signal_name,
+                    wire_color="red",
+                    source_side="output",
+                    sink_side="input",
+                )
+                self.plan.add_wire_connection(hold_feedback)
+
+                memory_module["_feedback_connected"] = True
+
+    def _ensure_constant_write_enable(self, op: IR_MemWrite) -> Optional[str]:
+        """Materialize or reuse a write-enable source."""
+        if isinstance(op.write_enable, int):
+            const_id = f"{op.memory_id}_write_enable_{self.next_entity_number}"
+            self.next_entity_number += 1
+            return self._create_write_enable_constant(const_id, op.write_enable)
+
+        if isinstance(op.write_enable, SignalRef):
+            source_id = op.write_enable.source_id
+            entry = self.signal_usage.get(source_id)
+            placement = self.plan.get_placement(source_id)
+            if placement is not None:
+                if entry and entry.literal_value is not None:
+                    placement.properties["value"] = int(entry.literal_value)
+                placement.properties["signal_name"] = "signal-W"
+                placement.properties["signal_type"] = "virtual"
+                self.signal_graph.set_source(source_id, placement.ir_node_id)
+                if entry:
+                    entry.should_materialize = True
+                    entry.resolved_signal_name = "signal-W"
+                    entry.resolved_signal_type = "virtual"
+                return source_id
+
+            if entry and isinstance(entry.producer, IR_Const):
+                value = entry.literal_value
+                if value is None:
+                    value = getattr(entry.producer, "value", 0)
+                created_id = self._create_write_enable_constant(source_id, int(value))
+                entry.should_materialize = True
+                entry.resolved_signal_name = "signal-W"
+                entry.resolved_signal_type = "virtual"
+                return created_id
+
+            return source_id
+
+        return None
+
+    def _create_write_enable_constant(self, constant_id: str, value: int) -> str:
+        position = self.layout.reserve_in_zone("north_literals")
+        placement = EntityPlacement(
+            ir_node_id=constant_id,
+            entity_type="constant-combinator",
+            position=position,
+            properties={
+                "signal_name": "signal-W",
+                "signal_type": "virtual",
+                "value": value,
+                "footprint": (1, 1),
+            },
+            role="write_enable_constant",
+            zone="north_literals",
+        )
+        self.plan.add_placement(placement)
+        self.signal_graph.set_source(constant_id, placement.ir_node_id)
+        return constant_id
 
     def _place_user_entity(self, op: IR_PlaceEntity) -> None:
         """Place user-requested entity."""

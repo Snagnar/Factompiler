@@ -1,11 +1,14 @@
-"""Centralized signal type management."""
+"""Centralized signal type management.
+
+Storage Format: Dict[signal_key, {"name": factorio_name, "type": category}]
+Example: {"__v1": {"name": "signal-A", "type": "virtual"}}
+
+This is the ONLY format used. All code must handle dict values.
+"""
 
 from typing import Dict, Optional, Any
 
-try:
-    from draftsman.data import signals as signal_data
-except ImportError:
-    signal_data = None
+from draftsman.data import signals as signal_data
 
 
 class SignalTypeRegistry:
@@ -14,6 +17,8 @@ class SignalTypeRegistry:
     This class maintains the mapping between DSL signal types (like __v1, iron-plate)
     and their Factorio representations. It provides a single source of truth for
     signal type information across all compiler stages.
+
+    See dsl_compiler.src.common.signal_types for the complete architecture overview.
     """
 
     def __init__(self):

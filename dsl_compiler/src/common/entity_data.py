@@ -58,19 +58,6 @@ class EntityDataHelper:
         # Entities 2x2 or larger need alignment=2
         return 2 if max(footprint) >= 2 else 1
 
-    @staticmethod
-    def supports_circuit_connection(prototype: str) -> bool:
-        """Check if entity supports circuit network connections."""
-        if entity_data is None:
-            return False
-
-        try:
-            entity_info = entity_data.raw.get(prototype, {})
-            # Check for circuit wire max connections
-            return entity_info.get("circuit_wire_max_distance", 0) > 0
-        except Exception:
-            return False
-
 
 # Export for convenience
 get_entity_footprint = EntityDataHelper.get_footprint

@@ -1,15 +1,12 @@
-"""Power infrastructure planning for the layout module."""
-
 from __future__ import annotations
-
 import math
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Set, Tuple
-
-from dsl_compiler.src.semantic import DiagnosticCollector
-
+from dsl_compiler.src.common import ProgramDiagnostics
 from .layout_engine import LayoutEngine
 from .layout_plan import LayoutPlan, EntityPlacement, PowerPolePlacement
+
+"""Power infrastructure planning for the layout module."""
 
 
 @dataclass(frozen=True)
@@ -59,11 +56,11 @@ class PowerPlanner:
         self,
         layout: LayoutEngine,
         layout_plan: LayoutPlan,
-        diagnostics: DiagnosticCollector,
+        diagnostics: ProgramDiagnostics,
     ) -> None:
         self.layout: LayoutEngine = layout
         self.layout_plan: LayoutPlan = layout_plan
-        self.diagnostics: DiagnosticCollector = diagnostics
+        self.diagnostics: ProgramDiagnostics = diagnostics
 
         self._planned: List[PlannedPowerPole] = []
         self._footprint: Tuple[int, int] = (1, 1)

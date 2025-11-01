@@ -1,8 +1,8 @@
-"""Source location utilities for tracking code positions."""
-
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Any
+
+"""Source location utilities for tracking code positions."""
 
 
 @dataclass
@@ -12,15 +12,6 @@ class SourceLocation:
     file: Optional[str] = None
     line: int = 0
     column: int = 0
-
-    @classmethod
-    def from_node(cls, node: Any) -> "SourceLocation":
-        """Create a SourceLocation from an AST node."""
-        return cls(
-            file=getattr(node, "source_file", None),
-            line=getattr(node, "line", 0),
-            column=getattr(node, "column", 0),
-        )
 
     def __str__(self) -> str:
         """Format as file:line:col."""
@@ -33,6 +24,30 @@ class SourceLocation:
                 parts.append(str(self.column))
         return ":".join(parts) if parts else "unknown"
 
-    def is_valid(self) -> bool:
-        """Check if this location has meaningful information."""
-        return self.file is not None or self.line > 0
+    @staticmethod
+    def render(
+        node: Optional[Any], default_file: Optional[str] = None
+    ) -> Optional[str]:
+        """Format a human-friendly file:line string for an AST node.
+
+        This is a compatibility method for code that uses render_source_location.
+        """
+        if node is None:
+            return None
+
+        filename = getattr(node, "source_file", None) or default_file
+        line = getattr(node, "line", 0) or 0
+
+        if not filename and line <= 0:
+            return None
+
+        if filename and line > 0:
+            return f"{Path(filename).name}:{line}"
+
+        if filename:
+            return Path(filename).name
+
+        if line > 0:
+            return f"?:{line}"
+
+        return None

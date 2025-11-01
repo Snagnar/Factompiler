@@ -1,21 +1,16 @@
-"""Memory-related lowering helpers for the Factorio Circuit DSL."""
-
 from __future__ import annotations
-
-from typing import Optional, TYPE_CHECKING
-
+from typing import Any, Optional
 from dsl_compiler.src.ast import ASTNode, MemDecl, ReadExpr, WriteExpr
 from dsl_compiler.src.ir import SignalRef, ValueRef
 from dsl_compiler.src.semantic import SignalValue
 
-if TYPE_CHECKING:  # pragma: no cover - type checking only
-    from .lowerer import ASTLowerer
+"""Memory-related lowering helpers for the Factorio Circuit DSL."""
 
 
 class MemoryLowerer:
     """Handles lowering of memory declarations and operations."""
 
-    def __init__(self, parent: "ASTLowerer") -> None:
+    def __init__(self, parent: Any) -> None:
         self.parent = parent
 
     # ------------------------------------------------------------------
@@ -53,7 +48,7 @@ class MemoryLowerer:
                 signal_type = symbol.value_type.signal_type.name
 
         if signal_type is None:
-            self.diagnostics.error(
+            self._error(
                 f"Memory '{stmt.name}' must have an explicit signal type.",
                 stmt,
             )
@@ -77,7 +72,7 @@ class MemoryLowerer:
         memory_name = expr.memory_name
 
         if memory_name not in self.parent.memory_refs:
-            self.diagnostics.error(f"Undefined memory: {memory_name}", expr)
+            self._error(f"Undefined memory: {memory_name}", expr)
             signal_type = self.ir_builder.allocate_implicit_type()
             return self.ir_builder.const(signal_type, 0, expr)
 
@@ -97,7 +92,7 @@ class MemoryLowerer:
         memory_name = expr.memory_name
 
         if memory_name not in self.parent.memory_refs:
-            self.diagnostics.error(f"Undefined memory: {memory_name}", expr)
+            self._error(f"Undefined memory: {memory_name}", expr)
             return self.ir_builder.const(
                 self.ir_builder.allocate_implicit_type(), 0, expr
             )
@@ -107,7 +102,7 @@ class MemoryLowerer:
 
         expected_signal_type = self._memory_signal_type(memory_name)
         if expected_signal_type is None:
-            self.diagnostics.error(
+            self._error(
                 f"Memory '{memory_name}' does not have a resolved signal type during lowering.",
                 expr,
             )
@@ -165,7 +160,7 @@ class MemoryLowerer:
             source_type = getattr(value_ref, "signal_type", None) or "<unknown>"
 
             if getattr(self.semantic, "strict_types", False):
-                self.diagnostics.error(
+                self._error(
                     "Type mismatch in memory write:\n"
                     f"  Expected: '{signal_type}'\n"
                     f"  Got: '{source_type}'\n"
@@ -184,7 +179,7 @@ class MemoryLowerer:
         ):
             return value_ref  # type: ignore[return-value]
 
-        self.diagnostics.error(
+        self._error(
             f"Cannot convert value of type '{type(value_ref).__name__}' to signal '{signal_type}' for memory write.",
             node,
         )

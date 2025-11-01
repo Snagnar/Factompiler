@@ -1,11 +1,9 @@
-"""Type system primitives used by semantic analysis."""
-
 from __future__ import annotations
-
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
-
+from typing import Any, Dict, List, Optional, Union
 from dsl_compiler.src.ast import ASTNode, Expr
+
+"""Type system primitives used by semantic analysis."""
 
 
 @dataclass
@@ -72,11 +70,7 @@ class MemoryInfo:
     """Type information captured for memory declarations."""
 
     name: str
-    symbol: "Symbol"
+    symbol: Any
     signal_type: Optional[str] = None
     signal_info: Optional[SignalTypeInfo] = None
     explicit: bool = False
-
-
-if TYPE_CHECKING:  # pragma: no cover - type checking only
-    from .symbol_table import Symbol

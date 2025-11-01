@@ -460,17 +460,6 @@ class DSLTransformer(Transformer):
                     first_arg = self._unwrap_tree(items[1])
                     second_arg = items[2]
 
-                    if isinstance(items[1], Token) and items[1].type == "NAME":
-                        memory_name = str(items[1])
-                        value_expr = self._unwrap_tree(items[2])
-                        write_node = WriteExpr(
-                            value=value_expr,
-                            memory_name=memory_name,
-                            when=None,
-                            legacy_syntax=True,
-                        )
-                        return self._set_position(write_node, items[0])
-
                     value_expr = first_arg if isinstance(first_arg, Expr) else items[1]
 
                     if isinstance(second_arg, Token) and second_arg.type == "NAME":
@@ -521,16 +510,6 @@ class DSLTransformer(Transformer):
                 if len(items) >= 3:
                     first_arg = items[1]
                     second_arg = items[2]
-
-                    if isinstance(first_arg, str) and first_arg.isidentifier():
-                        memory_name = first_arg
-                        value_expr = self._unwrap_tree(second_arg)
-                        return WriteExpr(
-                            value=value_expr,
-                            memory_name=memory_name,
-                            when=None,
-                            legacy_syntax=True,
-                        )
 
                     value_expr = self._unwrap_tree(first_arg)
                     memory_name = str(second_arg)

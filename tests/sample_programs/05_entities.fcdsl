@@ -4,7 +4,13 @@
 # Place entities at specific coordinates
 Entity lamp1 = place("small-lamp", 0, 0);
 Entity lamp2 = place("small-lamp", 2, 0);
-Entity train_station = place("train-stop", 5, 0);
+# Test 5: Basic entity placement
+# Tests: place() function, basic entity creation
+
+Signal input_a = 100;
+Signal input_b = 200;
+
+Entity train_station = place("train-stop", 4, 0);
 
 # Configure train station properties
 train_station.manual_mode = 1;

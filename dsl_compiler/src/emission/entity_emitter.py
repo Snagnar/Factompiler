@@ -1,17 +1,13 @@
-"""Blueprint entity materialization helpers built on LayoutPlan."""
-
 from __future__ import annotations
-
 from typing import Dict, Optional, Any
-
 import copy
-
 from draftsman.classes.entity import Entity  # type: ignore[import-not-found]
 from draftsman.entity import new_entity  # type: ignore[import-not-found]
 from draftsman.entity import DeciderCombinator, ArithmeticCombinator, ConstantCombinator  # type: ignore[import-not-found]
-
 from dsl_compiler.src.layout.layout_plan import EntityPlacement
-from dsl_compiler.src.semantic import DiagnosticCollector
+from dsl_compiler.src.common import ProgramDiagnostics
+
+"""Blueprint entity materialization helpers built on LayoutPlan."""
 
 
 class PlanEntityEmitter:
@@ -19,10 +15,10 @@ class PlanEntityEmitter:
 
     def __init__(
         self,
-        diagnostics: Optional[DiagnosticCollector] = None,
+        diagnostics: Optional[ProgramDiagnostics] = None,
         signal_type_map: Optional[Dict[str, str]] = None,
     ) -> None:
-        self.diagnostics = diagnostics or DiagnosticCollector()
+        self.diagnostics = diagnostics or ProgramDiagnostics()
         self.signal_type_map = signal_type_map or {}
 
     def create_entity(self, placement: EntityPlacement) -> Optional[Entity]:
@@ -207,16 +203,6 @@ class PlanEntityEmitter:
                     self.diagnostics.warning(
                         f"Could not set property '{prop_name}' on '{placement.entity_type}'."
                     )
-
-    def create_entity_map(self, layout_plan: Any) -> Dict[str, Entity]:
-        """Instantiate entities for the entire layout plan."""
-
-        entities: Dict[str, Entity] = {}
-        for placement in layout_plan.entity_placements.values():
-            entity = self.create_entity(placement)
-            if entity is not None:
-                entities[placement.ir_node_id] = entity
-        return entities
 
 
 __all__ = ["PlanEntityEmitter"]

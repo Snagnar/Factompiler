@@ -1,10 +1,9 @@
-"""Wire routing and color assignment algorithms."""
-
 from __future__ import annotations
-
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+
+"""Wire routing and color assignment algorithms."""
 
 
 WIRE_COLORS: Tuple[str, str] = ("red", "green")

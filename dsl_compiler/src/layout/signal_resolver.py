@@ -1,24 +1,27 @@
-"""Signal resolution helpers for layout planning."""
-
 from __future__ import annotations
-
 from typing import Any, Dict, Optional, Union
-
 from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
-
 from dsl_compiler.src.ir import SignalRef
-from dsl_compiler.src.semantic import DiagnosticCollector
-
+from dsl_compiler.src.common import ProgramDiagnostics
 from .signal_analyzer import SignalMaterializer, SignalUsageEntry
+
+"""Signal resolution helpers for layout planning."""
 
 
 class SignalResolver:
-    """Resolve logical signal identifiers into Factorio signal names."""
+    """Resolve logical signal identifiers into Factorio signal names.
+
+    Resolves signal keys to Factorio signal names for blueprint emission.
+    Handles inlining and materialization decisions.
+    Used during layout and emission.
+
+    See dsl_compiler.src.common.signal_types for the complete architecture overview.
+    """
 
     def __init__(
         self,
         signal_type_map: Dict[str, Any],
-        diagnostics: DiagnosticCollector,
+        diagnostics: ProgramDiagnostics,
         *,
         materializer: Optional[SignalMaterializer] = None,
         signal_usage: Optional[Dict[str, SignalUsageEntry]] = None,
@@ -63,14 +66,6 @@ class SignalResolver:
             operand_str = str(operand)
 
         clean_name = operand_str.split("@")[0]
-
-        # CRITICAL FIX: Never return signal-each unless explicitly requested
-        # Bundles were removed from the language - this shouldn't happen anymore
-        if clean_name.startswith("Bundle["):
-            self.diagnostics.warning(
-                f"Bundle type encountered: {clean_name}. Using signal-0 instead."
-            )
-            return "signal-0"  # Don't return signal-each!
 
         mapped_signal = self.signal_type_map.get(clean_name)
         if mapped_signal is not None:

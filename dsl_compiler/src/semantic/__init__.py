@@ -1,12 +1,8 @@
 """Semantic analysis package for the Factorio Circuit DSL."""
 
+from dsl_compiler.src.common import SourceLocation
 from .analyzer import SemanticAnalyzer, analyze_program, analyze_file
-from .diagnostics import (
-    DiagnosticCollector,
-    Diagnostic,
-    DiagnosticLevel,
-    SemanticError,
-)
+from .exceptions import SemanticError
 from .symbol_table import SymbolTable, Symbol
 from .type_system import (
     SignalValue,
@@ -18,15 +14,14 @@ from .type_system import (
     SignalDebugInfo,
 )
 from .signal_allocator import SignalAllocator
-from .validators import render_source_location, EXPLAIN_MODE
+
+# Compatibility alias
+render_source_location = SourceLocation.render
 
 __all__ = [
     "SemanticAnalyzer",
     "analyze_program",
     "analyze_file",
-    "DiagnosticCollector",
-    "Diagnostic",
-    "DiagnosticLevel",
     "SemanticError",
     "SymbolTable",
     "Symbol",
@@ -39,5 +34,4 @@ __all__ = [
     "SignalDebugInfo",
     "SignalAllocator",
     "render_source_location",
-    "EXPLAIN_MODE",
 ]

@@ -1,11 +1,9 @@
-"""Literal and L-value node definitions."""
-
 from __future__ import annotations
-
 from typing import Dict, Optional
-
 from .base import ASTNode
 from .expressions import Expr
+
+"""Literal and L-value node definitions."""
 
 
 class Literal(Expr):

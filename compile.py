@@ -20,15 +20,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 from dsl_compiler.src.parsing import DSLParser
 from dsl_compiler.src.semantic import (
     analyze_program,
-    DiagnosticCollector,
     SemanticAnalyzer,
 )
 from dsl_compiler.src.lowering import lower_program
 from dsl_compiler.src.layout import LayoutPlanner
 from dsl_compiler.src.emission import BlueprintEmitter
 from dsl_compiler.src.ir import CSEOptimizer
-from dsl_compiler.src.common import ProgramDiagnostics, DiagnosticSeverity
-import dsl_compiler.src.semantic as semantic_module
+from dsl_compiler.src.common import ProgramDiagnostics
 
 
 def validate_power_poles(ctx, param, value):
@@ -72,10 +70,7 @@ def compile_dsl_file(
         program_name = input_path.stem.replace("_", " ").title()
 
     # Create unified diagnostics collector
-    diagnostics = ProgramDiagnostics(verbose=verbose, debug=debug)
-
-    previous_explain = semantic_module.EXPLAIN_MODE
-    semantic_module.EXPLAIN_MODE = explain
+    diagnostics = ProgramDiagnostics(verbose=verbose, debug=debug, explain=explain)
 
     try:
         # Parse
@@ -94,18 +89,13 @@ def compile_dsl_file(
         # Merge semantic diagnostics
         if hasattr(semantic_results, "diagnostics"):
             for diag in semantic_results.diagnostics:
-                severity = (
-                    DiagnosticSeverity.ERROR
-                    if diag.level.value == "error"
-                    else DiagnosticSeverity.WARNING
-                )
                 diagnostics._add(
-                    severity,
+                    diag.severity,
                     diag.message,
-                    "semantic",
+                    diag.stage,
                     diag.line,
                     diag.column,
-                    None,
+                    diag.source_file,
                     diag.node,
                 )
 
@@ -118,18 +108,13 @@ def compile_dsl_file(
         # Merge lowering diagnostics
         if hasattr(lowering_diag, "diagnostics"):
             for diag in lowering_diag.diagnostics:
-                severity = (
-                    DiagnosticSeverity.ERROR
-                    if diag.level.value == "error"
-                    else DiagnosticSeverity.WARNING
-                )
                 diagnostics._add(
-                    severity,
+                    diag.severity,
                     diag.message,
-                    "lowering",
+                    diag.stage,
                     diag.line,
                     diag.column,
-                    None,
+                    diag.source_file,
                     diag.node,
                 )
 
@@ -143,7 +128,7 @@ def compile_dsl_file(
         # Layout planning
         planner = LayoutPlanner(
             signal_type_map,
-            diagnostics=DiagnosticCollector(),
+            diagnostics=ProgramDiagnostics(),
             power_pole_type=power_pole_type,
         )
 
@@ -156,13 +141,14 @@ def compile_dsl_file(
         # Merge layout diagnostics
         if hasattr(planner.diagnostics, "diagnostics"):
             for diag in planner.diagnostics.diagnostics:
-                severity = (
-                    DiagnosticSeverity.ERROR
-                    if diag.level.value == "error"
-                    else DiagnosticSeverity.WARNING
-                )
                 diagnostics._add(
-                    severity, diag.message, "layout", diag.line, diag.column, None, None
+                    diag.severity,
+                    diag.message,
+                    diag.stage,
+                    diag.line,
+                    diag.column,
+                    diag.source_file,
+                    diag.node,
                 )
 
         if planner.diagnostics.has_errors():
@@ -177,19 +163,14 @@ def compile_dsl_file(
             emitter.diagnostics, "diagnostics"
         ):
             for diag in emitter.diagnostics.diagnostics:
-                severity = (
-                    DiagnosticSeverity.ERROR
-                    if diag.level.value == "error"
-                    else DiagnosticSeverity.WARNING
-                )
                 diagnostics._add(
-                    severity,
+                    diag.severity,
                     diag.message,
-                    "emission",
+                    diag.stage,
                     diag.line,
                     diag.column,
-                    None,
-                    None,
+                    diag.source_file,
+                    diag.node,
                 )
 
         if hasattr(emitter, "diagnostics") and emitter.diagnostics.has_errors():
@@ -221,8 +202,6 @@ def compile_dsl_file(
     except Exception as e:
         diagnostics.error(f"Compilation failed: {e}", stage="compiler")
         return False, f"Compilation failed: {e}", diagnostics.get_messages()
-    finally:
-        semantic_module.EXPLAIN_MODE = previous_explain
 
 
 @click.command()

@@ -27,10 +27,10 @@ class TestLowerer:
         ir_operations, diagnostics, signal_map = lower_program(program, analyzer)
 
         assert isinstance(ir_operations, list)
-        # lower_program returns DiagnosticCollector, not list
-        from dsl_compiler.src.semantic import DiagnosticCollector
+        # lower_program returns ProgramDiagnostics, not list
+        from dsl_compiler.src.common import ProgramDiagnostics
 
-        assert isinstance(diagnostics, DiagnosticCollector)
+        assert isinstance(diagnostics, ProgramDiagnostics)
         assert isinstance(signal_map, dict)
 
     def test_lowering_sample_files(self, parser, analyzer):

@@ -1,24 +1,23 @@
-"""Connection planning for wire routing."""
-
 from __future__ import annotations
-
 import heapq
 import math
 from collections import Counter, deque
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
-
 from dsl_compiler.src.ir import SignalRef
-from dsl_compiler.src.semantic import DiagnosticCollector
-
+from dsl_compiler.src.common import ProgramDiagnostics
 from .layout_engine import LayoutEngine
 from .layout_plan import LayoutPlan, WireConnection, EntityPlacement
 from .signal_analyzer import SignalUsageEntry
+
 from .wire_router import (
     CircuitEdge,
     WIRE_COLORS,
     collect_circuit_edges,
     plan_wire_colors,
 )
+
+
+"""Connection planning for wire routing."""
 
 
 class ConnectionPlanner:
@@ -28,7 +27,7 @@ class ConnectionPlanner:
         self,
         layout_plan: LayoutPlan,
         signal_usage: Dict[str, SignalUsageEntry],
-        diagnostics: DiagnosticCollector,
+        diagnostics: ProgramDiagnostics,
         layout_engine: LayoutEngine,
         max_wire_span: float = 9.0,
     ) -> None:
@@ -57,7 +56,7 @@ class ConnectionPlanner:
         locked_colors: Optional[Dict[Tuple[str, str], str]] = None,
     ) -> None:
         """Compute all wire connections with color assignments."""
-
+        preserved_connections = list(self.layout_plan.wire_connections)
         self.layout_plan.wire_connections.clear()
         self._circuit_edges = []
         self._node_color_assignments = {}
@@ -93,6 +92,8 @@ class ConnectionPlanner:
         self._log_color_summary()
         self._log_unresolved_conflicts()
         self._populate_wire_connections()
+        if preserved_connections:
+            self.layout_plan.wire_connections.extend(preserved_connections)
 
     def get_wire_color(
         self, source_id: str, sink_id: str, resolved_signal: str
@@ -218,7 +219,7 @@ class ConnectionPlanner:
             sink_desc = (
                 ", ".join(sorted(conflict.sinks)) if conflict.sinks else "unknown sinks"
             )
-            self.diagnostics.error(
+            self.diagnostics.warning(
                 "Two-color routing could not isolate signal "
                 f"'{resolved_signal}' across sinks [{sink_desc}]; falling back to single-channel wiring for involved entities ({source_desc})."
             )

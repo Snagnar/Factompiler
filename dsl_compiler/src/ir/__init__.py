@@ -1,6 +1,5 @@
-"""Intermediate representation package for the Factorio Circuit DSL."""
-
 from .builder import IRBuilder
+from .optimizer import CSEOptimizer
 from .nodes import (
     IRNode,
     IRValue,
@@ -22,7 +21,6 @@ from .nodes import (
     SignalRef,
     ValueRef,
 )
-from .optimizer import CSEOptimizer
 
 __all__ = [
     "SignalRef",

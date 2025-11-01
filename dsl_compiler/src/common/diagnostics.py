@@ -1,9 +1,9 @@
-"""Unified diagnostic collection for the entire compiler pipeline."""
-
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Any
 from pathlib import Path
+
+"""Unified diagnostic collection for the entire compiler pipeline."""
 
 
 class DiagnosticSeverity(Enum):
@@ -41,33 +41,15 @@ class ProgramDiagnostics:
             print(diagnostics.format_for_user())
     """
 
-    def __init__(self, verbose: bool = False, debug: bool = False):
+    def __init__(
+        self, verbose: bool = False, debug: bool = False, explain: bool = False
+    ):
         self.diagnostics: List[Diagnostic] = []
         self.verbose = verbose
         self.debug = debug
+        self.explain = explain
         self._error_count = 0
         self._warning_count = 0
-
-    def debug_msg(
-        self,
-        message: str,
-        stage: str = "unknown",
-        line: int = 0,
-        column: int = 0,
-        source_file: Optional[str] = None,
-        node: Optional[Any] = None,
-    ) -> None:
-        """Add a debug message (only shown in debug mode)."""
-        if self.debug:
-            self._add(
-                DiagnosticSeverity.DEBUG,
-                message,
-                stage,
-                line,
-                column,
-                source_file,
-                node,
-            )
 
     def info(
         self,
@@ -146,10 +128,6 @@ class ProgramDiagnostics:
     def has_errors(self) -> bool:
         """Check if any errors have been recorded."""
         return self._error_count > 0
-
-    def has_warnings(self) -> bool:
-        """Check if any warnings have been recorded."""
-        return self._warning_count > 0
 
     def error_count(self) -> int:
         """Get the number of errors."""

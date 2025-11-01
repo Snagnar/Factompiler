@@ -45,7 +45,7 @@ Signal belt_copper = ("copper-plate", 11);
 # TRAIN SYSTEM INTEGRATION
 # =============================================================================
 
-Entity cargo_station = place("train-stop", 15, 0);
+Entity cargo_station = place("train-stop", 14, 0);
 cargo_station.enable = item_count > 0;
 
 # Train stop with limit based on inventory

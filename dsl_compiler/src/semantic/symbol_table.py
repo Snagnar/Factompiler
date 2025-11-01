@@ -1,12 +1,11 @@
-"""Symbol table implementation for semantic analysis."""
-
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-
 from dsl_compiler.src.ast import ASTNode
-
-from .diagnostics import SemanticError
+from dsl_compiler.src.common import SymbolType
+from .exceptions import SemanticError
 from .type_system import ValueInfo
+
+"""Symbol table implementation for semantic analysis."""
 
 
 @dataclass
@@ -14,7 +13,7 @@ class Symbol:
     """Symbol table entry."""
 
     name: str
-    symbol_type: str  # "variable", "memory", "function", etc.
+    symbol_type: SymbolType  # Type of symbol (variable, memory, function, etc.)
     value_type: ValueInfo
     defined_at: ASTNode
     is_mutable: bool = False

@@ -26,10 +26,10 @@ class TestSemanticAnalyzer:
         """Test basic semantic analysis."""
         program = parser.parse("Signal x = 42;")
         diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
-        # analyze_program returns DiagnosticCollector, not list
-        from dsl_compiler.src.semantic import DiagnosticCollector
+        # analyze_program returns ProgramDiagnostics
+        from dsl_compiler.src.common import ProgramDiagnostics
 
-        assert isinstance(diagnostics, DiagnosticCollector)
+        assert isinstance(diagnostics, ProgramDiagnostics)
 
     def test_semantic_analysis_sample_files(self, parser, analyzer):
         """Test semantic analysis on sample files."""
@@ -48,10 +48,10 @@ class TestSemanticAnalyzer:
                 diagnostics = analyze_program(
                     program, strict_types=False, analyzer=analyzer
                 )
-                # analyze_program returns DiagnosticCollector, not list
-                from dsl_compiler.src.semantic import DiagnosticCollector
+                # analyze_program returns ProgramDiagnostics
+                from dsl_compiler.src.common import ProgramDiagnostics
 
-                assert isinstance(diagnostics, DiagnosticCollector)
+                assert isinstance(diagnostics, ProgramDiagnostics)
 
     def test_write_legacy_syntax_rejected(self, parser, analyzer):
         """Ensure legacy write(memory, value) form produces a migration error."""

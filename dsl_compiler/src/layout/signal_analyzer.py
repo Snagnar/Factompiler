@@ -1,11 +1,8 @@
-"""Signal usage analysis and materialization decisions."""
-
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
-
 from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
-
 from dsl_compiler.src.ast import SignalLiteral
+from dsl_compiler.src.common import ProgramDiagnostics
 from dsl_compiler.src.ir import (
     IRNode,
     IRValue,
@@ -20,7 +17,6 @@ from dsl_compiler.src.ir import (
     IR_WireMerge,
     SignalRef,
 )
-from dsl_compiler.src.semantic import DiagnosticCollector
 
 
 @dataclass
@@ -49,7 +45,7 @@ class SignalUsageEntry:
 class SignalAnalyzer:
     """Analyzes IR to determine signal usage patterns."""
 
-    def __init__(self, diagnostics: DiagnosticCollector):
+    def __init__(self, diagnostics: ProgramDiagnostics):
         self.diagnostics = diagnostics
         self.signal_usage: Dict[str, SignalUsageEntry] = {}
 
@@ -147,7 +143,7 @@ class SignalMaterializer:
         self,
         signal_usage: Dict[str, SignalUsageEntry],
         signal_type_map: Dict[str, Any],
-        diagnostics: DiagnosticCollector,
+        diagnostics: ProgramDiagnostics,
     ) -> None:
         self.signal_usage = signal_usage
         self.signal_type_map = signal_type_map

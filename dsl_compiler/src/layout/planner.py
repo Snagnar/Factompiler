@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from dsl_compiler.src.ir import IRNode
-from dsl_compiler.src.semantic import DiagnosticCollector
+from dsl_compiler.src.common import ProgramDiagnostics
 
 from .connection_planner import ConnectionPlanner
 from .layout_engine import LayoutEngine
@@ -25,13 +25,13 @@ class LayoutPlanner:
     def __init__(
         self,
         signal_type_map: Dict[str, str],
-        diagnostics: Optional[DiagnosticCollector] = None,
+        diagnostics: Optional[ProgramDiagnostics] = None,
         *,
         power_pole_type: Optional[str] = None,
         max_wire_span: float = 9.0,
     ) -> None:
         self.signal_type_map = signal_type_map
-        self.diagnostics = diagnostics or DiagnosticCollector()
+        self.diagnostics = diagnostics or ProgramDiagnostics()
         self.power_pole_type = power_pole_type
         self.max_wire_span = max_wire_span
 
@@ -63,8 +63,18 @@ class LayoutPlanner:
         Returns:
             LayoutPlan containing entity placements and wire connections
         """
+        self._reset_state()
+        self._setup_signal_analysis(ir_operations)
+        self._setup_materialization()
+        self._setup_signal_resolver()
+        self._place_entities(ir_operations)
+        self._plan_connections()
+        self._plan_power_if_requested()
+        self._set_metadata(blueprint_label, blueprint_description)
+        return self.layout_plan
 
-        # Reset state for a fresh planning run.
+    def _reset_state(self) -> None:
+        """Reset state for a fresh planning run."""
         self.layout_engine = LayoutEngine()
         self.layout_plan = LayoutPlan()
         self.signal_analyzer = None
@@ -76,11 +86,13 @@ class LayoutPlanner:
         self._memory_modules = {}
         self._wire_merge_junctions = {}
 
-        # Signal analysis
+    def _setup_signal_analysis(self, ir_operations: list[IRNode]) -> None:
+        """Initialize and run signal analysis."""
         self.signal_analyzer = SignalAnalyzer(self.diagnostics)
         self.signal_usage = self.signal_analyzer.analyze(ir_operations)
 
-        # Materialization decisions
+    def _setup_materialization(self) -> None:
+        """Initialize materialization decisions."""
         self.materializer = SignalMaterializer(
             self.signal_usage,
             self.signal_type_map,
@@ -88,7 +100,8 @@ class LayoutPlanner:
         )
         self.materializer.finalize()
 
-        # Signal resolver
+    def _setup_signal_resolver(self) -> None:
+        """Initialize signal resolver."""
         self.signal_resolver = SignalResolver(
             self.signal_type_map,
             self.diagnostics,
@@ -96,10 +109,8 @@ class LayoutPlanner:
             signal_usage=self.signal_usage,
         )
 
-        # Place entities
-        self._place_entities(ir_operations)
-
-        # Plan connections
+    def _plan_connections(self) -> None:
+        """Plan wire connections between entities."""
         self.connection_planner = ConnectionPlanner(
             self.layout_plan,
             self.signal_usage,
@@ -116,20 +127,22 @@ class LayoutPlanner:
             locked_colors=locked_colors,
         )
 
-        # Plan power
-        if self.power_pole_type:
-            power_planner = PowerPlanner(
-                self.layout_engine,
-                self.layout_plan,
-                self.diagnostics,
-            )
-            power_planner.plan_power_grid(self.power_pole_type)
+    def _plan_power_if_requested(self) -> None:
+        """Plan power grid if power pole type is specified."""
+        if not self.power_pole_type:
+            return
 
-        # Set metadata
+        power_planner = PowerPlanner(
+            self.layout_engine,
+            self.layout_plan,
+            self.diagnostics,
+        )
+        power_planner.plan_power_grid(self.power_pole_type)
+
+    def _set_metadata(self, blueprint_label: str, blueprint_description: str) -> None:
+        """Set blueprint metadata."""
         self.layout_plan.blueprint_label = blueprint_label
         self.layout_plan.blueprint_description = blueprint_description
-
-        return self.layout_plan
 
     def _place_entities(self, ir_operations: list[IRNode]) -> None:
         """Place all entities in the layout plan."""
@@ -158,8 +171,10 @@ class LayoutPlanner:
         for module in self._memory_modules.values():
             for component_name, placement in module.items():
                 if component_name == "hold_gate":
-                    # Memory hold gate output must be green
+                    if not hasattr(placement, "properties"):
+                        continue
+                    # Memory hold gate output must use red wire for feedback loop stability
                     signal_name = placement.properties.get("output_signal")
                     if signal_name:
-                        locked[(placement.ir_node_id, signal_name)] = "green"
+                        locked[(placement.ir_node_id, signal_name)] = "red"
         return locked

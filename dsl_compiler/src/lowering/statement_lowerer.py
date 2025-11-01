@@ -1,9 +1,7 @@
-"""Statement lowering utilities for the Factorio Circuit DSL."""
-
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
+from typing import Any
+from dsl_compiler.src.ir import IR_EntityPropWrite, SignalRef, ValueRef
+from dsl_compiler.src.semantic import SignalValue
 from dsl_compiler.src.ast import (
     AssignStmt,
     CallExpr,
@@ -17,17 +15,12 @@ from dsl_compiler.src.ast import (
     ReturnStmt,
     Statement,
 )
-from dsl_compiler.src.ir import IR_EntityPropWrite, SignalRef, ValueRef
-from dsl_compiler.src.semantic import SignalValue
-
-if TYPE_CHECKING:  # pragma: no cover - type checking only
-    from .lowerer import ASTLowerer
 
 
 class StatementLowerer:
     """Handles lowering of statements to IR operations."""
 
-    def __init__(self, parent: "ASTLowerer") -> None:
+    def __init__(self, parent: Any) -> None:
         self.parent = parent
 
     # ------------------------------------------------------------------
@@ -65,7 +58,7 @@ class StatementLowerer:
         if handler:
             handler(stmt)  # type: ignore[arg-type]
         else:
-            self.diagnostics.error(f"Unknown statement type: {type(stmt)}", stmt)
+            self._error(f"Unknown statement type: {type(stmt)}", stmt)
 
     def lower_decl_stmt(self, stmt: DeclStmt) -> None:
         if isinstance(stmt.value, CallExpr) and stmt.value.name == "place":
@@ -173,7 +166,7 @@ class StatementLowerer:
         return None
 
     def lower_import_stmt(self, stmt: ImportStmt) -> None:
-        self.diagnostics.error(
+        self._error(
             "Import statement found in AST - file not found during preprocessing: "
             f"{stmt.path}",
             stmt,

@@ -1,9 +1,8 @@
-"""Base classes and utilities for AST traversal."""
-
 from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
+
+"""Base classes and utilities for AST traversal."""
 
 
 class ASTNode(ABC):

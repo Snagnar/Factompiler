@@ -1,10 +1,8 @@
-"""Expression node definitions for the Factorio Circuit DSL."""
-
 from __future__ import annotations
-
 from typing import Any, Dict, List, Optional
-
 from .base import ASTNode
+
+"""Expression node definitions for the Factorio Circuit DSL."""
 
 
 class Expr(ASTNode):
@@ -68,14 +66,12 @@ class WriteExpr(Expr):
         *,
         line: int = 0,
         column: int = 0,
-        legacy_syntax: bool = False,
         when_once: bool = False,
     ) -> None:
         super().__init__(line, column)
         self.value = value
         self.memory_name = memory_name
         self.when = when
-        self.legacy_syntax = legacy_syntax
         self.when_once = when_once
 
 

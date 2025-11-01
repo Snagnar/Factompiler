@@ -1,9 +1,8 @@
-"""Signal connectivity graph for layout planning."""
-
 from __future__ import annotations
-
 from collections import defaultdict
 from typing import Dict, List, Optional, Set
+
+"""Signal connectivity graph for layout planning."""
 
 
 class SignalGraph:

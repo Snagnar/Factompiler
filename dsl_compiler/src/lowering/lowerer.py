@@ -11,8 +11,8 @@ from typing import Dict, List, Optional
 
 from dsl_compiler.src.ast import *  # noqa: F401,F403 - re-exported API
 from dsl_compiler.src.ir import *  # noqa: F401,F403 - re-exported API
+from dsl_compiler.src.common import ProgramDiagnostics
 from dsl_compiler.src.semantic import (
-    DiagnosticCollector,
     SemanticAnalyzer,
     render_source_location,
 )
@@ -29,7 +29,7 @@ class ASTLowerer:
     def __init__(self, semantic_analyzer: SemanticAnalyzer):
         self.semantic = semantic_analyzer
         self.ir_builder = IRBuilder()
-        self.diagnostics = DiagnosticCollector()
+        self.diagnostics = ProgramDiagnostics()
 
         # Symbol tables for IR references
         self.signal_refs: Dict[str, SignalRef] = {}
@@ -48,6 +48,14 @@ class ASTLowerer:
         self.mem_lowerer = MemoryLowerer(self)
         self.expr_lowerer = ExpressionLowerer(self)
         self.stmt_lowerer = StatementLowerer(self)
+
+    def _error(self, message: str, node: Optional[ASTNode] = None) -> None:
+        """Add a lowering error diagnostic."""
+        self.diagnostics.error(message, stage="lowering", node=node)
+
+    def _warning(self, message: str, node: Optional[ASTNode] = None) -> None:
+        """Add a lowering warning diagnostic."""
+        self.diagnostics.warning(message, stage="lowering", node=node)
 
     # ------------------------------------------------------------------
     # Debug metadata helpers
@@ -258,7 +266,7 @@ class ASTLowerer:
 
 def lower_program(
     program: Program, semantic_analyzer: SemanticAnalyzer
-) -> tuple[List[IRNode], DiagnosticCollector, Dict[str, str]]:
+) -> tuple[List[IRNode], ProgramDiagnostics, Dict[str, str]]:
     """Lower a semantic-analyzed program to IR.
 
     Args:

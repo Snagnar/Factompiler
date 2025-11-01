@@ -39,8 +39,7 @@ class IRBuilder:
 
     @property
     def signal_type_map(self) -> Dict[str, Any]:
-        """Backward compatibility: get signal type map from registry."""
-        # Return the signal mappings as-is (dict format with name and type)
+        """Get signal type map from registry."""
         return self.signal_registry.get_all_mappings()
 
     def next_id(self, prefix: str = "ir") -> str:
