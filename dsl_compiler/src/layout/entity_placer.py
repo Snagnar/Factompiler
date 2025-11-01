@@ -260,6 +260,7 @@ class EntityPlacer:
             "write_gate": write_placement,
             "hold_gate": hold_placement,
             "signal_type": signal_name,
+            "always_write": False,
         }
 
         # Track signal source - memory output comes from hold gate
@@ -267,9 +268,22 @@ class EntityPlacer:
 
     def _place_memory_read(self, op: IR_MemRead) -> None:
         """Memory reads are passive - they just connect to the memory's output."""
-        # Track that this node reads from the memory
-        self.signal_graph.set_source(op.node_id, op.memory_id)
-        # The actual wiring will be handled by connection planner
+        memory_module = self._memory_modules.get(op.memory_id)
+        if not memory_module:
+            self.diagnostics.warning(
+                f"Memory read from undefined memory: {op.memory_id}"
+            )
+            return
+
+        hold_gate = memory_module.get("hold_gate")
+        if not isinstance(hold_gate, EntityPlacement):
+            self.diagnostics.warning(
+                f"Memory module '{op.memory_id}' is missing hold gate placement"
+            )
+            return
+
+        # Ensure reads source the actual hold gate so wiring resolves correctly.
+        self.signal_graph.set_source(op.node_id, hold_gate.ir_node_id)
 
     def _place_memory_write(self, op: IR_MemWrite) -> None:
         """Place memory write circuitry and record necessary wiring."""
@@ -291,42 +305,68 @@ class EntityPlacer:
             )
             return
 
-        self._add_signal_sink(op.data_signal, write_gate.ir_node_id)
-        self._add_signal_sink(op.data_signal, hold_gate.ir_node_id)
+        is_always_write = isinstance(op.write_enable, int) and op.write_enable == 1
 
-        enable_source = self._ensure_constant_write_enable(op)
-        if enable_source:
-            self.signal_graph.add_sink(enable_source, write_gate.ir_node_id)
-            self.signal_graph.add_sink(enable_source, hold_gate.ir_node_id)
-        else:
-            self._add_signal_sink(op.write_enable, write_gate.ir_node_id)
-            self._add_signal_sink(op.write_enable, hold_gate.ir_node_id)
+        if is_always_write:
+            self._add_signal_sink(op.data_signal, write_gate.ir_node_id)
 
-        if not memory_module.get("_feedback_connected"):
+            write_gate.properties["operation"] = ">"
+            output_signal = write_gate.properties.get("output_signal", "signal-A")
+            write_gate.properties["left_operand"] = output_signal
+            write_gate.properties["right_operand"] = -2147483648
+            write_gate.properties["copy_count_from_input"] = True
+
             signal_name = memory_module.get("signal_type")
-            if signal_name:
-                # Hard-wire SR latch feedback so the memory module remains stable.
-                feedback_conn = WireConnection(
+            if signal_name and not memory_module.get("_feedback_connected"):
+                self_feedback = WireConnection(
                     source_entity_id=write_gate.ir_node_id,
-                    sink_entity_id=hold_gate.ir_node_id,
+                    sink_entity_id=write_gate.ir_node_id,
                     signal_name=signal_name,
                     wire_color="red",
                     source_side="output",
                     sink_side="input",
                 )
-                self.plan.add_wire_connection(feedback_conn)
-
-                hold_feedback = WireConnection(
-                    source_entity_id=hold_gate.ir_node_id,
-                    sink_entity_id=hold_gate.ir_node_id,
-                    signal_name=signal_name,
-                    wire_color="red",
-                    source_side="output",
-                    sink_side="input",
-                )
-                self.plan.add_wire_connection(hold_feedback)
-
+                self.plan.add_wire_connection(self_feedback)
                 memory_module["_feedback_connected"] = True
+
+            self.signal_graph.set_source(op.memory_id, write_gate.ir_node_id)
+            memory_module["always_write"] = True
+        else:
+            self._add_signal_sink(op.data_signal, write_gate.ir_node_id)
+            self._add_signal_sink(op.data_signal, hold_gate.ir_node_id)
+
+            enable_source = self._ensure_constant_write_enable(op)
+            if enable_source:
+                self.signal_graph.add_sink(enable_source, write_gate.ir_node_id)
+                self.signal_graph.add_sink(enable_source, hold_gate.ir_node_id)
+            else:
+                self._add_signal_sink(op.write_enable, write_gate.ir_node_id)
+                self._add_signal_sink(op.write_enable, hold_gate.ir_node_id)
+
+            if not memory_module.get("_feedback_connected"):
+                signal_name = memory_module.get("signal_type")
+                if signal_name:
+                    feedback_conn = WireConnection(
+                        source_entity_id=write_gate.ir_node_id,
+                        sink_entity_id=hold_gate.ir_node_id,
+                        signal_name=signal_name,
+                        wire_color="red",
+                        source_side="output",
+                        sink_side="input",
+                    )
+                    self.plan.add_wire_connection(feedback_conn)
+
+                    hold_feedback = WireConnection(
+                        source_entity_id=hold_gate.ir_node_id,
+                        sink_entity_id=hold_gate.ir_node_id,
+                        signal_name=signal_name,
+                        wire_color="red",
+                        source_side="output",
+                        sink_side="input",
+                    )
+                    self.plan.add_wire_connection(hold_feedback)
+
+                    memory_module["_feedback_connected"] = True
 
     def _ensure_constant_write_enable(self, op: IR_MemWrite) -> Optional[str]:
         """Materialize or reuse a write-enable source."""
