@@ -1,9 +1,10 @@
 """Semantic analysis for the Factorio Circuit DSL."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from dsl_compiler.src.ast import *
+from dsl_compiler.src.common import SignalTypeRegistry
 
 from .diagnostics import DiagnosticCollector, SemanticError
 from .signal_allocator import SignalAllocator
@@ -38,9 +39,9 @@ class SemanticAnalyzer(ASTVisitor):
         self.symbol_table = SymbolTable()
         self.current_scope = self.symbol_table
 
-        # Type allocation
-        self.signal_allocator = SignalAllocator()
-        self.signal_type_map: Dict[str, str] = self.signal_allocator.signal_type_map
+        # Type allocation - use centralized registry
+        self.signal_registry = SignalTypeRegistry()
+        self.signal_allocator = SignalAllocator(self.signal_registry)
 
         # Debug metadata
         self.signal_debug_info: Dict[str, SignalDebugInfo] = {}
@@ -54,6 +55,12 @@ class SemanticAnalyzer(ASTVisitor):
         # Simple source tracking for optimizations (constants, entity outputs, etc.)
         self.simple_sources: set[str] = set()
         self.computed_values: set[str] = set()
+
+    @property
+    def signal_type_map(self) -> Dict[str, Any]:
+        """Backward compatibility: get signal type map from registry."""
+        # Return the signal mappings as-is (dict format with name and type)
+        return self.signal_registry.get_all_mappings()
 
     def mark_as_simple_source(self, name: str) -> None:
         """Record that a symbol originates from a simple source."""
@@ -1176,7 +1183,17 @@ def analyze_program(
     analyzer: Optional["SemanticAnalyzer"] = None,
     file_path: Optional[str] = None,
 ) -> DiagnosticCollector:
-    """Perform semantic analysis on a program AST."""
+    """Perform semantic analysis on a program AST.
+
+    Args:
+        program: The AST program node to analyze
+        strict_types: Whether to enforce strict type checking
+        analyzer: Optional pre-configured analyzer instance
+        file_path: Source file path for import resolution
+
+    Returns:
+        DiagnosticCollector containing warnings and errors from analysis
+    """
     if analyzer is None:
         analyzer = SemanticAnalyzer(strict_types=strict_types)
 

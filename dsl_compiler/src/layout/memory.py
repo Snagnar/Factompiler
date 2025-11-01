@@ -3,7 +3,7 @@ from typing import Dict
 from draftsman.blueprintable import Blueprint
 from draftsman.entity import DeciderCombinator
 
-from dsl_compiler.src.layout.legacy_signals import EntityPlacement
+from dsl_compiler.src.layout.layout_plan import EntityPlacement
 
 
 class MemoryCircuitBuilder:

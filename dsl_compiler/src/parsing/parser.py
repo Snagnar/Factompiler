@@ -49,7 +49,19 @@ class DSLParser:
             raise RuntimeError(f"Failed to load grammar: {exc}") from exc
 
     def parse(self, source_code: str, filename: str = "<string>") -> Program:
-        """Parse DSL source code into an AST."""
+        """Parse DSL source code into an AST.
+
+        Args:
+            source_code: The source code text to parse
+            filename: Source file path for error reporting and import resolution
+
+        Returns:
+            Program AST node representing the parsed source
+
+        Raises:
+            SyntaxError: If the source code has parse errors
+            RuntimeError: If parser is not initialized or unexpected error occurs
+        """
         if self.parser is None:
             raise RuntimeError("Parser not initialized")
 

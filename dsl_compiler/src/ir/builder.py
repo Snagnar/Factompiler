@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Union
 
 from dsl_compiler.src.ast import ASTNode
+from dsl_compiler.src.common import SignalTypeRegistry
 
 from .nodes import (
     IRNode,
@@ -12,11 +13,8 @@ from .nodes import (
     IR_Arith,
     IR_Const,
     IR_Decider,
-    IR_EntityPropRead,
-    IR_EntityPropWrite,
     IR_FuncCall,
     IR_FuncDecl,
-    IR_Group,
     IR_MemCreate,
     IR_MemRead,
     IR_MemWrite,
@@ -30,12 +28,20 @@ from .nodes import (
 class IRBuilder:
     """Builder for constructing IR from AST nodes."""
 
-    def __init__(self) -> None:
+    def __init__(self, signal_registry: Optional[SignalTypeRegistry] = None) -> None:
         self.operations: List[IRNode] = []
         self.node_counter = 0
-        self.signal_type_map: Dict[str, str] = {}
-        self.implicit_type_counter = 0
+        if signal_registry is None:
+            self.signal_registry = SignalTypeRegistry()
+        else:
+            self.signal_registry = signal_registry
         self._operation_index: Dict[str, IRNode] = {}
+
+    @property
+    def signal_type_map(self) -> Dict[str, Any]:
+        """Backward compatibility: get signal type map from registry."""
+        # Return the signal mappings as-is (dict format with name and type)
+        return self.signal_registry.get_all_mappings()
 
     def next_id(self, prefix: str = "ir") -> str:
         """Generate the next unique IR node identifier."""
@@ -265,25 +271,7 @@ class IRBuilder:
 
     def allocate_implicit_type(self) -> str:
         """Allocate a new implicit signal type name and record the mapping."""
-
-        self.implicit_type_counter += 1
-        implicit_name = f"__v{self.implicit_type_counter}"
-
-        factorio_signal = self._virtual_signal_name(self.implicit_type_counter)
-        self.signal_type_map[implicit_name] = factorio_signal
-
-        return implicit_name
-
-    def _virtual_signal_name(self, index: int) -> str:
-        """Map an implicit index to a unique Factorio virtual signal name."""
-
-        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        index -= 1
-        name = ""
-        while index >= 0:
-            name = alphabet[index % 26] + name
-            index = index // 26 - 1
-        return f"signal-{name}"
+        return self.signal_registry.allocate_implicit()
 
     def get_ir(self) -> List[IRNode]:
         """Return a copy of the currently built IR operations."""

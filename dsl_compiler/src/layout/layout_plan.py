@@ -1,9 +1,7 @@
 """Data structures for physical layout planning."""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple, Any
-
-from dsl_compiler.src.ir import SignalRef
+from typing import Dict, List, Optional, Tuple, Any
 
 
 @dataclass
@@ -66,7 +64,9 @@ class LayoutPlan:
     power_poles: List[PowerPolePlacement] = field(default_factory=list)
 
     # Signal decisions
-    signal_materializations: Dict[str, SignalMaterialization] = field(default_factory=dict)
+    signal_materializations: Dict[str, SignalMaterialization] = field(
+        default_factory=dict
+    )
 
     # Signal connectivity graph (source -> sinks)
     signal_graph: Dict[str, List[str]] = field(default_factory=dict)

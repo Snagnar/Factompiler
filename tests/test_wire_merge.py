@@ -111,7 +111,9 @@ class TestWireMerge:
             label="No Merge",
             signal_type_map=signal_map_no_merge,
         )
-        assert not diagnostics_no_merge.has_errors(), diagnostics_no_merge.get_messages()
+        assert not diagnostics_no_merge.has_errors(), (
+            diagnostics_no_merge.get_messages()
+        )
         entities_without_merge = len(blueprint_no_merge.entities)
 
         assert entities_with_merge < entities_without_merge

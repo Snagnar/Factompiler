@@ -37,8 +37,8 @@ class ASTLowerer:
         self.entity_refs: Dict[str, str] = {}
         self.param_values: Dict[str, ValueRef] = {}
 
-        # Copy signal type mapping from semantic analyzer
-        self.ir_builder.signal_type_map = self.semantic.signal_type_map.copy()
+        # Share signal type registry with semantic analyzer
+        self.ir_builder.signal_registry = self.semantic.signal_registry
 
         # Hidden structures for compiler-generated helpers
         self._once_counter = 0
@@ -259,7 +259,15 @@ class ASTLowerer:
 def lower_program(
     program: Program, semantic_analyzer: SemanticAnalyzer
 ) -> tuple[List[IRNode], DiagnosticCollector, Dict[str, str]]:
-    """Lower a semantic-analyzed program to IR."""
+    """Lower a semantic-analyzed program to IR.
+
+    Args:
+        program: The AST program node to lower
+        semantic_analyzer: Semantic analyzer containing type information and signal registry
+
+    Returns:
+        Tuple of (IR operations list, diagnostics, signal type map)
+    """
     lowerer = ASTLowerer(semantic_analyzer)
     ir_operations = lowerer.lower_program(program)
     return ir_operations, lowerer.diagnostics, lowerer.ir_builder.signal_type_map

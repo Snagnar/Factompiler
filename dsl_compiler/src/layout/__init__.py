@@ -16,25 +16,25 @@ materialise a Factorio blueprint.
 
 from .layout_engine import LayoutEngine
 from .layout_plan import (
-	LayoutPlan,
-	EntityPlacement,
-	WireConnection,
-	PowerPolePlacement,
-	SignalMaterialization,
+    LayoutPlan,
+    EntityPlacement,
+    WireConnection,
+    PowerPolePlacement,
+    SignalMaterialization,
 )
 from .signal_analyzer import (
-	SignalAnalyzer,
-	SignalMaterializer,
-	SignalUsageEntry,
+    SignalAnalyzer,
+    SignalMaterializer,
+    SignalUsageEntry,
 )
 from .wire_router import (
-	WIRE_COLORS,
-	CircuitEdge,
-	plan_wire_colors,
-	collect_circuit_edges,
-	detect_multi_source_conflicts,
-	ColoringResult,
-	ConflictEdge,
+    WIRE_COLORS,
+    CircuitEdge,
+    plan_wire_colors,
+    collect_circuit_edges,
+    detect_multi_source_conflicts,
+    ColoringResult,
+    ConflictEdge,
 )
 from .connection_planner import ConnectionPlanner
 from .planner import LayoutPlanner
@@ -47,13 +47,11 @@ __all__ = [
     # Core planning
     "LayoutPlanner",
     "LayoutPlan",
-    
     # Data structures
     "EntityPlacement",
     "WireConnection",
     "PowerPolePlacement",
     "SignalMaterialization",
-    
     # Subsystems (for advanced use)
     "LayoutEngine",
     "EntityPlacer",
@@ -66,7 +64,6 @@ __all__ = [
     "POWER_POLE_CONFIG",
     "SignalResolver",
     "SignalGraph",
-    
     # Wire routing
     "WIRE_COLORS",
     "CircuitEdge",

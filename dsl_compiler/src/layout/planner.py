@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from dsl_compiler.src.ir import IRNode
 from dsl_compiler.src.semantic import DiagnosticCollector
@@ -53,7 +53,16 @@ class LayoutPlanner:
         blueprint_label: str = "DSL Generated",
         blueprint_description: str = "",
     ) -> LayoutPlan:
-        """Produce a fresh layout plan for the provided IR operations."""
+        """Produce a fresh layout plan for the provided IR operations.
+
+        Args:
+            ir_operations: List of IR nodes representing the program
+            blueprint_label: Label for the resulting blueprint
+            blueprint_description: Description text for the blueprint
+
+        Returns:
+            LayoutPlan containing entity placements and wire connections
+        """
 
         # Reset state for a fresh planning run.
         self.layout_engine = LayoutEngine()
@@ -70,7 +79,7 @@ class LayoutPlanner:
         # Signal analysis
         self.signal_analyzer = SignalAnalyzer(self.diagnostics)
         self.signal_usage = self.signal_analyzer.analyze(ir_operations)
-        
+
         # Materialization decisions
         self.materializer = SignalMaterializer(
             self.signal_usage,
@@ -78,7 +87,7 @@ class LayoutPlanner:
             self.diagnostics,
         )
         self.materializer.finalize()
-        
+
         # Signal resolver
         self.signal_resolver = SignalResolver(
             self.signal_type_map,
@@ -86,10 +95,10 @@ class LayoutPlanner:
             materializer=self.materializer,
             signal_usage=self.signal_usage,
         )
-        
+
         # Place entities
         self._place_entities(ir_operations)
-        
+
         # Plan connections
         self.connection_planner = ConnectionPlanner(
             self.layout_plan,
@@ -98,7 +107,7 @@ class LayoutPlanner:
             self.layout_engine,
             max_wire_span=self.max_wire_span,
         )
-        
+
         locked_colors = self._determine_locked_wire_colors()
         self.connection_planner.plan_connections(
             self.signal_graph,
@@ -106,7 +115,7 @@ class LayoutPlanner:
             wire_merge_junctions=self._wire_merge_junctions,
             locked_colors=locked_colors,
         )
-        
+
         # Plan power
         if self.power_pole_type:
             power_planner = PowerPlanner(
@@ -115,17 +124,17 @@ class LayoutPlanner:
                 self.diagnostics,
             )
             power_planner.plan_power_grid(self.power_pole_type)
-        
+
         # Set metadata
         self.layout_plan.blueprint_label = blueprint_label
         self.layout_plan.blueprint_description = blueprint_description
-        
+
         return self.layout_plan
 
     def _place_entities(self, ir_operations: list[IRNode]) -> None:
         """Place all entities in the layout plan."""
         from .entity_placer import EntityPlacer
-        
+
         placer = EntityPlacer(
             self.layout_engine,
             self.layout_plan,
@@ -134,10 +143,10 @@ class LayoutPlanner:
             self.signal_resolver,
             self.diagnostics,
         )
-        
+
         for op in ir_operations:
             placer.place_ir_operation(op)
-        
+
         # Store signal graph and memory info for connection planning
         self.signal_graph = placer.signal_graph
         self._memory_modules = placer._memory_modules

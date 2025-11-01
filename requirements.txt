@@ -17,8 +17,11 @@ pytest-cov>=4.0.0
 mypy>=1.0.0
 
 # Code formatting
-black>=23.0.0
 isort>=5.0.0
 
 # Documentation
 sphinx>=5.0.0
+
+ruff
+mypy
+pre-commit

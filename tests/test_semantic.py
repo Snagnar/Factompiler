@@ -68,9 +68,9 @@ class TestSemanticAnalyzer:
 
         assert diagnostics.has_errors(), "Legacy write syntax should raise an error"
         messages = diagnostics.get_messages()
-        assert any(
-            "not a memory symbol" in msg for msg in messages
-        ), "Expected a diagnostic explaining that the target must be a memory"
+        assert any("not a memory symbol" in msg for msg in messages), (
+            "Expected a diagnostic explaining that the target must be a memory"
+        )
 
     def test_write_with_enable_signal_passes(self, parser, analyzer):
         """Verify semantic analysis accepts write(value, memory, when=signal)."""
@@ -97,9 +97,9 @@ class TestSemanticAnalyzer:
         program = parser.parse(code)
         diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
 
-        assert (
-            diagnostics.has_errors()
-        ), "Expected an error when using reserved signal-W"
+        assert diagnostics.has_errors(), (
+            "Expected an error when using reserved signal-W"
+        )
         messages = diagnostics.get_messages()
         assert any(
             "signal-W" in message and "reserved" in message for message in messages
@@ -113,9 +113,9 @@ class TestSemanticAnalyzer:
         program = parser.parse(code)
         diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
 
-        assert (
-            diagnostics.has_errors()
-        ), "Expected an error when projecting onto reserved signal-W"
+        assert diagnostics.has_errors(), (
+            "Expected an error when projecting onto reserved signal-W"
+        )
         messages = diagnostics.get_messages()
         assert any(
             "signal-W" in message and "reserved" in message for message in messages
@@ -129,9 +129,9 @@ class TestSemanticAnalyzer:
         program = parser.parse(code)
         diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
 
-        assert (
-            diagnostics.has_errors()
-        ), "Expected an error when reserving signal-W for memory storage"
+        assert diagnostics.has_errors(), (
+            "Expected an error when reserving signal-W for memory storage"
+        )
         messages = diagnostics.get_messages()
         assert any(
             "signal-W" in message and "reserved" in message for message in messages
@@ -144,6 +144,7 @@ class TestSemanticAnalyzer:
         names = [info.name for info in allocations]
 
         assert len(names) == len(set(names))
-        assert analyzer.signal_type_map[names[0]] == "signal-A"
-        assert analyzer.signal_type_map[names[25]] == "signal-Z"
-        assert analyzer.signal_type_map[names[26]] == "signal-AA"
+        # Access signal names through the registry
+        assert analyzer.signal_registry.resolve_name(names[0]) == "signal-A"
+        assert analyzer.signal_registry.resolve_name(names[25]) == "signal-Z"
+        assert analyzer.signal_registry.resolve_name(names[26]) == "signal-AA"

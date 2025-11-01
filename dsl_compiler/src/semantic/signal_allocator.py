@@ -1,33 +1,35 @@
 """Implicit signal allocation for semantic analysis."""
 
-from typing import Dict
+from typing import Dict, Optional
 
+from dsl_compiler.src.common import SignalTypeRegistry
 from .type_system import SignalTypeInfo
 
 
 class SignalAllocator:
     """Manages allocation of implicit virtual signal types."""
 
-    def __init__(self) -> None:
-        self.implicit_type_counter = 0
-        self.signal_type_map: Dict[str, str] = {}
+    def __init__(self, signal_registry: Optional[SignalTypeRegistry] = None) -> None:
+        if signal_registry is None:
+            self.signal_registry = SignalTypeRegistry()
+        else:
+            self.signal_registry = signal_registry
+
+    @property
+    def signal_type_map(self) -> Dict[str, str]:
+        """Backward compatibility: get signal type map from registry as strings."""
+        # Old code expected Dict[str, str] mapping signal keys to factorio signal names
+        # New registry stores Dict[str, Dict] with "name" and "type" keys
+        # Extract just the "name" for backward compatibility
+        result = {}
+        for key, value in self.signal_registry.get_all_mappings().items():
+            if isinstance(value, dict):
+                result[key] = value.get("name", key)
+            else:
+                result[key] = value
+        return result
 
     def allocate_implicit_type(self) -> SignalTypeInfo:
         """Allocate and record a new implicit virtual signal."""
-
-        self.implicit_type_counter += 1
-        implicit_name = f"__v{self.implicit_type_counter}"
-        factorio_signal = self._virtual_signal_name(self.implicit_type_counter)
-        self.signal_type_map[implicit_name] = factorio_signal
+        implicit_name = self.signal_registry.allocate_implicit()
         return SignalTypeInfo(name=implicit_name, is_implicit=True, is_virtual=True)
-
-    def _virtual_signal_name(self, index: int) -> str:
-        """Map an implicit index to a unique Factorio virtual signal name."""
-
-        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        index -= 1  # convert to zero-based
-        name = ""
-        while index >= 0:
-            name = alphabet[index % 26] + name
-            index = index // 26 - 1
-        return f"signal-{name}"

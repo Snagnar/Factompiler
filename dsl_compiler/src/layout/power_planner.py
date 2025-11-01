@@ -215,7 +215,9 @@ class PowerPlanner:
         max_y = max(tile[1] for tile in tiles) + margin
         return (min_x, min_y, max_x, max_y)
 
-    def _iter_entity_tiles(self, placement: EntityPlacement) -> Iterable[Tuple[int, int]]:
+    def _iter_entity_tiles(
+        self, placement: EntityPlacement
+    ) -> Iterable[Tuple[int, int]]:
         footprint = placement.properties.get("footprint") or (1, 1)
         width = max(1, int(footprint[0]))
         height = max(1, int(footprint[1]))
@@ -281,7 +283,9 @@ class PowerPlanner:
         for tile in tiles:
             tx = tile[0] + 0.5
             ty = tile[1] + 0.5
-            if not any((tx - cx) ** 2 + (ty - cy) ** 2 <= radius_sq for cx, cy in centers):
+            if not any(
+                (tx - cx) ** 2 + (ty - cy) ** 2 <= radius_sq for cx, cy in centers
+            ):
                 uncovered.add(tile)
         return uncovered
 
@@ -298,7 +302,9 @@ class PowerPlanner:
         if claimed is None:
             claimed = self.layout.reserve_near(
                 position,
-                max_radius=max(6, math.ceil(self._supply_radius) + max(self._footprint)),
+                max_radius=max(
+                    6, math.ceil(self._supply_radius) + max(self._footprint)
+                ),
                 footprint=self._footprint,
                 padding=self._padding,
             )

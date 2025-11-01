@@ -193,6 +193,7 @@ class TestImplicitSignalAllocation:
         names = [builder.allocate_implicit_type() for _ in range(60)]
 
         assert len(names) == len(set(names))
-        assert builder.signal_type_map[names[0]] == "signal-A"
-        assert builder.signal_type_map[names[25]] == "signal-Z"
-        assert builder.signal_type_map[names[26]] == "signal-AA"
+        # Access the signal names through the registry
+        assert builder.signal_registry.resolve_name(names[0]) == "signal-A"
+        assert builder.signal_registry.resolve_name(names[25]) == "signal-Z"
+        assert builder.signal_registry.resolve_name(names[26]) == "signal-AA"

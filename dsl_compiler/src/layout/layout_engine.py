@@ -50,7 +50,9 @@ class LayoutEngine:
         fallback_y = (fallback_y // alignment) * alignment
         fallback = (0, fallback_y)
         self._push_candidate(fallback)
-        return self.get_next_position(footprint=footprint, padding=padding, alignment=alignment)
+        return self.get_next_position(
+            footprint=footprint, padding=padding, alignment=alignment
+        )
 
     def reserve_near(
         self,
@@ -73,7 +75,9 @@ class LayoutEngine:
         if candidate is not None:
             return self._claim_position(candidate, footprint, padding)
 
-        return self.get_next_position(footprint=footprint, padding=padding, alignment=alignment)
+        return self.get_next_position(
+            footprint=footprint, padding=padding, alignment=alignment
+        )
 
     def reserve_along_path(
         self,
@@ -246,15 +250,15 @@ class LayoutEngine:
     ) -> Tuple[int, int]:
         """Snap position to alignment grid."""
         x, y = pos
-        
+
         if alignment == 1:
             # Normal snapping
             return self.snap_to_grid(pos)
-        
+
         # Align to multiple of alignment
         snapped_x = int(round(x / alignment) * alignment)
         snapped_y = int(round(y / alignment) * alignment)
-        
+
         return (snapped_x, snapped_y)
 
     def _find_nearest_available(

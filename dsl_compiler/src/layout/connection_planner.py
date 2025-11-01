@@ -13,7 +13,12 @@ from dsl_compiler.src.semantic import DiagnosticCollector
 from .layout_engine import LayoutEngine
 from .layout_plan import LayoutPlan, WireConnection, EntityPlacement
 from .signal_analyzer import SignalUsageEntry
-from .wire_router import CircuitEdge, WIRE_COLORS, collect_circuit_edges, plan_wire_colors
+from .wire_router import (
+    CircuitEdge,
+    WIRE_COLORS,
+    collect_circuit_edges,
+    plan_wire_colors,
+)
 
 
 class ConnectionPlanner:
@@ -62,7 +67,9 @@ class ConnectionPlanner:
         self._relay_counter = 0
 
         base_edges = collect_circuit_edges(signal_graph, self.signal_usage, entities)
-        expanded_edges = self._expand_merge_edges(base_edges, wire_merge_junctions, entities)
+        expanded_edges = self._expand_merge_edges(
+            base_edges, wire_merge_junctions, entities
+        )
         self._circuit_edges = expanded_edges
 
         self._log_multi_source_conflicts(expanded_edges, entities)
@@ -209,9 +216,7 @@ class ConnectionPlanner:
             resolved_signal = conflict.nodes[0][1]
             source_desc = ", ".join(sorted({node_id for node_id, _ in conflict.nodes}))
             sink_desc = (
-                ", ".join(sorted(conflict.sinks))
-                if conflict.sinks
-                else "unknown sinks"
+                ", ".join(sorted(conflict.sinks)) if conflict.sinks else "unknown sinks"
             )
             self.diagnostics.error(
                 "Two-color routing could not isolate signal "
@@ -398,7 +403,10 @@ class ConnectionPlanner:
             start_distance = math.dist(start.position, placement.position)
             end_distance = math.dist(placement.position, end.position)
 
-            if start_distance >= distance - epsilon or end_distance >= distance - epsilon:
+            if (
+                start_distance >= distance - epsilon
+                or end_distance >= distance - epsilon
+            ):
                 continue
 
             penalty = 0.0
@@ -431,10 +439,18 @@ class ConnectionPlanner:
         dy = abs(start.position[1] - end.position[1])
         margin = int(math.ceil(span_limit * 4 + max(dx, dy)))
 
-        min_x = ((min(start.position[0], end.position[0]) - margin) // spacing_x) * spacing_x
-        max_x = ((max(start.position[0], end.position[0]) + margin) // spacing_x) * spacing_x
-        min_y = ((min(start.position[1], end.position[1]) - margin) // spacing_y) * spacing_y
-        max_y = ((max(start.position[1], end.position[1]) + margin) // spacing_y) * spacing_y
+        min_x = (
+            (min(start.position[0], end.position[0]) - margin) // spacing_x
+        ) * spacing_x
+        max_x = (
+            (max(start.position[0], end.position[0]) + margin) // spacing_x
+        ) * spacing_x
+        min_y = (
+            (min(start.position[1], end.position[1]) - margin) // spacing_y
+        ) * spacing_y
+        max_y = (
+            (max(start.position[1], end.position[1]) + margin) // spacing_y
+        ) * spacing_y
 
         nodes: List[Dict[str, Any]] = []
         index_by_pos: Dict[Tuple[int, int], int] = {}
@@ -594,7 +610,9 @@ class ConnectionPlanner:
 
         return None
 
-    def _candidate_relay_ratios(self, distance: float, span_limit: float) -> List[float]:
+    def _candidate_relay_ratios(
+        self, distance: float, span_limit: float
+    ) -> List[float]:
         ratios: List[float] = []
         pivot_values = [0.5, 0.25, 0.75, 0.125, 0.875, 0.375, 0.625]
 
@@ -771,9 +789,7 @@ class ConnectionPlanner:
     # Convenience helpers for emitters
     # ------------------------------------------------------------------
 
-    def compute_wire_distance(
-        self, source_id: str, sink_id: str
-    ) -> Optional[float]:
+    def compute_wire_distance(self, source_id: str, sink_id: str) -> Optional[float]:
         source = self.layout_plan.get_placement(source_id)
         sink = self.layout_plan.get_placement(sink_id)
         if not source or not sink:

@@ -11,7 +11,6 @@ from draftsman.entity import new_entity  # type: ignore[import-not-found]
 from draftsman.entity import DeciderCombinator, ArithmeticCombinator, ConstantCombinator  # type: ignore[import-not-found]
 
 from dsl_compiler.src.layout.layout_plan import EntityPlacement
-from dsl_compiler.src.ir import SignalRef
 from dsl_compiler.src.semantic import DiagnosticCollector
 
 
@@ -77,7 +76,9 @@ class PlanEntityEmitter:
         entity.tile_position = placement.position
         return entity
 
-    def _configure_decider(self, entity: DeciderCombinator, props: Dict[str, Any]) -> None:
+    def _configure_decider(
+        self, entity: DeciderCombinator, props: Dict[str, Any]
+    ) -> None:
         """Configure a decider combinator from placement properties."""
         operation = props.get("operation", "=")
         left_operand = props.get("left_operand")
@@ -111,7 +112,9 @@ class PlanEntityEmitter:
 
         entity.outputs = [DeciderCombinator.Output(**output_kwargs)]
 
-    def _configure_arithmetic(self, entity: ArithmeticCombinator, props: Dict[str, Any]) -> None:
+    def _configure_arithmetic(
+        self, entity: ArithmeticCombinator, props: Dict[str, Any]
+    ) -> None:
         """Configure an arithmetic combinator from placement properties."""
         operation = props.get("operation", "+")
         left_operand = props.get("left_operand")
@@ -130,7 +133,9 @@ class PlanEntityEmitter:
         entity.operation = operation
         entity.output_signal = output_signal
 
-    def _configure_constant(self, entity: ConstantCombinator, props: Dict[str, Any]) -> None:
+    def _configure_constant(
+        self, entity: ConstantCombinator, props: Dict[str, Any]
+    ) -> None:
         """Configure a constant combinator from placement properties."""
         signal_name = props.get("signal_name")
         signal_type = props.get("signal_type")
@@ -140,7 +145,12 @@ class PlanEntityEmitter:
             section = entity.add_section()
             section.set_signal(0, signal_name, value)
 
-    def _apply_property_writes(self, entity: Entity, property_writes: Dict[str, Any], placement: EntityPlacement) -> None:
+    def _apply_property_writes(
+        self,
+        entity: Entity,
+        property_writes: Dict[str, Any],
+        placement: EntityPlacement,
+    ) -> None:
         """Apply property writes to entity (e.g., entity.enable = signal)."""
         for prop_name, prop_data in property_writes.items():
             if prop_name == "enable":
@@ -148,46 +158,47 @@ class PlanEntityEmitter:
                 if prop_data["type"] == "signal":
                     # Signal-controlled enable
                     signal_ref = prop_data["signal_ref"]
-                    
-                    # Resolve signal name
-                    signal_type = signal_ref.signal_type
-                    signal_name = self.signal_type_map.get(signal_type, signal_type)
-                    
-                    # Determine signal type (virtual, item, fluid, etc.)
-                    # For now, assume virtual signals (most common case)
-                    signal_dict = {
-                        "name": signal_name,
-                        "type": "virtual"
-                    }
-                    
+
+                    # Resolve signal name from the DSL signal identifier
+                    signal_type_key = signal_ref.signal_type
+                    signal_info = self.signal_type_map.get(signal_type_key)
+
+                    if signal_info and isinstance(signal_info, dict):
+                        signal_name = signal_info.get("name", signal_type_key)
+                        signal_category = signal_info.get("type", "virtual")
+                    else:
+                        # Fallback for old string format or missing entry
+                        signal_name = signal_info if signal_info else signal_type_key
+                        signal_category = "virtual"
+
+                    signal_dict = {"name": signal_name, "type": signal_category}
+
                     # Check if entity supports circuit_enabled
-                    if hasattr(entity, 'circuit_enabled'):
+                    if hasattr(entity, "circuit_enabled"):
                         entity.circuit_enabled = True
                         # Set the circuit condition
-                        if hasattr(entity, 'set_circuit_condition'):
-                            entity.set_circuit_condition(
-                                signal_dict,
-                                ">",
-                                0
-                            )
+                        if hasattr(entity, "set_circuit_condition"):
+                            entity.set_circuit_condition(signal_dict, ">", 0)
                     else:
                         # Fallback to control_behavior dict
-                        if not hasattr(entity, 'control_behavior'):
+                        if not hasattr(entity, "control_behavior"):
                             entity.control_behavior = {}
                         entity.control_behavior["circuit_enabled"] = True
                         entity.control_behavior["circuit_condition"] = {
                             "first_signal": signal_dict,
                             "comparator": ">",
-                            "constant": 0
+                            "constant": 0,
                         }
                 elif prop_data["type"] == "constant":
                     # Constant enable/disable
-                    if hasattr(entity, 'circuit_enabled'):
+                    if hasattr(entity, "circuit_enabled"):
                         entity.circuit_enabled = bool(prop_data["value"])
                     else:
-                        if not hasattr(entity, 'control_behavior'):
+                        if not hasattr(entity, "control_behavior"):
                             entity.control_behavior = {}
-                        entity.control_behavior["circuit_enabled"] = bool(prop_data["value"])
+                        entity.control_behavior["circuit_enabled"] = bool(
+                            prop_data["value"]
+                        )
             else:
                 # Other properties - try direct assignment
                 try:
@@ -197,10 +208,7 @@ class PlanEntityEmitter:
                         f"Could not set property '{prop_name}' on '{placement.entity_type}'."
                     )
 
-
-    def create_entity_map(
-        self, layout_plan: Any
-    ) -> Dict[str, Entity]:
+    def create_entity_map(self, layout_plan: Any) -> Dict[str, Entity]:
         """Instantiate entities for the entire layout plan."""
 
         entities: Dict[str, Entity] = {}
