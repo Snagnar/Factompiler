@@ -86,7 +86,7 @@ from dsl_compiler.src.layout.signal_analyzer import (
     SignalMaterializer,
     SignalUsageEntry,
 )
-from .debug_format import format_entity_description
+from dsl_compiler.src.layout.debug import format_entity_description
 from .entity_emitter import PlanEntityEmitter
 from dsl_compiler.src.layout.legacy_entity_emitter import EntityEmitter
 from dsl_compiler.src.layout.legacy_signal_resolver import SignalResolver

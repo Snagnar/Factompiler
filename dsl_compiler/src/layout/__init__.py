@@ -41,17 +41,33 @@ from .planner import LayoutPlanner
 from .power_planner import PowerPlanner, PlannedPowerPole, POWER_POLE_CONFIG
 from .signal_resolver import SignalResolver
 from .signal_graph import SignalGraph
+from .entity_placer import EntityPlacer
 
 __all__ = [
-    "LayoutEngine",
+    # Core planning
+    "LayoutPlanner",
     "LayoutPlan",
+    
+    # Data structures
     "EntityPlacement",
     "WireConnection",
     "PowerPolePlacement",
     "SignalMaterialization",
+    
+    # Subsystems (for advanced use)
+    "LayoutEngine",
+    "EntityPlacer",
     "SignalAnalyzer",
     "SignalMaterializer",
     "SignalUsageEntry",
+    "ConnectionPlanner",
+    "PowerPlanner",
+    "PlannedPowerPole",
+    "POWER_POLE_CONFIG",
+    "SignalResolver",
+    "SignalGraph",
+    
+    # Wire routing
     "WIRE_COLORS",
     "CircuitEdge",
     "plan_wire_colors",
@@ -59,11 +75,4 @@ __all__ = [
     "detect_multi_source_conflicts",
     "ColoringResult",
     "ConflictEdge",
-    "ConnectionPlanner",
-    "LayoutPlanner",
-    "PowerPlanner",
-    "PlannedPowerPole",
-    "POWER_POLE_CONFIG",
-    "SignalResolver",
-    "SignalGraph",
 ]

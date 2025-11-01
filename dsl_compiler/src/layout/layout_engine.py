@@ -30,9 +30,13 @@ class LayoutEngine:
         self,
         footprint: Tuple[int, int] = (1, 1),
         padding: int = 0,
+        alignment: int = 1,
     ) -> Tuple[int, int]:
         while self._candidate_heap:
             _, _, pos = heapq.heappop(self._candidate_heap)
+            # Check alignment
+            if pos[0] % alignment != 0 or pos[1] % alignment != 0:
+                continue
             if pos in self.used_positions:
                 continue
             if not self._position_available(pos, footprint, padding):
@@ -40,10 +44,13 @@ class LayoutEngine:
             return self._claim_position(pos, footprint, padding)
 
         # Fallback: expand search ring vertically near the origin and retry.
-        spacing_y = max(1, self.row_height)
-        fallback = (0, (len(self.used_positions) + 1) * spacing_y)
+        spacing_y = max(alignment, self.row_height)
+        fallback_y = (len(self.used_positions) + 1) * spacing_y
+        # Snap to alignment
+        fallback_y = (fallback_y // alignment) * alignment
+        fallback = (0, fallback_y)
         self._push_candidate(fallback)
-        return self.get_next_position(footprint=footprint, padding=padding)
+        return self.get_next_position(footprint=footprint, padding=padding, alignment=alignment)
 
     def reserve_near(
         self,
@@ -51,8 +58,9 @@ class LayoutEngine:
         max_radius: int = 12,
         footprint: Tuple[int, int] = (1, 1),
         padding: int = 0,
+        alignment: int = 1,
     ) -> Tuple[int, int]:
-        snapped = self.snap_to_grid(target)
+        snapped = self._snap_to_alignment(target, alignment)
 
         if snapped not in self.used_positions and self._position_available(
             snapped, footprint, padding
@@ -60,12 +68,12 @@ class LayoutEngine:
             return self._claim_position(snapped, footprint, padding)
 
         candidate = self._find_nearest_available(
-            snapped, max_radius, footprint, padding
+            snapped, max_radius, footprint, padding, alignment
         )
         if candidate is not None:
             return self._claim_position(candidate, footprint, padding)
 
-        return self.get_next_position(footprint=footprint, padding=padding)
+        return self.get_next_position(footprint=footprint, padding=padding, alignment=alignment)
 
     def reserve_along_path(
         self,
@@ -233,21 +241,41 @@ class LayoutEngine:
         for dx, dy in offsets:
             yield (x + dx, y + dy)
 
+    def _snap_to_alignment(
+        self, pos: Tuple[Union[int, float], Union[int, float]], alignment: int
+    ) -> Tuple[int, int]:
+        """Snap position to alignment grid."""
+        x, y = pos
+        
+        if alignment == 1:
+            # Normal snapping
+            return self.snap_to_grid(pos)
+        
+        # Align to multiple of alignment
+        snapped_x = int(round(x / alignment) * alignment)
+        snapped_y = int(round(y / alignment) * alignment)
+        
+        return (snapped_x, snapped_y)
+
     def _find_nearest_available(
         self,
         target: Tuple[int, int],
         max_radius: int,
         footprint: Tuple[int, int],
         padding: int,
+        alignment: int = 1,
     ) -> Optional[Tuple[int, int]]:
-        spacing_x = max(1, self.entity_spacing)
-        spacing_y = max(1, self.row_height)
+        spacing_x = max(alignment, self.entity_spacing)
+        spacing_y = max(alignment, self.row_height)
 
         visited: Set[Tuple[int, int]] = set()
         heap: List[Tuple[float, int, int, Tuple[int, int]]] = []
 
         def push(pos: Tuple[int, int]) -> None:
             if pos in visited:
+                return
+            # Only consider positions that respect alignment
+            if pos[0] % alignment != 0 or pos[1] % alignment != 0:
                 return
             visited.add(pos)
             dx = (pos[0] - target[0]) / spacing_x

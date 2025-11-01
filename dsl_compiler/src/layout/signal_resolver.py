@@ -64,8 +64,13 @@ class SignalResolver:
 
         clean_name = operand_str.split("@")[0]
 
+        # CRITICAL FIX: Never return signal-each unless explicitly requested
+        # Bundles were removed from the language - this shouldn't happen anymore
         if clean_name.startswith("Bundle["):
-            return "signal-each"
+            self.diagnostics.warning(
+                f"Bundle type encountered: {clean_name}. Using signal-0 instead."
+            )
+            return "signal-0"  # Don't return signal-each!
 
         mapped_signal = self.signal_type_map.get(clean_name)
         if mapped_signal is not None:

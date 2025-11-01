@@ -16,6 +16,7 @@ class EntityPlacement:
     properties: Dict[str, Any] = field(default_factory=dict)
     role: Optional[str] = None
     zone: Optional[str] = None
+    alignment: int = 1  # 1 for normal, 2 for 2x2 grid alignment
 
 
 @dataclass
