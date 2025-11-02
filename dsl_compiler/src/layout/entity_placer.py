@@ -313,6 +313,23 @@ class EntityPlacer:
 
     def _place_memory_write(self, op: IR_MemWrite) -> None:
         """Place memory write circuitry and record necessary wiring."""
+        
+        memory_module = self._memory_modules.get(op.memory_id)
+        if not memory_module:
+            self.diagnostics.warning(
+                f"Memory write to undefined memory: {op.memory_id}"
+            )
+            return
+        
+        # ✅ NEW: Detect multiple writes to same memory
+        if memory_module.get("_has_write"):
+            self.diagnostics.warning(
+                f"Multiple writes to memory '{op.memory_id}' detected. "
+                f"Only the last write will be optimized. "
+                f"Consider using a single write with conditional logic instead."
+            )
+        memory_module["_has_write"] = True
+        
         # Check if write_enable is a constant 1
         is_always_write = False
         if isinstance(op.write_enable, int) and op.write_enable == 1:
@@ -322,13 +339,6 @@ class EntityPlacer:
             const_ir = self._ir_nodes.get(op.write_enable.source_id)
             if isinstance(const_ir, IR_Const) and const_ir.value == 1:
                 is_always_write = True
-
-        memory_module = self._memory_modules.get(op.memory_id)
-        if not memory_module:
-            self.diagnostics.warning(
-                f"Memory write to undefined memory: {op.memory_id}"
-            )
-            return
 
         write_gate = memory_module.get("write_gate")
         hold_gate = memory_module.get("hold_gate")
@@ -494,12 +504,10 @@ class EntityPlacer:
     def _optimize_to_arithmetic_feedback(
         self, op: IR_MemWrite, memory_module: dict
     ) -> None:
-        """Optimize always-write memory to use arithmetic combinator self-feedback.
-
-        Instead of creating separate memory gates, mark the final arithmetic
-        operation to have self-feedback. That combinator becomes the memory.
+        """Optimize always-write memory to use arithmetic combinator feedback.
         
-        CRITICAL: For multi-operation chains, register feedback edge in signal graph.
+        For single-operation chains: Use self-feedback on one combinator
+        For multi-operation chains: Wire a feedback loop between combinators
         """
         final_op_id = op.data_signal.source_id
         final_placement = self.plan.get_placement(final_op_id)
@@ -509,10 +517,23 @@ class EntityPlacer:
 
         signal_name = memory_module.get("signal_type")
 
-        # Mark this arithmetic combinator for self-feedback
-        final_placement.properties["has_self_feedback"] = True
-        final_placement.properties["feedback_signal"] = signal_name
-        final_placement.role = "arithmetic_feedback_memory"
+        # Determine if this is a single-operation or multi-operation chain
+        first_consumer_id = self._find_first_memory_consumer(op.memory_id, final_op_id)
+        is_single_operation = (first_consumer_id == final_op_id or first_consumer_id is None)
+
+        if is_single_operation:
+            # Single operation: mark for self-feedback
+            final_placement.properties["has_self_feedback"] = True
+            final_placement.properties["feedback_signal"] = signal_name
+            self.diagnostics.info(
+                f"Optimized memory '{op.memory_id}' to single-combinator self-feedback"
+            )
+        else:
+            # Multi-operation chain: feedback loop will be wired via signal graph
+            # Do NOT add self-feedback marker
+            self.diagnostics.info(
+                f"Optimized memory '{op.memory_id}' to multi-combinator feedback loop"
+            )
 
         # Mark memory gates as unused (they'll be removed in cleanup)
         memory_module["optimization"] = "arithmetic_feedback"
@@ -520,28 +541,20 @@ class EntityPlacer:
         memory_module["write_gate_unused"] = True
         memory_module["hold_gate_unused"] = True
 
-        # Update signal graph: memory reads come from this arithmetic
+        # Update signal graph: all memory reads now come from final combinator
         self.signal_graph.set_source(op.memory_id, final_op_id)
         
-        # CRITICAL FIX: Update all memory read nodes to source from the optimized arithmetic
         for read_node_id, source_memory_id in self._memory_read_sources.items():
             if source_memory_id == op.memory_id:
                 self.signal_graph.set_source(read_node_id, final_op_id)
         
-        # Register feedback edge for multi-operation chains
-        # Find the first operation that consumes the memory
-        first_consumer_id = self._find_first_memory_consumer(op.memory_id, final_op_id)
+        # For multi-operation chains: register feedback edge in signal graph
         if first_consumer_id and first_consumer_id != final_op_id:
-            # Add feedback edge: final_op produces signal consumed by first_consumer
+            # Add edge: final_op produces signal that first_consumer needs
             self.signal_graph.add_sink(final_op_id, first_consumer_id)
             self.diagnostics.info(
-                f"Registered multi-operation feedback loop: {final_op_id} -> {first_consumer_id}"
+                f"Registered feedback loop: {final_op_id} -> {first_consumer_id}"
             )
-
-        self.diagnostics.info(
-            f"Optimized memory '{op.memory_id}' to arithmetic feedback "
-            f"(combinator: {final_op_id})"
-        )
 
     def _place_single_gate_memory(self, op: IR_MemWrite, memory_module: dict) -> None:
         """Fallback: simplified single-gate always-write memory."""
@@ -696,9 +709,26 @@ class EntityPlacer:
                 }
                 # Mark the comparison decider for removal
                 inline_data["source_node_id_to_remove"] = op.value.source_id
-                self.diagnostics.info(
-                    f"Inlined comparison into {op.entity_id}.{op.property_name}"
-                )
+                
+                # ✅ FIX: Track that entity needs the comparison's input signal
+                # The entity must read the signal being compared
+                ir_node = self._ir_nodes.get(op.value.source_id)
+                if isinstance(ir_node, IR_Decider):
+                    # Add dependency on the left operand (the signal being tested)
+                    if isinstance(ir_node.left, SignalRef):
+                        # Remove the old edge from source to decider
+                        self.signal_graph.remove_sink(ir_node.left.source_id, op.value.source_id)
+                        # Add new edge from source to entity
+                        self._add_signal_sink(ir_node.left, op.entity_id)
+                        self.diagnostics.info(
+                            f"Inlined comparison into {op.entity_id}.{op.property_name}, "
+                            f"tracking signal dependency"
+                        )
+                else:
+                    self.diagnostics.info(
+                        f"Inlined comparison into {op.entity_id}.{op.property_name}"
+                    )
+                
                 return
 
         # Resolve the value

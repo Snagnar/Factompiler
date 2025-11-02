@@ -169,8 +169,14 @@ class LayoutPlanner:
         self._wire_merge_junctions = placer._wire_merge_junctions
 
     def _determine_locked_wire_colors(self) -> Dict[tuple[str, str], str]:
-        """Collect wire color locks for memory modules."""
+        """Determine wire colors that must be locked for correctness.
+        
+        Returns:
+            Dict mapping (entity_id, signal_name) → wire_color
+        """
         locked = {}
+        
+        # Lock colors for non-optimized memory hold gates (standard SR latch)
         for module in self._memory_modules.values():
             for component_name, placement in module.items():
                 if component_name == "hold_gate":
@@ -180,4 +186,17 @@ class LayoutPlanner:
                     signal_name = placement.properties.get("output_signal")
                     if signal_name:
                         locked[(placement.ir_node_id, signal_name)] = "red"
+        
+        # ✅ NEW: Lock colors for optimized arithmetic feedback combinators
+        # These use self-feedback wires hardcoded to red, so we must prevent
+        # other signals from using red to the same combinator
+        for entity_id, placement in self.layout_plan.entity_placements.items():
+            if placement.properties.get("has_self_feedback"):
+                feedback_signal = placement.properties.get("feedback_signal")
+                if feedback_signal:
+                    locked[(entity_id, feedback_signal)] = "red"
+                    self.diagnostics.info(
+                        f"Locked {entity_id} feedback signal '{feedback_signal}' to red wire"
+                    )
+        
         return locked

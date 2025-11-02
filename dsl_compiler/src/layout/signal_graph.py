@@ -35,6 +35,13 @@ class SignalGraph:
         if entity_id not in sinks:
             sinks.append(entity_id)
 
+    def remove_sink(self, signal_id: str, entity_id: str) -> None:
+        """Remove ``entity_id`` from the consumers of ``signal_id``."""
+
+        sinks = self._sinks.get(signal_id, [])
+        if entity_id in sinks:
+            sinks.remove(entity_id)
+
     def has_sink(self, signal_id: str, entity_id: str) -> bool:
         """Return True if ``entity_id`` already consumes ``signal_id``."""
 

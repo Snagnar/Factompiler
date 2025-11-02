@@ -368,6 +368,17 @@ class ConnectionPlanner:
                 continue
 
             distance = math.dist(start.position, end.position)
+            
+            # ✅ FIX: If distance is impossibly large, abort relay insertion
+            if distance > span_limit * 20:  # More than 20 hops needed
+                self.diagnostics.warning(
+                    f"Distance between {start_id} and {end_id} is {distance:.1f} tiles, "
+                    f"exceeding reasonable relay span ({span_limit * 20:.1f}). "
+                    f"Skipping relay insertion for this segment."
+                )
+                idx += 1
+                continue
+            
             if distance <= span_limit + epsilon:
                 idx += 1
                 continue
@@ -432,6 +443,21 @@ class ConnectionPlanner:
             relay_id = self._create_intermediate_relay(relay_position)
             ids.insert(idx + 1, relay_id)
             relays_inserted += 1
+
+            # ✅ FIX: Add progress check to prevent infinite relay cascades
+            if relays_inserted > 0 and relays_inserted % 10 == 0:
+                current_longest = 0.0
+                for i in range(len(ids) - 1):
+                    p1 = self.layout_plan.get_placement(ids[i])
+                    p2 = self.layout_plan.get_placement(ids[i + 1])
+                    if p1 and p2:
+                        seg_dist = math.dist(p1.position, p2.position)
+                        if seg_dist > current_longest:
+                            current_longest = seg_dist
+                
+                if current_longest <= span_limit + epsilon:
+                    # All segments are within span - we're done!
+                    break
 
             if relays_inserted > relay_cap:
                 self.diagnostics.warning(
@@ -560,11 +586,15 @@ class ConnectionPlanner:
         if len(nodes) <= 2:
             return None
 
+        # ✅ FIX: Add hard limit on BFS exploration
         parents: Dict[int, Optional[int]] = {start_idx: None}
         queue: deque[int] = deque([start_idx])
+        explored_count = 0
+        max_explored = min(len(nodes) * 10, 5000)  # Limit exploration
 
-        while queue:
+        while queue and explored_count < max_explored:
             current = queue.popleft()
+            explored_count += 1
             current_pos = nodes[current]["position"]
 
             for idx, node in enumerate(nodes):
@@ -581,7 +611,13 @@ class ConnectionPlanner:
             if end_idx in parents:
                 break
 
+        # Check if we found a path
         if end_idx not in parents:
+            if explored_count >= max_explored:
+                self.diagnostics.warning(
+                    f"Relay path search timeout after exploring {explored_count} nodes "
+                    f"for {start.ir_node_id} -> {end.ir_node_id}"
+                )
             return None
 
         path_indices: List[int] = []

@@ -384,13 +384,26 @@ class PowerPlanner:
             reach_limit = self._wire_reach
 
         reach_sq = reach_limit * reach_limit
-        max_attempts = len(self._planned) + 8
+        # ✅ FIX: Cap iterations to prevent infinite loops on complex blueprints
+        max_attempts = min(len(self._planned) + 8, 50)
         attempts = 0
+        last_component_count = float('inf')  # ✅ Track progress
 
         while attempts < max_attempts:
             components = self._compute_components(reach_sq)
             if len(components) <= 1:
                 break
+
+            # Add progress check - if no improvement after 5 iterations, abort
+            if attempts > 0 and attempts % 5 == 0:
+                if len(components) == last_component_count:
+                    self.diagnostics.warning(
+                        f"Power connectivity stalled after {attempts} attempts with "
+                        f"{len(components)} components remaining. Stopping early."
+                    )
+                    break
+            
+            last_component_count = len(components)
 
             base_component = components[0]
             best_distance = float("inf")
@@ -449,6 +462,12 @@ class PowerPlanner:
                 self._record_power_pole(placement_pos, prototype)
 
             attempts += 1
+
+        if attempts >= max_attempts and len(components) > 1:
+            self.diagnostics.warning(
+                f"Could not fully connect power grid after {max_attempts} attempts. "
+                f"{len(components)} disconnected components remain."
+            )
 
     def _compute_components(
         self,
