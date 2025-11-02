@@ -160,6 +160,9 @@ class LayoutPlanner:
         for op in ir_operations:
             placer.place_ir_operation(op)
 
+        # ✅ Clean up optimized-away entities
+        placer.cleanup_unused_entities()
+
         # Store signal graph and memory info for connection planning
         self.signal_graph = placer.signal_graph
         self._memory_modules = placer._memory_modules

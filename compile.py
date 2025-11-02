@@ -128,7 +128,7 @@ def compile_dsl_file(
         # Layout planning
         planner = LayoutPlanner(
             signal_type_map,
-            diagnostics=ProgramDiagnostics(),
+            diagnostics=ProgramDiagnostics(),  # Use separate diagnostics to avoid infinite loop
             power_pole_type=power_pole_type,
         )
 

@@ -150,8 +150,53 @@ class PlanEntityEmitter:
         """Apply property writes to entity (e.g., entity.enable = signal)."""
         for prop_name, prop_data in property_writes.items():
             if prop_name == "enable":
+                prop_type = prop_data.get("type")
+
+                # ✅ Handle inline comparisons
+                if prop_type == "inline_comparison":
+                    comp_data = prop_data.get("comparison_data", {})
+                    left_signal = comp_data.get("left_signal")
+                    comparator = comp_data.get("comparator")
+                    right_constant = comp_data.get("right_constant")
+
+                    # Resolve signal dict - left_signal is already the signal name from the decider
+                    if isinstance(left_signal, str):
+                        # It's already a signal name, use it directly
+                        # Try to determine type from signal_type_map or default to virtual
+                        signal_dict = {"name": left_signal, "type": "virtual"}
+                    else:
+                        # Shouldn't happen, but handle it
+                        signal_dict = {"name": "signal-0", "type": "virtual"}
+
+                    # Apply circuit condition
+                    if hasattr(entity, "circuit_enabled"):
+                        entity.circuit_enabled = True
+                        if hasattr(entity, "set_circuit_condition"):
+                            entity.set_circuit_condition(
+                                signal_dict, comparator, right_constant
+                            )
+                        else:
+                            # Fallback to control_behavior dict
+                            if not hasattr(entity, "control_behavior"):
+                                entity.control_behavior = {}
+                            entity.control_behavior["circuit_condition"] = {
+                                "first_signal": signal_dict,
+                                "comparator": comparator,
+                                "constant": right_constant,
+                            }
+                    else:
+                        if not hasattr(entity, "control_behavior"):
+                            entity.control_behavior = {}
+                        entity.control_behavior["circuit_enabled"] = True
+                        entity.control_behavior["circuit_condition"] = {
+                            "first_signal": signal_dict,
+                            "comparator": comparator,
+                            "constant": right_constant,
+                        }
+                    continue
+
                 # Circuit enable condition
-                if prop_data["type"] == "signal":
+                if prop_type == "signal":
                     # Signal-controlled enable
                     signal_ref = prop_data["signal_ref"]
 

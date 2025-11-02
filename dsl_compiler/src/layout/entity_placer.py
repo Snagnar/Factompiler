@@ -49,9 +49,16 @@ class EntityPlacer:
         self._memory_modules: Dict[str, Dict[str, Any]] = {}
         self._wire_merge_junctions: Dict[str, Dict[str, Any]] = {}
         self._entity_property_signals: Dict[str, str] = {}
+        self._memory_read_sources: Dict[
+            str, str
+        ] = {}  # Track which memory each read came from
+        self._ir_nodes: Dict[str, IRNode] = {}  # Track all IR nodes by ID for lookups
 
     def place_ir_operation(self, op: IRNode) -> None:
         """Place a single IR operation."""
+        # Track this IR node for later lookups
+        self._ir_nodes[op.node_id] = op
+
         if isinstance(op, IR_Const):
             self._place_constant(op)
         elif isinstance(op, IR_Arith):
@@ -275,6 +282,25 @@ class EntityPlacer:
             )
             return
 
+        # Track which memory this read came from
+        self._memory_read_sources[op.node_id] = op.memory_id
+
+        optimization = memory_module.get("optimization")
+
+        # Handle optimized memories
+        if optimization == "arithmetic_feedback":
+            output_node_id = memory_module.get("output_node_id")
+            if output_node_id:
+                self.signal_graph.set_source(op.node_id, output_node_id)
+                return
+
+        if optimization == "single_gate":
+            write_gate = memory_module.get("write_gate")
+            if isinstance(write_gate, EntityPlacement):
+                self.signal_graph.set_source(op.node_id, write_gate.ir_node_id)
+                return
+
+        # Standard SR latch
         hold_gate = memory_module.get("hold_gate")
         if not isinstance(hold_gate, EntityPlacement):
             self.diagnostics.warning(
@@ -287,6 +313,16 @@ class EntityPlacer:
 
     def _place_memory_write(self, op: IR_MemWrite) -> None:
         """Place memory write circuitry and record necessary wiring."""
+        # Check if write_enable is a constant 1
+        is_always_write = False
+        if isinstance(op.write_enable, int) and op.write_enable == 1:
+            is_always_write = True
+        elif isinstance(op.write_enable, SignalRef):
+            # Check if it's a reference to a constant 1 by looking up the IR node
+            const_ir = self._ir_nodes.get(op.write_enable.source_id)
+            if isinstance(const_ir, IR_Const) and const_ir.value == 1:
+                is_always_write = True
+
         memory_module = self._memory_modules.get(op.memory_id)
         if not memory_module:
             self.diagnostics.warning(
@@ -305,68 +341,199 @@ class EntityPlacer:
             )
             return
 
-        is_always_write = isinstance(op.write_enable, int) and op.write_enable == 1
-
         if is_always_write:
-            self._add_signal_sink(op.data_signal, write_gate.ir_node_id)
+            # Check if this can be optimized to arithmetic feedback (Fix 2)
+            if self._can_use_arithmetic_feedback(op, memory_module):
+                self._optimize_to_arithmetic_feedback(op, memory_module)
+                return
 
-            write_gate.properties["operation"] = ">"
-            output_signal = write_gate.properties.get("output_signal", "signal-A")
-            write_gate.properties["left_operand"] = output_signal
-            write_gate.properties["right_operand"] = -2147483648
-            write_gate.properties["copy_count_from_input"] = True
+            # Otherwise use simplified single-gate memory
+            self._place_single_gate_memory(op, memory_module)
+            return
 
+        # Standard SR latch for conditional writes
+        # ✅ FIX: Only connect data to write gate, NOT to hold gate!
+        self._add_signal_sink(op.data_signal, write_gate.ir_node_id)
+        # REMOVED: self._add_signal_sink(op.data_signal, hold_gate.ir_node_id)
+
+        enable_source = self._ensure_constant_write_enable(op)
+        if enable_source:
+            self.signal_graph.add_sink(enable_source, write_gate.ir_node_id)
+            self.signal_graph.add_sink(enable_source, hold_gate.ir_node_id)
+        else:
+            self._add_signal_sink(op.write_enable, write_gate.ir_node_id)
+            self._add_signal_sink(op.write_enable, hold_gate.ir_node_id)
+
+        if not memory_module.get("_feedback_connected"):
             signal_name = memory_module.get("signal_type")
-            if signal_name and not memory_module.get("_feedback_connected"):
-                self_feedback = WireConnection(
+            if signal_name:
+                feedback_conn = WireConnection(
                     source_entity_id=write_gate.ir_node_id,
-                    sink_entity_id=write_gate.ir_node_id,
+                    sink_entity_id=hold_gate.ir_node_id,
                     signal_name=signal_name,
                     wire_color="red",
                     source_side="output",
                     sink_side="input",
                 )
-                self.plan.add_wire_connection(self_feedback)
+                self.plan.add_wire_connection(feedback_conn)
+
+                hold_feedback = WireConnection(
+                    source_entity_id=hold_gate.ir_node_id,
+                    sink_entity_id=hold_gate.ir_node_id,
+                    signal_name=signal_name,
+                    wire_color="red",
+                    source_side="output",
+                    sink_side="input",
+                )
+                self.plan.add_wire_connection(hold_feedback)
+
                 memory_module["_feedback_connected"] = True
 
-            self.signal_graph.set_source(op.memory_id, write_gate.ir_node_id)
-            memory_module["always_write"] = True
-        else:
-            self._add_signal_sink(op.data_signal, write_gate.ir_node_id)
-            self._add_signal_sink(op.data_signal, hold_gate.ir_node_id)
+    def _can_use_arithmetic_feedback(
+        self, op: IR_MemWrite, memory_module: dict
+    ) -> bool:
+        """Detect if always-write memory can use arithmetic self-feedback optimization.
 
-            enable_source = self._ensure_constant_write_enable(op)
-            if enable_source:
-                self.signal_graph.add_sink(enable_source, write_gate.ir_node_id)
-                self.signal_graph.add_sink(enable_source, hold_gate.ir_node_id)
-            else:
-                self._add_signal_sink(op.write_enable, write_gate.ir_node_id)
-                self._add_signal_sink(op.write_enable, hold_gate.ir_node_id)
+        Returns True if:
+        - Write is always-on (when=1)
+        - Written value comes from arithmetic operation(s)
+        - At least one operation in the chain reads from this same memory
+        """
+        if not isinstance(op.data_signal, SignalRef):
+            return False
 
-            if not memory_module.get("_feedback_connected"):
-                signal_name = memory_module.get("signal_type")
-                if signal_name:
-                    feedback_conn = WireConnection(
-                        source_entity_id=write_gate.ir_node_id,
-                        sink_entity_id=hold_gate.ir_node_id,
-                        signal_name=signal_name,
-                        wire_color="red",
-                        source_side="output",
-                        sink_side="input",
-                    )
-                    self.plan.add_wire_connection(feedback_conn)
+        # Find the operation that produces the data signal
+        final_op_id = op.data_signal.source_id
+        final_placement = self.plan.get_placement(final_op_id)
 
-                    hold_feedback = WireConnection(
-                        source_entity_id=hold_gate.ir_node_id,
-                        sink_entity_id=hold_gate.ir_node_id,
-                        signal_name=signal_name,
-                        wire_color="red",
-                        source_side="output",
-                        sink_side="input",
-                    )
-                    self.plan.add_wire_connection(hold_feedback)
+        if final_placement is None:
+            return False
 
-                    memory_module["_feedback_connected"] = True
+        # Must be an arithmetic combinator
+        if final_placement.entity_type != "arithmetic-combinator":
+            return False
+
+        # Check if this arithmetic operation (or its inputs) reads from the memory
+        return self._operation_depends_on_memory(final_op_id, op.memory_id)
+
+    def _operation_depends_on_memory(
+        self, op_id: str, memory_id: str, visited: set = None, depth: int = 0
+    ) -> bool:
+        """Check if an operation depends on a memory read (directly or transitively)."""
+        if depth > 10:  # Prevent infinite recursion
+            return False
+
+        if visited is None:
+            visited = set()
+
+        if op_id in visited:
+            return False
+        visited.add(op_id)
+
+        # Check if this operation IS a memory read from our memory
+        source_memory = self._memory_read_sources.get(op_id)
+        if source_memory == memory_id:
+            return True
+
+        # Check if any of the inputs to this operation depend on the memory
+        placement = self.plan.get_placement(op_id)
+        if not placement:
+            return False
+
+        # Check if this is an arithmetic operation - get its inputs from IR node
+        if placement.entity_type == "arithmetic-combinator":
+            # Look up the IR node to get the actual operands
+            ir_node = self._ir_nodes.get(op_id)
+            if not isinstance(ir_node, IR_Arith):
+                return False
+
+            left = ir_node.left
+            right = ir_node.right
+
+            # Check if either operand is a SignalRef that depends on memory
+            if isinstance(left, SignalRef):
+                if self._operation_depends_on_memory(
+                    left.source_id, memory_id, visited, depth + 1
+                ):
+                    return True
+            if isinstance(right, SignalRef):
+                if self._operation_depends_on_memory(
+                    right.source_id, memory_id, visited, depth + 1
+                ):
+                    return True
+
+        return False
+
+    def _optimize_to_arithmetic_feedback(
+        self, op: IR_MemWrite, memory_module: dict
+    ) -> None:
+        """Optimize always-write memory to use arithmetic combinator self-feedback.
+
+        Instead of creating separate memory gates, mark the final arithmetic
+        operation to have self-feedback. That combinator becomes the memory.
+        """
+        final_op_id = op.data_signal.source_id
+        final_placement = self.plan.get_placement(final_op_id)
+
+        if final_placement is None:
+            return
+
+        signal_name = memory_module.get("signal_type")
+
+        # Mark this arithmetic combinator for self-feedback
+        final_placement.properties["has_self_feedback"] = True
+        final_placement.properties["feedback_signal"] = signal_name
+        final_placement.role = "arithmetic_feedback_memory"
+
+        # Mark memory gates as unused (they'll be removed in cleanup)
+        memory_module["optimization"] = "arithmetic_feedback"
+        memory_module["output_node_id"] = final_op_id
+        memory_module["write_gate_unused"] = True
+        memory_module["hold_gate_unused"] = True
+
+        # Update signal graph: memory reads come from this arithmetic
+        self.signal_graph.set_source(op.memory_id, final_op_id)
+
+        self.diagnostics.info(
+            f"Optimized memory '{op.memory_id}' to arithmetic feedback "
+            f"(combinator: {final_op_id})"
+        )
+
+    def _place_single_gate_memory(self, op: IR_MemWrite, memory_module: dict) -> None:
+        """Fallback: simplified single-gate always-write memory."""
+        write_gate = memory_module.get("write_gate")
+        if not isinstance(write_gate, EntityPlacement):
+            return
+
+        signal_name = memory_module.get("signal_type")
+
+        # Connect data input
+        self._add_signal_sink(op.data_signal, write_gate.ir_node_id)
+
+        # Configure as always-on latch
+        write_gate.properties["operation"] = ">"
+        write_gate.properties["left_operand"] = signal_name
+        write_gate.properties["right_operand"] = -2147483648
+        write_gate.properties["copy_count_from_input"] = True
+
+        # Add self-feedback
+        if not memory_module.get("_feedback_connected"):
+            self_feedback = WireConnection(
+                source_entity_id=write_gate.ir_node_id,
+                sink_entity_id=write_gate.ir_node_id,
+                signal_name=signal_name,
+                wire_color="red",
+                source_side="output",
+                sink_side="input",
+            )
+            self.plan.add_wire_connection(self_feedback)
+            memory_module["_feedback_connected"] = True
+
+        # Mark hold gate as unused
+        memory_module["optimization"] = "single_gate"
+        memory_module["hold_gate_unused"] = True
+
+        self.signal_graph.set_source(op.memory_id, write_gate.ir_node_id)
 
     def _ensure_constant_write_enable(self, op: IR_MemWrite) -> Optional[str]:
         """Materialize or reuse a write-enable source."""
@@ -475,6 +642,21 @@ class EntityPlacer:
         if "property_writes" not in placement.properties:
             placement.properties["property_writes"] = {}
 
+        # Try to inline simple comparisons
+        if isinstance(op.value, SignalRef) and op.property_name == "enable":
+            inline_data = self._try_inline_comparison(op.value)
+            if inline_data:
+                placement.properties["property_writes"][op.property_name] = {
+                    "type": "inline_comparison",
+                    "comparison_data": inline_data,
+                }
+                # Mark the comparison decider for removal
+                inline_data["source_node_id_to_remove"] = op.value.source_id
+                self.diagnostics.info(
+                    f"Inlined comparison into {op.entity_id}.{op.property_name}"
+                )
+                return
+
         # Resolve the value
         if isinstance(op.value, SignalRef):
             # Property is controlled by a signal - track dependency
@@ -495,6 +677,37 @@ class EntityPlacer:
                 "type": "value",
                 "value": op.value,
             }
+
+    def _try_inline_comparison(self, signal_ref: SignalRef) -> Optional[dict]:
+        """Check if a signal is a simple comparison that can be inlined."""
+        source_placement = self.plan.get_placement(signal_ref.source_id)
+        if not source_placement or source_placement.entity_type != "decider-combinator":
+            return None
+
+        props = source_placement.properties
+
+        # Must be a simple comparison: signal OP constant -> 1
+        left = props.get("left_operand")
+        right = props.get("right_operand")
+        operation = props.get("operation")
+        output_value = props.get("output_value")
+
+        # Check if it's a simple pattern
+        if not (isinstance(right, int) and output_value == 1):
+            return None
+
+        # Check if this comparison is ONLY used for this property (no other consumers)
+        sinks = list(self.signal_graph.iter_sinks(signal_ref.source_id))
+        if len(sinks) > 1:
+            # Multiple consumers - can't inline
+            return None
+
+        return {
+            "left_signal": left,
+            "comparator": operation,
+            "right_constant": right,
+            "signal_type": signal_ref.signal_type,
+        }
 
     def _place_entity_prop_read(self, op: IR_EntityPropRead) -> None:
         """Handle entity property reads."""
@@ -529,3 +742,36 @@ class EntityPlacer:
         """Track signal consumption."""
         if isinstance(value_ref, SignalRef):
             self.signal_graph.add_sink(value_ref.source_id, consumer_id)
+
+    def cleanup_unused_entities(self) -> None:
+        """Remove entities marked as unused during optimization."""
+        entities_to_remove = []
+
+        # Remove unused memory gates
+        for memory_id, memory_module in self._memory_modules.items():
+            # Remove unused write gates
+            if memory_module.get("write_gate_unused"):
+                write_gate = memory_module.get("write_gate")
+                if isinstance(write_gate, EntityPlacement):
+                    entities_to_remove.append(write_gate.ir_node_id)
+
+            # Remove unused hold gates
+            if memory_module.get("hold_gate_unused"):
+                hold_gate = memory_module.get("hold_gate")
+                if isinstance(hold_gate, EntityPlacement):
+                    entities_to_remove.append(hold_gate.ir_node_id)
+
+        # Remove inlined comparisons
+        for entity_id, placement in list(self.plan.entity_placements.items()):
+            for prop_writes in placement.properties.get("property_writes", {}).values():
+                if prop_writes.get("type") == "inline_comparison":
+                    node_to_remove = prop_writes.get("comparison_data", {}).get(
+                        "source_node_id_to_remove"
+                    )
+                    if node_to_remove and node_to_remove not in entities_to_remove:
+                        entities_to_remove.append(node_to_remove)
+
+        for entity_id in entities_to_remove:
+            removed = self.plan.entity_placements.pop(entity_id, None)
+            if removed:
+                self.diagnostics.info(f"Removed unused entity: {entity_id}")

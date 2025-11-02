@@ -65,6 +65,9 @@ class ConnectionPlanner:
         self._coloring_success = True
         self._relay_counter = 0
 
+        # ✅ Add self-feedback for optimized arithmetic memories
+        self._add_self_feedback_connections()
+
         base_edges = collect_circuit_edges(signal_graph, self.signal_usage, entities)
         expanded_edges = self._expand_merge_edges(
             base_edges, wire_merge_junctions, entities
@@ -154,6 +157,27 @@ class ConnectionPlanner:
                 )
 
         return expanded
+
+    def _add_self_feedback_connections(self) -> None:
+        """Add self-feedback connections for arithmetic feedback memories."""
+        for entity_id, placement in self.layout_plan.entity_placements.items():
+            if placement.properties.get("has_self_feedback"):
+                feedback_signal = placement.properties.get("feedback_signal")
+                if not feedback_signal:
+                    continue
+
+                # Add red self-feedback wire
+                feedback_conn = WireConnection(
+                    source_entity_id=entity_id,
+                    sink_entity_id=entity_id,
+                    signal_name=feedback_signal,
+                    wire_color="red",
+                    source_side="output",
+                    sink_side="input",
+                )
+                self.layout_plan.add_wire_connection(feedback_conn)
+
+                self.diagnostics.info(f"Added self-feedback to {entity_id}")
 
     def _log_multi_source_conflicts(
         self, edges: Sequence[CircuitEdge], entities: Dict[str, Any]
