@@ -8,22 +8,15 @@ using the factorio-draftsman library to generate blueprint JSON.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, TYPE_CHECKING
 
-# Add draftsman to path
-sys.path.insert(
-    0, str(Path(__file__).parent.parent.parent.parent.parent / "factorio-draftsman")
-)
-
-from draftsman.blueprintable import Blueprint  # type: ignore[import-not-found]
+from draftsman.blueprintable import Blueprint  
 from draftsman.entity import (
     new_entity,
-)  # Use draftsman's factory  # type: ignore[import-not-found]
-from draftsman.entity import *  # Import all entities  # type: ignore[import-not-found]
-from draftsman.classes.entity import Entity  # type: ignore[import-not-found]
-from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
+)  # Use draftsman's factory  
+from draftsman.entity import *  # Import all entities  
+from draftsman.classes.entity import Entity  
+from draftsman.data import signals as signal_data  
 
 
 from ..ir import *

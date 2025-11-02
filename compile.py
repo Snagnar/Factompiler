@@ -13,10 +13,7 @@ Usage:
 import sys
 import click
 from pathlib import Path
-
-# Add the compiler to the path
-sys.path.insert(0, str(Path(__file__).parent))
-
+import json
 from dsl_compiler.src.parsing import DSLParser
 from dsl_compiler.src.semantic import (
     analyze_program,
@@ -50,12 +47,13 @@ def compile_dsl_file(
     power_pole_type: str | None = None,
     verbose: bool = False,
     debug: bool = False,
-) -> tuple[bool, str, list]:
+    output_json: bool = False,
+) -> tuple[bool, str | dict, list]:
     """
     Compile a DSL file to blueprint string.
 
     Returns:
-        (success: bool, result: str, diagnostics: list)
+        (success: bool, result: str | dict, diagnostics: list)
     """
     if not input_path.exists():
         return False, f"Input file '{input_path}' does not exist", []
@@ -176,28 +174,12 @@ def compile_dsl_file(
         if hasattr(emitter, "diagnostics") and emitter.diagnostics.has_errors():
             return False, "Blueprint emission failed", diagnostics.get_messages()
 
-        # Serialize blueprint
-        try:
-            blueprint_string = blueprint.to_string()
-        except Exception as e:
-            diagnostics.error(
-                f"Blueprint string generation failed: {e}", stage="emission"
-            )
-            return False, "Blueprint emission failed", diagnostics.get_messages()
+        if output_json:
+            blueprint_result = json.dumps(blueprint.to_dict())
+        else:
+            blueprint_result = blueprint.to_string()
 
-        # Validate blueprint
-        if (
-            not blueprint_string
-            or len(blueprint_string) < 10
-            or not blueprint_string.startswith("0eN")
-        ):
-            return (
-                False,
-                "Invalid blueprint string generated",
-                diagnostics.get_messages(),
-            )
-
-        return True, blueprint_string, diagnostics.get_messages()
+        return True, blueprint_result, diagnostics.get_messages()
 
     except Exception as e:
         diagnostics.error(f"Compilation failed: {e}", stage="compiler")
@@ -230,8 +212,9 @@ def compile_dsl_file(
     callback=validate_power_poles,
     help="Add power poles (small/medium/big/substation, defaults to medium if no value)",
 )
+@click.option("--json", is_flag=True, help="Output blueprint in JSON format")
 def main(
-    input_file, output, strict, name, verbose, no_optimize, explain, power_poles, debug
+    input_file, output, strict, name, verbose, no_optimize, explain, power_poles, debug, json
 ):
     """Compile Factorio Circuit DSL files to blueprint format."""
 
@@ -250,6 +233,7 @@ def main(
         power_pole_type=power_poles,
         verbose=verbose,
         debug=debug,
+        output_json=json,
     )
 
     # Print diagnostics if needed
@@ -288,3 +272,11 @@ def main(
 
 if __name__ == "__main__":
     main()
+
+
+"""
+The bash command to iterate over all .fcdsl files in the 'examples' directory and compile them using this script would be:
+for file in examples/*.fcdsl; do
+    python compile.py "$file" -o "${file%.fcdsl}.blueprint"
+done
+"""
