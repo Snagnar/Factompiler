@@ -1,42 +1,73 @@
 # Factorio Circuit DSL Language Specification
 
-**Version 1.0**  
-**Date: September 30, 2025**
+**Version 2.0**  
+**Date: November 2, 2025**
 
-This document provides a complete specification of the Factorio Circuit DSL (Domain Specific Language), as currently implemented. The DSL compiles to Factorio blueprint strings that can be imported into the game.
+This document provides a complete specification of the Factorio Circuit DSL (Domain Specific Language) as currently implemented. The DSL compiles to Factorio 2.0 blueprint strings that can be imported into the game.
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Lexical Structure](#lexical-structure)
-3. [Syntax](#syntax)
+2. [Quick Start](#quick-start)
+3. [Lexical Structure](#lexical-structure)
 4. [Type System](#type-system)
-5. [Built-in Functions](#built-in-functions)
-6. [Memory Operations](#memory-operations)
-7. [Entity System](#entity-system)
-8. [Functions and Modules](#functions-and-modules)
-9. [Projection and Type Coercion](#projection-and-type-coercion)
+5. [Expressions](#expressions)
+6. [Statements](#statements)
+7. [Memory System](#memory-system)
+8. [Entity System](#entity-system)
+9. [Functions and Modules](#functions-and-modules)
 10. [Compilation Model](#compilation-model)
-11. [Examples](#examples)
-12. [Diagnostics and Error Handling](#diagnostics-and-error-handling)
+11. [Circuit Network Integration](#circuit-network-integration)
+12. [Optimization Passes](#optimization-passes)
+13. [Best Practices](#best-practices)
+14. [Examples](#examples)
+15. [Error Handling](#error-handling)
 
 ---
 
 ## Overview
 
-The Factorio Circuit DSL is a statically typed, imperative language designed to generate Factorio combinators and entity blueprints. Programs are compiled through a multi-stage pipeline:
+The Factorio Circuit DSL is a **statically-typed**, **imperative language** designed to generate Factorio combinator circuits and entity blueprints. It provides high-level abstractions over Factorio's circuit network while maintaining direct control over signal routing and entity behavior.
 
-1. **Parsing**: Source code → Abstract Syntax Tree (AST)
-2. **Semantic Analysis**: Type inference, symbol resolution, validation
-3. **IR Generation**: AST → Intermediate Representation
-4. **Blueprint Emission**: IR → Factorio blueprint JSON
+### Design Philosophy
 
-### Design Principles
+- **Signal-Centric**: Everything is a signal flowing through circuit networks
+- **Type Safety**: Explicit signal types prevent channel conflicts
+- **Implicit Optimization**: Compiler optimizes common patterns automatically
+- **Direct Mapping**: Clear correspondence between DSL and Factorio entities
 
-- **Type Safety**: Signals have explicit types (iron-plate, signal-A, etc.)
-- **Implicit Allocation**: Compiler assigns virtual signal types when not specified
-- **Mixed-Type Warnings**: Warns about potential signal type mismatches
-- **Entity Integration**: Direct support for placing and controlling Factorio entities
+### Compilation Pipeline
+
+```
+Source Code → Parser → Semantic Analysis → IR Generation → 
+Layout Planning → Wire Routing → Blueprint Emission
+```
+
+Each stage validates and optimizes the program before generating the final Factorio blueprint JSON.
+
+---
+
+## Quick Start
+
+### Hello, Lamp!
+
+```fcdsl
+# Create a blinking lamp controlled by a counter
+Memory counter: "signal-A" = 0;
+write(read(counter) + 1, counter);
+
+Signal blink = (read(counter) % 10) < 5;
+
+Entity lamp = place("small-lamp", 0, 0);
+lamp.enable = blink;
+```
+
+Compile this program:
+```bash
+python compile.py hello_lamp.fcdsl -o hello_lamp.blueprint
+```
+
+Import the resulting blueprint string into Factorio and watch your lamp blink!
 
 ---
 
@@ -45,122 +76,316 @@ The Factorio Circuit DSL is a statically typed, imperative language designed to 
 ### Comments
 
 ```fcdsl
-# Line comments start with hash
-// C-style comments are also supported
+# Hash-style line comments
+// C-style line comments also work
 Signal x = 5;  // End-of-line comments
 ```
 
 ### Identifiers
 
-```fcdsl
+```
 NAME: /[A-Za-z_][A-Za-z0-9_-]*/
 ```
 
-Identifiers can contain letters, numbers, underscores, and hyphens. Must start with letter or underscore.
+Identifiers start with a letter or underscore and can contain letters, digits, underscores, and hyphens.
 
 ### Keywords
 
 **Type Keywords:**
-- `int`, `Signal`, `SignalType`, `Entity`, `Memory`, `mem`
-- `mem` is an alias for `Memory`
+```
+int Signal SignalType Entity Memory mem
+```
 
 **Statement Keywords:**
-- `func`, `return`, `import`, `as`
+```
+func return import as
+```
 
 **Built-in Functions:**
-- `read`, `write`, `place`, `memory`
+```
+read write place
+```
+
+**Special Literals:**
+```
+once  # For one-shot memory initialization
+```
 
 ### Literals
 
-**Numbers:**
+**Integers:**
 ```fcdsl
-42        # Integer literal
+42        # Positive integer
 -17       # Negative integer
 ```
 
 **Strings:**
 ```fcdsl
-"iron-plate"    # Signal type
+"iron-plate"    # Item signal
 "signal-A"      # Virtual signal
-"copper-ore"    # Item signal
+"water"         # Fluid signal
 ```
+
+Strings are used exclusively for signal type names and entity prototypes.
 
 ### Operators
 
-**Arithmetic:** `+`, `-`, `*`, `/`, `%`  
-**Comparison:** `==`, `!=`, `<`, `<=`, `>`, `>=`  
-**Logical:** `&&`, `||`, `!`  
+**Arithmetic:** `+` `-` `*` `/` `%`  
+**Comparison:** `==` `!=` `<` `<=` `>` `>=`  
+**Logical:** `&&` `||` `!`  
 **Projection:** `|`  
 **Assignment:** `=`
 
+### Operator Precedence
+
+From highest to lowest:
+
+1. **Parentheses** `()`
+2. **Unary** `+` `-` `!`
+3. **Multiplicative** `*` `/` `%`
+4. **Additive** `+` `-`
+5. **Projection** `|`
+6. **Comparison** `==` `!=` `<` `<=` `>` `>=`
+7. **Logical AND** `&&`
+8. **Logical OR** `||`
+
 ---
 
-## Syntax
+## Type System
 
-### Program Structure
+The DSL has four fundamental value types that map directly to Factorio circuit concepts.
+
+### Integer (`int`)
+
+Plain integer values used for constants and direct computations.
 
 ```fcdsl
-program ::= statement*
-
-statement ::= decl_stmt ";"
-            | assign_stmt ";"
-            | expr_stmt ";"
-            | return_stmt ";"
-            | import_stmt ";"
-            | func_decl
+int count = 42;
+int threshold = count + 10;
 ```
+
+Integers are **not** signals and cannot flow through circuit networks. Use them for compile-time constants or intermediate calculations that will be folded into signal literals.
+
+### Signal (`Signal`)
+
+Single-channel Factorio signals carrying both a **type** (iron-plate, signal-A) and a **value** (integer count).
+
+#### Explicit Signal Types
+
+```fcdsl
+Signal iron = ("iron-plate", 100);      # Item signal
+Signal virtual = ("signal-A", 42);      # Virtual signal
+Signal water = ("water", 1000);         # Fluid signal
+```
+
+#### Implicit Signal Types
+
+When you don't specify a type, the compiler allocates a virtual signal:
+
+```fcdsl
+Signal implicit = 5;  # Compiler assigns __v1 → signal-A
+Signal another = 10;  # Compiler assigns __v2 → signal-B
+```
+
+The compiler maps `__v1`, `__v2`, etc. to Factorio's virtual signals `signal-A` through `signal-Z`.
+
+#### Constant Folding in Literals
+
+Signal literals can contain arithmetic expressions that are evaluated at compile time:
+
+```fcdsl
+Signal step = ("signal-A", 5 * 2 - 9);  # Compiles to ("signal-A", 1)
+Signal threshold = ("iron-plate", 100 / 2 + 50);  # Compiles to ("iron-plate", 100)
+```
+
+### Memory (`Memory`)
+
+Stateful storage cells that persist values across game ticks using SR latch circuits.
+
+```fcdsl
+Memory counter: "signal-A";             # Explicit type
+Memory buffer: "iron-plate" = 0;        # Explicit type with initialization
+Memory state;                           # Implicit type (inferred from first write)
+```
+
+#### Type Inference
+
+If you don't specify a type, the compiler infers it from the first `write()`:
+
+```fcdsl
+Memory accumulator;  # Type unknown
+
+Signal iron = ("iron-plate", 50);
+write(iron, accumulator);  # Now accumulator stores iron-plate signals
+```
+
+**Warning:** All writes to a memory cell must use the same signal type. Mixed types will generate warnings (or errors in `--strict` mode).
+
+### Entity (`Entity`)
+
+References to placed Factorio entities that can be controlled via circuit networks.
+
+```fcdsl
+Entity lamp = place("small-lamp", 5, 0);
+Entity train_stop = place("train-stop", 10, 5);
+```
+
+Entities expose **properties** that can be read from or written to using circuit signals.
+
+---
+
+## Expressions
+
+### Signal Literals
+
+#### Typed Literals
+
+```fcdsl
+Signal iron = ("iron-plate", 100);
+Signal copper = ("copper-plate", 50);
+Signal flag = ("signal-A", 1);
+```
+
+#### Untyped Literals (Implicit Allocation)
+
+```fcdsl
+Signal x = 5;   # Compiler allocates __v1 → signal-A
+Signal y = 10;  # Compiler allocates __v2 → signal-B
+```
+
+### Arithmetic Operations
+
+```fcdsl
+Signal sum = a + b;
+Signal diff = a - b;
+Signal product = a * 2;
+Signal quotient = a / 3;
+Signal remainder = a % 10;
+```
+
+#### Type Inference Rules
+
+**Int + Int = Int**
+```fcdsl
+int x = 5 + 3;  # Result: 8 (integer)
+```
+
+**Signal + Int = Signal** (integer coerced to signal type)
+```fcdsl
+Signal iron = ("iron-plate", 100);
+Signal more = iron + 50;  # Result: iron-plate signal with value 150
+# Warning: Mixed types in binary operation
+```
+
+**Signal + Signal = Signal** (left operand type wins)
+```fcdsl
+Signal iron = ("iron-plate", 100);
+Signal copper = ("copper-plate", 50);
+Signal mixed = iron + copper;  # Result: iron-plate signal with value 150
+# Warning: Mixed signal types in binary operation
+```
+
+To avoid warnings, use explicit projections:
+
+```fcdsl
+Signal aligned = (copper | "iron-plate") + iron;  # Both iron-plate
+```
+
+### Comparison Operations
+
+All comparison operators return signals:
+
+```fcdsl
+Signal is_greater = iron > 100;     # Returns signal (1 if true, 0 if false)
+Signal is_equal = count == 50;      # Returns signal
+Signal in_range = (x >= 10) && (x <= 100);
+```
+
+The result inherits the signal type from the left operand, or uses a virtual signal if comparing integers.
+
+### Logical Operations
+
+```fcdsl
+Signal both = (a > 0) && (b > 0);   # AND: a * b
+Signal either = (a > 0) || (b > 0); # OR: (a + b) > 0
+Signal not_zero = !(x == 0);        # NOT: x == 0 ? 0 : 1
+```
+
+Logical operations are compiled to arithmetic combinators for efficiency.
+
+### Projection Operator (`|`)
+
+The projection operator **casts** a signal to a different channel:
+
+```fcdsl
+Signal iron = ("iron-plate", 100);
+Signal as_copper = iron | "copper-plate";  # Now a copper-plate signal
+Signal as_virtual = iron | "signal-A";     # Now a virtual signal
+```
+
+#### Same-Type Projections (No-Op)
+
+```fcdsl
+Signal iron = ("iron-plate", 100);
+Signal same = iron | "iron-plate";  # No-op; compiler optimizes away
+```
+
+#### Channel Aggregation
+
+To sum signals across different channels onto one channel:
+
+```fcdsl
+Signal iron = ("iron-plate", 100);
+Signal copper = ("copper-plate", 80);
+Signal coal = ("coal", 50);
+
+# Aggregate onto signal-total channel
+Signal total = (iron | "signal-total")
+             + (copper | "signal-total")
+             + (coal | "signal-total");
+```
+
+This pattern creates a single combinator that outputs `signal-total` with value 230.
+
+---
+
+## Statements
 
 ### Variable Declarations
 
 ```fcdsl
-decl_stmt ::= type_name NAME "=" expr
-mem_decl ::= ("Memory" | "mem") NAME [":" STRING]
-
-type_name ::= "int" | "Signal" | "SignalType" | "Entity"
+int count = 42;
+Signal iron = ("iron-plate", 100);
+Entity lamp = place("small-lamp", 0, 0);
+Memory counter: "signal-A" = 0;
 ```
 
-**Examples:**
-```fcdsl
-Signal iron = ("iron-plate", 100);       # Signal with explicit type
-Signal virtual = ("signal-A", 42);       # Virtual signal
-Signal implicit = 5;                     # Signal with implicit type
-int count = 42;                          # Integer variable
-Entity lamp = place("small-lamp", 5, 0); # Entity placement
-Memory counter: "iron-plate";            # Memory declaration (explicit type)
-write(("iron-plate", 0), counter, when=once);  # Optional one-shot initialization
-```
+All variables are **immutable** except memories (which are stateful by nature).
 
-### Assignment Statements
+### Assignments
 
 ```fcdsl
-assign_stmt ::= lvalue "=" expr
-lvalue ::= NAME ("." NAME)?
-```
-
-**Examples:**
-```fcdsl
-x = y + 5;              # Variable assignment
+x = y + 5;              # Variable reassignment
 lamp.enable = count > 0; # Property assignment
 ```
 
+**Note:** Variable reassignment creates a new signal in the IR; it doesn't mutate the original. Think of it as creating an alias.
+
 ### Expression Statements
 
+Any expression can be a statement for side effects:
+
 ```fcdsl
-expr_stmt ::= expr
+write(value, memory);  # Memory write side effect
+place("lamp", 5, 0);   # Entity placement side effect
 ```
 
-Any expression can be used as a statement for side effects.
+### Return Statements
 
-### Function Declarations
+Used in functions to specify return values:
 
 ```fcdsl
-func_decl ::= "func" NAME "(" [param_list] ")" "{" statement* "}"
-param_list ::= NAME ("," NAME)*
-```
-
-**Example:**
-```fcdsl
-func double_signal(x) {
+func double(x) {
     return x * 2;
 }
 ```
@@ -168,390 +393,256 @@ func double_signal(x) {
 ### Import Statements
 
 ```fcdsl
-import_stmt ::= "import" STRING ["as" NAME]
-```
-
-**Examples:**
-```fcdsl
 import "stdlib/memory_utils.fcdsl";
 import "modules/production.fcdsl" as prod;
 ```
 
-### Expression Precedence
-
-From highest to lowest precedence:
-
-1. **Primary**: literals, identifiers, function calls, parentheses
-2. **Unary**: `+`, `-`, `!`
-3. **Multiplicative**: `*`, `/`, `%`
-4. **Additive**: `+`, `-`
-5. **Projection**: `|`
-6. **Comparison**: `==`, `!=`, `<`, `<=`, `>`, `>=`
-7. **Logical**: `&&`, `||`
-
-**Example:**
-```fcdsl
-Signal result = a + b * 2 | "iron-plate";
-# Evaluates as: (a + (b * 2)) | "iron-plate"
-```
+Imports use **C-style preprocessing**: the imported file's content is inlined before parsing. Circular imports are detected and skipped.
 
 ---
 
-## Type System
+## Memory System
 
-### Value Types
-
-The DSL has four fundamental value types:
-
-#### 1. Integer (`int`)
-
-Plain integer values for constants and calculations.
-
-```fcdsl
-int count = 42;
-int result = count + 10;
-```
-
-#### 2. Signal (`Signal`)
-
-Single-channel Factorio signals with explicit or implicit types.
-
-```fcdsl
-Signal iron = ("iron-plate", 100);      # Explicit signal type
-Signal virtual = ("signal-A", 42);      # Virtual signal
-Signal implicit = 5;                    # Implicit type allocation
-```
-
-#### 3. Memory (`Memory`)
-
-Stateful memory cells that can store and retrieve values.
-
-```fcdsl
-Memory counter: "iron-plate";          # Memory declaration with explicit type
-Memory accumulator: "signal-A";
-write(("iron-plate", 0), counter, when=once);  # Optional one-shot seed
-write(iron, accumulator, when=once);    # Initialize from existing signal
-```
-
-#### 4. Entity (`Entity`)
-
-References to placed Factorio entities that can be controlled.
-
-```fcdsl
-Entity lamp = place("small-lamp", 5, 0);
-lamp.enable = 1;                        # Control entity properties
-```
-
-### Signal Type System
-
-**Explicit Types**: User-specified signal types
-- Item signals: `"iron-plate"`, `"copper-ore"`, etc.
-- Virtual signals: `"signal-A"`, `"signal-0"`, etc.
-- Fluid signals: `"crude-oil"`, `"water"`, etc.
-
-**Implicit Types**: Compiler-allocated virtual signals
-- Format: `"__v1"`, `"__v2"`, `"__v3"`, etc.
-- Assigned when type not specified in signal literals
-
-### Type Inference Rules
-
-#### Binary Arithmetic Operations
-
-1. **Int + Int = Int**
-   ```fcdsl
-   int result = 5 + 3;  # result: int
-   ```
-
-2. **Signal + Int = Signal** (integer coerced to signal type)
-   ```fcdsl
-   Signal result = iron + 10;  # result: iron-plate signal
-   # Warning: Mixed types in binary operation
-   ```
-
-3. **Signal + Signal = Signal** (left operand type wins)
-   ```fcdsl
-   Signal result = iron + copper;  # result: iron-plate signal
-   # Warning: Mixed signal types in binary operation
-   ```
-
-#### Comparison Operations
-
-All comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`) return Signal values with the same type as their operands.
-
-```fcdsl
-Signal is_greater = iron > 10;  # Result: Signal with iron-plate type
-Signal is_equal = virtual == 42; # Result: Signal with signal-A type
-```
-
-### Strict Type Checking
-
-When `--strict` mode is enabled, type warnings become errors:
-
-```bash
-# Normal mode: warnings
-python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl
-
-# Strict mode: errors
-python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --strict
-```
-
----
-
-## Built-in Functions
-
-### Signal Literals
-
-Create signals with explicit or implicit types.
-
-**Syntax:**
-```fcdsl
-(type, value)           # Explicit type specification
-value                   # Implicit type allocation
-```
-
-**Examples:**
-```fcdsl
-Signal iron = ("iron-plate", 100);      # Explicit type
-Signal virtual = ("signal-A", 42);      # Virtual signal
-Signal implicit = 5;                    # Implicit type (__v1)
-Signal bus_iron = ("iron-plate", 0);    # Placeholder for external wiring
-```
-
-**Parameters:**
-- `type`: String literal specifying signal type
-- `value`: Integer value for the signal
-
-**Returns:** Signal value
-
-> **External Inputs:** Declare a signal with the desired type (as above) to document expected bus connections. The compiler no longer inserts pass-through combinators—when the blueprint is imported into Factorio, wire the named signal to the appropriate networks manually.
-
-### `place(entity_type, x, y, [properties])`
-
-Places entities in the blueprint at specified coordinates. An optional fourth argument lets you provide a dictionary of static prototype properties that will be applied immediately after creation.
-
-**Syntax:**
-```fcdsl
-place(entity_type, x, y)
-place(entity_type, x, y, {property: value, ...})
-```
-
-**Examples:**
-```fcdsl
-Entity lamp = place("small-lamp", 5, 0);
-Entity train_stop = place("train-stop", 10, 5, {station: "Central Station"});
-Entity assembler = place("assembling-machine-1", 0, 10);
-```
-
-**Parameters:**
-- `entity_type`: String literal entity prototype name
-- `x`, `y`: Integer coordinates (can be signal expressions for dynamic positioning)
-- `properties` (optional): Dictionary literal whose keys are property names and whose values are compile-time integers or strings. Values are written directly to the underlying Draftsman entity via `setattr`, so they must match the expected Python scalar types (for example, strings for names, integers for numeric configuration).
-
-**Returns:** Entity reference for property access
-
-**Notes:**
-- Properties that require booleans or richer structures (such as lamp `color`) must be configured after placement using dedicated DSL statements or future extensions; the dictionary currently supports only scalar int/string literals.
-- Dynamic, signal-driven properties should be configured via property assignments (e.g., `lamp.enable = condition`) after placement.
-
----
-
-## Memory Operations
-
-The DSL models state with compact SR latch circuits composed of a **write gate** and a **hold gate**. Each memory cell reserves the virtual signal `signal-W` for write enables; this channel must not be used for user data.
+Memory in the DSL models **persistent state** using SR latch circuits. Each memory cell occupies two decider combinators (a write gate and a hold gate) and reserves the `signal-W` virtual signal for write enables.
 
 ### Memory Declaration
 
 ```fcdsl
-Memory name: "signal-type";
+Memory counter: "signal-A";              # Explicit type
+Memory buffer: "iron-plate" = 0;         # Explicit type with inline init
+Memory state;                            # Implicit type
 ```
 
-**Examples:**
+#### Inline Initialization
+
+The cleanest way to initialize memory:
 
 ```fcdsl
-Memory counter: "iron-plate";
-Memory state: "signal-A";
-Memory accumulator: "copper-plate";
+Memory counter: "signal-A" = 0;
 ```
 
-Each memory cell stores exactly one Factorio signal type. The declaration's string literal must be a valid signal identifier (item, fluid, virtual, etc.). Inline initializers remain unsupported—newly declared cells start empty until their first write.
+This compiles to a one-shot write that executes on the first tick.
 
-For backward compatibility the type suffix may be omitted:
+#### Legacy Initialization with `when=once`
 
 ```fcdsl
-Memory counter;
-Signal a = ("iron-plate", 10);
-write(a, counter);
+Memory counter: "signal-A";
+write(("signal-A", 0), counter, when=once);
 ```
 
-If no type is specified, the compiler infers the memory's signal channel from the first `write()` call. Subsequent writes must reuse the inferred type; inconsistent writes raise warnings (or errors in strict mode). For clarity and future maintenance, explicit typing is strongly recommended.
+This is equivalent to inline initialization but more verbose.
 
-### Seeding Memory (`when=once`)
+### Memory Operations
 
-Use the special predicate `when=once` to perform one-time initialization writes:
+#### Reading Memory
 
-```fcdsl
-Memory counter: "iron-plate";
-write(("iron-plate", 0), counter, when=once);  # Runs exactly once at startup
-```
-
-Internally the compiler expands `when=once` into a hidden flag memory that fires a single write pulse. Each use of `when=once` is independent and does not interfere with other writes.
-
-### `read(memory_name)`
-
-Reads the current value stored in a memory cell.
-
-**Syntax:**
-```fcdsl
-read(memory_name)
-```
-
-**Examples:**
 ```fcdsl
 Signal current = read(counter);
-Signal total = read(accumulator);
 ```
 
-**Returns:** Signal with the memory's stored value.
+This connects to the memory's output (the hold gate in the SR latch).
 
-### `write(value_expr, memory_name, when=1)`
+#### Writing Memory
 
-Writes `value_expr` into `memory_name` whenever the optional `when` predicate is non-zero. If `when` is omitted, the compiler emits a constant enable on `signal-W` so the write always occurs.
-
-**Syntax:**
 ```fcdsl
 write(value_expr, memory_name, when=enable_signal);
 ```
 
-**Examples:**
-```fcdsl
-write(read(counter) + 1, counter);                # Increment counter every tick
-write(total + ("iron-plate", 10), accumulator);   # Add to accumulator
-
-# Conditional writes
-Signal should_update = condition > 0;
-Signal new_value = read(state) + should_update;
-write(new_value, state, when=should_update);
-
-# Disable writes explicitly
-write(signal, buffer, when=0);                    # Emits the wiring but latches nothing
-```
-
 **Parameters:**
-- `value_expr`: Expression to store in the memory cell when enabled.
-- `memory_name`: Name of the declared memory target.
-- `when` *(optional)*: Signal expression that gates the write (treated as true when `> 0`). Use the literal `once` to request a one-shot initialization pulse.
+- `value_expr`: Expression to store (must match memory's signal type)
+- `memory_name`: Target memory cell
+- `when` (optional): Signal controlling the write (default: `1` = always write)
 
-### Memory Usage Patterns
+**Examples:**
 
-#### Counter
 ```fcdsl
-Memory counter: "signal-A";
+# Unconditional write (every tick)
+write(read(counter) + 1, counter);
+
+# Conditional write
+Signal should_update = input > threshold;
+write(new_value, buffer, when=should_update);
+
+# One-shot write (legacy syntax)
 write(("signal-A", 0), counter, when=once);
-write(read(counter) + ("signal-A", 1), counter);
 ```
 
-#### Accumulator with Reset
+#### Write Enable Semantics
+
+The `when` parameter controls the `signal-W` write enable:
+
+- **When > 0**: Write occurs, value is latched
+- **When == 0**: Write blocked, previous value held
+
+If omitted, `when=1` (constant enable) is assumed.
+
+### Memory Implementation Details
+
+#### SR Latch Architecture (Standard)
+
+For conditional writes, the compiler generates an SR latch:
+
+```
+Write Gate: if (signal-W > 0) then output = data_signal
+Hold Gate:  if (signal-W == 0) then output = previous_value
+```
+
+The two gates' outputs are wired together on red wire, creating the feedback loop.
+
+#### Arithmetic Feedback Optimization
+
+For **unconditional writes** that read the same memory:
+
 ```fcdsl
-Memory total: "iron-plate";
-write(("iron-plate", 0), total, when=once);
-
-Signal input_val = ("iron-plate", 10);
-Signal reset = ("signal-R", 1);
-Signal new_total = (read(total) + input_val) * (1 - reset);
-write(new_total, total, when=1 - reset);
+Memory counter: "signal-A" = 0;
+write(read(counter) + 1, counter);  # Always-on counter
 ```
 
-#### State Machine
+The compiler optimizes this to a **single arithmetic combinator** with self-feedback instead of the two-decider SR latch. This saves space and reduces tick delay.
+
+**When This Applies:**
+- `when=1` or omitted (unconditional write)
+- Value expression reads from the same memory
+- No complex conditions
+
+**Result:** One arithmetic combinator with red self-feedback wire instead of two deciders.
+
+#### Single-Gate Memory Optimization
+
+For simple always-write patterns that don't read from the memory:
+
 ```fcdsl
-Memory state: "signal-S";
-write(("signal-S", 0), state, when=once);
-
-Signal current = read(state);
-Signal next = (current + 1) % 4;  # 4-state cycle
-write(next, state);
+Memory buffer: "iron-plate" = 0;
+write(input_signal, buffer);
 ```
 
-#### Advanced Memory Patterns
+The compiler may optimize to a single decider with self-feedback.
 
-The repository includes `tests/sample_programs/04_memory_advanced.fcdsl`, which demonstrates:
+### Reserved Signals
 
-- storing item, fluid, and virtual signals in dedicated memory cells
-- building conditional write expressions that preserve the previous value when a guard is false
-- constructing state machines and swapping stored values using projection
+**CRITICAL:** The `signal-W` virtual signal is **reserved** for memory write enables. Never use `signal-W` for user data:
 
-Use it as a reference when wiring more sophisticated SR latch workflows.
+```fcdsl
+Signal bad = ("signal-W", 5);  # COMPILE ERROR
+Signal ok = ("signal-A", 5);   # OK
+```
 
-> **Note:** The compiler materializes the write enable on `signal-W`. Attempting to project or declare user signals on `signal-W` results in a compile-time error.
+The compiler enforces this at compile time.
 
 ---
 
 ## Entity System
 
+Entities represent physical Factorio structures placed in the blueprint. The DSL lets you place entities and control them via circuit networks.
+
 ### Entity Placement
 
-Entities are placed using the `place()` function and can have their properties controlled via signals.
+```fcdsl
+Entity entity_name = place(prototype, x, y, [properties]);
+```
+
+**Parameters:**
+- `prototype`: String literal entity name (e.g., `"small-lamp"`)
+- `x`, `y`: Integer coordinates or signal expressions
+- `properties` (optional): Dictionary of static prototype properties
+
+**Examples:**
+
+```fcdsl
+Entity lamp = place("small-lamp", 5, 0);
+Entity train_stop = place("train-stop", 10, 5, {station: "Iron Pickup"});
+Entity assembler = place("assembling-machine-1", 0, 10);
+```
+
+#### Static vs Dynamic Properties
+
+**Static properties** (in the dictionary) are applied at entity creation:
+
+```fcdsl
+Entity station = place("train-stop", 10, 5, {
+    station: "Central Depot",
+    color: {r: 1, g: 0, b: 0}
+});
+```
+
+**Dynamic properties** (via circuit signals) are controlled after placement:
+
+```fcdsl
+Entity lamp = place("small-lamp", 5, 0);
+lamp.enable = signal > 0;  # Circuit control
+```
 
 ### Property Access
 
-**Reading Properties:**
+#### Writing Properties
+
 ```fcdsl
-Signal lamp_status = lamp.enable;      # Read current state
+lamp.enable = signal > 0;         # Circuit-controlled enable
+train_stop.manual_mode = 1;       # Constant value
+assembler.enable = production_flag;
 ```
 
-**Writing Properties:**
+The compiler translates property assignments into Factorio circuit conditions.
+
+#### Reading Properties
+
 ```fcdsl
-lamp.enable = signal > 0;              # Set enable based on signal
-train_stop.manual_mode = 1;            # Set manual mode
+Signal lamp_status = lamp.enable;  # Read entity state
 ```
+
+Property reads create signals that track the entity's current state.
+
+### Inline Comparison Optimization
+
+For simple comparisons, the compiler **inlines** them into the entity's circuit condition:
+
+```fcdsl
+Entity lamp = place("small-lamp", 5, 0);
+lamp.enable = count > 10;
+```
+
+Instead of creating a separate decider combinator, the compiler configures the lamp's built-in circuit condition to `count > 10`. This saves combinators and reduces tick delay.
+
+**When This Applies:**
+- Property is `enable`
+- Value is a simple comparison (`signal OP constant`)
+- Comparison isn't used elsewhere
 
 ### Common Entity Properties
 
-#### Lamps (`small-lamp`)
-- `enable`: Enable/disable lamp (0/1)
-
-#### Train Stops (`train-stop`)
-- `manual_mode`: Manual train control (0/1)
-- `enable`: Enable/disable station (0/1)
-
-#### Assembling Machines
-- `enable`: Enable/disable production (0/1)
-- `recipe`: Set production recipe (signal-based)
-
-#### Inserters
-- `enable`: Enable/disable inserter (0/1)
-- `stack_size`: Override stack size
-
-### Entity Control Patterns
-
-#### Blinking Lamps
+#### Lamps
 ```fcdsl
-Memory counter;
-write(0, counter, when=once);
-write(read(counter) + 1, counter);
-Signal blink = read(counter) % 10;
-
-Entity lamp1 = place("small-lamp", 0, 0);
-Entity lamp2 = place("small-lamp", 2, 0);
-
-lamp1.enable = blink < 5;
-lamp2.enable = blink >= 5;
+lamp.enable = condition;  # Turn on/off
 ```
 
-#### Production Control
+#### Train Stops
 ```fcdsl
-Signal demand = ("signal-demand", 100);
-Signal supply = ("signal-supply", 80);
-Signal shortage = demand - supply;
+train_stop.manual_mode = 1;        # Enable/disable trains
+train_stop.enable = condition;      # Enable/disable station
+train_stop.read_from_train = 1;     # Read train contents
+train_stop.send_to_train = 1;       # Send signals to train
+```
 
-Entity assembler = place("assembling-machine-1", 5, 0);
-assembler.enable = shortage > 0;
+#### Assembling Machines
+```fcdsl
+assembler.enable = condition;       # Enable/disable production
+```
+
+#### Inserters
+```fcdsl
+inserter.enable = condition;        # Enable/disable
+```
+
+#### Belts
+```fcdsl
+belt.enable = condition;            # Enable/disable belt movement
 ```
 
 ---
 
 ## Functions and Modules
 
-### Function Definition
+### Function Declarations
 
 ```fcdsl
 func function_name(param1, param2, ...) {
@@ -560,514 +651,700 @@ func function_name(param1, param2, ...) {
 }
 ```
 
-### Function Parameters
-
-Parameters are untyped and take on the types of passed arguments:
+**Example:**
 
 ```fcdsl
-func double_signal(x) {
+func clamp(value, min_val, max_val) {
+    Signal too_low = value < min_val;
+    Signal too_high = value > max_val;
+    Signal result = too_low * min_val 
+                  + too_high * max_val 
+                  + (!too_low && !too_high) * value;
+    return result;
+}
+```
+
+### Function Inlining
+
+**IMPORTANT:** Functions are **always inlined** at call sites. They don't create reusable circuit modules; they're templates for code generation.
+
+```fcdsl
+Signal x = clamp(input, 0, 100);
+Signal y = clamp(other, 10, 50);
+```
+
+This generates **two separate** copies of the clamping logic in the IR.
+
+### Parameter Types
+
+Parameters are **untyped** and take the type of the passed argument:
+
+```fcdsl
+func double(x) {
     return x * 2;
 }
 
-Signal doubled_iron = double_signal(iron);     # x becomes iron-plate signal
-Signal doubled_virtual = double_signal(virt);  # x becomes virtual signal
-```
+Signal a = ("iron-plate", 50);
+Signal b = ("signal-A", 10);
 
-### Function Return Values
-
-Functions can return any expression type:
-
-```fcdsl
-func calculate_need(demand, supply, buffer) {
-    Signal shortfall = demand - supply;
-    Signal buffered = shortfall + buffer;
-    return buffered * (buffered > 0);  # Only positive values
-}
+Signal doubled_iron = double(a);    # x is iron-plate
+Signal doubled_virtual = double(b); # x is signal-A
 ```
 
 ### Local Variables
 
-Variables declared inside functions are local to that function:
+Variables declared in functions are local to that scope:
 
 ```fcdsl
-func complex_calculation(input_val) {
-    Signal intermediate = input_val * 2;  # Local variable
-    Signal result = intermediate + 10;
+func compute(input) {
+    Signal temp = input * 2;  # Local to function
+    Signal result = temp + 10;
     return result;
 }
 ```
 
 ### Memory in Functions
 
-Functions can declare and use local memory:
+Functions can declare local memory, but remember each call site gets its own copy:
 
 ```fcdsl
-func toggle_generator() {
-    Memory state: "signal-S";
-    write(("signal-S", 0), state, when=once);
-    Signal current = read(state);
-    Signal new_state = ("signal-S", 1) - current;  # Toggle between 0 and 1
-    write(new_state, state);
-    return new_state;
+func counter() {
+    Memory count: "signal-C" = 0;
+    write(read(count) + 1, count);
+    return read(count);
 }
-```
 
-### Function Call Examples
-
-```fcdsl
-# Simple calls
-Signal result = double_signal(42);
-
-# Nested calls
-Signal complex = calculate_need(
-    ("demand", 100),
-    ("supply", 80),
-    10
-);
-
-# Using in expressions
-Signal output = double_signal(iron) + calculate_need(a, b, 5);
+Signal count1 = counter();  # Separate memory instance
+Signal count2 = counter();  # Another separate instance
 ```
 
 ### Module System
 
-**Import Statements:**
+Import statements use **C-style preprocessing**:
+
 ```fcdsl
 import "stdlib/memory_utils.fcdsl";
-import "modules/production.fcdsl" as prod;
+
+# Functions from memory_utils.fcdsl are now available
+Signal delayed = delay_signal(input, 10);
 ```
 
-**Using Imported Functions:**
+**How It Works:**
+1. Parser reads import statement
+2. Finds the file relative to current file's directory
+3. Inlines the entire file's content
+4. Continues parsing
+
+**Circular Import Protection:** If a file is imported twice, the second import is skipped with a comment.
+
+---
+
+## Compilation Model
+
+### Compilation Stages
+
+```
+1. Preprocessing → Inline imports (C-style)
+2. Parsing → Generate AST from source
+3. Semantic Analysis → Type inference, validation
+4. IR Generation → Lower AST to intermediate representation
+5. Optimization → CSE, constant folding, memory optimization
+6. Layout Planning → Assign entity positions, plan wire routing
+7. Blueprint Emission → Generate Factorio JSON
+```
+
+### Intermediate Representation (IR)
+
+The compiler generates IR nodes representing Factorio combinators:
+
+**Value-Producing Operations:**
+- `IR_Const`: Constant combinator
+- `IR_Arith`: Arithmetic combinator (+, -, *, /, %)
+- `IR_Decider`: Decider combinator (comparisons)
+- `IR_WireMerge`: Virtual node for wire-only merging
+- `IR_MemRead`: Memory read operation
+- `IR_EntityPropRead`: Entity property read
+
+**Effect Operations:**
+- `IR_MemCreate`: Memory cell creation
+- `IR_MemWrite`: Memory write operation
+- `IR_PlaceEntity`: Entity placement
+- `IR_EntityPropWrite`: Entity property assignment
+
+### Signal Type Mapping
+
+The compiler maintains a **signal type registry** that maps DSL signal identifiers to Factorio signal names:
+
+```
+__v1 → signal-A (virtual)
+__v2 → signal-B (virtual)
+iron-plate → iron-plate (item)
+water → water (fluid)
+```
+
+This mapping is exported in debug metadata for troubleshooting.
+
+---
+
+## Circuit Network Integration
+
+### How DSL Maps to Factorio
+
+#### Signal Types
+
+Factorio recognizes several signal categories:
+
+**Virtual Signals:** `signal-A`, `signal-B`, ..., `signal-Z`, `signal-0`, ..., `signal-9`, `signal-everything`, `signal-anything`, `signal-each`
+
+**Item Signals:** `iron-plate`, `copper-plate`, `electronic-circuit`, etc.
+
+**Fluid Signals:** `water`, `crude-oil`, `petroleum-gas`, `steam`, etc.
+
+**Recipe Signals:** Correspond to crafting recipes
+
+**Entity Signals:** Correspond to entity prototypes
+
+The DSL respects these categories and validates signal names against the Factorio database (via Draftsman).
+
+#### Wire Colors
+
+Factorio has two circuit wire colors: **red** and **green**.
+
+The compiler's **wire router** automatically assigns colors to avoid conflicts when multiple sources produce the same signal type to the same destination.
+
+**Example of Conflict:**
+
 ```fcdsl
-Signal smoothed = smooth_filter(input_signal, 5);
-Signal delayed = delay_signal(processed, 10);
-Signal controlled = prod.production_controller(demand, supply, 100);
+Signal a = ("signal-A", 10);
+Signal b = ("signal-A", 20);
+Signal c = a + b;  # c sees 30
+```
+
+If both `a` and `b` feed into the same combinator on the same wire color, they'd merge. The compiler detects this and assigns different colors (red for `a`, green for `b`) to keep them separate.
+
+#### Combinator Types
+
+**Arithmetic Combinator:**
+```
+left_operand OPERATION right_operand → output_signal
+```
+
+**Decider Combinator:**
+```
+if (left_operand COMPARISON right_operand)
+then output_signal = output_value
+```
+
+**Constant Combinator:**
+```
+output_signal = constant_value
+```
+
+### Edge Layout Conventions
+
+The compiler uses spatial conventions for blueprint organization:
+
+**North Edge (Y < 0):** Constant combinators for literals  
+**South Edge (Y > 0):** Export anchors for dangling outputs  
+**Center (Y ≈ 0):** Logic combinators (arithmetic, deciders, memory)
+
+This creates visually organized blueprints where inputs are at the top and outputs at the bottom.
+
+### Wire Routing and Relays
+
+Factorio circuit wires have a **maximum span of 9 tiles**. For connections exceeding this distance, the compiler automatically inserts **medium electric poles** as relay points.
+
+**Relay Insertion Algorithm:**
+1. Calculate distance between source and sink
+2. If distance > 9 tiles, compute intermediate relay positions
+3. Reserve positions in layout grid
+4. Insert poles and wire them in sequence
+
+This happens transparently; you never need to manually place relay poles.
+
+---
+
+## Optimization Passes
+
+The compiler applies several optimization passes to reduce entity count and improve performance.
+
+### Common Subexpression Elimination (CSE)
+
+Identical expressions are computed once and reused:
+
+```fcdsl
+Signal x = a + b;
+Signal y = a + b;  # Reuses x's combinator
+```
+
+The IR optimizer detects that both expressions are identical and makes `y` reference `x`'s output instead of creating a duplicate combinator.
+
+### Wire Merge Optimization
+
+When adding **simple sources** (constants, entity outputs, other wire merges) on the same channel, the compiler skips creating an arithmetic combinator and wires them directly:
+
+```fcdsl
+Signal iron_a = ("iron-plate", 100);  # Constant
+Signal iron_b = ("iron-plate", 200);  # Constant
+Signal iron_c = ("iron-plate", 50);   # Constant
+
+Signal total = iron_a + iron_b + iron_c;  # No combinator! Just wires.
+```
+
+**Requirements for Wire Merge:**
+- All operands are simple sources (constants, entity reads, or wire merges)
+- All operands have the same signal type
+- Operator is `+`
+- No operand is used twice (e.g., `a + a` still needs a combinator)
+
+### Constant Folding
+
+Arithmetic in signal literals is evaluated at compile time:
+
+```fcdsl
+Signal step = ("signal-A", 5 * 2 - 9);  # Becomes ("signal-A", 1)
+```
+
+### Projection Elimination
+
+Same-type projections are no-ops and are optimized away:
+
+```fcdsl
+Signal iron = ("iron-plate", 100);
+Signal same = iron | "iron-plate";  # No combinator generated
+```
+
+### Memory Optimization
+
+As described earlier, unconditional memory writes with feedback are optimized to single arithmetic combinators:
+
+```fcdsl
+Memory counter: "signal-A" = 0;
+write(read(counter) + 1, counter);  # Single arithmetic combinator
+```
+
+### Entity Property Inlining
+
+Simple comparisons in entity property assignments are compiled to circuit conditions instead of separate combinators:
+
+```fcdsl
+lamp.enable = count > 10;  # No decider; uses lamp's circuit condition
 ```
 
 ---
 
-## Projection and Type Coercion
+## Best Practices
 
-### Projection Operator (`|`)
+### Signal Type Management
 
-The projection operator `|` explicitly sets the output signal type of an expression.
-
-**Syntax:**
+**DO:**
 ```fcdsl
-expression | "target_type"
+Signal iron = ("iron-plate", 100);        # Explicit types for clarity
+Signal copper = ("copper-plate", 50);
+Signal total = (iron | "signal-total") 
+             + (copper | "signal-total");  # Aggregate with projections
 ```
 
-### Signal Projection
-
-Convert signals between types:
-
+**DON'T:**
 ```fcdsl
 Signal iron = ("iron-plate", 100);
-Signal converted = iron | "copper-plate";    # Convert to copper-plate signal
-Signal virtual = iron | "signal-A";          # Convert to virtual signal
+Signal copper = ("copper-plate", 50);
+Signal mixed = iron + copper;  # Warning: Mixed types, left wins
 ```
 
-### Channel Aggregation
+### Memory Usage
 
-To combine different channels, explicitly project each source into the desired output type and sum the projected values.
-
+**DO:**
 ```fcdsl
-Signal iron = ("iron-plate", 100);
-Signal copper = ("copper-plate", 80);
-Signal coal = ("coal", 50);
-
-# Aggregate totals
-Signal total_resources = (iron | "signal-output")
-                      + (copper | "signal-output")
-                      + (coal | "signal-output");
-
-# Extract specific channels via projection
-Signal iron_only = iron | "iron-plate";
-Signal water = (coal | "water");   # Missing projections default to 0
+Memory counter: "signal-A" = 0;  # Inline init is cleanest
+write(read(counter) + 1, counter);
 ```
 
-### Arithmetic with Projection
-
-Projection binds looser than arithmetic but tighter than comparisons:
-
+**DON'T:**
 ```fcdsl
-Signal result = a + b * 2 | "iron-plate";
-# Evaluates as: (a + (b * 2)) | "iron-plate"
-
-Signal comparison = (a + b | "iron-plate") > 10;
-# Projection evaluated first due to parentheses
+Memory counter;  # Implicit type is confusing
+write(value, counter);  # Hard to track what type counter uses
 ```
 
-### Type Coercion Rules
+### Function Design
 
-#### Implicit Coercion
-
-1. **Integer to Signal**: Integers are coerced to the signal's type in mixed operations
-   ```fcdsl
-   Signal result = iron + 10;  # 10 coerced to iron-plate type
-   ```
-
-2. **Left Operand Wins**: In mixed-signal operations, left operand's type is used
-   ```fcdsl
-   Signal result = iron + copper;  # Result has iron-plate type
-   ```
-
-#### Explicit Coercion
-
-Use projection to explicitly convert types:
-
+**DO:**
 ```fcdsl
-Signal iron_as_copper = iron | "copper-plate";
-Signal virtual_from_item = iron | "signal-A";
+func clamp(value, min_val, max_val) {
+    Signal result = (value < min_val) * min_val
+                  + (value > max_val) * max_val
+                  + ((value >= min_val) && (value <= max_val)) * value;
+    return result;
+}
 ```
 
-### Projection Use Cases
-
-#### Type Standardization
+**DON'T:**
 ```fcdsl
-Signal iron = ("iron-plate", 100);
-Signal copper = ("copper-plate", 80);
-
-# Standardize both to virtual signals for calculation
-Signal iron_virtual = iron | "signal-A";
-Signal copper_virtual = copper | "signal-B";
-Signal sum = iron_virtual + copper_virtual | "signal-output";
+func stateful_function(input) {
+    Memory state;  # Each call creates separate memory!
+    # ...
+}
 ```
 
-> Sample references: `tests/sample_programs/02_mixed_types.fcdsl` and `09_advanced_patterns.fcdsl` showcase projection-based aggregation patterns in full programs.
+### Entity Control
 
-## Compilation Model
-
-### Compilation Pipeline
-
-1. **Lexical Analysis**: Source → Tokens
-2. **Parsing**: Tokens → Abstract Syntax Tree (AST) 
-3. **Semantic Analysis**: Type inference, symbol resolution, validation
-4. **IR Generation**: AST → Intermediate Representation
-5. **Blueprint Emission**: IR → Factorio combinators and entities
-
-### Intermediate Representation (IR)
-
-The compiler generates IR operations that represent Factorio combinators:
-
-#### Value-Producing Operations
-- `IR_Const`: Constant combinator with fixed value
-- `IR_Arith`: Arithmetic combinator (+, -, *, /, %)
-- `IR_Decider`: Decider combinator with conditional logic
-- `IR_WireMerge`: Virtual node that merges multiple simple sources onto one signal wire
-
-#### Effect Operations
-- `IR_MemCreate`: Memory cell creation (SR latch circuit)
-- `IR_MemRead`: Memory read operation
-- `IR_MemWrite`: Memory write operation
-- `IR_PlaceEntity`: Entity placement in blueprint
-- `IR_EntityPropWrite`: Entity property assignment
-- `IR_EntityPropRead`: Entity property access
-
-### Blueprint Generation
-
-The emit module converts IR to Factorio blueprint JSON using the `factorio-draftsman` library:
-
-1. **Entity Creation**: Each IR operation becomes one or more Factorio entities
-2. **Signal Mapping**: DSL signal types mapped to Factorio signal names
-3. **Circuit Wiring**: Automatic wiring between combinators based on data flow
-4. **Layout**: Automatic entity positioning with collision avoidance
-5. **Validation**: Final blueprint validation and optimization
-
-#### Edge Layout Conventions
-
-- **North Edge (Literals)**: Every materialized literal constant occupies the `north_literals` zone. The compiler reserves a dedicated row along the top of the blueprint so these combinators line up visually by declaration order.
-- **South Edge (Export Anchors)**: Dangling outputs and explicitly exported signals receive zeroed constant combinators in the `south_exports` zone, forming a clean handoff row for external wiring.
-- **Blueprint Metadata**: Generated blueprints append a description note (`Edge layout: literal constants are placed along the north boundary; export anchors align along the south boundary.`) to remind importers of the spatial contract.
-- **Long-Span Wiring**: When edge placements would exceed Factorio's circuit wire reach, the emitter inserts medium electric poles as invisible relays to keep connections valid. Relay heuristics can be tuned through `WireRelayOptions` (Euclidean vs. Manhattan interpolation, relay caps, or full disable) when constructing the `BlueprintEmitter`.
-
-### Signal Type Resolution
-
-**Implicit Types**: Compiler allocates virtual signals (`__v1`, `__v2`, etc.)
-**Explicit Types**: User-specified types validated against Factorio signal database
-**Type Mapping**: Final signal mapping exported for debugging
-
-### Wire Merge Optimization
-
-The emitter can eliminate arithmetic combinators for addition chains when every
-operand is a *simple source* (constant combinator output, entity property read, or
-the result of an earlier wire merge) and all signals share the same channel.
-
+**DO:**
 ```fcdsl
-Signal iron_a = ("iron-plate", 100);
-Signal iron_b = ("iron-plate", 200);
-Signal iron_c = ("iron-plate", 50);
-
-Signal total = iron_a + iron_b + iron_c;  # wired together with no arithmetic entity
+Entity lamp = place("small-lamp", 5, 0);
+lamp.enable = count > threshold;  # Compiler inlines comparison
 ```
 
-The compiler verifies that:
+**DON'T:**
+```fcdsl
+Signal enable = count > threshold;  # Creates extra decider
+Entity lamp = place("small-lamp", 5, 0);
+lamp.enable = enable;
+```
 
-- The operator is `+` throughout the addition chain.
-- Each operand resolves to a unique simple source. Expressions such as `a + a`
-    still allocate a combinator so the doubled signal is preserved.
-- All operands agree on signal type (mixed-type additions fall back to arithmetic).
+### Projection Patterns
 
-When these conditions hold, the lowerer emits `IR_WireMerge` and the emitter wires
-all contributing sources directly to each consumer. No additional combinators are
-placed in the blueprint, reducing entity count and latency while preserving semantics.
+**DO:**
+```fcdsl
+# Aggregate onto one channel
+Signal total = (iron | "signal-T") + (copper | "signal-T");
 
-### Memory Implementation
+# Extract specific channel (explicit)
+Signal iron_only = total | "iron-plate";
+```
 
-1. **Creation**: `IR_MemCreate` places the write and hold deciders with no stored value; the cell remains empty until the first write occurs.
-2. **Reading**: `IR_MemRead` exposes the latched output on the red feedback loop for downstream combinators.
-3. **Writing**: `IR_MemWrite` drives the module with the requested data value and a `signal-W` enable line; when the enable is zero the latch preserves its previous state.
-
-- **Typed Outputs**: The latch projects onto the declared memory channel instead of relying on `signal-everything`, improving compatibility with typed pipelines.
-- **Safe Initialization**: Seeding is expressed explicitly through `write(..., when=once)` or other user-provided conditions that pulse `signal-W` for the desired tick.
+**DON'T:**
+```fcdsl
+Signal mixed = iron + copper;  # Loses copper's type
+Signal extracted = mixed | "copper-plate";  # Can't recover lost info
+```
 
 ---
 
 ## Examples
 
-### Basic Arithmetic Circuit
+### Basic Counter
 
 ```fcdsl
-# Input signals (connect these to your bus after import)
-Signal iron = ("iron-plate", 0);
-Signal copper = ("copper-plate", 0);
+Memory counter: "signal-A" = 0;
+write(read(counter) + 1, counter);
 
-# Calculations
-Signal total = iron + copper;
-Signal doubled = total * 2;
-Signal remainder = doubled % 100;
-
-# Output with explicit type
-Signal output = remainder | "signal-output";
+Signal output = read(counter) | "signal-output";
 ```
 
-**Generated Blueprint**: Constant combinators for inputs, arithmetic combinators for calculations.
-
-### Memory-Based Counter
+### Blinking Lamps
 
 ```fcdsl
-# Counter that increments every tick
-mem counter = memory(0);
-Signal current = read(counter);
-write(current + 1, counter);
+Memory tick: "signal-T" = 0;
+write(read(tick) + 1, tick);
 
-# Output current count
-Signal count_output = current | "signal-count";
+Signal pattern = read(tick) % 20;
+
+Entity lamp1 = place("small-lamp", 0, 0);
+Entity lamp2 = place("small-lamp", 2, 0);
+
+lamp1.enable = pattern < 10;
+lamp2.enable = pattern >= 10;
 ```
 
-**Generated Blueprint**: SR latch circuit for memory, arithmetic combinator for increment.
-
-### Entity Control System
+### Production Controller
 
 ```fcdsl
-# Inputs (wire these channels from your factory bus)
-Signal production_demand = ("signal-demand", 0);
-Signal current_supply = ("signal-supply", 0);
+# Inputs (wire these signals from your factory)
+Signal demand = ("signal-demand", 0);
+Signal supply = ("signal-supply", 0);
 
-# Logic
-Signal shortage = production_demand - current_supply;
+# Calculate shortage
+Signal shortage = demand - supply;
 Signal should_produce = shortage > 0;
 
-# Entity control
-Entity assembler1 = place("assembling-machine-1", 10, 0);
-Entity assembler2 = place("assembling-machine-1", 15, 0);
+# Control assemblers
+Entity assembler1 = place("assembling-machine-1", 0, 0);
+Entity assembler2 = place("assembling-machine-1", 3, 0);
 
 assembler1.enable = should_produce;
-assembler2.enable = shortage > 50;  # Only enable second assembler for high demand
-
-# Status lamp
-Entity status_lamp = place("small-lamp", 20, 0);
-status_lamp.enable = should_produce;
+assembler2.enable = shortage > 100;  # Second machine for high demand
 ```
 
-### Multi-Signal Processing
+### State Machine
 
 ```fcdsl
-# External feeds (wire these signals after import)
-Signal iron_feed = ("iron-ore", 0);
-Signal copper_feed = ("copper-ore", 0);
-Signal coal_feed = ("coal", 0);
+Memory state: "signal-S" = 0;
 
-# Process each channel explicitly via projection
-Signal iron_plates = (iron_feed | "iron-plate") * 2;
-Signal copper_plates = copper_feed | "copper-plate";
-Signal coal_passthrough = coal_feed | "coal";
+Signal current_state = read(state);
 
-# Aggregate totals
-Signal total_output = (iron_plates | "signal-total")
-                    + (copper_plates | "signal-total")
-                    + (coal_passthrough | "signal-total");
-```
+# Inputs (wire from factory)
+Signal start_signal = ("signal-start", 0);
+Signal stop_signal = ("signal-stop", 1);
+Signal error_signal = ("signal-error", 2);
 
-### State Machine Example
-
-```fcdsl
-# 4-state production controller
-mem production_state = memory(0);
-Signal current_state = read(production_state);
-
-# State transitions based on inputs (wire these channels externally)
-Signal iron_bus = ("iron-plate", 0);
-Signal copper_bus = ("copper-plate", 0);
-Signal iron_low = iron_bus < 100;
-Signal copper_low = copper_bus < 100;
-Signal both_ok = (!iron_low) && (!copper_low);
-
+# State transitions
 Signal next_state = 
-    (current_state == 0 && iron_low) * 1 +        # State 0→1: Need iron
-    (current_state == 0 && copper_low) * 2 +      # State 0→2: Need copper  
-    (current_state == 0 && both_ok) * 0 +         # State 0→0: All good
-    (current_state == 1 && !iron_low) * 0 +       # State 1→0: Iron restored
-    (current_state == 2 && !copper_low) * 0 +     # State 2→0: Copper restored
-    (current_state * ((current_state == 1 && iron_low) || (current_state == 2 && copper_low)));
+    (current_state == 0 && start_signal > 0) * 1 +      # Idle → Running
+    (current_state == 1 && stop_signal > 0) * 2 +       # Running → Stopped
+    (current_state == 1 && error_signal > 0) * 3 +      # Running → Error
+    (current_state == 2 && start_signal > 0) * 1 +      # Stopped → Running
+    (current_state == 3 && start_signal > 0) * 0 +      # Error → Idle
+    # Stay in current state if no transition matches
+    ((current_state == 0 && start_signal == 0) ||
+     (current_state == 1 && stop_signal == 0 && error_signal == 0) ||
+     (current_state == 2 && start_signal == 0) ||
+     (current_state == 3 && start_signal == 0)) * current_state;
 
-write(next_state, production_state);
+write(next_state, state);
 
-# Output based on state
-Signal iron_needed = (current_state == 1) * 100;
-Signal copper_needed = (current_state == 2) * 100;
+# Outputs based on state
+Signal running = (current_state == 1) | "signal-running";
+Signal stopped = (current_state == 2) | "signal-stopped";
+Signal error = (current_state == 3) | "signal-error";
 ```
 
-### Function-Based Design
+### Filter and Accumulator
 
 ```fcdsl
-# Utility functions
-func clamp(value, min_val, max_val) {
-    Signal clamped = value;
-    clamped = (clamped < min_val) * min_val + (clamped >= min_val) * clamped;
-    clamped = (clamped > max_val) * max_val + (clamped <= max_val) * clamped;
-    return clamped;
+func smooth_filter(input, window_size) {
+    Memory sum: "signal-sum" = 0;
+    Memory count: "signal-count" = 0;
+    
+    Signal current_sum = read(sum);
+    Signal current_count = read(count);
+    
+    Signal should_reset = current_count >= window_size;
+    Signal new_sum = should_reset * input + (!should_reset) * (current_sum + input);
+    Signal new_count = should_reset * 1 + (!should_reset) * (current_count + 1);
+    
+    write(new_sum, sum);
+    write(new_count, count);
+    
+    return new_sum / new_count;
 }
 
-func smooth_filter(signal, factor) {
-    mem smooth_state = memory(0);
-    Signal current = read(smooth_state);
-    Signal new_value = (current * factor + signal) / (factor + 1);
-    write(new_value, smooth_state);
-    return new_value;
-}
-
-# Main circuit (wire signal-input externally)
-Signal raw_input = ("signal-input", 0);
-Signal smoothed = smooth_filter(raw_input, 5);
-Signal clamped = clamp(smoothed, 0, 1000);
-Signal output = clamped | "signal-output";
+Signal raw_input = ("iron-plate", 0);
+Signal smoothed = smooth_filter(raw_input, 10);
 ```
 
 ---
 
-## Diagnostics and Error Handling
+## Error Handling
 
 ### Warning Types
 
 #### Mixed Type Warnings
+
 ```fcdsl
-Signal result = iron + copper;
-# Warning: Mixed signal types in binary operation: 'iron-plate' + 'copper-plate'. 
-# Result will be 'iron-plate'. Use '| "type"' to explicitly set output channel.
+Signal iron = ("iron-plate", 100);
+Signal copper = ("copper-plate", 50);
+Signal mixed = iron + copper;
+# Warning: Mixed signal types in binary operation: 'iron-plate' + 'copper-plate'
+# Result will be 'iron-plate'. Use | "type" to explicitly set output channel.
 ```
 
-#### Integer Coercion Warnings  
+**Fix:**
 ```fcdsl
-Signal result = iron + 10;
-# Warning: Mixed types in binary operation: signal 'iron-plate' + integer. 
+Signal aligned = (copper | "iron-plate") + iron;  # Both iron-plate
+```
+
+#### Integer Coercion Warnings
+
+```fcdsl
+Signal iron = ("iron-plate", 100);
+Signal more = iron + 50;
+# Warning: Mixed types in binary operation: signal 'iron-plate' + integer
 # Integer will be coerced to signal type.
 ```
 
+**Fix:**
+```fcdsl
+Signal more = iron + ("iron-plate", 50);  # Explicit signal literal
+```
+
 #### Unknown Signal Warnings
+
 ```fcdsl
 Signal unknown = ("nonexistent-signal", 0);
 # Warning: Unknown signal type: nonexistent-signal, using signal-0
 ```
 
+The compiler validates signals against the Factorio database. If a signal doesn't exist, it falls back to `signal-0`.
+
 ### Error Types
 
 #### Undefined Variables
+
 ```fcdsl
 Signal result = undefined_var + 5;
 # Error: Undefined variable 'undefined_var'
 ```
 
 #### Type Mismatches
+
 ```fcdsl
-Entity lamp = 42;  
+Entity lamp = 42;
 # Error: Cannot assign int to Entity type
 ```
 
-#### Invalid Function Calls
+#### Memory Type Conflicts
+
 ```fcdsl
-Signal result = nonexistent_function(5);
-# Error: Undefined function 'nonexistent_function'
+Memory buffer: "iron-plate";
+Signal copper = ("copper-plate", 50);
+write(copper, buffer);
+# Error: Type mismatch: Memory 'buffer' expects 'iron-plate' but write provides 'copper-plate'
+```
+
+#### Reserved Signal Violations
+
+```fcdsl
+Signal bad = ("signal-W", 5);
+# Error: Signal 'signal-W' is reserved for memory write-enable and cannot be used in signal literals
 ```
 
 ### Strict Mode
 
-When compiled with `--strict` flag, warnings become errors:
+Compile with `--strict` to promote all warnings to errors:
 
 ```bash
-# Normal compilation with warnings
-python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl
-
-# Strict compilation - warnings become errors
-python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --strict
+python compile.py program.fcdsl --strict
 ```
+
+This enforces stricter type checking and catches potential bugs earlier.
 
 ### Diagnostic Output
 
-The compiler provides detailed diagnostic information:
-
 ```
-Compiling tests/sample_programs/01_basic_arithmetic.fcdsl...
+Compiling example.fcdsl...
 Diagnostics:
-  WARNING [12:5]: Mixed signal types in binary operation: '__v1' + '__v2'
-  WARNING [15:10]: Integer coerced to signal type in multiplication
-  ERROR [20:15]: Undefined memory 'invalid_mem' in read operation
+  WARNING [semantic:example.fcdsl:12]: Mixed signal types in binary operation
+  ERROR [lowering:example.fcdsl:25]: Undefined memory 'invalid_mem' in read operation
 
 Compilation failed: Semantic analysis failed
 ```
 
-### Blueprint Validation
-
-The compiler validates generated blueprints:
-
-- **Entity Count**: Reports number and types of generated entities
-- **Position Validation**: Warns about entities at extreme coordinates  
-- **Signal Validation**: Checks signal names against Factorio database
-- **Circuit Validation**: Verifies combinator configurations
+Diagnostics include:
+- Severity (INFO, WARNING, ERROR)
+- Stage (parsing, semantic, lowering, layout, emission)
+- Location (file:line:column)
+- Message
 
 ---
 
-## Implementation Status
+## Compiler Usage
 
-This specification describes the language as currently implemented. The following features are fully functional:
-
-✅ **Complete Syntax**: All described syntax is implemented and tested  
-✅ **Type System**: Full type inference with warnings and strict mode  
-✅ **Built-in Functions**: Signal literals, `memory()`, `place()` implemented  
-✅ **Memory Operations**: Memory type, `read()`, `write()` implemented  
-✅ **Entity System**: Entity placement and property control functional  
-✅ **Projection Patterns**: Channel aggregation via explicit projection  
-✅ **Functions**: User-defined functions with parameters and local variables  
-✅ **Compilation Pipeline**: Complete AST → IR → Blueprint generation  
-✅ **Blueprint Export**: Generates valid Factorio blueprint strings  
-
-### Compiler Usage
+### Basic Compilation
 
 ```bash
-# Basic compilation
-python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl
-
-# Save to file  
-python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl -o output.blueprint
-
-# Strict type checking
-python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --strict
-
-# Verbose diagnostics
-python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --verbose
-
-# Custom blueprint name
-python compile.py tests/sample_programs/01_basic_arithmetic.fcdsl --name "My Circuit"
+python compile.py input.fcdsl
 ```
 
-This specification represents the complete, implemented language as of version 1.0. All examples are guaranteed to compile and generate working Factorio blueprints.
+Prints blueprint string to stdout.
+
+### Save to File
+
+```bash
+python compile.py input.fcdsl -o output.blueprint
+```
+
+### Strict Type Checking
+
+```bash
+python compile.py input.fcdsl --strict
+```
+
+### Verbose Diagnostics
+
+```bash
+python compile.py input.fcdsl --verbose
+```
+
+### Add Power Poles
+
+```bash
+python compile.py input.fcdsl --power-poles medium
+```
+
+Options: `small`, `medium`, `big`, `substation`
+
+### Custom Blueprint Name
+
+```bash
+python compile.py input.fcdsl --name "My Factory Controller"
+```
+
+### Disable Optimizations
+
+```bash
+python compile.py input.fcdsl --no-optimize
+```
+
+### Output JSON Format
+
+```bash
+python compile.py input.fcdsl --json
+```
+
+Outputs raw blueprint JSON instead of encoded string.
+
+---
+
+## Appendix: Grammar Reference
+
+See `dsl_compiler/grammar/fcdsl.lark` for the complete LALR grammar specification.
+
+**Key Grammar Rules:**
+
+```lark
+start: statement*
+
+statement: decl_stmt ";"
+         | assign_stmt ";"
+         | expr_stmt ";"
+         | mem_decl ";"
+         | func_decl
+
+decl_stmt: type_name NAME "=" expr
+
+mem_decl: ("Memory" | "mem") NAME [":" STRING] ["=" expr]
+
+expr: logic
+logic: comparison ( ("&&" | "||") comparison )*
+comparison: projection ( COMP_OP projection )*
+projection: add ( "|" type_literal )*
+add: mul ( ("+" | "-") mul )*
+mul: unary ( ("*" | "/" | "%") unary )*
+unary: UNARY_OP unary | primary
+```
+
+---
+
+## Appendix: Factorio 2.0 Features
+
+The DSL supports Factorio 2.0 and Space Age content:
+
+**New Signal Types:**
+- Quality signals: `quality-normal`, `quality-uncommon`, etc.
+- Space location signals
+- Asteroid chunk signals
+
+**New Entities:**
+- Space platforms
+- Agricultural towers
+- Foundries
+- Electromagnetic plants
+- Cryogenic plants
+
+**Example:**
+
+```fcdsl
+Signal quality = ("quality-uncommon", 1);
+Entity foundry = place("foundry", 0, 0);
+foundry.enable = quality > 0;
+```
+
+---
+
+## Conclusion
+
+This specification describes the complete, implemented language as of version 2.0. All examples compile successfully and generate working Factorio blueprints.
+
+For additional examples, see `tests/sample_programs/` in the repository. For library functions, see `tests/sample_programs/stdlib/`.
+
+**Happy circuit building!**
