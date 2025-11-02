@@ -207,7 +207,8 @@ class TestEndToEndCompilation:
             .get("circuit_condition", {})
             .get("first_signal", {})
         )
-        assert first_signal.get("type") == "virtual"
+        # train_stop uses item_count which is ("iron-plate", 0), so type should be "item"
+        assert first_signal.get("type") == "item"
 
         inserter = next(ent for ent in entity_dicts if ent["name"] == "inserter")
         assert "first_signal" in inserter.get("control_behavior", {}).get(

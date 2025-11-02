@@ -1,0 +1,14 @@
+# Test: Multiple Independent Memories
+# Tests that multiple memories work correctly with arithmetic feedback optimization
+
+Memory counter1: "signal-A";
+write(read(counter1) + 1, counter1);
+
+Memory counter2: "signal-B";
+write(read(counter2) + 2, counter2);
+
+Memory counter3: "signal-C";
+write((read(counter3) + read(counter1)) % 10, counter3);
+
+Entity lamp1 = place("small-lamp", 0, 0);
+lamp1.enable = read(counter1) > 5;

@@ -464,6 +464,33 @@ class EntityPlacer:
 
         return False
 
+    def _find_first_memory_consumer(
+        self, 
+        memory_id: str, 
+        final_op_id: str
+    ) -> Optional[str]:
+        """Find the first operation in the chain that reads from memory.
+        
+        Args:
+            memory_id: Memory being optimized
+            final_op_id: Final operation in the chain
+            
+        Returns:
+            Entity ID of first consumer, or None
+        """
+        # Check all memory reads that were registered
+        for read_node_id, source_memory_id in self._memory_read_sources.items():
+            if source_memory_id != memory_id:
+                continue
+                
+            # Find operations that consume this read
+            consumers = list(self.signal_graph.iter_sinks(read_node_id))
+            if consumers:
+                # Return the first consumer (start of the chain)
+                return consumers[0]
+        
+        return None
+
     def _optimize_to_arithmetic_feedback(
         self, op: IR_MemWrite, memory_module: dict
     ) -> None:
@@ -471,6 +498,8 @@ class EntityPlacer:
 
         Instead of creating separate memory gates, mark the final arithmetic
         operation to have self-feedback. That combinator becomes the memory.
+        
+        CRITICAL: For multi-operation chains, register feedback edge in signal graph.
         """
         final_op_id = op.data_signal.source_id
         final_placement = self.plan.get_placement(final_op_id)
@@ -493,6 +522,21 @@ class EntityPlacer:
 
         # Update signal graph: memory reads come from this arithmetic
         self.signal_graph.set_source(op.memory_id, final_op_id)
+        
+        # CRITICAL FIX: Update all memory read nodes to source from the optimized arithmetic
+        for read_node_id, source_memory_id in self._memory_read_sources.items():
+            if source_memory_id == op.memory_id:
+                self.signal_graph.set_source(read_node_id, final_op_id)
+        
+        # Register feedback edge for multi-operation chains
+        # Find the first operation that consumes the memory
+        first_consumer_id = self._find_first_memory_consumer(op.memory_id, final_op_id)
+        if first_consumer_id and first_consumer_id != final_op_id:
+            # Add feedback edge: final_op produces signal consumed by first_consumer
+            self.signal_graph.add_sink(final_op_id, first_consumer_id)
+            self.diagnostics.info(
+                f"Registered multi-operation feedback loop: {final_op_id} -> {first_consumer_id}"
+            )
 
         self.diagnostics.info(
             f"Optimized memory '{op.memory_id}' to arithmetic feedback "

@@ -4,10 +4,28 @@ import copy
 from draftsman.classes.entity import Entity  # type: ignore[import-not-found]
 from draftsman.entity import new_entity  # type: ignore[import-not-found]
 from draftsman.entity import DeciderCombinator, ArithmeticCombinator, ConstantCombinator  # type: ignore[import-not-found]
+from draftsman.data import items, fluids, signals as signal_data  # type: ignore[import-not-found]
 from dsl_compiler.src.layout.layout_plan import EntityPlacement
 from dsl_compiler.src.common import ProgramDiagnostics
 
 """Blueprint entity materialization helpers built on LayoutPlan."""
+
+
+def _infer_signal_type(signal_name: str) -> str:
+    """Infer the type of a signal from its name by checking game data.
+    
+    Returns 'item', 'fluid', or 'virtual' based on what's found in Draftsman data.
+    """
+    # Check if it's an item
+    if items.raw and signal_name in items.raw:
+        return "item"
+    
+    # Check if it's a fluid  
+    if fluids.raw and signal_name in fluids.raw:
+        return "fluid"
+    
+    # Default to virtual for signals like signal-A, signal-B, etc.
+    return "virtual"
 
 
 class PlanEntityEmitter:
@@ -159,11 +177,11 @@ class PlanEntityEmitter:
                     comparator = comp_data.get("comparator")
                     right_constant = comp_data.get("right_constant")
 
-                    # Resolve signal dict - left_signal is already the signal name from the decider
+                    # Resolve signal dict - infer type from the signal name itself
                     if isinstance(left_signal, str):
-                        # It's already a signal name, use it directly
-                        # Try to determine type from signal_type_map or default to virtual
-                        signal_dict = {"name": left_signal, "type": "virtual"}
+                        # Look up the signal type from game data, not from DSL signal types
+                        signal_category = _infer_signal_type(left_signal)
+                        signal_dict = {"name": left_signal, "type": signal_category}
                     else:
                         # Shouldn't happen, but handle it
                         signal_dict = {"name": "signal-0", "type": "virtual"}

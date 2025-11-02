@@ -249,6 +249,36 @@ class ConnectionPlanner:
             )
         self._edge_color_map = {}
 
+    def _get_connection_side(
+        self, 
+        entity_id: str, 
+        is_source: bool
+    ) -> Optional[str]:
+        """Determine if entity needs 'input'/'output' side specified.
+        
+        Args:
+            entity_id: Entity to check
+            is_source: True if this entity is producing the signal
+            
+        Returns:
+            'output' for source combinators, 'input' for sink combinators, None otherwise
+        """
+        placement = self.layout_plan.get_placement(entity_id)
+        if not placement:
+            return None
+            
+        # Combinators have distinct input/output sides
+        combinator_types = {
+            "arithmetic-combinator",
+            "decider-combinator",
+        }
+        
+        if placement.entity_type in combinator_types:
+            return "output" if is_source else "input"
+        
+        # Other entities don't need sides specified
+        return None
+
     def _populate_wire_connections(self) -> None:
         for edge in self._circuit_edges:
             if not edge.source_entity_id or not edge.sink_entity_id:
@@ -260,7 +290,11 @@ class ConnectionPlanner:
             if color is None:
                 color = WIRE_COLORS[0]
 
-            self._route_connection_with_relays(edge, color)
+            # Determine connection sides for combinators
+            source_side = self._get_connection_side(edge.source_entity_id, is_source=True)
+            sink_side = self._get_connection_side(edge.sink_entity_id, is_source=False)
+
+            self._route_connection_with_relays(edge, color, source_side, sink_side)
 
     # ------------------------------------------------------------------
     # Relay placement helpers
@@ -270,6 +304,8 @@ class ConnectionPlanner:
         self,
         edge: CircuitEdge,
         wire_color: str,
+        source_side: Optional[str] = None,
+        sink_side: Optional[str] = None,
     ) -> None:
         source = self.layout_plan.get_placement(edge.source_entity_id)
         sink = self.layout_plan.get_placement(edge.sink_entity_id)
@@ -292,12 +328,18 @@ class ConnectionPlanner:
         span_limit = max(1.0, float(max_span) - 1.8)
         path = self._build_relay_path(source, sink, span_limit)
 
-        for start_id, end_id in zip(path, path[1:]):
+        for i, (start_id, end_id) in enumerate(zip(path, path[1:])):
+            # Use sides for first and last connection
+            conn_source_side = source_side if i == 0 else None
+            conn_sink_side = sink_side if i == len(path) - 2 else None
+            
             connection = WireConnection(
                 source_entity_id=start_id,
                 sink_entity_id=end_id,
                 signal_name=edge.resolved_signal_name,
                 wire_color=wire_color,
+                source_side=conn_source_side,
+                sink_side=conn_sink_side,
             )
             self.layout_plan.add_wire_connection(connection)
 
