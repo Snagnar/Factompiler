@@ -1,193 +1,710 @@
-Compiling tests/sample_programs/04_basic_memory.fcdsl...
-Diagnostics:
-  WARNING [semantic:04_basic_memory.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  'signal-A' +
-  Right operand: '__v1'
-  Result will use left type: 'signal-A'
+[13_complex_expressions.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'constant-combinator' and entity 'medium-electric-pole' (13.0) is greater than max connection distance (9)
 
-  To align types, consider:
-    - (left | "__v1") + right
-    - left + (right | "signal-A")
-    - (... ) | "desired-type" to force an explicit channel
-  WARNING [semantic:04_basic_memory.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  'signal-A' %
-  Right operand: '__v2'
-  Result will use left type: 'signal-A'
+[13_complex_expressions.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'constant-combinator' and entity 'medium-electric-pole' (16.0) is greater than max connection distance (9)
 
-  To align types, consider:
-    - (left | "__v2") % right
-    - left % (right | "signal-A")
-    - (... ) | "desired-type" to force an explicit channel
+[13_complex_expressions.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (19.00657780874821) is greater than max connection distance (9)
 
-{"blueprint": {"item": "blueprint", "version": 562949953421312, "label": "04 Basic Memory Blueprint", "description": "Edge layout: literal constants are placed along the north boundary; export anchors align along the south boundary.", "entities": [{"entity_number": 1, "name": "arithmetic-combinator", "position": {"x": -0.5, "y": 1.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-A"}, "operation": "+", "second_constant": 1, "output_signal": {"type": "virtual", "name": "signal-A"}}}}, {"entity_number": 2, "name": "arithmetic-combinator", "position": {"x": -1.5, "y": 1.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-A"}, "operation": "%", "second_constant": 10, "output_signal": {"type": "virtual", "name": "signal-A"}}}}, {"entity_number": 3, "name": "small-lamp", "position": {"x": 0.5, "y": -1.5}, "control_behavior": {"circuit_enabled": true, "circuit_condition": {"first_signal": {"type": "virtual", "name": "signal-A"}, "comparator": "="}}}], "wires": [[2, 3, 1, 1], [1, 3, 2, 1], [2, 3, 3, 1]]}}
-Compilation completed with 2 diagnostic(s).
-Compiling tests/sample_programs/04_memory_advanced.fcdsl...
-Diagnostics:
-  WARNING [semantic:04_memory_advanced.fcdsl:41:1]: Type mismatch: Memory 'iron_storage' expects 'iron-plate' but write provides '__v7'.
-  WARNING [semantic:04_memory_advanced.fcdsl:48:1]: Type mismatch: Memory 'copper_storage' expects 'copper-plate' but write provides '__v9'.
-  WARNING [semantic:04_memory_advanced.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  '__v6' +
-  Right operand: '__v11'
-  Result will use left type: '__v6'
+[13_complex_expressions.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (21.1482859825566) is greater than max connection distance (9)
 
-  To align types, consider:
-    - (left | "__v11") + right
-    - left + (right | "__v6")
-    - (... ) | "desired-type" to force an explicit channel
-  WARNING [semantic:04_memory_advanced.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  'water' +
-  Right operand: '__v14'
-  Result will use left type: 'water'
+[13_complex_expressions.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (13.009611831257688) is greater than max connection distance (9)
 
-  To align types, consider:
-    - (left | "__v14") + right
-    - left + (right | "water")
-    - (... ) | "desired-type" to force an explicit channel
-  WARNING [semantic:04_memory_advanced.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  'signal-S' *
-  Right operand: '__v21'
-  Result will use left type: 'signal-S'
+[13_complex_expressions.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (20.303940504246953) is greater than max connection distance (9)
 
-  To align types, consider:
-    - (left | "__v21") * right
-    - left * (right | "signal-S")
-    - (... ) | "desired-type" to force an explicit channel
-  WARNING [semantic:04_memory_advanced.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  'signal-S' *
-  Right operand: '__v22'
-  Result will use left type: 'signal-S'
+[13_complex_expressions.fcdsl]
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (20.5) is greater than max connection distance (9)
 
-  To align types, consider:
-    - (left | "__v22") * right
-    - left * (right | "signal-S")
-    - (... ) | "desired-type" to force an explicit channel
-  WARNING [semantic:04_memory_advanced.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  'signal-S' *
-  Right operand: '__v23'
-  Result will use left type: 'signal-S'
+[15_function_bundle_integration.fcdsl]
+  /home/paul/projects/Factompiler/dsl_compiler/src/emission/emitter.py:140: OverlappingObjectsWarning: Added object
+        'medium-electric-pole' (ElectricPole) at (8.5, 15.5)
+  intersects
+        'decider-combinator' (DeciderCombinator) at (8.5, 15.0) facing <Direction.NORTH: 0>
+    self.blueprint.entities.append(entity, copy=False)
 
-  To align types, consider:
-    - (left | "__v23") * right
-    - left * (right | "signal-S")
-    - (... ) | "desired-type" to force an explicit channel
-  WARNING [semantic:04_memory_advanced.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  '__v17' *
-  Right operand: '__v24'
-  Result will use left type: '__v17'
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'arithmetic-combinator' (20.615528128088304) is greater than max connection distance (9)
 
-  To align types, consider:
-    - (left | "__v24") * right
-    - left * (right | "__v17")
-    - (... ) | "desired-type" to force an explicit channel
-  WARNING [semantic:04_memory_advanced.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  'signal-S' +
-  Right operand: '__v17'
-  Result will use left type: 'signal-S'
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'arithmetic-combinator' (19.6468827043885) is greater than max connection distance (9)
 
-  To align types, consider:
-    - (left | "__v17") + right
-    - left + (right | "signal-S")
-    - (... ) | "desired-type" to force an explicit channel
-  WARNING [semantic:04_memory_advanced.fcdsl:112:1]: Type mismatch: Memory 'max_iron_seen' expects 'iron-plate' but write provides '__v7'.
-  WARNING [semantic:04_memory_advanced.fcdsl:117:1]: Type mismatch: Memory 'min_copper_seen' expects 'copper-plate' but write provides '__v9'.
-  WARNING [semantic:04_memory_advanced.fcdsl:126:1]: Type mismatch: Memory 'iron_storage' expects 'iron-plate' but write provides '__v29'.
-  WARNING [semantic:04_memory_advanced.fcdsl:127:1]: Type mismatch: Memory 'copper_storage' expects 'copper-plate' but write provides '__v30'.
-  WARNING [semantic:04_memory_advanced.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  '__v31' *
-  Right operand: 'copper-plate'
-  Result will use left type: '__v31'
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (16.070158679988197) is greater than max connection distance (9)
 
-  To align types, consider:
-    - (left | "copper-plate") * right
-    - left * (right | "__v31")
-    - (... ) | "desired-type" to force an explicit channel
-  WARNING [semantic:04_memory_advanced.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  '__v31' *
-  Right operand: 'iron-plate'
-  Result will use left type: '__v31'
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (15.132745950421556) is greater than max connection distance (9)
 
-  To align types, consider:
-    - (left | "iron-plate") * right
-    - left * (right | "__v31")
-    - (... ) | "desired-type" to force an explicit channel
-  WARNING [semantic:04_memory_advanced.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  '__v31' *
-  Right operand: 'iron-plate'
-  Result will use left type: '__v31'
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (14.080127840328723) is greater than max connection distance (9)
 
-  To align types, consider:
-    - (left | "iron-plate") * right
-    - left * (right | "__v31")
-    - (... ) | "desired-type" to force an explicit channel
-  WARNING [semantic:04_memory_advanced.fcdsl]: Mixed signal types in binary operation at line 0:
-  Left operand:  '__v31' *
-  Right operand: 'copper-plate'
-  Result will use left type: '__v31'
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (25.004999500099974) is greater than max connection distance (9)
 
-  To align types, consider:
-    - (left | "copper-plate") * right
-    - left * (right | "__v31")
-    - (... ) | "desired-type" to force an explicit channel
-  WARNING [semantic:04_memory_advanced.fcdsl:149:1]: Type mismatch: Memory 'iron_storage' expects 'iron-plate' but write provides '__v31'.
-  WARNING [semantic:04_memory_advanced.fcdsl:150:1]: Type mismatch: Memory 'copper_storage' expects 'copper-plate' but write provides '__v31'.
-  WARNING [unknown]: Multiple writes to memory 'mem_iron_storage' detected. Only the last write will be optimized. Consider using a single write with conditional logic instead.
-  WARNING [unknown]: Multiple writes to memory 'mem_copper_storage' detected. Only the last write will be optimized. Consider using a single write with conditional logic instead.
-  WARNING [unknown]: Multiple writes to memory 'mem_tick_counter' detected. Only the last write will be optimized. Consider using a single write with conditional logic instead.
-  WARNING [unknown]: Multiple writes to memory 'mem_water_level' detected. Only the last write will be optimized. Consider using a single write with conditional logic instead.
-  WARNING [unknown]: Multiple writes to memory 'mem_system_state' detected. Only the last write will be optimized. Consider using a single write with conditional logic instead.
-  WARNING [unknown]: Multiple writes to memory 'mem_max_iron_seen' detected. Only the last write will be optimized. Consider using a single write with conditional logic instead.
-  WARNING [unknown]: Multiple writes to memory 'mem_min_copper_seen' detected. Only the last write will be optimized. Consider using a single write with conditional logic instead.
-  WARNING [unknown]: Multiple writes to memory 'mem_iron_storage' detected. Only the last write will be optimized. Consider using a single write with conditional logic instead.
-  WARNING [unknown]: Multiple writes to memory 'mem_copper_storage' detected. Only the last write will be optimized. Consider using a single write with conditional logic instead.
-  WARNING [unknown]: Multiple writes to memory 'mem_iron_storage' detected. Only the last write will be optimized. Consider using a single write with conditional logic instead.
-  WARNING [unknown]: Multiple writes to memory 'mem_copper_storage' detected. Only the last write will be optimized. Consider using a single write with conditional logic instead.
-  WARNING [unknown]: Detected multiple producers for signal 'signal-W' feeding sink 'mem_iron_storage_write_gate'; attempting wire coloring to isolate networks (sources: const_106, const_91, decider_25, decider_3).
-  WARNING [unknown]: Detected multiple producers for signal 'iron-plate' feeding sink 'mem_iron_storage_write_gate'; attempting wire coloring to isolate networks (sources: arith_119, arith_26, arith_93, const_1).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-W' feeding sink 'mem_iron_storage_hold_gate'; attempting wire coloring to isolate networks (sources: const_106, const_91, decider_25, decider_3).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-W' feeding sink 'mem_copper_storage_write_gate'; attempting wire coloring to isolate networks (sources: const_106, const_91, decider_29, decider_7).
-  WARNING [unknown]: Detected multiple producers for signal 'copper-plate' feeding sink 'mem_copper_storage_write_gate'; attempting wire coloring to isolate networks (sources: arith_120, arith_31, arith_95, const_5).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-W' feeding sink 'mem_copper_storage_hold_gate'; attempting wire coloring to isolate networks (sources: const_106, const_91, decider_29, decider_7).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-W' feeding sink 'mem_water_level_write_gate'; attempting wire coloring to isolate networks (sources: arith_40, decider_11).
-  WARNING [unknown]: Detected multiple producers for signal 'water' feeding sink 'mem_water_level_write_gate'; attempting wire coloring to isolate networks (sources: arith_41, const_9).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-W' feeding sink 'mem_water_level_hold_gate'; attempting wire coloring to isolate networks (sources: arith_40, decider_11).
-  WARNING [unknown]: Detected multiple producers for signal 'iron-plate' feeding sink 'mem_max_iron_seen_write_gate'; attempting wire coloring to isolate networks (sources: arith_26, const_77).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-W' feeding sink 'mem_max_iron_seen_write_gate'; attempting wire coloring to isolate networks (sources: decider_79, decider_86).
-  WARNING [unknown]: Detected multiple producers for signal 'copper-plate' feeding sink 'mem_min_copper_seen_write_gate'; attempting wire coloring to isolate networks (sources: arith_31, const_81).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-W' feeding sink 'mem_min_copper_seen_write_gate'; attempting wire coloring to isolate networks (sources: decider_83, decider_89).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-S' feeding sink 'arith_74'; attempting wire coloring to isolate networks (sources: arith_75, decider_73).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-S' feeding sink 'arith_67'; attempting wire coloring to isolate networks (sources: arith_50, arith_53).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-S' feeding sink 'arith_60'; attempting wire coloring to isolate networks (sources: arith_57, arith_59).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-S' feeding sink 'arith_69'; attempting wire coloring to isolate networks (sources: decider_55, decider_68).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-S' feeding sink 'arith_63'; attempting wire coloring to isolate networks (sources: arith_60, arith_62).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-S' feeding sink 'arith_75'; attempting wire coloring to isolate networks (sources: arith_66, arith_74).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-W' feeding sink 'mem_max_iron_seen_hold_gate'; attempting wire coloring to isolate networks (sources: decider_79, decider_86).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-W' feeding sink 'mem_min_copper_seen_hold_gate'; attempting wire coloring to isolate networks (sources: decider_83, decider_89).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-R' feeding sink 'arith_101'; attempting wire coloring to isolate networks (sources: arith_100, arith_99).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-R' feeding sink 'arith_105'; attempting wire coloring to isolate networks (sources: arith_101, arith_104).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-AE' feeding sink 'arith_112'; attempting wire coloring to isolate networks (sources: arith_108, arith_111).
-  WARNING [unknown]: Detected multiple producers for signal 'signal-AE' feeding sink 'arith_118'; attempting wire coloring to isolate networks (sources: arith_114, arith_117).
-  WARNING [unknown]: Two-color routing could not isolate signal 'iron-plate' across sinks [mem_iron_storage_write_gate]; falling back to single-channel wiring for involved entities (arith_119, arith_93).
-  WARNING [unknown]: Two-color routing could not isolate signal 'iron-plate' across sinks [mem_iron_storage_write_gate]; falling back to single-channel wiring for involved entities (arith_119, const_1).
-  WARNING [unknown]: Two-color routing could not isolate signal 'iron-plate' across sinks [mem_iron_storage_write_gate]; falling back to single-channel wiring for involved entities (arith_93, const_1).
-  WARNING [unknown]: Two-color routing could not isolate signal 'copper-plate' across sinks [mem_copper_storage_write_gate]; falling back to single-channel wiring for involved entities (arith_120, arith_31).
-  WARNING [unknown]: Two-color routing could not isolate signal 'copper-plate' across sinks [mem_copper_storage_write_gate]; falling back to single-channel wiring for involved entities (arith_31, const_5).
-  WARNING [unknown]: Two-color routing could not isolate signal 'copper-plate' across sinks [mem_copper_storage_write_gate]; falling back to single-channel wiring for involved entities (arith_120, const_5).
-  WARNING [unknown]: Two-color routing could not isolate signal 'signal-W' across sinks [mem_iron_storage_hold_gate, mem_iron_storage_write_gate]; falling back to single-channel wiring for involved entities (decider_25, decider_3).
-  WARNING [unknown]: Two-color routing could not isolate signal 'signal-W' across sinks [mem_iron_storage_hold_gate, mem_iron_storage_write_gate]; falling back to single-channel wiring for involved entities (const_91, decider_3).
-  WARNING [unknown]: Two-color routing could not isolate signal 'signal-W' across sinks [mem_copper_storage_hold_gate, mem_copper_storage_write_gate]; falling back to single-channel wiring for involved entities (const_91, decider_7).
-  WARNING [unknown]: Two-color routing could not isolate signal 'signal-W' across sinks [mem_iron_storage_hold_gate, mem_iron_storage_write_gate]; falling back to single-channel wiring for involved entities (const_91, decider_25).
-  WARNING [unknown]: Two-color routing could not isolate signal 'signal-W' across sinks [mem_copper_storage_hold_gate, mem_copper_storage_write_gate]; falling back to single-channel wiring for involved entities (decider_29, decider_7).
-  WARNING [unknown]: Two-color routing could not isolate signal 'signal-W' across sinks [mem_copper_storage_hold_gate, mem_copper_storage_write_gate]; falling back to single-channel wiring for involved entities (const_91, decider_29).
-  WARNING [unknown]: Skipped wiring for 'signal-W' due to missing placement (decider_15 -> mem_system_state_write_gate).
-  WARNING [unknown]: Skipped wiring for 'signal-W' due to missing placement (decider_15 -> mem_system_state_hold_gate).
-  WARNING [unknown]: Skipped wiring for 'signal-S' due to missing placement (const_13 -> mem_system_state_write_gate).
-  WARNING [unknown]: Skipped wiring for 'signal-W' due to missing placement (decider_20 -> mem_tick_counter_write_gate).
-  WARNING [unknown]: Skipped wiring for 'signal-W' due to missing placement (decider_20 -> mem_tick_counter_hold_gate).
-  WARNING [unknown]: Skipped wiring for 'signal-F' due to missing placement (arith_18 -> mem_tick_counter_write_gate).
-  WARNING [unknown]: Skipped wire for 'signal-S' due to missing entity 'mem_system_state_write_gate'.
-  WARNING [unknown]: Skipped wire for 'signal-S' due to missing entity 'mem_system_state_hold_gate'.
-  WARNING [unknown]: Skipped wire for 'signal-F' due to missing entity 'mem_tick_counter_write_gate'.
-  WARNING [unknown]: Skipped wire for 'signal-F' due to missing entity 'mem_tick_counter_hold_gate'.
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (12.093386622447824) is greater than max connection distance (9)
 
-{"blueprint": {"item": "blueprint", "version": 562949953421312, "label": "04 Memory Advanced Blueprint", "description": "Edge layout: literal constants are placed along the north boundary; export anchors align along the south boundary.", "entities": [{"entity_number": 1, "name": "decider-combinator", "position": {"x": 0.5, "y": 1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "item", "name": "iron-plate"}}]}}}, {"entity_number": 2, "name": "decider-combinator", "position": {"x": 1.5, "y": 1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "item", "name": "iron-plate"}}]}}}, {"entity_number": 3, "name": "decider-combinator", "position": {"x": -0.5, "y": 1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "item", "name": "copper-plate"}}]}}}, {"entity_number": 4, "name": "decider-combinator", "position": {"x": 0.5, "y": 3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "item", "name": "copper-plate"}}]}}}, {"entity_number": 5, "name": "decider-combinator", "position": {"x": 0.5, "y": -1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "fluid", "name": "water"}}]}}}, {"entity_number": 6, "name": "decider-combinator", "position": {"x": 1.5, "y": 3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "fluid", "name": "water"}}]}}}, {"entity_number": 7, "name": "constant-combinator", "position": {"x": 0.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "iron-plate", "count": 0, "quality": "normal"}]}]}}}, {"entity_number": 8, "name": "decider-combinator", "position": {"x": 2.5, "y": 3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 9, "name": "decider-combinator", "position": {"x": 2.5, "y": -1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 10, "name": "decider-combinator", "position": {"x": -1.5, "y": 1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}, "copy_count_from_input": false}]}}}, {"entity_number": 11, "name": "constant-combinator", "position": {"x": 1.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "copper-plate", "count": 0, "quality": "normal"}]}]}}}, {"entity_number": 12, "name": "decider-combinator", "position": {"x": -1.5, "y": 3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 13, "name": "decider-combinator", "position": {"x": -1.5, "y": -1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 14, "name": "decider-combinator", "position": {"x": 0.5, "y": 5.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}, "copy_count_from_input": false}]}}}, {"entity_number": 15, "name": "constant-combinator", "position": {"x": -0.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "water", "count": 1000, "type": "fluid", "quality": "normal"}]}]}}}, {"entity_number": 16, "name": "decider-combinator", "position": {"x": 1.5, "y": 5.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 17, "name": "decider-combinator", "position": {"x": -0.5, "y": 5.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 18, "name": "decider-combinator", "position": {"x": 0.5, "y": -3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}, "copy_count_from_input": false}]}}}, {"entity_number": 19, "name": "constant-combinator", "position": {"x": 2.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "signal-S", "count": 0, "type": "virtual", "quality": "normal"}]}]}}}, {"entity_number": 20, "name": "decider-combinator", "position": {"x": 1.5, "y": -3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 21, "name": "decider-combinator", "position": {"x": -0.5, "y": -3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 22, "name": "decider-combinator", "position": {"x": 2.5, "y": 5.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}, "copy_count_from_input": false}]}}}, {"entity_number": 23, "name": "arithmetic-combinator", "position": {"x": 2.5, "y": -3.0}, "control_behavior": {"arithmetic_conditions": {"first_constant": 0, "operation": "+", "output_signal": {"type": "virtual", "name": "signal-F"}}}}, {"entity_number": 24, "name": "decider-combinator", "position": {"x": -1.5, "y": 5.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 25, "name": "decider-combinator", "position": {"x": -1.5, "y": -3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 26, "name": "decider-combinator", "position": {"x": 3.5, "y": 1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}, "copy_count_from_input": false}]}}}, {"entity_number": 27, "name": "constant-combinator", "position": {"x": -1.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "signal-AN", "count": 50, "type": "virtual", "quality": "normal"}]}]}}}, {"entity_number": 28, "name": "decider-combinator", "position": {"x": 3.5, "y": 3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "item", "name": "iron-plate"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-H"}, "copy_count_from_input": false}]}}}, {"entity_number": 29, "name": "arithmetic-combinator", "position": {"x": -2.5, "y": -5.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-AN"}, "operation": "+", "output_signal": {"type": "item", "name": "iron-plate"}}}}, {"entity_number": 30, "name": "constant-combinator", "position": {"x": 3.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "signal-AP", "count": 75, "type": "virtual", "quality": "normal"}]}]}}}, {"entity_number": 31, "name": "decider-combinator", "position": {"x": 4.5, "y": -5.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-AP"}, "comparator": ">", "constant": 100}], "outputs": [{"signal": {"type": "virtual", "name": "signal-I"}, "copy_count_from_input": false}]}}}, {"entity_number": 32, "name": "arithmetic-combinator", "position": {"x": 3.5, "y": -7.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-AP"}, "operation": "+", "output_signal": {"type": "item", "name": "copper-plate"}}}}, {"entity_number": 33, "name": "constant-combinator", "position": {"x": -3.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "signal-AR", "count": 1, "type": "virtual", "quality": "normal"}]}]}}}, {"entity_number": 34, "name": "arithmetic-combinator", "position": {"x": -4.5, "y": -5.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-F"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-AR"}, "output_signal": {"type": "virtual", "name": "signal-F"}}}}, {"entity_number": 35, "name": "decider-combinator", "position": {"x": 3.5, "y": -1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "fluid", "name": "water"}, "constant": 500}], "outputs": [{"signal": {"type": "virtual", "name": "signal-L"}, "copy_count_from_input": false}]}}}, {"entity_number": 36, "name": "constant-combinator", "position": {"x": 5.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "signal-AT", "count": 1, "type": "virtual", "quality": "normal"}]}]}}}, {"entity_number": 37, "name": "constant-combinator", "position": {"x": 6.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "signal-AU", "count": 200, "type": "virtual", "quality": "normal"}]}]}}}, {"entity_number": 38, "name": "arithmetic-combinator", "position": {"x": 4.5, "y": -3.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-L"}, "second_signal": {"type": "virtual", "name": "signal-AT"}, "output_signal": {"type": "virtual", "name": "signal-L"}}}}, {"entity_number": 39, "name": "arithmetic-combinator", "position": {"x": 7.5, "y": -5.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "fluid", "name": "water"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-AU"}, "output_signal": {"type": "fluid", "name": "water"}}}}, {"entity_number": 40, "name": "decider-combinator", "position": {"x": -1.5, "y": -7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-AN"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-G"}, "copy_count_from_input": false}]}}}, {"entity_number": 41, "name": "decider-combinator", "position": {"x": 3.5, "y": 5.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-F"}, "comparator": ">", "constant": 10}], "outputs": [{"signal": {"type": "virtual", "name": "signal-F"}, "copy_count_from_input": false}]}}}, {"entity_number": 42, "name": "constant-combinator", "position": {"x": -5.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "signal-AX", "count": 0, "type": "virtual", "quality": "normal"}]}]}}}, {"entity_number": 43, "name": "decider-combinator", "position": {"x": 3.5, "y": -3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-S"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-S"}, "copy_count_from_input": false}]}}}, {"entity_number": 44, "name": "arithmetic-combinator", "position": {"x": 0.5, "y": -7.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "second_signal": {"type": "virtual", "name": "signal-G"}, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 45, "name": "decider-combinator", "position": {"x": -2.5, "y": 1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-S"}, "comparator": "=", "constant": 1}], "outputs": [{"signal": {"type": "virtual", "name": "signal-S"}, "copy_count_from_input": false}]}}}, {"entity_number": 46, "name": "arithmetic-combinator", "position": {"x": 0.5, "y": 7.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "second_signal": {"type": "virtual", "name": "signal-F"}, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 47, "name": "decider-combinator", "position": {"x": -2.5, "y": 3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-S"}, "comparator": "=", "constant": 2}], "outputs": [{"signal": {"type": "virtual", "name": "signal-S"}, "copy_count_from_input": false}]}}}, {"entity_number": 48, "name": "arithmetic-combinator", "position": {"x": -0.5, "y": -7.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "second_constant": 1, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 49, "name": "arithmetic-combinator", "position": {"x": -0.5, "y": 7.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "second_constant": 2, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 50, "name": "arithmetic-combinator", "position": {"x": -2.5, "y": -1.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-S"}, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 51, "name": "arithmetic-combinator", "position": {"x": -3.5, "y": 3.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 52, "name": "arithmetic-combinator", "position": {"x": -3.5, "y": 1.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-S"}, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 53, "name": "arithmetic-combinator", "position": {"x": -6.5, "y": -5.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-AX"}, "second_constant": 3, "output_signal": {"type": "virtual", "name": "signal-Q"}}}}, {"entity_number": 54, "name": "arithmetic-combinator", "position": {"x": -5.5, "y": -3.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-Q"}, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 55, "name": "arithmetic-combinator", "position": {"x": -2.5, "y": -3.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-S"}, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 56, "name": "decider-combinator", "position": {"x": -3.5, "y": -3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-S"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-S"}, "copy_count_from_input": false}]}}}, {"entity_number": 57, "name": "arithmetic-combinator", "position": {"x": -4.5, "y": 1.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-S"}, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 58, "name": "decider-combinator", "position": {"x": -5.5, "y": 1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-S"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-S"}, "copy_count_from_input": false}]}}}, {"entity_number": 59, "name": "arithmetic-combinator", "position": {"x": -6.5, "y": -3.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-AX"}, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 60, "name": "decider-combinator", "position": {"x": -7.5, "y": -3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-S"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-S"}, "copy_count_from_input": false}]}}}, {"entity_number": 61, "name": "decider-combinator", "position": {"x": -8.5, "y": -3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-S"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-S"}, "copy_count_from_input": false}]}}}, {"entity_number": 62, "name": "arithmetic-combinator", "position": {"x": -9.5, "y": -3.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "second_signal": {"type": "virtual", "name": "signal-S"}, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 63, "name": "arithmetic-combinator", "position": {"x": -7.5, "y": -5.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-S"}, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 64, "name": "decider-combinator", "position": {"x": -2.5, "y": 5.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "item", "name": "iron-plate"}}]}}}, {"entity_number": 65, "name": "decider-combinator", "position": {"x": 1.5, "y": 7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "item", "name": "iron-plate"}}]}}}, {"entity_number": 66, "name": "decider-combinator", "position": {"x": 2.5, "y": 7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "item", "name": "copper-plate"}}]}}}, {"entity_number": 67, "name": "decider-combinator", "position": {"x": -1.5, "y": 7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "item", "name": "copper-plate"}}]}}}, {"entity_number": 68, "name": "constant-combinator", "position": {"x": 8.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "iron-plate", "count": 0, "quality": "normal"}]}]}}}, {"entity_number": 69, "name": "decider-combinator", "position": {"x": 3.5, "y": 7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 70, "name": "decider-combinator", "position": {"x": -2.5, "y": 7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 71, "name": "decider-combinator", "position": {"x": 4.5, "y": 1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}, "copy_count_from_input": false}]}}}, {"entity_number": 72, "name": "constant-combinator", "position": {"x": 9.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "copper-plate", "count": 999, "quality": "normal"}]}]}}}, {"entity_number": 73, "name": "decider-combinator", "position": {"x": 4.5, "y": 3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 74, "name": "decider-combinator", "position": {"x": 4.5, "y": -1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}}]}}}, {"entity_number": 75, "name": "decider-combinator", "position": {"x": 4.5, "y": 5.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-W"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-W"}, "copy_count_from_input": false}]}}}, {"entity_number": 76, "name": "decider-combinator", "position": {"x": -2.5, "y": -7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-AN"}, "comparator": ">", "second_signal": {"type": "item", "name": "iron-plate"}}], "outputs": [{"signal": {"type": "virtual", "name": "signal-G"}, "copy_count_from_input": false}]}}}, {"entity_number": 77, "name": "decider-combinator", "position": {"x": 2.5, "y": -7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-AP"}, "second_signal": {"type": "item", "name": "copper-plate"}}], "outputs": [{"signal": {"type": "virtual", "name": "signal-I"}, "copy_count_from_input": false}]}}}, {"entity_number": 78, "name": "constant-combinator", "position": {"x": -8.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "signal-W", "count": 0, "type": "virtual", "quality": "normal"}]}]}}}, {"entity_number": 79, "name": "arithmetic-combinator", "position": {"x": -3.5, "y": -7.0}, "control_behavior": {"arithmetic_conditions": {"first_constant": 0, "operation": "+", "output_signal": {"type": "item", "name": "iron-plate"}}}}, {"entity_number": 80, "name": "arithmetic-combinator", "position": {"x": 4.5, "y": -7.0}, "control_behavior": {"arithmetic_conditions": {"first_constant": 0, "operation": "+", "output_signal": {"type": "item", "name": "copper-plate"}}}}, {"entity_number": 81, "name": "arithmetic-combinator", "position": {"x": 5.5, "y": -3.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "item", "name": "iron-plate"}, "operation": "+", "output_signal": {"type": "virtual", "name": "signal-R"}}}}, {"entity_number": 82, "name": "arithmetic-combinator", "position": {"x": 5.5, "y": -7.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "item", "name": "copper-plate"}, "operation": "+", "output_signal": {"type": "virtual", "name": "signal-R"}}}}, {"entity_number": 83, "name": "arithmetic-combinator", "position": {"x": 6.5, "y": -7.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-R"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-R"}, "output_signal": {"type": "virtual", "name": "signal-R"}}}}, {"entity_number": 84, "name": "arithmetic-combinator", "position": {"x": 3.5, "y": -9.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "fluid", "name": "water"}, "operation": "/", "second_constant": 10, "output_signal": {"type": "fluid", "name": "water"}}}}, {"entity_number": 85, "name": "arithmetic-combinator", "position": {"x": 2.5, "y": -9.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "fluid", "name": "water"}, "operation": "+", "output_signal": {"type": "virtual", "name": "signal-R"}}}}, {"entity_number": 86, "name": "arithmetic-combinator", "position": {"x": 4.5, "y": -9.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-R"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-R"}, "output_signal": {"type": "virtual", "name": "signal-R"}}}}, {"entity_number": 87, "name": "constant-combinator", "position": {"x": 10.5, "y": -5.5}, "control_behavior": {"sections": {"sections": [{"index": 1, "filters": [{"comparator": "=", "index": 1, "name": "signal-W", "count": 0, "type": "virtual", "quality": "normal"}]}]}}}, {"entity_number": 88, "name": "arithmetic-combinator", "position": {"x": 11.5, "y": -5.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-BL"}, "second_signal": {"type": "item", "name": "copper-plate"}, "output_signal": {"type": "virtual", "name": "signal-AE"}}}}, {"entity_number": 89, "name": "decider-combinator", "position": {"x": 10.5, "y": -7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-BL"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-AE"}, "copy_count_from_input": false}]}}}, {"entity_number": 90, "name": "arithmetic-combinator", "position": {"x": 9.5, "y": -7.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-AE"}, "second_signal": {"type": "item", "name": "iron-plate"}, "output_signal": {"type": "virtual", "name": "signal-AE"}}}}, {"entity_number": 91, "name": "arithmetic-combinator", "position": {"x": 11.5, "y": -7.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-AE"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-AE"}, "output_signal": {"type": "virtual", "name": "signal-AE"}}}}, {"entity_number": 92, "name": "arithmetic-combinator", "position": {"x": 10.5, "y": -3.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-BL"}, "second_signal": {"type": "item", "name": "iron-plate"}, "output_signal": {"type": "virtual", "name": "signal-AE"}}}}, {"entity_number": 93, "name": "arithmetic-combinator", "position": {"x": 10.5, "y": -9.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-AE"}, "second_signal": {"type": "item", "name": "copper-plate"}, "output_signal": {"type": "virtual", "name": "signal-AE"}}}}, {"entity_number": 94, "name": "arithmetic-combinator", "position": {"x": 9.5, "y": -9.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-AE"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-AE"}, "output_signal": {"type": "virtual", "name": "signal-AE"}}}}, {"entity_number": 95, "name": "arithmetic-combinator", "position": {"x": 12.5, "y": -7.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-AE"}, "operation": "+", "output_signal": {"type": "item", "name": "iron-plate"}}}}, {"entity_number": 96, "name": "arithmetic-combinator", "position": {"x": 8.5, "y": -9.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-AE"}, "operation": "+", "output_signal": {"type": "item", "name": "copper-plate"}}}}, {"entity_number": 97, "name": "decider-combinator", "position": {"x": -4.5, "y": -3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "item", "name": "iron-plate"}, "comparator": ">", "constant": 1000}], "outputs": [{"signal": {"type": "virtual", "name": "signal-AF"}, "copy_count_from_input": false}]}}}, {"entity_number": 98, "name": "decider-combinator", "position": {"x": -4.5, "y": -7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "item", "name": "copper-plate"}, "comparator": ">", "constant": 1000}], "outputs": [{"signal": {"type": "virtual", "name": "signal-AG"}, "copy_count_from_input": false}]}}}, {"entity_number": 99, "name": "arithmetic-combinator", "position": {"x": -5.5, "y": -7.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-AF"}, "operation": "+", "second_signal": {"type": "virtual", "name": "signal-AG"}, "output_signal": {"type": "virtual", "name": "signal-AF"}}}}, {"entity_number": 100, "name": "decider-combinator", "position": {"x": -6.5, "y": -7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-AF"}, "comparator": ">", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-AF"}, "copy_count_from_input": false}]}}}, {"entity_number": 101, "name": "decider-combinator", "position": {"x": 5.5, "y": -1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "item", "name": "iron-plate"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-AH"}, "copy_count_from_input": false}]}}}, {"entity_number": 102, "name": "decider-combinator", "position": {"x": 7.5, "y": -3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "item", "name": "copper-plate"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-AI"}, "copy_count_from_input": false}]}}}, {"entity_number": 103, "name": "arithmetic-combinator", "position": {"x": 6.5, "y": -3.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-AH"}, "second_signal": {"type": "virtual", "name": "signal-AI"}, "output_signal": {"type": "virtual", "name": "signal-AH"}}}}, {"entity_number": 104, "name": "decider-combinator", "position": {"x": 7.5, "y": -7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-S"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-S"}, "copy_count_from_input": false}]}}}, {"entity_number": 105, "name": "decider-combinator", "position": {"x": 6.5, "y": -1.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-AH"}, "comparator": "=", "constant": 0}], "outputs": [{"signal": {"type": "virtual", "name": "signal-AH"}, "copy_count_from_input": false}]}}}, {"entity_number": 106, "name": "arithmetic-combinator", "position": {"x": 7.5, "y": -1.0}, "control_behavior": {"arithmetic_conditions": {"first_signal": {"type": "virtual", "name": "signal-S"}, "second_signal": {"type": "virtual", "name": "signal-AH"}, "output_signal": {"type": "virtual", "name": "signal-S"}}}}, {"entity_number": 107, "name": "decider-combinator", "position": {"x": 8.5, "y": -3.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-S"}, "comparator": "=", "constant": 1}], "outputs": [{"signal": {"type": "virtual", "name": "signal-S"}, "copy_count_from_input": false}]}}}, {"entity_number": 108, "name": "decider-combinator", "position": {"x": 8.5, "y": -7.0}, "control_behavior": {"decider_conditions": {"conditions": [{"first_signal": {"type": "virtual", "name": "signal-S"}, "comparator": "=", "constant": 2}], "outputs": [{"signal": {"type": "virtual", "name": "signal-S"}, "copy_count_from_input": false}]}}}, {"entity_number": 109, "name": "medium-electric-pole", "position": {"x": -3.5, "y": -1.5}}, {"entity_number": 110, "name": "medium-electric-pole", "position": {"x": -3.5, "y": 4.5}}, {"entity_number": 111, "name": "medium-electric-pole", "position": {"x": 5.5, "y": 0.5}}, {"entity_number": 112, "name": "medium-electric-pole", "position": {"x": 9.5, "y": -3.5}}, {"entity_number": 113, "name": "medium-electric-pole", "position": {"x": 6.5, "y": -9.5}}, {"entity_number": 114, "name": "medium-electric-pole", "position": {"x": -0.5, "y": -9.5}}, {"entity_number": 115, "name": "medium-electric-pole", "position": {"x": -4.5, "y": 8.5}}, {"entity_number": 116, "name": "medium-electric-pole", "position": {"x": 2.5, "y": 8.5}}, {"entity_number": 117, "name": "medium-electric-pole", "position": {"x": 5.5, "y": 2.5}}, {"entity_number": 118, "name": "medium-electric-pole", "position": {"x": -3.5, "y": -9.5}}, {"entity_number": 119, "name": "medium-electric-pole", "position": {"x": 5.5, "y": 4.5}}, {"entity_number": 120, "name": "medium-electric-pole", "position": {"x": -7.5, "y": -7.5}}, {"entity_number": 121, "name": "medium-electric-pole", "position": {"x": -5.5, "y": -1.5}}], "wires": [[34, 3, 34, 1], [9, 3, 10, 1], [10, 3, 8, 1], [10, 3, 9, 1], [10, 3, 1, 1], [10, 3, 2, 1], [7, 1, 1, 1], [13, 3, 14, 1], [14, 3, 12, 1], [14, 3, 13, 1], [14, 3, 3, 1], [14, 3, 4, 1], [11, 1, 3, 1], [17, 3, 109, 1], [109, 1, 18, 1], [18, 3, 109, 1], [109, 1, 110, 1], [110, 1, 16, 1], [109, 1, 17, 1], [18, 3, 5, 1], [18, 3, 6, 1], [15, 1, 5, 1], [21, 3, 109, 1], [110, 1, 22, 1], [22, 3, 111, 1], [111, 1, 20, 1], [111, 1, 112, 1], [112, 1, 113, 1], [113, 1, 114, 1], [114, 1, 21, 1], [25, 3, 26, 1], [26, 3, 24, 1], [26, 3, 25, 1], [2, 3, 28, 1], [27, 1, 29, 1], [27, 1, 40, 1], [27, 1, 76, 1], [29, 3, 1, 1], [29, 3, 109, 1], [109, 1, 64, 1], [28, 3, 1, 1], [28, 3, 2, 1], [30, 1, 31, 1], [30, 1, 32, 1], [30, 1, 77, 1], [32, 3, 113, 1], [113, 1, 112, 1], [112, 1, 111, 1], [111, 1, 3, 1], [111, 1, 66, 1], [31, 3, 111, 1], [111, 1, 4, 1], [34, 3, 109, 1], [110, 1, 41, 1], [33, 1, 34, 1], [6, 3, 35, 1], [6, 3, 111, 1], [111, 1, 39, 1], [35, 3, 38, 1], [36, 1, 38, 1], [37, 1, 39, 1], [39, 3, 111, 1], [111, 1, 5, 1], [38, 3, 5, 1], [38, 3, 6, 1], [63, 3, 109, 1], [110, 1, 115, 1], [115, 1, 116, 1], [116, 1, 117, 1], [117, 1, 43, 1], [109, 1, 45, 1], [109, 1, 47, 1], [63, 3, 62, 1], [63, 3, 118, 1], [118, 1, 114, 1], [114, 1, 113, 1], [113, 1, 104, 1], [113, 1, 107, 1], [113, 1, 108, 1], [43, 3, 44, 1], [40, 3, 44, 1], [45, 3, 46, 1], [41, 3, 46, 1], [44, 3, 48, 1], [44, 3, 55, 1], [46, 3, 49, 1], [46, 3, 110, 1], [110, 1, 109, 1], [109, 1, 55, 1], [48, 3, 50, 1], [49, 3, 110, 1], [110, 1, 50, 1], [47, 3, 51, 1], [47, 3, 57, 1], [50, 3, 52, 1], [51, 3, 52, 1], [42, 1, 53, 1], [42, 1, 59, 1], [52, 3, 54, 1], [53, 3, 54, 1], [55, 3, 56, 1], [56, 3, 57, 1], [57, 3, 58, 1], [58, 3, 59, 1], [59, 3, 60, 1], [60, 3, 61, 1], [61, 3, 62, 1], [54, 3, 63, 1], [62, 3, 63, 1], [70, 3, 116, 1], [117, 1, 71, 1], [71, 3, 69, 1], [71, 3, 117, 1], [117, 1, 116, 1], [116, 1, 70, 1], [71, 3, 119, 1], [119, 1, 116, 1], [116, 1, 64, 1], [71, 3, 65, 1], [68, 1, 111, 1], [111, 1, 119, 1], [74, 3, 75, 1], [75, 3, 73, 1], [75, 3, 74, 1], [75, 3, 66, 1], [75, 3, 67, 1], [72, 1, 112, 1], [65, 3, 110, 1], [109, 1, 76, 1], [76, 3, 109, 1], [110, 1, 65, 1], [67, 3, 110, 1], [109, 1, 121, 1], [121, 1, 120, 1], [120, 1, 118, 1], [118, 1, 77, 1], [77, 3, 113, 1], [77, 3, 118, 1], [118, 1, 120, 1], [120, 1, 121, 1], [121, 1, 109, 1], [110, 1, 67, 1], [79, 3, 109, 1], [109, 1, 1, 1], [78, 1, 121, 1], [121, 1, 1, 1], [78, 1, 109, 1], [109, 1, 2, 1], [121, 1, 3, 1], [109, 1, 4, 1], [80, 3, 112, 1], [2, 3, 81, 1], [2, 3, 109, 1], [109, 1, 97, 1], [2, 3, 101, 1], [4, 3, 111, 1], [112, 1, 82, 1], [4, 3, 109, 1], [109, 1, 98, 1], [111, 1, 102, 1], [81, 3, 83, 1], [82, 3, 83, 1], [113, 1, 84, 1], [84, 3, 85, 1], [83, 3, 86, 1], [85, 3, 86, 1], [87, 1, 88, 1], [87, 1, 89, 1], [87, 1, 92, 1], [87, 1, 112, 1], [111, 1, 1, 1], [111, 1, 2, 1], [112, 1, 88, 1], [89, 3, 90, 1], [89, 3, 93, 1], [2, 3, 111, 1], [112, 1, 90, 1], [88, 3, 91, 1], [90, 3, 91, 1], [111, 1, 92, 1], [112, 1, 93, 1], [92, 3, 94, 1], [93, 3, 94, 1], [91, 3, 95, 1], [95, 3, 112, 1], [94, 3, 96, 1], [96, 3, 112, 1], [97, 3, 99, 1], [98, 3, 99, 1], [99, 3, 100, 1], [101, 3, 103, 1], [102, 3, 103, 1], [103, 3, 105, 1], [104, 3, 106, 1], [105, 3, 106, 1], [8, 3, 9, 1], [9, 3, 9, 1], [1, 3, 2, 1], [2, 3, 2, 1], [12, 3, 13, 1], [13, 3, 13, 1], [3, 3, 4, 1], [4, 3, 4, 1], [16, 3, 17, 1], [17, 3, 17, 1], [5, 3, 6, 1], [6, 3, 6, 1], [20, 3, 21, 1], [21, 3, 21, 1], [24, 3, 25, 1], [25, 3, 25, 1], [69, 3, 70, 1], [70, 3, 70, 1], [64, 3, 65, 1], [65, 3, 65, 1], [73, 3, 74, 1], [74, 3, 74, 1], [66, 3, 67, 1], [67, 3, 67, 1]]}}
-Compilation completed with 77 diagnostic(s).
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (25.04495957273639) is greater than max connection distance (9)
+
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (25.004999500099974) is greater than max connection distance (9)
+
+[15_function_bundle_integration.fcdsl]
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (16.3783393541592) is greater than max connection distance (9)
+
+[15_function_bundle_integration.fcdsl]
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (21.840329667841555) is greater than max connection distance (9)
+
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (11.01135777277262) is greater than max connection distance (9)
+
+[15_function_bundle_integration.fcdsl]
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (13.341664064126334) is greater than max connection distance (9)
+
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (24.005207768315607) is greater than max connection distance (9)
+
+[15_function_bundle_integration.fcdsl]
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (10.111874208078342) is greater than max connection distance (9)
+
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (11.10180165558726) is greater than max connection distance (9)
+
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (32.035136959282696) is greater than max connection distance (9)
+
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (21.470910553583888) is greater than max connection distance (9)
+
+[15_function_bundle_integration.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (9.604686356149273) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (14.866068747318506) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (16.64331697709324) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (19.209372712298546) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (17.356554957709783) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (11.629703349613008) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (11.236102527122116) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (10.965856099730654) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (10.062305898749054) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (18.33712082089225) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (10.111874208078342) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (12.093386622447824) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'constant-combinator' and entity 'medium-electric-pole' (12.649110640673518) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (14.430869689661812) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'constant-combinator' and entity 'medium-electric-pole' (13.601470508735444) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (20.74246851269154) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'constant-combinator' and entity 'decider-combinator' (11.236102527122116) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'constant-combinator' and entity 'arithmetic-combinator' (10.735455276791944) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (13.756816492197604) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (11.412712210513327) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (9.013878188659973) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (10.012492197250394) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (17.269916039170543) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (11.01135777277262) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (13.46291201783626) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (18.006943105369107) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (13.0) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (11.884864324004713) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'small-lamp' (10.04987562112089) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (11.715374513859981) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (20.5) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (9.12414379544733) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (16.070158679988197) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'small-lamp' (12.0) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (9.013878188659973) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (9.5) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'small-lamp' (12.165525060596439) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (14.080127840328723) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (16.194134740701646) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (15.20690632574555) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (15.074813431681335) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (18.062391868188442) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'small-lamp' and entity 'medium-electric-pole' (26.832815729997478) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (15.811388300841896) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (16.76305461424021) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+[20_comprehensive_signals.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (9.055385138137417) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'small-lamp' and entity 'medium-electric-pole' (27.730849247724095) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (10.04987562112089) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'small-lamp' and entity 'medium-electric-pole' (28.635642126552707) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (11.045361017187261) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'small-lamp' and entity 'medium-electric-pole' (29.546573405388315) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (12.041594578792296) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (19.1049731745428) is greater than max connection distance (9)
+
+[17_entity_coordination.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (30.805843601498726) is greater than max connection distance (9)
+
+[20_comprehensive_signals.fcdsl]
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (11.0) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+  /home/paul/projects/Factompiler/dsl_compiler/src/emission/emitter.py:140: OverlappingObjectsWarning: Added object
+        'medium-electric-pole' (ElectricPole) at (15.5, 15.5)
+  intersects
+        'decider-combinator' (DeciderCombinator) at (15.5, 15.0) facing <Direction.NORTH: 0>
+    self.blueprint.entities.append(entity, copy=False)
+
+[10_imports_modules.fcdsl]
+  /home/paul/projects/Factompiler/dsl_compiler/src/emission/emitter.py:140: OverlappingObjectsWarning: Added object
+        'medium-electric-pole' (ElectricPole) at (14.5, 15.5)
+  intersects
+        'decider-combinator' (DeciderCombinator) at (14.5, 15.0) facing <Direction.NORTH: 0>
+    self.blueprint.entities.append(entity, copy=False)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (9.5) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (9.5524865872714) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (10.307764064044152) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (13.0862523283024) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (13.0862523283024) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (16.101242188104617) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (15.033296378372908) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (16.91892431568863) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (14.035668847618199) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (16.101242188104617) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (12.539936203984453) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (18.9010581714358) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (18.117670931993437) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (23.070543990118654) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (16.62077013859466) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (15.239750654128171) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (11.543396380615196) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (13.152946437965905) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (10.735455276791944) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (10.770329614269007) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (11.800423721205947) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (10.44030650891055) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (16.91892431568863) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (9.7082439194738) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (18.607794065928395) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (9.5524865872714) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (20.35313243704762) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (13.0862523283024) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (17.585505395068974) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (13.793114224133722) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (21.242645786248) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'assembling-machine-1' (28.460498941515414) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (14.221462653327892) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (19.474342094150447) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (20.35313243704762) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (16.194134740701646) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (21.242645786248) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (30.516389039334257) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (20.09975124224178) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (9.486832980505138) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (26.004807247891687) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (19.525624189766635) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (24.020824298928627) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (16.15549442140351) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (28.98706608127149) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (27.459060435491963) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (23.243278598338918) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (24.19194080680589) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (29.427877939124322) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (25.144581921360317) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (28.442925306655784) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (23.43608329051593) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (42.5) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (43.48850422812907) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (27.77138815399763) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (45.467021015236966) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (28.74456470360962) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (47.447339229929426) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (29.71952220342716) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (49.429242357131066) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (30.696090956341656) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (33.63406011768428) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (51.41254710671316) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (32.65348373451139) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (53.3970972993851) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'arithmetic-combinator' (12.0) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (37.27264412407577) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (56.37597005817283) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (57.019733426244635) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (52.75651618520692) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (39.02883549377306) is greater than max connection distance (9)
+
+[10_imports_modules.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (46.02445002387318) is greater than max connection distance (9)
+
+[07_control_flow.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'constant-combinator' and entity 'medium-electric-pole' (18.973665961010276) is greater than max connection distance (9)
+
+[07_control_flow.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (19.319679086361656) is greater than max connection distance (9)
+
+[07_control_flow.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (10.012492197250394) is greater than max connection distance (9)
+
+[07_control_flow.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (15.074813431681335) is greater than max connection distance (9)
+
+[07_control_flow.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (11.280514172678478) is greater than max connection distance (9)
+
+[07_control_flow.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (15.976545308670458) is greater than max connection distance (9)
+
+[07_control_flow.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (17.066048165876012) is greater than max connection distance (9)
+
+[07_control_flow.fcdsl]
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (9.013878188659973) is greater than max connection distance (9)
+
+[19_advanced_entity_properties_fixed.fcdsl]
+tests/test_end_to_end.py::TestEndToEndCompilation::test_entity_property_blueprint_behavior
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'roboport' (9.192388155425117) is greater than max connection distance (9)
+
+[19_advanced_entity_properties_fixed.fcdsl]
+tests/test_end_to_end.py::TestEndToEndCompilation::test_entity_property_blueprint_behavior
+ ConnectionDistanceWarning: Distance between entity 'constant-combinator' and entity 'medium-electric-pole' (15.0) is greater than max connection distance (9)
+
+[16_type_coercion_stress.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'constant-combinator' and entity 'medium-electric-pole' (17.11724276862369) is greater than max connection distance (9)
+
+[16_type_coercion_stress.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (23.264780248263683) is greater than max connection distance (9)
+
+[16_type_coercion_stress.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'arithmetic-combinator' and entity 'medium-electric-pole' (24.005207768315607) is greater than max connection distance (9)
+
+[16_type_coercion_stress.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'arithmetic-combinator' (16.00781059358212) is greater than max connection distance (9)
+
+[16_type_coercion_stress.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'constant-combinator' and entity 'medium-electric-pole' (18.110770276274835) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+  /home/paul/projects/Factompiler/dsl_compiler/src/emission/emitter.py:140: OverlappingObjectsWarning: Added object
+        'medium-electric-pole' (ElectricPole) at (0.5, 22.5)
+  intersects
+        'decider-combinator' (DeciderCombinator) at (0.5, 22.0) facing <Direction.NORTH: 0>
+    self.blueprint.entities.append(entity, copy=False)
+
+[04_memory_advanced.fcdsl]
+  /home/paul/projects/Factompiler/dsl_compiler/src/emission/emitter.py:140: OverlappingObjectsWarning: Added object
+        'medium-electric-pole' (ElectricPole) at (22.5, 22.5)
+  intersects
+        'decider-combinator' (DeciderCombinator) at (22.5, 22.0) facing <Direction.NORTH: 0>
+    self.blueprint.entities.append(entity, copy=False)
+
+[04_memory_advanced.fcdsl]
+  /home/paul/projects/Factompiler/dsl_compiler/src/emission/emitter.py:140: OverlappingObjectsWarning: Added object
+        'medium-electric-pole' (ElectricPole) at (22.5, 15.5)
+  intersects
+        'decider-combinator' (DeciderCombinator) at (22.5, 15.0) facing <Direction.NORTH: 0>
+    self.blueprint.entities.append(entity, copy=False)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (23.08679276123039) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (15.231546211727817) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (25.079872407968907) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (21.005951537600005) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (12.806248474865697) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (22.005681084665387) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (12.206555615733702) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (30.066592756745816) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (22.47220505424423) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (26.248809496813376) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (28.217902119044926) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (28.071337695236398) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (25.709920264364882) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (30.20347662107791) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (28.792360097775937) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (31.196954979612993) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (33.24154027718932) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (24.73863375370596) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (33.015148038438355) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (26.40075756488817) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (10.295630140987) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'constant-combinator' and entity 'medium-electric-pole' (30.59411708155671) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (21.400934559032695) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (33.094561486745825) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (9.604686356149273) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (25.059928172283335) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (31.400636936215164) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (23.11384866265244) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (35.0891721190455) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (24.70323865407125) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (46.04345773288535) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (34.20526275297414) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (9.433981132056603) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (49.16299421312742) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (32.42298567374695) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (51.15662224971465) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'decider-combinator' (34.2235299172952) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (42.579337712087536) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (58.077534382926416) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (41.97618372363071) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (60.13318551349163) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (40.496913462633174) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (49.49747468305833) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (50.48762224545735) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (61.0) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'decider-combinator' and entity 'medium-electric-pole' (40.67247226319049) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (51.478150704935004) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (64.0) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (66.12110101926616) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (51.78802950489621) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (60.29925372672534) is greater than max connection distance (9)
+
+[04_memory_advanced.fcdsl]
+ ConnectionDistanceWarning: Distance between entity 'medium-electric-pole' and entity 'medium-electric-pole' (50.21951811795888) is greater than max connection distance (9)
