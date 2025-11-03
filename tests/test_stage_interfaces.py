@@ -9,13 +9,13 @@ This module validates that:
 
 import pytest
 
-from dsl_compiler.src.parsing import DSLParser
+from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer, analyze_program
 from dsl_compiler.src.lowering.lowerer import lower_program
 from dsl_compiler.src.layout.planner import LayoutPlanner
 from dsl_compiler.src.emission.emitter import emit_blueprint
-from dsl_compiler.src.ast import Program
-from dsl_compiler.src.common import ProgramDiagnostics
+from dsl_compiler.src.ast.statements import Program
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 
 class TestParserInterface:

@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
-from dsl_compiler.src.ast import SignalLiteral
-from dsl_compiler.src.common import ProgramDiagnostics
-from dsl_compiler.src.ir import (
+from dsl_compiler.src.ast.expressions import SignalLiteral
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.ir.builder import (
     IRNode,
     IRValue,
     IR_Const,
@@ -12,11 +12,10 @@ from dsl_compiler.src.ir import (
     IR_MemCreate,
     IR_MemWrite,
     IR_PlaceEntity,
-    IR_EntityPropWrite,
-    IR_ConnectToWire,
     IR_WireMerge,
     SignalRef,
 )
+from dsl_compiler.src.ir.nodes import IR_EntityPropWrite, IR_ConnectToWire
 
 
 @dataclass
@@ -218,7 +217,7 @@ class SignalMaterializer:
 
     def _decide_materialization(self, entry: SignalUsageEntry) -> None:
         producer = entry.producer
-        
+
         # Check suppression flag first (but respect user declarations)
         if entry.debug_metadata.get("suppress_materialization"):
             # If user-declared, override suppression
@@ -228,14 +227,14 @@ class SignalMaterializer:
                     return
             entry.should_materialize = False
             return
-        
+
         # Check producer's metadata for suppression
         if producer and hasattr(producer, "debug_metadata"):
             # User-declared constants always materialize
             if producer.debug_metadata.get("user_declared"):
                 entry.should_materialize = True
                 return
-            
+
             if producer.debug_metadata.get("suppress_materialization"):
                 entry.should_materialize = False
                 return
@@ -245,17 +244,17 @@ class SignalMaterializer:
             is_user_declared = False
             if hasattr(producer, "debug_metadata"):
                 is_user_declared = producer.debug_metadata.get("user_declared", False)
-            
+
             # User-declared constants always materialize
             if is_user_declared:
                 entry.should_materialize = True
                 return
-            
+
             # Check if this is marked as an output signal
             if entry.debug_metadata.get("is_output"):
                 entry.should_materialize = True
                 return
-            
+
             named_metadata = False
             if entry.debug_metadata:
                 metadata = entry.debug_metadata

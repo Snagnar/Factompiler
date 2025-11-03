@@ -10,17 +10,20 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple, Any, TYPE_CHECKING
 
-from draftsman.blueprintable import Blueprint  
+from draftsman.blueprintable import Blueprint
 from draftsman.entity import (
     new_entity,
-)  # Use draftsman's factory  
-from draftsman.entity import *  # Import all entities  
-from draftsman.classes.entity import Entity  
-from draftsman.data import signals as signal_data  
+)  # Use draftsman's factory
+from draftsman.classes.entity import Entity
+from draftsman.data import signals as signal_data
 
 
-from ..ir import *
-from ..common import ProgramDiagnostics
+from dsl_compiler.src.ir.builder import IRNode
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.layout.layout_plan import (
+    LayoutPlan,
+)
+from .entity_emitter import PlanEntityEmitter
 
 MAX_CIRCUIT_WIRE_SPAN = 9.0
 EDGE_LAYOUT_NOTE = (
@@ -28,11 +31,6 @@ EDGE_LAYOUT_NOTE = (
     "export anchors align along the south boundary."
 )
 
-
-from dsl_compiler.src.layout.layout_plan import (
-    LayoutPlan,
-)
-from .entity_emitter import PlanEntityEmitter
 
 if TYPE_CHECKING:  # pragma: no cover - type checking helper
     pass
@@ -45,57 +43,57 @@ if TYPE_CHECKING:  # pragma: no cover - type checking helper
 
 def format_entity_description(debug_info: Optional[dict]) -> str:
     """Format entity debug information into a human-readable description.
-    
+
     Format: "variable_name in file.fcdsl at line X (operation details)"
     Or: "file.fcdsl:X (operation details)" if no variable name
-    
+
     Args:
         debug_info: Dict with keys: variable, operation, details, signal_type,
                     source_file, line, role
-    
+
     Returns:
         Formatted description string
     """
     if not debug_info:
         return ""
-    
+
     parts = []
-    
+
     # Build location string
     location_parts = []
     if debug_info.get("variable"):
         location_parts.append(debug_info["variable"])
-    
+
     if debug_info.get("source_file"):
         file_name = debug_info["source_file"]
         # Extract just filename if it's a path
         if "/" in file_name or "\\" in file_name:
             file_name = file_name.split("/")[-1].split("\\")[-1]
-        
+
         if debug_info.get("line"):
             location_parts.append(f"in {file_name} at line {debug_info['line']}")
         else:
             location_parts.append(f"in {file_name}")
     elif debug_info.get("line"):
         location_parts.append(f"at line {debug_info['line']}")
-    
+
     if location_parts:
         parts.append(" ".join(location_parts))
-    
+
     # Build operation description
     op_parts = []
     if debug_info.get("operation"):
         op_parts.append(debug_info["operation"])
-    
+
     if debug_info.get("details"):
         op_parts.append(debug_info["details"])
-    
+
     if debug_info.get("signal_type"):
         op_parts.append(f"type={debug_info['signal_type']}")
-    
+
     if op_parts:
         parts.append(f"({', '.join(op_parts)})")
-    
+
     return " ".join(parts)
 
 
@@ -124,7 +122,6 @@ class BlueprintEmitter:
 
     def emit_from_plan(self, layout_plan: LayoutPlan) -> Blueprint:
         """Emit a blueprint from a completed layout plan."""
-        import warnings
 
         self.blueprint = Blueprint()
         self.blueprint.label = layout_plan.blueprint_label or "DSL Generated"
@@ -138,21 +135,9 @@ class BlueprintEmitter:
             if entity is None:
                 continue
             entity_map[placement.ir_node_id] = entity
-            
+
             # Convert draftsman warnings to errors when adding entities
-            with warnings.catch_warnings():
-                warnings.simplefilter("error")
-                try:
-                    self.blueprint.entities.append(entity, copy=False)
-                except Warning as w:
-                    # Draftsman warning (e.g., OverlappingObjectsWarning) - convert to compilation error
-                    self.diagnostics.error(
-                        f"Layout error placing {entity.name} at {entity.tile_position}: {w}"
-                    )
-                except Exception as exc:
-                    self.diagnostics.error(
-                        f"Failed to place {entity.name} at {entity.tile_position}: {exc}"
-                    )
+            self.blueprint.entities.append(entity, copy=False)
 
         self._materialize_power_grid(layout_plan, entity_map)
         self._materialize_connections(layout_plan, entity_map)
@@ -169,8 +154,6 @@ class BlueprintEmitter:
         layout_plan: LayoutPlan,
         entity_map: Dict[str, Entity],
     ) -> None:
-        import warnings
-        
         for connection in layout_plan.wire_connections:
             source = entity_map.get(connection.source_entity_id)
             sink = entity_map.get(connection.sink_entity_id)
@@ -197,19 +180,7 @@ class BlueprintEmitter:
                 kwargs["side_2"] = connection.sink_side
 
             # Convert draftsman warnings to errors as user requested
-            with warnings.catch_warnings():
-                warnings.simplefilter("error")
-                try:
-                    self.blueprint.add_circuit_connection(**kwargs)
-                except Warning as w:
-                    # Draftsman warning - convert to compilation error
-                    self.diagnostics.error(
-                        f"Layout error wiring {source.id} -> {sink.id} ({connection.signal_name}): {w}"
-                    )
-                except Exception as exc:  # pragma: no cover - draftsman errors
-                    self.diagnostics.error(
-                        f"Failed to wire {source.id} -> {sink.id} ({connection.signal_name}): {exc}"
-                    )
+            self.blueprint.add_circuit_connection(**kwargs)
 
     def _materialize_power_grid(
         self,

@@ -1,19 +1,28 @@
 from __future__ import annotations
 from typing import Any
-from dsl_compiler.src.ir import IR_Const, IR_EntityPropWrite, SignalRef, ValueRef
-from dsl_compiler.src.semantic import SignalValue
-from dsl_compiler.src.ast import (
+from dsl_compiler.src.ir.builder import (
+    IR_Const,
+    SignalRef,
+    ValueRef,
+)
+from dsl_compiler.src.ir.nodes import IR_EntityPropWrite
+from dsl_compiler.src.semantic.analyzer import SignalValue
+from dsl_compiler.src.ast.statements import (
     AssignStmt,
-    CallExpr,
     DeclStmt,
     ExprStmt,
     FuncDecl,
-    Identifier,
     ImportStmt,
     MemDecl,
-    PropertyAccess,
     ReturnStmt,
     Statement,
+)
+from dsl_compiler.src.ast.expressions import (
+    CallExpr,
+)
+from dsl_compiler.src.ast.literals import (
+    Identifier,
+    PropertyAccess,
 )
 
 
@@ -91,13 +100,15 @@ class StatementLowerer:
                 const_op.debug_metadata["user_declared"] = True
                 const_op.debug_metadata["declared_name"] = stmt.name
                 const_op.debug_label = stmt.name
-            
+
             # Check if this is a folded constant and propagate variable name
-            if isinstance(const_op, IR_Const) and const_op.debug_metadata.get("folded_from"):
+            if isinstance(const_op, IR_Const) and const_op.debug_metadata.get(
+                "folded_from"
+            ):
                 const_op.debug_label = stmt.name
                 if not const_op.debug_metadata.get("name"):
                     const_op.debug_metadata["name"] = stmt.name
-            
+
             self.parent.signal_refs[stmt.name] = value_ref
             self.parent.annotate_signal_ref(stmt.name, value_ref, stmt)
             return
@@ -148,13 +159,15 @@ class StatementLowerer:
                     const_op.debug_metadata["user_declared"] = True
                     const_op.debug_metadata["declared_name"] = stmt.target.name
                     const_op.debug_label = stmt.target.name
-                
+
                 # Check if this is a folded constant and propagate variable name
-                if isinstance(const_op, IR_Const) and const_op.debug_metadata.get("folded_from"):
+                if isinstance(const_op, IR_Const) and const_op.debug_metadata.get(
+                    "folded_from"
+                ):
                     const_op.debug_label = stmt.target.name
                     if not const_op.debug_metadata.get("name"):
                         const_op.debug_metadata["name"] = stmt.target.name
-                
+
                 self.parent.signal_refs[stmt.target.name] = value_ref
                 self.parent.annotate_signal_ref(stmt.target.name, value_ref, stmt)
                 return

@@ -2,7 +2,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Set, Tuple
-from dsl_compiler.src.common import ProgramDiagnostics
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from .layout_engine import LayoutEngine
 from .layout_plan import LayoutPlan, EntityPlacement, PowerPolePlacement
 from .cluster_analyzer import Cluster
@@ -69,7 +69,7 @@ class PowerPlanner:
         self._padding: int = 0
         self._supply_radius: float = 0.0
         self._wire_reach: float = 0.0
-        
+
         # Cluster support
         self.clusters = clusters or []
 
@@ -100,25 +100,31 @@ class PowerPlanner:
         if self.clusters:
             # Place pole at center of each cluster (or nearby if center is occupied)
             for cluster in self.clusters:
-                if hasattr(cluster, 'center'):
+                if hasattr(cluster, "center"):
                     center = (int(cluster.center[0]), int(cluster.center[1]))
-                    
+
                     # Try exact center first
                     claimed = self.layout.reserve_exact(
                         center,
                         footprint=self._footprint,
                         padding=self._padding,
                     )
-                    
+
                     # DEBUG
                     if not claimed:
                         # Check why it failed
-                        tiles = list(self.layout._iter_footprint_tiles(center, self._footprint, self._padding))
-                        occupied = [t for t in tiles if t in self.layout._occupied_tiles]
+                        tiles = list(
+                            self.layout._iter_footprint_tiles(
+                                center, self._footprint, self._padding
+                            )
+                        )
+                        occupied = [
+                            t for t in tiles if t in self.layout._occupied_tiles
+                        ]
                         self.diagnostics.info(
                             f"Cluster center {center} occupied. Tiles: {tiles}, Occupied: {occupied}"
                         )
-                    
+
                     # If center is occupied, find nearby position with larger search radius
                     if not claimed:
                         claimed = self.layout.reserve_near(
@@ -129,12 +135,14 @@ class PowerPlanner:
                             alignment=1,
                         )
                         if claimed:
-                            self.diagnostics.info(f"Placed pole near {center} at {claimed}")
-                    
+                            self.diagnostics.info(
+                                f"Placed pole near {center} at {claimed}"
+                            )
+
                     # Only record if we actually got a position
                     if claimed:
                         self._record_power_pole(claimed, config["prototype"])
-            
+
             # Cover relays
             self._cover_relay_positions(config["prototype"])
         else:
@@ -146,7 +154,9 @@ class PowerPlanner:
 
         return list(self._planned)
 
-    def _plan_coverage_based_grid(self, pole_type: str, config: Dict) -> List[PlannedPowerPole]:
+    def _plan_coverage_based_grid(
+        self, pole_type: str, config: Dict
+    ) -> List[PlannedPowerPole]:
         """Fallback coverage-based power grid (existing algorithm)."""
         placements = [
             placement
@@ -247,17 +257,17 @@ class PowerPlanner:
 
     def _cover_relay_positions(self, prototype: str) -> None:
         """Add poles near relay positions if needed."""
-        
+
         relay_positions = []
         for placement in self.layout_plan.entity_placements.values():
             if placement.role == "relay":
                 relay_positions.append(placement.position)
-        
+
         for pos in relay_positions:
             # Check if already covered
             if self._position_has_power_coverage(pos):
                 continue
-            
+
             # Add pole nearby
             claimed = self.layout.reserve_near(
                 pos,
@@ -427,7 +437,7 @@ class PowerPlanner:
         for existing in self._planned:
             if existing.position == position:
                 return existing  # Return existing pole instead of creating duplicate
-        
+
         pole = PlannedPowerPole(position=position, prototype=prototype)
         self._planned.append(pole)
         pole_id = f"power_pole_{len(self.layout_plan.power_poles) + 1}"
@@ -468,7 +478,7 @@ class PowerPlanner:
 
     def _ensure_connectivity(self, prototype: str) -> None:
         """Ensure power poles are connected across clusters.
-        
+
         DISABLED: This method was causing issues by placing poles at arbitrary
         locations when intended positions were occupied. Power connectivity
         should be ensured through proper cluster center coverage and relay poles.
@@ -485,7 +495,7 @@ class PowerPlanner:
         # ✅ FIX: Cap iterations to prevent infinite loops on complex blueprints
         max_attempts = min(len(self._planned) + 8, 50)
         attempts = 0
-        last_component_count = float('inf')  # ✅ Track progress
+        last_component_count = float("inf")  # ✅ Track progress
 
         while attempts < max_attempts:
             components = self._compute_components(reach_sq)
@@ -500,7 +510,7 @@ class PowerPlanner:
                         f"{len(components)} components remaining. Stopping early."
                     )
                     break
-            
+
             last_component_count = len(components)
 
             base_component = components[0]

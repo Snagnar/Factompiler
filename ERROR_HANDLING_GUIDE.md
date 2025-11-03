@@ -107,7 +107,7 @@ Used for input validation errors:
 All stages use the shared `ProgramDiagnostics` system:
 
 ```python
-from dsl_compiler.src.common import ProgramDiagnostics
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 diagnostics = ProgramDiagnostics()
 diagnostics.error("Error message", node=ast_node)

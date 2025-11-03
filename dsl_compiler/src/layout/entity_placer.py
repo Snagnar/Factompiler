@@ -1,6 +1,9 @@
 from typing import Any, Dict, Optional, Tuple, List
-from dsl_compiler.src.common import ProgramDiagnostics
-from dsl_compiler.src.common import get_entity_footprint, get_entity_alignment
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.common.entity_data import (
+    get_entity_footprint,
+    get_entity_alignment,
+)
 from .layout_engine import LayoutEngine
 from .layout_plan import LayoutPlan, EntityPlacement, WireConnection
 from .signal_analyzer import SignalUsageEntry, SignalMaterializer
@@ -9,7 +12,7 @@ from .signal_graph import SignalGraph
 from .cluster_analyzer import Cluster
 
 
-from dsl_compiler.src.ir import (
+from dsl_compiler.src.ir.builder import (
     IRNode,
     IR_Const,
     IR_Arith,
@@ -18,11 +21,13 @@ from dsl_compiler.src.ir import (
     IR_MemRead,
     IR_MemWrite,
     IR_PlaceEntity,
-    IR_EntityPropWrite,
-    IR_EntityPropRead,
     IR_WireMerge,
     SignalRef,
     ValueRef,
+)
+from dsl_compiler.src.ir.nodes import (
+    IR_EntityPropWrite,
+    IR_EntityPropRead,
 )
 
 
@@ -56,50 +61,48 @@ class EntityPlacer:
             str, str
         ] = {}  # Track which memory each read came from
         self._ir_nodes: Dict[str, IRNode] = {}  # Track all IR nodes by ID for lookups
-        
+
         # Cluster support
         self.clusters = clusters or []
         self.entity_to_cluster = entity_to_cluster or {}
         self._current_cluster_idx: Optional[int] = None
 
     def _build_debug_info(
-        self, 
-        op: IRNode, 
-        role_override: Optional[str] = None
+        self, op: IRNode, role_override: Optional[str] = None
     ) -> Dict[str, Any]:
         """Extract debug information from an IR node and its usage entry.
-        
-        Returns dict with keys: variable, operation, details, signal_type, 
+
+        Returns dict with keys: variable, operation, details, signal_type,
         source_file, line, role
         """
         debug_info: Dict[str, Any] = {}
-        
+
         # Get usage entry for this IR node (the producer)
         usage = self.signal_usage.get(op.node_id)
-        
+
         # Extract variable name
         if usage and usage.debug_label:
             debug_info["variable"] = usage.debug_label
         elif hasattr(op, "debug_label") and op.debug_label:
             debug_info["variable"] = op.debug_label
-        
+
         # Extract source location
         source_ast = usage.source_ast if usage else None
         if not source_ast and hasattr(op, "source_ast"):
             source_ast = op.source_ast
-            
+
         if source_ast:
             if hasattr(source_ast, "line") and source_ast.line > 0:
                 debug_info["line"] = source_ast.line
             if hasattr(source_ast, "source_file") and source_ast.source_file:
                 debug_info["source_file"] = source_ast.source_file
-        
+
         # Extract signal type
         if usage and usage.resolved_signal_name:
             debug_info["signal_type"] = usage.resolved_signal_name
         elif hasattr(op, "output_type"):
             debug_info["signal_type"] = op.output_type
-        
+
         # Add user-declared flag
         if hasattr(op, "debug_metadata") and op.debug_metadata:
             if op.debug_metadata.get("user_declared"):
@@ -107,7 +110,7 @@ class EntityPlacer:
                 declared_name = op.debug_metadata.get("declared_name")
                 if declared_name:
                     debug_info["variable"] = declared_name
-        
+
         # Add operation-specific details
         if isinstance(op, IR_Const):
             debug_info["operation"] = "const"
@@ -124,32 +127,32 @@ class EntityPlacer:
         elif isinstance(op, IR_MemCreate):
             debug_info["operation"] = "memory"
             debug_info["details"] = "decl"
-        
+
         # Add role
         if role_override:
             debug_info["role"] = role_override
-            
+
         return debug_info
 
     def setup_cluster_bounds(self) -> None:
         """Compute and assign bounds for each cluster."""
-        
+
         if not self.clusters:
             return
-        
+
         # Simple grid layout: clusters in rows
         cluster_size = 7  # 5 tiles + 2 spacing
         clusters_per_row = 5
-        
+
         for idx, cluster in enumerate(self.clusters):
             row = idx // clusters_per_row
             col = idx % clusters_per_row
-            
+
             x1 = col * cluster_size
             y1 = row * cluster_size
             x2 = x1 + 5  # Actual cluster region is 5×5
             y2 = y1 + 5
-            
+
             cluster.center = ((x1 + x2) / 2, (y1 + y2) / 2)
             cluster.bounds = (x1, y1, x2, y2)
 
@@ -164,7 +167,7 @@ class EntityPlacer:
             # Only reset bounds if we're switching to a different cluster
             if cluster_idx != self._current_cluster_idx:
                 cluster = self.clusters[cluster_idx]
-                if hasattr(cluster, 'bounds') and cluster.bounds is not None:
+                if hasattr(cluster, "bounds") and cluster.bounds is not None:
                     self.layout.set_cluster_bounds(cluster.bounds)
                     self._current_cluster_idx = cluster_idx
         elif cluster_idx == -1 and self._current_cluster_idx is not None:
@@ -218,7 +221,9 @@ class EntityPlacer:
         if hasattr(op, "debug_metadata") and op.debug_metadata:
             folded_from = op.debug_metadata.get("folded_from")
             if folded_from:
-                debug_info["details"] = f"folded from {len(folded_from)} constants: value={op.value}"
+                debug_info["details"] = (
+                    f"folded from {len(folded_from)} constants: value={op.value}"
+                )
                 debug_info["fold_count"] = len(folded_from)
 
         # Store placement in plan (NOT creating Draftsman entity yet!)
@@ -358,7 +363,7 @@ class EntityPlacer:
         # Create write gate
         write_pos = self.layout.get_next_position(footprint=(1, 1))
         write_id = f"{op.memory_id}_write_gate"
-        
+
         # Build debug info for memory write gate
         write_debug = {
             "variable": f"mem:{op.memory_id}",
@@ -372,7 +377,7 @@ class EntityPlacer:
                 write_debug["line"] = op.source_ast.line
             if hasattr(op.source_ast, "source_file"):
                 write_debug["source_file"] = op.source_ast.source_file
-        
+
         write_placement = EntityPlacement(
             ir_node_id=write_id,
             entity_type="decider-combinator",
@@ -394,7 +399,7 @@ class EntityPlacer:
         # Create hold gate
         hold_pos = self.layout.get_next_position(footprint=(1, 1))
         hold_id = f"{op.memory_id}_hold_gate"
-        
+
         # Build debug info for memory hold gate
         hold_debug = {
             "variable": f"mem:{op.memory_id}",
@@ -408,7 +413,7 @@ class EntityPlacer:
                 hold_debug["line"] = op.source_ast.line
             if hasattr(op.source_ast, "source_file"):
                 hold_debug["source_file"] = op.source_ast.source_file
-        
+
         hold_placement = EntityPlacement(
             ir_node_id=hold_id,
             entity_type="decider-combinator",
@@ -478,14 +483,14 @@ class EntityPlacer:
 
     def _place_memory_write(self, op: IR_MemWrite) -> None:
         """Place memory write circuitry and record necessary wiring."""
-        
+
         memory_module = self._memory_modules.get(op.memory_id)
         if not memory_module:
             self.diagnostics.warning(
                 f"Memory write to undefined memory: {op.memory_id}"
             )
             return
-        
+
         # ✅ NEW: Detect multiple writes to same memory
         if memory_module.get("_has_write"):
             self.diagnostics.warning(
@@ -494,7 +499,7 @@ class EntityPlacer:
                 f"Consider using a single write with conditional logic instead."
             )
         memory_module["_has_write"] = True
-        
+
         # Check if write_enable is a constant 1
         is_always_write = False
         if isinstance(op.write_enable, int) and op.write_enable == 1:
@@ -640,16 +645,14 @@ class EntityPlacer:
         return False
 
     def _find_first_memory_consumer(
-        self, 
-        memory_id: str, 
-        final_op_id: str
+        self, memory_id: str, final_op_id: str
     ) -> Optional[str]:
         """Find the first operation in the chain that reads from memory.
-        
+
         Args:
             memory_id: Memory being optimized
             final_op_id: Final operation in the chain
-            
+
         Returns:
             Entity ID of first consumer, or None
         """
@@ -657,20 +660,20 @@ class EntityPlacer:
         for read_node_id, source_memory_id in self._memory_read_sources.items():
             if source_memory_id != memory_id:
                 continue
-                
+
             # Find operations that consume this read
             consumers = list(self.signal_graph.iter_sinks(read_node_id))
             if consumers:
                 # Return the first consumer (start of the chain)
                 return consumers[0]
-        
+
         return None
 
     def _optimize_to_arithmetic_feedback(
         self, op: IR_MemWrite, memory_module: dict
     ) -> None:
         """Optimize always-write memory to use arithmetic combinator feedback.
-        
+
         For single-operation chains: Use self-feedback on one combinator
         For multi-operation chains: Wire a feedback loop between combinators
         """
@@ -684,20 +687,22 @@ class EntityPlacer:
 
         # Determine if this is a single-operation or multi-operation chain
         first_consumer_id = self._find_first_memory_consumer(op.memory_id, final_op_id)
-        is_single_operation = (first_consumer_id == final_op_id or first_consumer_id is None)
+        is_single_operation = (
+            first_consumer_id == final_op_id or first_consumer_id is None
+        )
 
         if is_single_operation:
             # Single operation: mark for self-feedback
             final_placement.properties["has_self_feedback"] = True
             final_placement.properties["feedback_signal"] = signal_name
-            
+
             # Preserve memory information in debug info for optimized combinator
             if "debug_info" in final_placement.properties:
                 final_placement.properties["debug_info"]["memory_name"] = op.memory_id
                 final_placement.properties["debug_info"]["details"] = (
                     f"{final_placement.properties['debug_info'].get('details', 'arith')} + memory:{op.memory_id}"
                 )
-            
+
             self.diagnostics.info(
                 f"Optimized memory '{op.memory_id}' to single-combinator self-feedback"
             )
@@ -716,11 +721,11 @@ class EntityPlacer:
 
         # Update signal graph: all memory reads now come from final combinator
         self.signal_graph.set_source(op.memory_id, final_op_id)
-        
+
         for read_node_id, source_memory_id in self._memory_read_sources.items():
             if source_memory_id == op.memory_id:
                 self.signal_graph.set_source(read_node_id, final_op_id)
-        
+
         # For multi-operation chains: register feedback edge in signal graph
         if first_consumer_id and first_consumer_id != final_op_id:
             # Add edge: final_op produces signal that first_consumer needs
@@ -863,7 +868,7 @@ class EntityPlacer:
             alignment=alignment,
         )
         placement.properties["footprint"] = footprint
-        
+
         # Add debug info for user-placed entities
         entity_debug = {
             "variable": op.entity_id,
@@ -876,9 +881,9 @@ class EntityPlacer:
                 entity_debug["line"] = op.source_ast.line
             if hasattr(op.source_ast, "source_file"):
                 entity_debug["source_file"] = op.source_ast.source_file
-        
+
         placement.properties["debug_info"] = entity_debug
-        
+
         self.plan.add_placement(placement)
 
     def _place_entity_prop_write(self, op: IR_EntityPropWrite) -> None:
@@ -905,16 +910,25 @@ class EntityPlacer:
                 }
                 # Mark the comparison decider for removal
                 inline_data["source_node_id_to_remove"] = op.value.source_id
-                
+
                 # Preserve debug info from the inlined comparison
                 comparison_placement = self.plan.get_placement(op.value.source_id)
-                if comparison_placement and "debug_info" in comparison_placement.properties:
+                if (
+                    comparison_placement
+                    and "debug_info" in comparison_placement.properties
+                ):
                     comp_debug = comparison_placement.properties["debug_info"]
                     if "property_writes" in placement.properties:
                         writes = placement.properties["property_writes"]
-                        if op.property_name in writes and writes[op.property_name].get("type") == "inline_comparison":
-                            writes[op.property_name]["inlined_from"] = comp_debug.get("variable", "comparison")
-                
+                        if (
+                            op.property_name in writes
+                            and writes[op.property_name].get("type")
+                            == "inline_comparison"
+                        ):
+                            writes[op.property_name]["inlined_from"] = comp_debug.get(
+                                "variable", "comparison"
+                            )
+
                 # ✅ FIX: Track that entity needs the comparison's input signal
                 # The entity must read the signal being compared
                 ir_node = self._ir_nodes.get(op.value.source_id)
@@ -922,7 +936,9 @@ class EntityPlacer:
                     # Add dependency on the left operand (the signal being tested)
                     if isinstance(ir_node.left, SignalRef):
                         # Remove the old edge from source to decider
-                        self.signal_graph.remove_sink(ir_node.left.source_id, op.value.source_id)
+                        self.signal_graph.remove_sink(
+                            ir_node.left.source_id, op.value.source_id
+                        )
                         # Add new edge from source to entity
                         self._add_signal_sink(ir_node.left, op.entity_id)
                         self.diagnostics.info(
@@ -933,7 +949,7 @@ class EntityPlacer:
                     self.diagnostics.info(
                         f"Inlined comparison into {op.entity_id}.{op.property_name}"
                     )
-                
+
                 return
 
         # Resolve the value

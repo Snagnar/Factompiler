@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Optional
 
-from dsl_compiler.src.ast import (
+from dsl_compiler.src.ast.statements import (
     ASTNode,
-    BinaryOp,
     Expr,
-    NumberLiteral,
+)
+from dsl_compiler.src.ast.expressions import (
+    BinaryOp,
     SignalLiteral,
     UnaryOp,
 )
-
-if TYPE_CHECKING:  # pragma: no cover - type checking only
-    from dsl_compiler.src.common import ProgramDiagnostics
+from dsl_compiler.src.ast.literals import NumberLiteral
 
 
 class ConstantFolder:
@@ -26,7 +25,7 @@ class ConstantFolder:
         left: int,
         right: int,
         node: ASTNode,
-        diagnostics: Optional["ProgramDiagnostics"] = None,
+        diagnostics: Any = None,
     ) -> Optional[int]:
         """Evaluate a binary integer operation at compile time."""
 
@@ -79,7 +78,7 @@ class ConstantFolder:
     def extract_constant_int(
         cls,
         expr: Expr,
-        diagnostics: Optional["ProgramDiagnostics"] = None,
+        diagnostics: Any = None,
     ) -> Optional[int]:
         """Attempt to evaluate an expression to an integer constant."""
 

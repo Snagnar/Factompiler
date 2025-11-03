@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 from draftsman.blueprintable import Blueprint
 
-from dsl_compiler.src.parsing import DSLParser
-from dsl_compiler.src.semantic import analyze_program, SemanticAnalyzer
-from dsl_compiler.src.lowering import lower_program
-from dsl_compiler.src.emission import emit_blueprint_string
+from dsl_compiler.src.parsing.parser import DSLParser
+from dsl_compiler.src.semantic.analyzer import analyze_program, SemanticAnalyzer
+from dsl_compiler.src.lowering.lowerer import lower_program
+from dsl_compiler.src.emission.emitter import emit_blueprint_string
 
 sample_files = glob.glob("tests/sample_programs/*.fcdsl")
 

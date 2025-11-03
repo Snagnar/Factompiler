@@ -2,8 +2,8 @@ from __future__ import annotations
 import math
 from collections import Counter
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-from dsl_compiler.src.ir import SignalRef
-from dsl_compiler.src.common import ProgramDiagnostics
+from dsl_compiler.src.ir.builder import SignalRef
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from .layout_engine import LayoutEngine
 from .layout_plan import LayoutPlan, WireConnection, EntityPlacement
 from .signal_analyzer import SignalUsageEntry
@@ -22,14 +22,14 @@ from .wire_router import (
 
 class ConnectionPlanner:
     """Plans all wire connections for a blueprint.
-    
+
     Uses a greedy straight-line approach for relay placement:
     1. Calculates direct path between source and sink
     2. Places relays at evenly-spaced intervals if distance exceeds span limit
     3. Snaps relay positions to grid for clean layouts
     4. Reuses existing relays within 30% of span limit
     5. Assigns wire colors to isolate conflicting signal producers
-    
+
     This approach ensures predictable, clean layouts without complex pathfinding.
     """
 
@@ -55,7 +55,7 @@ class ConnectionPlanner:
         self._coloring_conflicts = []
         self._coloring_success = True
         self._relay_counter = 0
-        
+
         # Cluster support
         self.clusters = clusters or []
         self.entity_to_cluster = entity_to_cluster or {}
@@ -113,7 +113,7 @@ class ConnectionPlanner:
         self._populate_wire_connections()
         if preserved_connections:
             self.layout_plan.wire_connections.extend(preserved_connections)
-        
+
         # Validate relay placement results
         self._validate_relay_coverage()
 
@@ -268,33 +268,29 @@ class ConnectionPlanner:
             )
         self._edge_color_map = {}
 
-    def _get_connection_side(
-        self, 
-        entity_id: str, 
-        is_source: bool
-    ) -> Optional[str]:
+    def _get_connection_side(self, entity_id: str, is_source: bool) -> Optional[str]:
         """Determine if entity needs 'input'/'output' side specified.
-        
+
         Args:
             entity_id: Entity to check
             is_source: True if this entity is producing the signal
-            
+
         Returns:
             'output' for source combinators, 'input' for sink combinators, None otherwise
         """
         placement = self.layout_plan.get_placement(entity_id)
         if not placement:
             return None
-            
+
         # Combinators have distinct input/output sides
         combinator_types = {
             "arithmetic-combinator",
             "decider-combinator",
         }
-        
+
         if placement.entity_type in combinator_types:
             return "output" if is_source else "input"
-        
+
         # Other entities don't need sides specified
         return None
 
@@ -310,7 +306,9 @@ class ConnectionPlanner:
                 color = WIRE_COLORS[0]
 
             # Determine connection sides for combinators
-            source_side = self._get_connection_side(edge.source_entity_id, is_source=True)
+            source_side = self._get_connection_side(
+                edge.source_entity_id, is_source=True
+            )
             sink_side = self._get_connection_side(edge.sink_entity_id, is_source=False)
 
             self._route_connection_with_relays(edge, color, source_side, sink_side)
@@ -327,14 +325,14 @@ class ConnectionPlanner:
         sink_side: Optional[str] = None,
     ) -> None:
         """Route a connection with relays if needed.
-        
+
         Uses greedy straight-line relay placement.
         """
         # DEBUG: Entry logging
         self.diagnostics.info(
             f"_route_connection_with_relays: {edge.source_entity_id} -> {edge.sink_entity_id}"
         )
-        
+
         source = self.layout_plan.get_placement(edge.source_entity_id)
         sink = self.layout_plan.get_placement(edge.sink_entity_id)
 
@@ -350,11 +348,13 @@ class ConnectionPlanner:
             return
 
         # Use configured max span, with safe default
-        max_span = self.max_wire_span if self.max_wire_span and self.max_wire_span > 0 else 9.0
-        
+        max_span = (
+            self.max_wire_span if self.max_wire_span and self.max_wire_span > 0 else 9.0
+        )
+
         # Account for entity size and wire reach offset
         span_limit = max(1.0, float(max_span) - 1.8)
-        
+
         # DEBUG: Log all connections to trace relay creation
         distance = math.dist(source.position, sink.position)
         if distance > span_limit:
@@ -362,7 +362,7 @@ class ConnectionPlanner:
                 f"Routing connection: {edge.source_entity_id} -> {edge.sink_entity_id}, "
                 f"distance={distance:.2f}, span_limit={span_limit:.2f}"
             )
-        
+
         # Build path with relays using greedy straight-line approach
         path = self._build_relay_path(source, sink, span_limit)
 
@@ -371,12 +371,14 @@ class ConnectionPlanner:
             # Use sides for first and last connection
             conn_source_side = source_side if i == 0 else None
             conn_sink_side = sink_side if i == len(path) - 2 else None
-            
+
             # DEBUG: Log wire connection with positions
             start_placement = self.layout_plan.get_placement(start_id)
             end_placement = self.layout_plan.get_placement(end_id)
             if start_placement and end_placement:
-                seg_distance = math.dist(start_placement.position, end_placement.position)
+                seg_distance = math.dist(
+                    start_placement.position, end_placement.position
+                )
                 if seg_distance > span_limit:
                     self.diagnostics.warning(
                         f"Creating wire segment that exceeds span_limit: "
@@ -384,7 +386,7 @@ class ConnectionPlanner:
                         f"{end_id} at {end_placement.position}, "
                         f"distance={seg_distance:.2f} > {span_limit:.2f}"
                     )
-            
+
             connection = WireConnection(
                 source_entity_id=start_id,
                 sink_entity_id=end_id,
@@ -402,30 +404,32 @@ class ConnectionPlanner:
         span_limit: float,
     ) -> List[str]:
         """Build relay path with EXPLICIT positioning every 7 tiles."""
-        
+
         # DEBUG: Entry point logging
-        self.diagnostics.info(f"_build_relay_path called: {source.ir_node_id} -> {sink.ir_node_id}")
-        
+        self.diagnostics.info(
+            f"_build_relay_path called: {source.ir_node_id} -> {sink.ir_node_id}"
+        )
+
         # DEBUG: Check if cluster mapping exists
         if not self.entity_to_cluster:
             self.diagnostics.warning(
-                f"entity_to_cluster is EMPTY - cannot determine cluster membership!"
+                "entity_to_cluster is EMPTY - cannot determine cluster membership!"
             )
-        
+
         # Check if in same cluster
         source_cluster = self.entity_to_cluster.get(source.ir_node_id, -1)
         sink_cluster = self.entity_to_cluster.get(sink.ir_node_id, -1)
-        
+
         # Calculate distance first
         distance = math.dist(source.position, sink.position)
-        
+
         # DEBUG: Log cluster info
         if source_cluster >= 0 or sink_cluster >= 0:
             self.diagnostics.info(
                 f"Connection: {source.ir_node_id}(cluster {source_cluster}) -> "
                 f"{sink.ir_node_id}(cluster {sink_cluster}), distance={distance:.2f}"
             )
-        
+
         if source_cluster == sink_cluster and source_cluster >= 0:
             # Same cluster - direct connection guaranteed by cluster sizing
             # DEBUG: Verify intra-cluster distances
@@ -435,9 +439,9 @@ class ConnectionPlanner:
                     f"{sink.ir_node_id} in cluster {source_cluster}, distance={distance:.2f} > {span_limit:.2f}"
                 )
             return [source.ir_node_id, sink.ir_node_id]
-        
+
         # Different clusters - add relays along straight line
-        
+
         if distance <= span_limit * 0.95:  # 5% safety margin
             # Close enough - direct connection
             self.diagnostics.info(
@@ -445,62 +449,62 @@ class ConnectionPlanner:
                 f"distance={distance:.2f} <= {span_limit * 0.95:.2f}"
             )
             return [source.ir_node_id, sink.ir_node_id]
-        
+
         # Need relays - calculate interval to ensure max segment length < span_limit
         # Using 7.0 to reduce collision frequency
         # sqrt(7^2 + 7^2) = 9.90 > 9 - but actual path distances may be acceptable
         relay_interval = 7.0
         num_relays = int(math.ceil(distance / relay_interval)) - 1
-        
+
         # DEBUG: Log inter-cluster connections
         self.diagnostics.info(
             f"NEEDS RELAYS: {source.ir_node_id}(cluster {source_cluster}) -> "
             f"{sink.ir_node_id}(cluster {sink_cluster}), distance={distance:.2f}, "
             f"num_relays={num_relays}, relay_interval={relay_interval}"
         )
-        
+
         if num_relays <= 0:
             return [source.ir_node_id, sink.ir_node_id]
-        
+
         # Create relay positions
         path = [source.ir_node_id]
-        
+
         sx, sy = source.position
         ex, ey = sink.position
-        
+
         for i in range(1, num_relays + 1):
             ratio = i / (num_relays + 1)
             relay_x = sx + (ex - sx) * ratio
             relay_y = sy + (ey - sy) * ratio
-            
+
             # Snap to grid
             relay_pos = (round(relay_x), round(relay_y))
-            
+
             # Create relay at EXPLICIT position
             relay_id = self._create_explicit_relay(relay_pos)
             path.append(relay_id)
-        
+
         path.append(sink.ir_node_id)
-        
+
         # CRITICAL: Validate and fix the path after all relays placed
         path = self._validate_and_fix_relay_path(path, span_limit)
-        
+
         return path
-    
+
     def _validate_and_fix_relay_path(
         self,
         path: List[str],
         span_limit: float,
     ) -> List[str]:
         """Validate relay path and add missing relays if segments are too long.
-        
+
         After relays are placed, their actual positions may differ from intended
         due to collision avoidance. This function checks all segments and adds
         additional relays where needed.
-        
+
         DISABLED: This creates an infinite loop - adding intermediate relays
         that themselves get displaced, requiring more relays...
-        
+
         The real solution is to ensure relays are NEVER displaced, or use
         existing power pole grid as relay infrastructure.
         """
@@ -510,10 +514,10 @@ class ConnectionPlanner:
 
     def _create_explicit_relay(self, position: Tuple[int, int]) -> str:
         """Create relay pole at explicit position."""
-        
+
         relay_id = f"__relay_{self._relay_counter}"
         self._relay_counter += 1
-        
+
         # Reserve position through layout engine to avoid overlaps
         footprint = (1, 1)  # Power poles are 1x1
         reserved_pos = self.layout_engine.reserve_exact(position, footprint=footprint)
@@ -523,12 +527,16 @@ class ConnectionPlanner:
                 position, max_radius=1, footprint=footprint, padding=0, alignment=1
             )
             if reserved_pos:
-                reserved_pos = self.layout_engine._claim_position(reserved_pos, footprint, padding=0)
-        
+                reserved_pos = self.layout_engine._claim_position(
+                    reserved_pos, footprint, padding=0
+                )
+
         if reserved_pos is None:
             # Fallback to any available position - will cause warnings but won't fail compilation
-            reserved_pos = self.layout_engine.get_next_position(footprint=footprint, padding=0)
-        
+            reserved_pos = self.layout_engine.get_next_position(
+                footprint=footprint, padding=0
+            )
+
         relay_placement = EntityPlacement(
             ir_node_id=relay_id,
             entity_type="medium-electric-pole",
@@ -548,24 +556,26 @@ class ConnectionPlanner:
 
     def _validate_relay_coverage(self) -> None:
         """Validate that all wire connections have adequate relay coverage.
-        
+
         Logs warnings for any connections that exceed span limits.
         """
-        max_span = self.max_wire_span if self.max_wire_span and self.max_wire_span > 0 else 9.0
+        max_span = (
+            self.max_wire_span if self.max_wire_span and self.max_wire_span > 0 else 9.0
+        )
         span_limit = max(1.0, float(max_span) - 1.8)
         epsilon = 1e-6
-        
+
         violation_count = 0
-        
+
         for connection in self.layout_plan.wire_connections:
             source = self.layout_plan.get_placement(connection.source_entity_id)
             sink = self.layout_plan.get_placement(connection.sink_entity_id)
-            
+
             if not source or not sink:
                 continue
-            
+
             distance = math.dist(source.position, sink.position)
-            
+
             if distance > span_limit + epsilon:
                 violation_count += 1
                 if violation_count <= 5:  # Only log first 5 to avoid spam
@@ -574,18 +584,19 @@ class ConnectionPlanner:
                         f"({connection.source_entity_id} -> {connection.sink_entity_id} "
                         f"on {connection.signal_name})"
                     )
-        
+
         if violation_count > 5:
             self.diagnostics.warning(
                 f"Total {violation_count} wire connections exceed span limit "
                 f"(showing first 5)"
             )
-        
+
         relay_count = sum(
-            1 for p in self.layout_plan.entity_placements.values()
+            1
+            for p in self.layout_plan.entity_placements.values()
             if getattr(p, "role", None) == "wire_relay"
         )
-        
+
         if relay_count > 0:
             self.diagnostics.info(f"Placed {relay_count} wire relay poles")
 

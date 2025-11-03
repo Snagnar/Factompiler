@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 
 from lark import Transformer, Tree, Token
 
-from dsl_compiler.src.ast import (
+from dsl_compiler.src.ast.statements import (
     ASTNode,
     Program,
     Statement,
@@ -19,12 +19,17 @@ from dsl_compiler.src.ast import (
     ReturnStmt,
     ImportStmt,
     FuncDecl,
+)
+from dsl_compiler.src.ast.literals import (
     Identifier,
     PropertyAccess,
-    BinaryOp,
-    UnaryOp,
     NumberLiteral,
     StringLiteral,
+    DictLiteral,
+)
+from dsl_compiler.src.ast.expressions import (
+    BinaryOp,
+    UnaryOp,
     IdentifierExpr,
     PropertyAccessExpr,
     CallExpr,
@@ -32,7 +37,6 @@ from dsl_compiler.src.ast import (
     WriteExpr,
     ProjectionExpr,
     SignalLiteral,
-    DictLiteral,
 )
 
 

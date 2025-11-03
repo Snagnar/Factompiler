@@ -2,11 +2,11 @@
 
 import pytest
 
-from dsl_compiler.src.parsing import DSLParser
-from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
-from dsl_compiler.src.lowering import lower_program
+from dsl_compiler.src.parsing.parser import DSLParser
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer, analyze_program
+from dsl_compiler.src.lowering.lowerer import lower_program
 from dsl_compiler.src.emission.emitter import emit_blueprint
-from dsl_compiler.src.ir import IR_Arith, IR_WireMerge
+from dsl_compiler.src.ir.builder import IR_Arith, IR_WireMerge
 
 
 @pytest.fixture

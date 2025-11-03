@@ -1,8 +1,9 @@
 from __future__ import annotations
 from typing import Any, Optional
-from dsl_compiler.src.ast import ASTNode, MemDecl, ReadExpr, WriteExpr
-from dsl_compiler.src.ir import SignalRef, ValueRef
-from dsl_compiler.src.semantic import SignalValue
+from dsl_compiler.src.ast.statements import ASTNode, MemDecl
+from dsl_compiler.src.ast.expressions import ReadExpr, WriteExpr
+from dsl_compiler.src.ir.builder import SignalRef, ValueRef
+from dsl_compiler.src.semantic.analyzer import SignalValue
 
 """Memory-related lowering helpers for the Factorio Circuit DSL."""
 

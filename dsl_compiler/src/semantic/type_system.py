@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
-from dsl_compiler.src.ast import ASTNode, Expr
+from dsl_compiler.src.ast.statements import ASTNode, Expr
 
 """Type system primitives used by semantic analysis."""
 

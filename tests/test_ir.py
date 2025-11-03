@@ -2,8 +2,27 @@
 Tests for ir.py - Intermediate Representation classes and structures.
 """
 
-from dsl_compiler.src.ir import *
-from dsl_compiler.src.ast import NumberLiteral
+from dsl_compiler.src.ir.builder import (
+    IRBuilder,
+    SignalRef,
+    IR_Decider,
+    IR_Arith,
+    IR_MemRead,
+    IR_MemCreate,
+    IR_Const,
+    IR_MemWrite,
+    IR_PlaceEntity,
+    IRNode,
+    IRValue,
+)
+from dsl_compiler.src.ir.nodes import (
+    IREffect,
+    IR_ConnectToWire,
+    IR_EntityPropRead,
+    IR_EntityPropWrite,
+    IR_Group,
+)
+from dsl_compiler.src.ast.literals import NumberLiteral
 
 
 class TestSignalAndValueRefs:

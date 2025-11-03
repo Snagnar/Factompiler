@@ -4,32 +4,36 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
-from dsl_compiler.src.ast import (
+from dsl_compiler.src.ast.statements import (
+    Expr,
+    ReturnStmt,
+)
+from dsl_compiler.src.ast.expressions import (
     BinaryOp,
     CallExpr,
-    DictLiteral,
-    Expr,
     IdentifierExpr,
-    NumberLiteral,
     ProjectionExpr,
-    PropertyAccess,
     PropertyAccessExpr,
     ReadExpr,
-    ReturnStmt,
     SignalLiteral,
-    StringLiteral,
     UnaryOp,
     WriteExpr,
 )
-from dsl_compiler.src.ir import (
+from dsl_compiler.src.ast.literals import (
+    DictLiteral,
+    NumberLiteral,
+    PropertyAccess,
+    StringLiteral,
+)
+from dsl_compiler.src.ir.builder import (
     IR_Const,
-    IR_EntityPropRead,
     IR_WireMerge,
     SignalRef,
     ValueRef,
 )
-from dsl_compiler.src.common import SymbolType
-from dsl_compiler.src.semantic import IntValue, SignalValue, ValueInfo
+from dsl_compiler.src.ir.nodes import IR_EntityPropRead
+from dsl_compiler.src.common.symbol_types import SymbolType
+from dsl_compiler.src.semantic.type_system import IntValue, SignalValue, ValueInfo
 
 from .constant_folder import ConstantFolder
 
@@ -115,7 +119,7 @@ class ExpressionLowerer:
 
     def lower_binary_op(self, expr: BinaryOp) -> ValueRef:
         left_type = self.semantic.get_expr_type(expr.left)
-        right_type = self.semantic.get_expr_type(expr.right)
+        self.semantic.get_expr_type(expr.right)
         result_type = self.semantic.get_expr_type(expr)
 
         left_signal_type = (
@@ -254,7 +258,7 @@ class ExpressionLowerer:
             target_type, getattr(source_ref, "signal_type", None)
         )
         result_ref = self.ir_builder.arithmetic("+", source_ref, 0, target_type, expr)
-        
+
         # Propagate user_declared flag through projections
         source_op = self.ir_builder.get_operation(source_ref.source_id)
         if source_op and hasattr(source_op, "debug_metadata"):
@@ -263,8 +267,10 @@ class ExpressionLowerer:
                 if result_op:
                     result_op.debug_metadata["user_declared"] = True
                     if "declared_name" in source_op.debug_metadata:
-                        result_op.debug_metadata["declared_name"] = source_op.debug_metadata["declared_name"]
-        
+                        result_op.debug_metadata["declared_name"] = (
+                            source_op.debug_metadata["declared_name"]
+                        )
+
         return result_ref
 
     def _lower_projection_from_int(
@@ -510,141 +516,138 @@ class ExpressionLowerer:
 
     def _extract_constant_value(self, value_ref: ValueRef) -> Optional[int]:
         """Extract compile-time constant value from a ValueRef.
-        
+
         Returns:
             Integer value if ref is a compile-time constant, None otherwise
         """
         # Direct integer literal
         if isinstance(value_ref, int):
             return value_ref
-        
+
         # SignalRef pointing to IR_Const
         if isinstance(value_ref, SignalRef):
             source_op = self.ir_builder.get_operation(value_ref.source_id)
             if isinstance(source_op, IR_Const):
                 return source_op.value
-        
+
         return None
 
     def _try_fold_wire_merge(
-        self, 
-        sources: List[SignalRef], 
-        output_type: str,
-        source_ast: Optional[Any]
+        self, sources: List[SignalRef], output_type: str, source_ast: Optional[Any]
     ) -> Optional[SignalRef]:
         """Attempt to fold a wire merge of constants into a single constant.
-        
+
         Will NOT fold if any source is a user-declared constant (has a variable name).
         Only folds anonymous/temporary constants.
-        
+
         Args:
             sources: List of SignalRef pointing to potential constants
             output_type: Signal type for the result
             source_ast: Source AST node for the merge operation
-            
+
         Returns:
             SignalRef to folded constant, or None if folding not possible
         """
         # Extract all constant values
         const_values = []
         const_source_ids = []
-        
+
         for source_ref in sources:
             if not isinstance(source_ref, SignalRef):
                 return None
-            
+
             source_op = self.ir_builder.get_operation(source_ref.source_id)
             if not isinstance(source_op, IR_Const):
                 return None
-            
+
             # DO NOT fold user-declared constants (they should remain visible)
             if source_op.debug_metadata.get("user_declared"):
                 return None
-            
+
             # Verify signal types match
             if source_ref.signal_type != output_type:
                 return None
-            
+
             const_values.append(source_op.value)
             const_source_ids.append(source_ref.source_id)
-        
+
         # All sources are anonymous constants - safe to fold
         folded_value = sum(const_values)
-        
+
         # Create new folded constant
         folded_ref = self.ir_builder.const(output_type, folded_value, source_ast)
         folded_op = self.ir_builder.get_operation(folded_ref.source_id)
-        
+
         # Mark folded constant with debug info showing it's a fold
         if isinstance(folded_op, IR_Const):
             folded_op.debug_metadata["folded_from"] = const_source_ids
             folded_op.debug_metadata["fold_operation"] = "wire_merge_sum"
             folded_op.debug_label = f"folded_merge_{len(const_source_ids)}_consts"
-        
+
         # Mark original constants for suppression (avoid duplicate materialization)
         for source_id in const_source_ids:
             source_op = self.ir_builder.get_operation(source_id)
             if isinstance(source_op, IR_Const):
                 source_op.debug_metadata["suppress_materialization"] = True
-        
+
         self.diagnostics.info(
             f"Folded wire merge of {len(const_values)} constants: "
             f"{' + '.join(map(str, const_values))} = {folded_value}",
-            source_ast
+            source_ast,
         )
-        
+
         return folded_ref
 
     def _try_partial_fold_wire_merge(
-        self,
-        sources: List[SignalRef],
-        output_type: str,
-        source_ast: Optional[Any]
+        self, sources: List[SignalRef], output_type: str, source_ast: Optional[Any]
     ) -> tuple[List[SignalRef], int]:
         """Fold constants in a wire merge and return non-constant sources + offset.
-        
+
         Will NOT fold user-declared constants.
-        
+
         Args:
             sources: Mixed list of constant and non-constant SignalRefs
             output_type: Signal type for the result
             source_ast: Source AST node
-            
+
         Returns:
             (filtered_sources, constant_offset) tuple
         """
         constant_sum = 0
         non_const_sources = []
         const_source_ids = []
-        
+
         for source_ref in sources:
             if not isinstance(source_ref, SignalRef):
                 non_const_sources.append(source_ref)
                 continue
-            
+
             source_op = self.ir_builder.get_operation(source_ref.source_id)
-            
+
             # Only fold anonymous constants, not user-declared ones
-            if isinstance(source_op, IR_Const) and source_ref.signal_type == output_type:
+            if (
+                isinstance(source_op, IR_Const)
+                and source_ref.signal_type == output_type
+            ):
                 if source_op.debug_metadata.get("user_declared"):
                     # Keep user-declared constants separate
                     non_const_sources.append(source_ref)
                     continue
-                
+
                 constant_sum += source_op.value
                 const_source_ids.append(source_ref.source_id)
                 # Mark for suppression
                 source_op.debug_metadata["suppress_materialization"] = True
             else:
                 non_const_sources.append(source_ref)
-        
+
         if const_source_ids:
             self.diagnostics.info(
                 f"Partially folded {len(const_source_ids)} constants in wire merge "
                 f"(sum={constant_sum}, remaining non-const sources={len(non_const_sources)})",
-                source_ast
+                source_ast,
             )
-        
+
         return non_const_sources, constant_sum
 
     def _attempt_wire_merge(
@@ -715,7 +718,7 @@ class ExpressionLowerer:
             folded_ref = self._try_fold_wire_merge(combined_sources, output_type, expr)
             if folded_ref is not None:
                 return folded_ref
-            
+
             merge_op_to_reuse.sources = list(combined_sources)
             merge_op_to_reuse.source_ast = expr
             merge_op_to_reuse.output_type = output_type

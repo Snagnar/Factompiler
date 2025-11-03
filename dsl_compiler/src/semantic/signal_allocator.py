@@ -1,5 +1,5 @@
 from typing import Optional
-from dsl_compiler.src.common import SignalTypeRegistry
+from dsl_compiler.src.common.signal_registry import SignalTypeRegistry
 from .type_system import SignalTypeInfo
 
 """Implicit signal allocation for semantic analysis."""

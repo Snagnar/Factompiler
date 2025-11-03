@@ -3,10 +3,16 @@ Tests for lowerer.py - IR lowering functionality.
 """
 
 import pytest
-from dsl_compiler.src.ir import IR_Arith, IR_Const, IR_MemCreate, IR_MemWrite, SignalRef
-from dsl_compiler.src.lowering import lower_program
-from dsl_compiler.src.parsing import DSLParser
-from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
+from dsl_compiler.src.ir.nodes import (
+    IR_Arith,
+    IR_Const,
+    IR_MemCreate,
+    IR_MemWrite,
+    SignalRef,
+)
+from dsl_compiler.src.lowering.lowerer import lower_program
+from dsl_compiler.src.parsing.parser import DSLParser
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer, analyze_program
 
 
 class TestLowerer:
@@ -28,7 +34,7 @@ class TestLowerer:
 
         assert isinstance(ir_operations, list)
         # lower_program returns ProgramDiagnostics, not list
-        from dsl_compiler.src.common import ProgramDiagnostics
+        from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
         assert isinstance(diagnostics, ProgramDiagnostics)
         assert isinstance(signal_map, dict)

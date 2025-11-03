@@ -1,5 +1,5 @@
 from typing import Optional
-from dsl_compiler.src.ast import ASTNode
+from dsl_compiler.src.ast.statements import ASTNode
 
 """Semantic analysis exceptions."""
 

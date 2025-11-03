@@ -57,7 +57,7 @@ class LayoutPlanner:
         self.signal_graph: Any = None
         self._memory_modules: Dict[str, Any] = {}
         self._wire_merge_junctions: Dict[str, Any] = {}
-        
+
         # Clustering infrastructure
         self.cluster_analyzer: Optional[ClusterAnalyzer] = None
         self.clusters: List[Cluster] = []
@@ -83,13 +83,13 @@ class LayoutPlanner:
         self._setup_signal_analysis(ir_operations)
         self._setup_materialization()
         self._setup_signal_resolver()
-        
+
         # NEW: Build signal graph before clustering
         self._build_signal_graph(ir_operations)
-        
+
         # NEW: Clustering phase
         self._analyze_clusters(ir_operations)
-        
+
         self._place_entities(ir_operations)
         self._plan_connections()
         self._plan_power_if_requested()
@@ -137,14 +137,14 @@ class LayoutPlanner:
 
     def _build_signal_graph(self, ir_operations: list[IRNode]) -> None:
         """Build signal graph from IR before placement."""
-        
+
         self.signal_graph = SignalGraph()
-        
+
         # Add all value-producing operations as sources
         for op in ir_operations:
             if isinstance(op, IRValue):
                 self.signal_graph.set_source(op.node_id, op.node_id)
-        
+
         # Add all consumption edges
         for op in ir_operations:
             if isinstance(op, IR_Arith):
@@ -170,12 +170,9 @@ class LayoutPlanner:
 
     def _analyze_clusters(self, ir_operations: list[IRNode]) -> None:
         """Analyze and form connectivity-based clusters."""
-        
+
         self.cluster_analyzer = ClusterAnalyzer(self.diagnostics)
-        self.clusters = self.cluster_analyzer.analyze(
-            ir_operations,
-            self.signal_graph
-        )
+        self.clusters = self.cluster_analyzer.analyze(ir_operations, self.signal_graph)
         self.entity_to_cluster = self.cluster_analyzer.entity_to_cluster
 
     def _plan_connections(self) -> None:
@@ -230,7 +227,7 @@ class LayoutPlanner:
             clusters=self.clusters,
             entity_to_cluster=self.entity_to_cluster,
         )
-        
+
         # Setup cluster bounds before placement
         placer.setup_cluster_bounds()
 
@@ -248,12 +245,12 @@ class LayoutPlanner:
 
     def _determine_locked_wire_colors(self) -> Dict[tuple[str, str], str]:
         """Determine wire colors that must be locked for correctness.
-        
+
         Returns:
             Dict mapping (entity_id, signal_name) → wire_color
         """
         locked = {}
-        
+
         # Lock colors for non-optimized memory hold gates (standard SR latch)
         for module in self._memory_modules.values():
             for component_name, placement in module.items():
@@ -264,7 +261,7 @@ class LayoutPlanner:
                     signal_name = placement.properties.get("output_signal")
                     if signal_name:
                         locked[(placement.ir_node_id, signal_name)] = "red"
-        
+
         # ✅ NEW: Lock colors for optimized arithmetic feedback combinators
         # These use self-feedback wires hardcoded to red, so we must prevent
         # other signals from using red to the same combinator
@@ -276,5 +273,5 @@ class LayoutPlanner:
                     self.diagnostics.info(
                         f"Locked {entity_id} feedback signal '{feedback_signal}' to red wire"
                     )
-        
+
         return locked

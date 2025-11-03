@@ -34,20 +34,22 @@ class LayoutEngine:
         alignment: int = 1,
     ) -> Tuple[int, int]:
         """Get next available position - SIMPLIFIED for cluster-bounded placement."""
-        
+
         spacing_x = max(alignment, self.entity_spacing)
         spacing_y = max(alignment, self.row_height)
-        
+
         # Try current position
         while True:
             candidate = (self._next_row_x, self._next_row_y)
-            
+
             # Check alignment
             if candidate[0] % alignment == 0 and candidate[1] % alignment == 0:
                 if self._position_available(candidate, footprint, padding):
                     self._next_row_x += spacing_x
-                    return self._claim_position(candidate, footprint, padding, enqueue_neighbors=False)
-            
+                    return self._claim_position(
+                        candidate, footprint, padding, enqueue_neighbors=False
+                    )
+
             # Move to next position
             self._next_row_x += spacing_x
             if self._next_row_x > 20:  # Simple row wrap
@@ -206,33 +208,40 @@ class LayoutEngine:
         alignment: int = 1,
     ) -> Tuple[int, int]:
         """Get position within cluster bounds."""
-        
+
         if self._cluster_bounds is None:
             return self.get_next_position(footprint, 0, alignment)
-        
+
         x1, y1, x2, y2 = self._cluster_bounds
-        
+
         # Simple row placement within bounds
         while self._next_row_y < y2:
             while self._next_row_x < x2:
                 candidate = (self._next_row_x, self._next_row_y)
-                
+
                 if candidate[0] % alignment == 0 and candidate[1] % alignment == 0:
                     if self._position_available(candidate, footprint, 0):
-                        if self._next_row_x + footprint[0] <= x2 and self._next_row_y + footprint[1] <= y2:
-                            result = self._claim_position(candidate, footprint, 0, enqueue_neighbors=False)
+                        if (
+                            self._next_row_x + footprint[0] <= x2
+                            and self._next_row_y + footprint[1] <= y2
+                        ):
+                            result = self._claim_position(
+                                candidate, footprint, 0, enqueue_neighbors=False
+                            )
                             # Track the tallest entity in this row
-                            self._current_row_max_height = max(self._current_row_max_height, footprint[1])
+                            self._current_row_max_height = max(
+                                self._current_row_max_height, footprint[1]
+                            )
                             self._next_row_x += max(alignment, footprint[0])
                             return result
-                
+
                 self._next_row_x += alignment
-            
+
             # Move to next row - advance by the tallest entity in the previous row
             self._next_row_x = x1
             self._next_row_y += max(alignment, self._current_row_max_height)
             self._current_row_max_height = 1  # Reset for next row
-        
+
         # Cluster full - fall back to unrestricted placement
         # This allows overflow entities to be placed outside the cluster bounds
         return self.get_next_position(footprint, 0, alignment)

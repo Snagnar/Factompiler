@@ -9,13 +9,36 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from dsl_compiler.src.ast import *  # noqa: F401,F403 - re-exported API
-from dsl_compiler.src.ir import *  # noqa: F401,F403 - re-exported API
-from dsl_compiler.src.common import ProgramDiagnostics
-from dsl_compiler.src.semantic import (
-    SemanticAnalyzer,
-    render_source_location,
+from dsl_compiler.src.ast.statements import (
+    ASTNode,
+    Statement,
+    DeclStmt,
+    AssignStmt,
+    ExprStmt,
+    ReturnStmt,
+    MemDecl,
+    FuncDecl,
+    ImportStmt,
+    Program,
 )
+from dsl_compiler.src.ast.expressions import (
+    Expr,
+    IdentifierExpr,
+    BinaryOp,
+    UnaryOp,
+    SignalLiteral,
+    ReadExpr,
+    WriteExpr,
+    ProjectionExpr,
+    CallExpr,
+    PropertyAccessExpr,
+)
+from dsl_compiler.src.ast.literals import DictLiteral, PropertyAccess
+from dsl_compiler.src.ir.nodes import IRNode, ValueRef, SignalRef
+from dsl_compiler.src.ir.builder import IRBuilder
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
+from dsl_compiler.src.common.source_location import render_source_location
 from draftsman.data import signals as signal_data
 
 from .expression_lowerer import ExpressionLowerer

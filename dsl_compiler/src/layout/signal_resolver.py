@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import Any, Dict, Optional, Union
 from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
-from dsl_compiler.src.ir import SignalRef
-from dsl_compiler.src.common import ProgramDiagnostics
+from dsl_compiler.src.ir.builder import SignalRef
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from .signal_analyzer import SignalMaterializer, SignalUsageEntry
 
 """Signal resolution helpers for layout planning."""

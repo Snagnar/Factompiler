@@ -23,7 +23,7 @@ from dsl_compiler.src.lowering import lower_program
 from dsl_compiler.src.layout import LayoutPlanner
 from dsl_compiler.src.emission import BlueprintEmitter
 from dsl_compiler.src.ir import CSEOptimizer
-from dsl_compiler.src.common import ProgramDiagnostics
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 
 def validate_power_poles(ctx, param, value):
@@ -214,7 +214,16 @@ def compile_dsl_file(
 )
 @click.option("--json", is_flag=True, help="Output blueprint in JSON format")
 def main(
-    input_file, output, strict, name, verbose, no_optimize, explain, power_poles, debug, json
+    input_file,
+    output,
+    strict,
+    name,
+    verbose,
+    no_optimize,
+    explain,
+    power_poles,
+    debug,
+    json,
 ):
     """Compile Factorio Circuit DSL files to blueprint format."""
 

@@ -51,3 +51,6 @@ class SourceLocation:
             return f"?:{line}"
 
         return None
+
+
+render_source_location = SourceLocation.render

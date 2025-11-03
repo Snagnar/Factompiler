@@ -4,26 +4,26 @@ import copy
 from draftsman.classes.entity import Entity  # type: ignore[import-not-found]
 from draftsman.entity import new_entity  # type: ignore[import-not-found]
 from draftsman.entity import DeciderCombinator, ArithmeticCombinator, ConstantCombinator  # type: ignore[import-not-found]
-from draftsman.data import items, fluids, signals as signal_data  # type: ignore[import-not-found]
+from draftsman.data import items, fluids  # type: ignore[import-not-found]
 from dsl_compiler.src.layout.layout_plan import EntityPlacement
-from dsl_compiler.src.common import ProgramDiagnostics
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 """Blueprint entity materialization helpers built on LayoutPlan."""
 
 
 def _infer_signal_type(signal_name: str) -> str:
     """Infer the type of a signal from its name by checking game data.
-    
+
     Returns 'item', 'fluid', or 'virtual' based on what's found in Draftsman data.
     """
     # Check if it's an item
     if items.raw and signal_name in items.raw:
         return "item"
-    
-    # Check if it's a fluid  
+
+    # Check if it's a fluid
     if fluids.raw and signal_name in fluids.raw:
         return "fluid"
-    
+
     # Default to virtual for signals like signal-A, signal-B, etc.
     return "virtual"
 
@@ -90,6 +90,7 @@ class PlanEntityEmitter:
         debug_info = placement.properties.get("debug_info")
         if debug_info:
             from dsl_compiler.src.emission.emitter import format_entity_description
+
             description = format_entity_description(debug_info)
             if description and hasattr(entity, "description"):
                 try:
@@ -164,7 +165,7 @@ class PlanEntityEmitter:
     ) -> None:
         """Configure a constant combinator from placement properties."""
         signal_name = props.get("signal_name")
-        signal_type = props.get("signal_type")
+        props.get("signal_type")
         value = props.get("value", 0)
 
         if signal_name:

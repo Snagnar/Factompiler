@@ -1,10 +1,8 @@
 """Test that common infrastructure works correctly."""
 
-from dsl_compiler.src.common import (
-    ProgramDiagnostics,
-    SourceLocation,
-    SignalTypeRegistry,
-)
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.common.signal_registry import SignalTypeRegistry
+from dsl_compiler.src.common.source_location import SourceLocation
 
 
 def test_program_diagnostics_basic():

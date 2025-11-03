@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 from lark import Lark
 from lark.exceptions import LexError, ParseError
-from dsl_compiler.src.ast import ASTNode, Program
+from dsl_compiler.src.ast.statements import ASTNode, Program
 from .preprocessor import preprocess_imports
 from .transformer import DSLTransformer
 

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-from dsl_compiler.src.ast import ASTNode
-from dsl_compiler.src.common import SymbolType
+from dsl_compiler.src.ast.statements import ASTNode
+from dsl_compiler.src.common.symbol_types import SymbolType
 from .exceptions import SemanticError
 from .type_system import ValueInfo
 

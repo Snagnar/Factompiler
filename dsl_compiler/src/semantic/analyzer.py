@@ -3,25 +3,29 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from dsl_compiler.src.ast import (
+from dsl_compiler.src.ast.expressions import (
     BinaryOp,
     CallExpr,
-    DictLiteral,
     IdentifierExpr,
-    NumberLiteral,
     ProjectionExpr,
-    PropertyAccess,
     PropertyAccessExpr,
     ReadExpr,
-    ReturnStmt,
     SignalLiteral,
-    StringLiteral,
     UnaryOp,
     WriteExpr,
     ASTNode,
-    ASTVisitor,
-    MemDecl,
     Expr,
+)
+from dsl_compiler.src.ast.literals import (
+    DictLiteral,
+    NumberLiteral,
+    PropertyAccess,
+    StringLiteral,
+    Identifier,
+)
+from dsl_compiler.src.ast.statements import (
+    ReturnStmt,
+    MemDecl,
     Program,
     DeclStmt,
     FuncDecl,
@@ -29,14 +33,18 @@ from dsl_compiler.src.ast import (
     AssignStmt,
     ExprStmt,
     ImportStmt,
-    Identifier,
 )
-from dsl_compiler.src.common import (
-    SignalTypeRegistry,
+from dsl_compiler.src.ast.base import ASTVisitor
+from dsl_compiler.src.common.diagnostics import (
     ProgramDiagnostics,
-    SourceLocation,
-    SymbolType,
 )
+from dsl_compiler.src.common.signal_registry import (
+    SignalTypeRegistry,
+)
+from dsl_compiler.src.common.source_location import (
+    SourceLocation,
+)
+from dsl_compiler.src.common.symbol_types import SymbolType
 
 from .exceptions import SemanticError
 from .signal_allocator import SignalAllocator
@@ -738,7 +746,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _function_returns_entity(self, function_name: str) -> bool:
         """Check if a function returns an entity by examining its definition."""
-        from dsl_compiler.src.ast import ReturnStmt, CallExpr
+        from dsl_compiler.src.ast.statements import ReturnStmt, CallExpr
 
         func_symbol = self.current_scope.lookup(function_name)
         if not func_symbol or func_symbol.symbol_type != SymbolType.FUNCTION:
@@ -755,7 +763,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _get_function_return_type(self, function_name: str) -> ValueInfo:
         """Determine the return type of a function by analyzing its return statements."""
-        from dsl_compiler.src.ast import ReturnStmt
+        from dsl_compiler.src.ast.statements import ReturnStmt
 
         func_symbol = self.current_scope.lookup(function_name)
         if not func_symbol or func_symbol.symbol_type != SymbolType.FUNCTION:
@@ -1071,7 +1079,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _infer_function_return_type(self, body: List[Statement]) -> ValueInfo:
         """Infer function return type by analyzing return statements."""
-        from dsl_compiler.src.ast import ReturnStmt
+        from dsl_compiler.src.ast.statements import ReturnStmt
 
         # Look for return statements
         for stmt in body:

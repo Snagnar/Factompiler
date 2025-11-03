@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
 
-from dsl_compiler.src.ast import ASTNode
-from dsl_compiler.src.common import SignalTypeRegistry
+from dsl_compiler.src.ast.statements import ASTNode
+from dsl_compiler.src.common.signal_registry import SignalTypeRegistry
 
 from .nodes import (
     IRNode,

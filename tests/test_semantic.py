@@ -3,8 +3,8 @@ Tests for semantic.py - Semantic analysis functionality.
 """
 
 import pytest
-from dsl_compiler.src.parsing import DSLParser
-from dsl_compiler.src.semantic import SemanticAnalyzer, analyze_program
+from dsl_compiler.src.parsing.parser import DSLParser
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer, analyze_program
 
 
 class TestSemanticAnalyzer:
@@ -27,7 +27,7 @@ class TestSemanticAnalyzer:
         program = parser.parse("Signal x = 42;")
         diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
         # analyze_program returns ProgramDiagnostics
-        from dsl_compiler.src.common import ProgramDiagnostics
+        from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
         assert isinstance(diagnostics, ProgramDiagnostics)
 
@@ -49,7 +49,7 @@ class TestSemanticAnalyzer:
                     program, strict_types=False, analyzer=analyzer
                 )
                 # analyze_program returns ProgramDiagnostics
-                from dsl_compiler.src.common import ProgramDiagnostics
+                from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
                 assert isinstance(diagnostics, ProgramDiagnostics)
 
