@@ -54,6 +54,75 @@ class EntityPlacer:
         ] = {}  # Track which memory each read came from
         self._ir_nodes: Dict[str, IRNode] = {}  # Track all IR nodes by ID for lookups
 
+    def _build_debug_info(
+        self, 
+        op: IRNode, 
+        role_override: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Extract debug information from an IR node and its usage entry.
+        
+        Returns dict with keys: variable, operation, details, signal_type, 
+        source_file, line, role
+        """
+        debug_info: Dict[str, Any] = {}
+        
+        # Get usage entry for this IR node (the producer)
+        usage = self.signal_usage.get(op.node_id)
+        
+        # Extract variable name
+        if usage and usage.debug_label:
+            debug_info["variable"] = usage.debug_label
+        elif hasattr(op, "debug_label") and op.debug_label:
+            debug_info["variable"] = op.debug_label
+        
+        # Extract source location
+        source_ast = usage.source_ast if usage else None
+        if not source_ast and hasattr(op, "source_ast"):
+            source_ast = op.source_ast
+            
+        if source_ast:
+            if hasattr(source_ast, "line") and source_ast.line > 0:
+                debug_info["line"] = source_ast.line
+            if hasattr(source_ast, "source_file") and source_ast.source_file:
+                debug_info["source_file"] = source_ast.source_file
+        
+        # Extract signal type
+        if usage and usage.resolved_signal_name:
+            debug_info["signal_type"] = usage.resolved_signal_name
+        elif hasattr(op, "output_type"):
+            debug_info["signal_type"] = op.output_type
+        
+        # Add user-declared flag
+        if hasattr(op, "debug_metadata") and op.debug_metadata:
+            if op.debug_metadata.get("user_declared"):
+                debug_info["user_declared"] = True
+                declared_name = op.debug_metadata.get("declared_name")
+                if declared_name:
+                    debug_info["variable"] = declared_name
+        
+        # Add operation-specific details
+        if isinstance(op, IR_Const):
+            debug_info["operation"] = "const"
+            details = f"value={op.value}"
+            if hasattr(op, "debug_metadata") and op.debug_metadata.get("user_declared"):
+                details += " (input)"
+            debug_info["details"] = details
+        elif isinstance(op, IR_Arith):
+            debug_info["operation"] = "arith"
+            debug_info["details"] = f"op={op.op}"
+        elif isinstance(op, IR_Decider):
+            debug_info["operation"] = "decider"
+            debug_info["details"] = f"cond={op.test_op}"
+        elif isinstance(op, IR_MemCreate):
+            debug_info["operation"] = "memory"
+            debug_info["details"] = "decl"
+        
+        # Add role
+        if role_override:
+            debug_info["role"] = role_override
+            
+        return debug_info
+
     def place_ir_operation(self, op: IRNode) -> None:
         """Place a single IR operation."""
         # Track this IR node for later lookups
@@ -95,6 +164,16 @@ class EntityPlacer:
         # Reserve position in north literals zone
         pos = self.layout.reserve_in_zone("north_literals")
 
+        # Build debug info
+        debug_info = self._build_debug_info(op)
+
+        # Add fold information if this is a folded constant
+        if hasattr(op, "debug_metadata") and op.debug_metadata:
+            folded_from = op.debug_metadata.get("folded_from")
+            if folded_from:
+                debug_info["details"] = f"folded from {len(folded_from)} constants: value={op.value}"
+                debug_info["fold_count"] = len(folded_from)
+
         # Store placement in plan (NOT creating Draftsman entity yet!)
         placement = EntityPlacement(
             ir_node_id=op.node_id,
@@ -105,6 +184,7 @@ class EntityPlacer:
                 "signal_type": signal_type,
                 "value": op.value,
                 "footprint": (1, 1),
+                "debug_info": debug_info,
             },
             role="literal",
             zone="north_literals",
@@ -151,6 +231,7 @@ class EntityPlacer:
                 "right_operand": right_operand,
                 "output_signal": output_signal,
                 "footprint": (1, 1),
+                "debug_info": self._build_debug_info(op),
             },
             role="arithmetic",
         )
@@ -204,6 +285,7 @@ class EntityPlacer:
                 "output_value": output_value,
                 "copy_count_from_input": copy_count_from_input,
                 "footprint": (1, 1),
+                "debug_info": self._build_debug_info(op),
             },
             role="decider",
         )
@@ -225,6 +307,21 @@ class EntityPlacer:
         # Create write gate
         write_pos = self.layout.get_next_position(footprint=(1, 1))
         write_id = f"{op.memory_id}_write_gate"
+        
+        # Build debug info for memory write gate
+        write_debug = {
+            "variable": f"mem:{op.memory_id}",
+            "operation": "memory",
+            "details": "write_gate",
+            "signal_type": signal_name,
+            "role": "memory_write_gate",
+        }
+        if hasattr(op, "source_ast") and op.source_ast:
+            if hasattr(op.source_ast, "line"):
+                write_debug["line"] = op.source_ast.line
+            if hasattr(op.source_ast, "source_file"):
+                write_debug["source_file"] = op.source_ast.source_file
+        
         write_placement = EntityPlacement(
             ir_node_id=write_id,
             entity_type="decider-combinator",
@@ -236,6 +333,7 @@ class EntityPlacer:
                 "right_operand": 0,
                 "output_signal": signal_name,
                 "copy_count_from_input": True,
+                "debug_info": write_debug,
             },
             role="memory_write_gate",
             zone="memory",
@@ -245,6 +343,21 @@ class EntityPlacer:
         # Create hold gate
         hold_pos = self.layout.get_next_position(footprint=(1, 1))
         hold_id = f"{op.memory_id}_hold_gate"
+        
+        # Build debug info for memory hold gate
+        hold_debug = {
+            "variable": f"mem:{op.memory_id}",
+            "operation": "memory",
+            "details": "hold_gate",
+            "signal_type": signal_name,
+            "role": "memory_hold_gate",
+        }
+        if hasattr(op, "source_ast") and op.source_ast:
+            if hasattr(op.source_ast, "line"):
+                hold_debug["line"] = op.source_ast.line
+            if hasattr(op.source_ast, "source_file"):
+                hold_debug["source_file"] = op.source_ast.source_file
+        
         hold_placement = EntityPlacement(
             ir_node_id=hold_id,
             entity_type="decider-combinator",
@@ -256,6 +369,7 @@ class EntityPlacer:
                 "right_operand": 0,
                 "output_signal": signal_name,
                 "copy_count_from_input": True,
+                "debug_info": hold_debug,
             },
             role="memory_hold_gate",
             zone="memory",
@@ -525,6 +639,14 @@ class EntityPlacer:
             # Single operation: mark for self-feedback
             final_placement.properties["has_self_feedback"] = True
             final_placement.properties["feedback_signal"] = signal_name
+            
+            # Preserve memory information in debug info for optimized combinator
+            if "debug_info" in final_placement.properties:
+                final_placement.properties["debug_info"]["memory_name"] = op.memory_id
+                final_placement.properties["debug_info"]["details"] = (
+                    f"{final_placement.properties['debug_info'].get('details', 'arith')} + memory:{op.memory_id}"
+                )
+            
             self.diagnostics.info(
                 f"Optimized memory '{op.memory_id}' to single-combinator self-feedback"
             )
@@ -640,6 +762,13 @@ class EntityPlacer:
                 "signal_type": "virtual",
                 "value": value,
                 "footprint": (1, 1),
+                "debug_info": {
+                    "variable": "write_enable",
+                    "operation": "const",
+                    "details": f"value={value}",
+                    "signal_type": "signal-W",
+                    "role": "write_enable_constant",
+                },
             },
             role="write_enable_constant",
             zone="north_literals",
@@ -683,6 +812,22 @@ class EntityPlacer:
             alignment=alignment,
         )
         placement.properties["footprint"] = footprint
+        
+        # Add debug info for user-placed entities
+        entity_debug = {
+            "variable": op.entity_id,
+            "operation": "place",
+            "details": f"proto={prototype}",
+            "role": "user_entity",
+        }
+        if hasattr(op, "source_ast") and op.source_ast:
+            if hasattr(op.source_ast, "line"):
+                entity_debug["line"] = op.source_ast.line
+            if hasattr(op.source_ast, "source_file"):
+                entity_debug["source_file"] = op.source_ast.source_file
+        
+        placement.properties["debug_info"] = entity_debug
+        
         self.plan.add_placement(placement)
 
     def _place_entity_prop_write(self, op: IR_EntityPropWrite) -> None:
@@ -709,6 +854,15 @@ class EntityPlacer:
                 }
                 # Mark the comparison decider for removal
                 inline_data["source_node_id_to_remove"] = op.value.source_id
+                
+                # Preserve debug info from the inlined comparison
+                comparison_placement = self.plan.get_placement(op.value.source_id)
+                if comparison_placement and "debug_info" in comparison_placement.properties:
+                    comp_debug = comparison_placement.properties["debug_info"]
+                    if "property_writes" in placement.properties:
+                        writes = placement.properties["property_writes"]
+                        if op.property_name in writes and writes[op.property_name].get("type") == "inline_comparison":
+                            writes[op.property_name]["inlined_from"] = comp_debug.get("variable", "comparison")
                 
                 # ✅ FIX: Track that entity needs the comparison's input signal
                 # The entity must read the signal being compared

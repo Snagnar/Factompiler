@@ -1,8 +1,7 @@
 from __future__ import annotations
-import heapq
 import math
-from collections import Counter, deque
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from collections import Counter
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 from dsl_compiler.src.ir import SignalRef
 from dsl_compiler.src.common import ProgramDiagnostics
 from .layout_engine import LayoutEngine
@@ -21,7 +20,17 @@ from .wire_router import (
 
 
 class ConnectionPlanner:
-    """Plans all wire connections for a blueprint."""
+    """Plans all wire connections for a blueprint.
+    
+    Uses a greedy straight-line approach for relay placement:
+    1. Calculates direct path between source and sink
+    2. Places relays at evenly-spaced intervals if distance exceeds span limit
+    3. Snaps relay positions to grid for clean layouts
+    4. Reuses existing relays within 30% of span limit
+    5. Assigns wire colors to isolate conflicting signal producers
+    
+    This approach ensures predictable, clean layouts without complex pathfinding.
+    """
 
     def __init__(
         self,
@@ -97,6 +106,9 @@ class ConnectionPlanner:
         self._populate_wire_connections()
         if preserved_connections:
             self.layout_plan.wire_connections.extend(preserved_connections)
+        
+        # Validate relay placement results
+        self._validate_relay_coverage()
 
     def get_wire_color(
         self, source_id: str, sink_id: str, resolved_signal: str
@@ -307,6 +319,10 @@ class ConnectionPlanner:
         source_side: Optional[str] = None,
         sink_side: Optional[str] = None,
     ) -> None:
+        """Route a connection with relays if needed.
+        
+        Uses greedy straight-line relay placement.
+        """
         source = self.layout_plan.get_placement(edge.source_entity_id)
         sink = self.layout_plan.get_placement(edge.sink_entity_id)
 
@@ -321,13 +337,16 @@ class ConnectionPlanner:
             )
             return
 
-        max_span = self.max_wire_span or 0.0
-        if max_span <= 0:
-            max_span = 9.0
-
+        # Use configured max span, with safe default
+        max_span = self.max_wire_span if self.max_wire_span and self.max_wire_span > 0 else 9.0
+        
+        # Account for entity size and wire reach offset
         span_limit = max(1.0, float(max_span) - 1.8)
+        
+        # Build path with relays using greedy straight-line approach
         path = self._build_relay_path(source, sink, span_limit)
 
+        # Create wire connections along the path
         for i, (start_id, end_id) in enumerate(zip(path, path[1:])):
             # Use sides for first and last connection
             conn_source_side = source_side if i == 0 else None
@@ -349,531 +368,181 @@ class ConnectionPlanner:
         sink: EntityPlacement,
         span_limit: float,
     ) -> List[str]:
-        ids: List[str] = [source.ir_node_id, sink.ir_node_id]
+        """Build a relay path using greedy straight-line placement.
+        
+        Places relays at evenly-spaced intervals along the direct line
+        between source and sink. Reuses existing relays when possible.
+        
+        Args:
+            source: Source entity placement
+            sink: Sink entity placement  
+            span_limit: Maximum wire span distance
+            
+        Returns:
+            List of entity IDs forming the path from source to sink
+        """
         epsilon = 1e-6
-        base_span = math.dist(source.position, sink.position)
-        base_segments = max(1, math.ceil(max(base_span, span_limit) / span_limit))
-        relay_cap = max(4096, base_segments * 8)
-        relays_inserted = 0
-
-        idx = 0
-        while idx < len(ids) - 1:
-            start_id = ids[idx]
-            end_id = ids[idx + 1]
-            start = self.layout_plan.get_placement(start_id)
-            end = self.layout_plan.get_placement(end_id)
-
-            if start is None or end is None:
-                idx += 1
-                continue
-
-            distance = math.dist(start.position, end.position)
+        base_distance = math.dist(source.position, sink.position)
+        
+        # No relays needed if within span
+        if base_distance <= span_limit + epsilon:
+            return [source.ir_node_id, sink.ir_node_id]
+        
+        # Calculate number of relays needed
+        num_relays = math.ceil(base_distance / span_limit) - 1
+        
+        if num_relays <= 0:
+            return [source.ir_node_id, sink.ir_node_id]
+        
+        # Build path with relays
+        path_ids = [source.ir_node_id]
+        
+        for i in range(1, num_relays + 1):
+            # Calculate ideal position along straight line
+            ratio = i / (num_relays + 1)
+            ideal_x = source.position[0] + (sink.position[0] - source.position[0]) * ratio
+            ideal_y = source.position[1] + (sink.position[1] - source.position[1]) * ratio
+            ideal_pos = (ideal_x, ideal_y)
             
-            # ✅ FIX: If distance is impossibly large, abort relay insertion
-            if distance > span_limit * 20:  # More than 20 hops needed
+            # Try to find or create relay at this position
+            relay_id = self._find_or_create_relay(ideal_pos, span_limit)
+            if relay_id:
+                path_ids.append(relay_id)
+            else:
+                # Failed to place relay - log warning and continue with partial path
                 self.diagnostics.warning(
-                    f"Distance between {start_id} and {end_id} is {distance:.1f} tiles, "
-                    f"exceeding reasonable relay span ({span_limit * 20:.1f}). "
-                    f"Skipping relay insertion for this segment."
+                    f"Could not place relay {i}/{num_relays} at ({ideal_x:.1f}, {ideal_y:.1f}) "
+                    f"for path {source.ir_node_id} -> {sink.ir_node_id}"
                 )
-                idx += 1
-                continue
+        
+        path_ids.append(sink.ir_node_id)
+        
+        # Validate that all segments are within span
+        for i in range(len(path_ids) - 1):
+            start_placement = self.layout_plan.get_placement(path_ids[i])
+            end_placement = self.layout_plan.get_placement(path_ids[i + 1])
             
-            if distance <= span_limit + epsilon:
-                idx += 1
-                continue
-
-            existing_relay_id = self._find_existing_relay_bridge(
-                start,
-                end,
-                distance,
-                span_limit,
-                epsilon,
-                ids,
-            )
-
-            if existing_relay_id is not None:
-                ids.insert(idx + 1, existing_relay_id)
-                continue
-
-            relay_position = self._select_relay_position(
-                start,
-                end,
-                distance,
-                span_limit,
-                epsilon,
-            )
-
-            if relay_position is None:
-                bridge_sequence = self._find_segment_bridge(
-                    start,
-                    end,
-                    span_limit,
-                    epsilon,
-                    ids,
-                )
-
-                if bridge_sequence:
-                    new_relays = 0
-                    insertion_offset = 1
-                    for relay_id, pos in bridge_sequence:
-                        current_id = relay_id
-                        if current_id is None:
-                            if relays_inserted + new_relays >= relay_cap:
-                                break
-                            reserved = self.layout_engine.reserve_exact(pos)
-                            if reserved is None:
-                                break
-                            current_id = self._create_intermediate_relay(reserved)
-                            new_relays += 1
-                        ids.insert(idx + insertion_offset, current_id)
-                        insertion_offset += 1
-
-                    if insertion_offset > 1:
-                        relays_inserted += new_relays
-                        continue
-
-                self.diagnostics.warning(
-                    "Unable to insert relay between %s and %s; segment spans %.2f tiles (limit %.2f)."
-                    % (start_id, end_id, distance, span_limit)
-                )
-                idx += 1
-                continue
-
-            relay_id = self._create_intermediate_relay(relay_position)
-            ids.insert(idx + 1, relay_id)
-            relays_inserted += 1
-
-            # ✅ FIX: Add progress check to prevent infinite relay cascades
-            if relays_inserted > 0 and relays_inserted % 10 == 0:
-                current_longest = 0.0
-                for i in range(len(ids) - 1):
-                    p1 = self.layout_plan.get_placement(ids[i])
-                    p2 = self.layout_plan.get_placement(ids[i + 1])
-                    if p1 and p2:
-                        seg_dist = math.dist(p1.position, p2.position)
-                        if seg_dist > current_longest:
-                            current_longest = seg_dist
-                
-                if current_longest <= span_limit + epsilon:
-                    # All segments are within span - we're done!
-                    break
-
-            if relays_inserted > relay_cap:
-                self.diagnostics.warning(
-                    "Relay insertion exceeded safety cap while routing %s -> %s; inserted %d relays (cap %d)."
-                    % (
-                        source.ir_node_id,
-                        sink.ir_node_id,
-                        relays_inserted,
-                        relay_cap,
+            if start_placement and end_placement:
+                segment_dist = math.dist(start_placement.position, end_placement.position)
+                if segment_dist > span_limit + epsilon:
+                    self.diagnostics.warning(
+                        f"Relay path segment exceeds span limit: {segment_dist:.1f} > {span_limit:.1f} "
+                        f"({path_ids[i]} -> {path_ids[i + 1]})"
                     )
-                )
-                break
+        
+        return path_ids
 
-        return ids
-
-    def _find_existing_relay_bridge(
+    def _find_or_create_relay(
         self,
-        start: EntityPlacement,
-        end: EntityPlacement,
-        distance: float,
+        ideal_position: Tuple[float, float],
         span_limit: float,
-        epsilon: float,
-        current_path: Sequence[str],
     ) -> Optional[str]:
-        best_id: Optional[str] = None
-        best_score = (float("inf"), float("inf"))
-
-        for entity_id, placement in self.layout_plan.entity_placements.items():
-            if getattr(placement, "role", None) != "wire_relay":
-                continue
-            if entity_id in current_path:
-                continue
-            if entity_id == start.ir_node_id or entity_id == end.ir_node_id:
-                continue
-
-            start_distance = math.dist(start.position, placement.position)
-            end_distance = math.dist(placement.position, end.position)
-
-            if (
-                start_distance >= distance - epsilon
-                or end_distance >= distance - epsilon
-            ):
-                continue
-
-            penalty = 0.0
-            if start_distance > span_limit + epsilon:
-                penalty += start_distance - span_limit
-            if end_distance > span_limit + epsilon:
-                penalty += end_distance - span_limit
-
-            span_score = max(start_distance, end_distance)
-            composite = (penalty, span_score)
-            if composite >= best_score:
-                continue
-
-            best_id = entity_id
-            best_score = composite
-
-        return best_id
-
-    def _find_segment_bridge(
-        self,
-        start: EntityPlacement,
-        end: EntityPlacement,
-        span_limit: float,
-        epsilon: float,
-        current_path: Sequence[str],
-    ) -> Optional[List[Tuple[Optional[str], Tuple[int, int]]]]:
-        spacing_x = max(1, self.layout_engine.entity_spacing)
-        spacing_y = max(1, self.layout_engine.row_height)
-        dx = abs(start.position[0] - end.position[0])
-        dy = abs(start.position[1] - end.position[1])
-        margin = int(math.ceil(span_limit * 4 + max(dx, dy)))
-
-        min_x = (
-            (min(start.position[0], end.position[0]) - margin) // spacing_x
-        ) * spacing_x
-        max_x = (
-            (max(start.position[0], end.position[0]) + margin) // spacing_x
-        ) * spacing_x
-        min_y = (
-            (min(start.position[1], end.position[1]) - margin) // spacing_y
-        ) * spacing_y
-        max_y = (
-            (max(start.position[1], end.position[1]) + margin) // spacing_y
-        ) * spacing_y
-
-        nodes: List[Dict[str, Any]] = []
-        index_by_pos: Dict[Tuple[int, int], int] = {}
-
-        def add_node(position: Tuple[int, int], relay_id: Optional[str]) -> int:
-            existing = index_by_pos.get(position)
-            if existing is not None:
-                if relay_id is not None:
-                    nodes[existing]["relay_id"] = relay_id
-                return existing
-            index = len(nodes)
-            nodes.append({"position": position, "relay_id": relay_id})
-            index_by_pos[position] = index
-            return index
-
-        start_idx = add_node(start.position, start.ir_node_id)
-        end_idx = add_node(end.position, end.ir_node_id)
-
-        for entity_id, placement in self.layout_plan.entity_placements.items():
-            if getattr(placement, "role", None) != "wire_relay":
-                continue
-            if entity_id in current_path:
-                continue
-            add_node(placement.position, entity_id)
-
-        max_nodes = 2500
-        for x in range(min_x, max_x + spacing_x, spacing_x):
-            if len(nodes) >= max_nodes:
-                break
-            for y in range(min_y, max_y + spacing_y, spacing_y):
-                if len(nodes) >= max_nodes:
-                    break
-                pos = (x, y)
-                if pos in index_by_pos:
-                    continue
-                if not self.layout_engine.can_reserve(pos):
-                    continue
-                add_node(pos, None)
-
-        if len(nodes) <= 2:
-            return None
-
-        # ✅ FIX: Add hard limit on BFS exploration
-        parents: Dict[int, Optional[int]] = {start_idx: None}
-        queue: deque[int] = deque([start_idx])
-        explored_count = 0
-        max_explored = min(len(nodes) * 10, 5000)  # Limit exploration
-
-        while queue and explored_count < max_explored:
-            current = queue.popleft()
-            explored_count += 1
-            current_pos = nodes[current]["position"]
-
-            for idx, node in enumerate(nodes):
-                if idx in parents:
-                    continue
-                if math.dist(current_pos, node["position"]) > span_limit + epsilon:
-                    continue
-                parents[idx] = current
-                if idx == end_idx:
-                    queue.clear()
-                    break
-                queue.append(idx)
-
-            if end_idx in parents:
-                break
-
-        # Check if we found a path
-        if end_idx not in parents:
-            if explored_count >= max_explored:
-                self.diagnostics.warning(
-                    f"Relay path search timeout after exploring {explored_count} nodes "
-                    f"for {start.ir_node_id} -> {end.ir_node_id}"
-                )
-            return None
-
-        path_indices: List[int] = []
-        node_idx: Optional[int] = end_idx
-        while node_idx is not None:
-            path_indices.append(node_idx)
-            node_idx = parents.get(node_idx)
-
-        path_indices.reverse()
-        if len(path_indices) <= 2:
-            return None
-
-        sequence: List[Tuple[Optional[str], Tuple[int, int]]] = []
-        for idx in path_indices[1:-1]:
-            node = nodes[idx]
-            sequence.append((node.get("relay_id"), node["position"]))
-
-        return sequence
-
-    def _select_relay_position(
-        self,
-        start: EntityPlacement,
-        end: EntityPlacement,
-        distance: float,
-        span_limit: float,
-        epsilon: float,
-    ) -> Optional[Tuple[int, int]]:
-        spacing_x = max(1, self.layout_engine.entity_spacing)
-        spacing_y = max(1, self.layout_engine.row_height)
-        min_spacing = max(1, min(spacing_x, spacing_y))
-        span_radius = math.ceil(span_limit / min_spacing) + 2
-        distance_radius = math.ceil(distance / min_spacing) + 2
-        search_radius = min(64, max(span_radius, distance_radius))
-
-        candidate_ratios = self._candidate_relay_ratios(distance, span_limit)
-        seen_positions: Set[Tuple[int, int]] = set()
-
-        for ratio in candidate_ratios:
-            candidate = self._locate_relay_position(
-                start.position,
-                end.position,
-                ratio,
-                search_radius,
-            )
-
-            if candidate is None:
-                continue
-            if candidate == start.position or candidate == end.position:
-                continue
-            if candidate in seen_positions:
-                continue
-
-            new_start = math.dist(start.position, candidate)
-            new_end = math.dist(candidate, end.position)
-
-            if new_start >= distance - epsilon or new_end >= distance - epsilon:
-                continue
-
-            reserved = self.layout_engine.reserve_exact(candidate)
-            if reserved is None:
-                continue
-
-            seen_positions.add(reserved)
-            return reserved
-
-        step_candidates = self._scan_step_candidates(
-            start.position,
-            end.position,
-            span_limit,
-            distance,
-            epsilon,
+        """Find existing relay near position or create new one.
+        
+        Strategy:
+        1. Snap ideal position to grid
+        2. Search for existing relays within reuse_radius
+        3. If found, validate it doesn't exceed span to neighbors
+        4. If not found, try to reserve grid position
+        5. Create new relay at reserved position
+        
+        Args:
+            ideal_position: Desired (x, y) position for relay
+            span_limit: Maximum wire span distance
+            
+        Returns:
+            Entity ID of found or created relay, or None if placement failed
+        """
+        # Snap to grid
+        snapped_pos = self.layout_engine.snap_to_grid(ideal_position)
+        
+        # Define reuse radius (existing relays within this distance can be reused)
+        reuse_radius = span_limit * 0.3  # 30% of span limit
+        
+        # Search for existing relay within reuse radius
+        existing_relay = self._find_existing_relay_near(snapped_pos, reuse_radius)
+        if existing_relay:
+            return existing_relay
+        
+        # Try to reserve the snapped position
+        reserved_pos = self.layout_engine.reserve_exact(
+            snapped_pos,
+            footprint=(1, 1),
+            padding=0,
         )
-
-        if not step_candidates:
-            step_candidates = self._scan_step_candidates(
-                end.position,
-                start.position,
-                span_limit,
-                distance,
-                epsilon,
-            )
-
-        for _, _, candidate in step_candidates:
-            if candidate == start.position or candidate == end.position:
-                continue
-            if candidate in seen_positions:
-                continue
-            reserved = self.layout_engine.reserve_exact(candidate)
-            if reserved is None:
-                continue
-            seen_positions.add(reserved)
-            return reserved
-
+        
+        if reserved_pos:
+            return self._create_intermediate_relay(reserved_pos)
+        
+        # Try nearby positions in a small radius
+        search_radius = 3  # Search up to 3 grid positions away
+        for radius in range(1, search_radius + 1):
+            for offset_x in range(-radius, radius + 1):
+                for offset_y in range(-radius, radius + 1):
+                    # Only check positions at current radius (not interior)
+                    if abs(offset_x) != radius and abs(offset_y) != radius:
+                        continue
+                    
+                    candidate_x = snapped_pos[0] + offset_x * self.layout_engine.entity_spacing
+                    candidate_y = snapped_pos[1] + offset_y * self.layout_engine.row_height
+                    candidate_pos = (candidate_x, candidate_y)
+                    
+                    reserved_pos = self.layout_engine.reserve_exact(
+                        candidate_pos,
+                        footprint=(1, 1),
+                        padding=0,
+                    )
+                    
+                    if reserved_pos:
+                        return self._create_intermediate_relay(reserved_pos)
+        
+        # Could not place relay
         return None
 
-    def _candidate_relay_ratios(
-        self, distance: float, span_limit: float
-    ) -> List[float]:
-        ratios: List[float] = []
-        pivot_values = [0.5, 0.25, 0.75, 0.125, 0.875, 0.375, 0.625]
-
-        if distance > 0:
-            offset = span_limit / distance
-            if 0.0 < offset < 1.0:
-                pivot_values.extend([offset, 1.0 - offset])
-
-        seen = set()
-        for value in pivot_values:
-            if value <= 0.0 or value >= 1.0:
-                continue
-            key = round(value, 6)
-            if key in seen:
-                continue
-            seen.add(key)
-            ratios.append(value)
-
-        return ratios
-
-    def _locate_relay_position(
+    def _find_existing_relay_near(
         self,
-        start_pos: Tuple[int, int],
-        end_pos: Tuple[int, int],
-        ratio: float,
-        search_radius: int,
-    ) -> Optional[Tuple[int, int]]:
-        ratio = min(max(ratio, 1e-6), 1 - 1e-6)
-        target_x = start_pos[0] + (end_pos[0] - start_pos[0]) * ratio
-        target_y = start_pos[1] + (end_pos[1] - start_pos[1]) * ratio
-        return self._find_available_near((target_x, target_y), search_radius)
-
-    def _find_available_near(
-        self,
-        target: Tuple[float, float],
-        search_radius: int,
-    ) -> Optional[Tuple[int, int]]:
-        snapped = self.layout_engine.snap_to_grid(target)
-        spacing_x = max(1, self.layout_engine.entity_spacing)
-        spacing_y = max(1, self.layout_engine.row_height)
-
-        visited: Set[Tuple[int, int]] = set()
-        heap: List[Tuple[float, int, int, Tuple[int, int]]] = []
-
-        def push(pos: Tuple[int, int]) -> None:
-            if pos in visited:
-                return
-            visited.add(pos)
-            dx = abs(pos[0] - snapped[0]) / spacing_x
-            dy = abs(pos[1] - snapped[1]) / spacing_y
-            distance = max(dx, dy)
-            heapq.heappush(
-                heap,
-                (
-                    distance,
-                    abs(pos[1] - snapped[1]),
-                    abs(pos[0] - snapped[0]),
-                    pos,
-                ),
-            )
-
-        push(snapped)
-
-        while heap:
-            distance, _, _, pos = heapq.heappop(heap)
-            if distance > search_radius:
-                break
-            if self.layout_engine.can_reserve(pos):
-                return pos
-            for neighbor in self._iter_neighbor_positions(pos):
-                push(neighbor)
-
-        return None
-
-    def _iter_neighbor_positions(self, pos: Tuple[int, int]) -> List[Tuple[int, int]]:
-        spacing_x = max(1, self.layout_engine.entity_spacing)
-        spacing_y = max(1, self.layout_engine.row_height)
-        x, y = pos
-        offsets = (
-            (spacing_x, 0),
-            (-spacing_x, 0),
-            (0, spacing_y),
-            (0, -spacing_y),
-            (spacing_x, spacing_y),
-            (spacing_x, -spacing_y),
-            (-spacing_x, spacing_y),
-            (-spacing_x, -spacing_y),
-        )
-        return [(x + dx, y + dy) for dx, dy in offsets]
-
-    def _scan_step_candidates(
-        self,
-        origin: Tuple[int, int],
-        target: Tuple[int, int],
-        span_limit: float,
-        original_distance: float,
-        epsilon: float,
-    ) -> List[Tuple[float, float, Tuple[int, int]]]:
-        spacing_x = max(1, self.layout_engine.entity_spacing)
-        spacing_y = max(1, self.layout_engine.row_height)
-        min_spacing = max(1, min(spacing_x, spacing_y))
-        tile_radius = math.ceil(span_limit / min_spacing) + 2
-
-        visited: Set[Tuple[int, int]] = set()
-        heap: List[Tuple[float, int, int, Tuple[int, int]]] = []
-        candidates: List[Tuple[float, float, Tuple[int, int]]] = []
-
-        def push(pos: Tuple[int, int]) -> None:
-            if pos in visited:
-                return
-            visited.add(pos)
-            dx = abs(pos[0] - origin[0]) / spacing_x
-            dy = abs(pos[1] - origin[1]) / spacing_y
-            priority = max(dx, dy)
-            heapq.heappush(
-                heap,
-                (
-                    priority,
-                    abs(pos[1] - origin[1]),
-                    abs(pos[0] - origin[0]),
-                    pos,
-                ),
-            )
-
-        push(origin)
-
-        while heap:
-            priority, _, _, pos = heapq.heappop(heap)
-            if priority > tile_radius:
+        position: Tuple[int, int],
+        max_distance: float,
+    ) -> Optional[str]:
+        """Find an existing wire relay within max_distance of position.
+        
+        Args:
+            position: Center position to search from
+            max_distance: Maximum distance to search
+            
+        Returns:
+            Entity ID of nearest relay, or None if none found within range
+        """
+        best_relay_id = None
+        best_distance = float('inf')
+        
+        for entity_id, placement in self.layout_plan.entity_placements.items():
+            # Only consider wire relays
+            if getattr(placement, "role", None) != "wire_relay":
                 continue
-
-            if pos != origin:
-                origin_distance = math.dist(origin, pos)
-                if origin_distance > span_limit + epsilon:
-                    continue
-                if not self.layout_engine.can_reserve(pos):
-                    # Explore neighbors even if occupied to look for free spots nearby.
-                    for neighbor in self._iter_neighbor_positions(pos):
-                        push(neighbor)
-                    continue
-                remaining = math.dist(pos, target)
-                if remaining >= original_distance - epsilon:
-                    for neighbor in self._iter_neighbor_positions(pos):
-                        push(neighbor)
-                    continue
-
-                candidates.append((remaining, origin_distance, pos))
-
-            for neighbor in self._iter_neighbor_positions(pos):
-                push(neighbor)
-
-        candidates.sort(key=lambda item: (item[0], item[1]))
-        return candidates
+            
+            # Calculate distance
+            distance = math.dist(position, placement.position)
+            
+            # Check if within range and closer than current best
+            if distance <= max_distance and distance < best_distance:
+                best_relay_id = entity_id
+                best_distance = distance
+        
+        return best_relay_id
 
     def _create_intermediate_relay(
         self,
         position: Tuple[int, int],
     ) -> str:
+        """Create a wire relay power pole at the specified position.
+        
+        Args:
+            position: Grid-aligned (x, y) position
+            
+        Returns:
+            Entity ID of the created relay
+        """
         relay_id = f"__wire_relay_{self._relay_counter}"
         self._relay_counter += 1
 
@@ -881,12 +550,62 @@ class ConnectionPlanner:
             ir_node_id=relay_id,
             entity_type="medium-electric-pole",
             position=position,
-            properties={},
+            properties={
+                "debug_info": {
+                    "variable": f"relay_{self._relay_counter}",
+                    "operation": "infrastructure",
+                    "details": f"wire_relay at ({position[0]}, {position[1]})",
+                    "role": "wire_relay",
+                }
+            },
             role="wire_relay",
             zone="infrastructure",
         )
         self.layout_plan.add_placement(relay_placement)
         return relay_id
+
+    def _validate_relay_coverage(self) -> None:
+        """Validate that all wire connections have adequate relay coverage.
+        
+        Logs warnings for any connections that exceed span limits.
+        """
+        max_span = self.max_wire_span if self.max_wire_span and self.max_wire_span > 0 else 9.0
+        span_limit = max(1.0, float(max_span) - 1.8)
+        epsilon = 1e-6
+        
+        violation_count = 0
+        
+        for connection in self.layout_plan.wire_connections:
+            source = self.layout_plan.get_placement(connection.source_entity_id)
+            sink = self.layout_plan.get_placement(connection.sink_entity_id)
+            
+            if not source or not sink:
+                continue
+            
+            distance = math.dist(source.position, sink.position)
+            
+            if distance > span_limit + epsilon:
+                violation_count += 1
+                if violation_count <= 5:  # Only log first 5 to avoid spam
+                    self.diagnostics.warning(
+                        f"Wire connection exceeds span limit: {distance:.1f} > {span_limit:.1f} "
+                        f"({connection.source_entity_id} -> {connection.sink_entity_id} "
+                        f"on {connection.signal_name})"
+                    )
+        
+        if violation_count > 5:
+            self.diagnostics.warning(
+                f"Total {violation_count} wire connections exceed span limit "
+                f"(showing first 5)"
+            )
+        
+        relay_count = sum(
+            1 for p in self.layout_plan.entity_placements.values()
+            if getattr(p, "role", None) == "wire_relay"
+        )
+        
+        if relay_count > 0:
+            self.diagnostics.info(f"Placed {relay_count} wire relay poles")
 
     # ------------------------------------------------------------------
     # Convenience helpers for emitters

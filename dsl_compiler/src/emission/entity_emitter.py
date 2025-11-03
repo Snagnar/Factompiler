@@ -86,6 +86,18 @@ class PlanEntityEmitter:
         if property_writes:
             self._apply_property_writes(entity, property_writes, placement)
 
+        # Set entity description from debug info
+        debug_info = placement.properties.get("debug_info")
+        if debug_info:
+            from dsl_compiler.src.emission.emitter import format_entity_description
+            description = format_entity_description(debug_info)
+            if description and hasattr(entity, "description"):
+                try:
+                    entity.description = description
+                except Exception:
+                    # Some entity types might not support descriptions
+                    pass
+
         entity.id = placement.ir_node_id
         entity.tile_position = placement.position
         return entity

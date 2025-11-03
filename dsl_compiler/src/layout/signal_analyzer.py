@@ -132,6 +132,15 @@ class SignalAnalyzer:
             elif isinstance(op, IR_WireMerge):
                 record_consumer(op.sources, op.node_id)
 
+        # Second pass: Mark output signals (top-level, no consumers)
+        for signal_id, entry in usage.items():
+            if isinstance(entry.producer, IRValue):
+                # Check if this is a named signal with no consumers
+                if entry.debug_label and entry.debug_label != signal_id:
+                    if not entry.consumers:
+                        # This is an output signal
+                        entry.debug_metadata["is_output"] = True
+
         self.signal_usage = usage
         return usage
 
@@ -209,11 +218,44 @@ class SignalMaterializer:
 
     def _decide_materialization(self, entry: SignalUsageEntry) -> None:
         producer = entry.producer
+        
+        # Check suppression flag first (but respect user declarations)
         if entry.debug_metadata.get("suppress_materialization"):
+            # If user-declared, override suppression
+            if producer and hasattr(producer, "debug_metadata"):
+                if producer.debug_metadata.get("user_declared"):
+                    entry.should_materialize = True
+                    return
             entry.should_materialize = False
             return
+        
+        # Check producer's metadata for suppression
+        if producer and hasattr(producer, "debug_metadata"):
+            # User-declared constants always materialize
+            if producer.debug_metadata.get("user_declared"):
+                entry.should_materialize = True
+                return
+            
+            if producer.debug_metadata.get("suppress_materialization"):
+                entry.should_materialize = False
+                return
 
         if isinstance(producer, IR_Const):
+            # Check for user declaration via debug_label
+            is_user_declared = False
+            if hasattr(producer, "debug_metadata"):
+                is_user_declared = producer.debug_metadata.get("user_declared", False)
+            
+            # User-declared constants always materialize
+            if is_user_declared:
+                entry.should_materialize = True
+                return
+            
+            # Check if this is marked as an output signal
+            if entry.debug_metadata.get("is_output"):
+                entry.should_materialize = True
+                return
+            
             named_metadata = False
             if entry.debug_metadata:
                 metadata = entry.debug_metadata
