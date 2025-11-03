@@ -124,6 +124,7 @@ class BlueprintEmitter:
 
     def emit_from_plan(self, layout_plan: LayoutPlan) -> Blueprint:
         """Emit a blueprint from a completed layout plan."""
+        import warnings
 
         self.blueprint = Blueprint()
         self.blueprint.label = layout_plan.blueprint_label or "DSL Generated"
@@ -137,7 +138,21 @@ class BlueprintEmitter:
             if entity is None:
                 continue
             entity_map[placement.ir_node_id] = entity
-            self.blueprint.entities.append(entity, copy=False)
+            
+            # Convert draftsman warnings to errors when adding entities
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                try:
+                    self.blueprint.entities.append(entity, copy=False)
+                except Warning as w:
+                    # Draftsman warning (e.g., OverlappingObjectsWarning) - convert to compilation error
+                    self.diagnostics.error(
+                        f"Layout error placing {entity.name} at {entity.tile_position}: {w}"
+                    )
+                except Exception as exc:
+                    self.diagnostics.error(
+                        f"Failed to place {entity.name} at {entity.tile_position}: {exc}"
+                    )
 
         self._materialize_power_grid(layout_plan, entity_map)
         self._materialize_connections(layout_plan, entity_map)
@@ -154,6 +169,8 @@ class BlueprintEmitter:
         layout_plan: LayoutPlan,
         entity_map: Dict[str, Entity],
     ) -> None:
+        import warnings
+        
         for connection in layout_plan.wire_connections:
             source = entity_map.get(connection.source_entity_id)
             sink = entity_map.get(connection.sink_entity_id)
@@ -179,12 +196,20 @@ class BlueprintEmitter:
             if connection.sink_side:
                 kwargs["side_2"] = connection.sink_side
 
-            try:
-                self.blueprint.add_circuit_connection(**kwargs)
-            except Exception as exc:  # pragma: no cover - draftsman errors
-                self.diagnostics.error(
-                    f"Failed to wire {source.id} -> {sink.id} ({connection.signal_name}): {exc}"
-                )
+            # Convert draftsman warnings to errors as user requested
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                try:
+                    self.blueprint.add_circuit_connection(**kwargs)
+                except Warning as w:
+                    # Draftsman warning - convert to compilation error
+                    self.diagnostics.error(
+                        f"Layout error wiring {source.id} -> {sink.id} ({connection.signal_name}): {w}"
+                    )
+                except Exception as exc:  # pragma: no cover - draftsman errors
+                    self.diagnostics.error(
+                        f"Failed to wire {source.id} -> {sink.id} ({connection.signal_name}): {exc}"
+                    )
 
     def _materialize_power_grid(
         self,

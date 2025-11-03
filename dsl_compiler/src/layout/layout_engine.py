@@ -12,15 +12,16 @@ class LayoutEngine:
         self._origin = (0, 0)
         self.used_positions: Set[Tuple[int, int]] = set()
         self._occupied_tiles: Set[Tuple[int, int]] = set()
-        self._candidate_heap: List[Tuple[float, int, Tuple[int, int]]] = []
-        self._queued_positions: Set[Tuple[int, int]] = set()
-        self._sequence_counter = 0
         self._zone_states: Dict[str, Dict[str, Any]] = {}
         self._zone_defaults: Dict[str, int] = {
             "north_literals": -self.row_height * 3,
             "south_exports": self.row_height * 3,
         }
-        self._push_candidate(self._origin)
+        # Cluster-based placement state
+        self._next_row_x = 0
+        self._next_row_y = 0
+        self._cluster_bounds: Optional[Tuple[int, int, int, int]] = None
+        self._current_row_max_height = 1  # Track tallest entity in current row
 
     # ------------------------------------------------------------------
     # Public API
@@ -32,27 +33,26 @@ class LayoutEngine:
         padding: int = 0,
         alignment: int = 1,
     ) -> Tuple[int, int]:
-        while self._candidate_heap:
-            _, _, pos = heapq.heappop(self._candidate_heap)
-            # Check alignment
-            if pos[0] % alignment != 0 or pos[1] % alignment != 0:
-                continue
-            if pos in self.used_positions:
-                continue
-            if not self._position_available(pos, footprint, padding):
-                continue
-            return self._claim_position(pos, footprint, padding)
-
-        # Fallback: expand search ring vertically near the origin and retry.
+        """Get next available position - SIMPLIFIED for cluster-bounded placement."""
+        
+        spacing_x = max(alignment, self.entity_spacing)
         spacing_y = max(alignment, self.row_height)
-        fallback_y = (len(self.used_positions) + 1) * spacing_y
-        # Snap to alignment
-        fallback_y = (fallback_y // alignment) * alignment
-        fallback = (0, fallback_y)
-        self._push_candidate(fallback)
-        return self.get_next_position(
-            footprint=footprint, padding=padding, alignment=alignment
-        )
+        
+        # Try current position
+        while True:
+            candidate = (self._next_row_x, self._next_row_y)
+            
+            # Check alignment
+            if candidate[0] % alignment == 0 and candidate[1] % alignment == 0:
+                if self._position_available(candidate, footprint, padding):
+                    self._next_row_x += spacing_x
+                    return self._claim_position(candidate, footprint, padding, enqueue_neighbors=False)
+            
+            # Move to next position
+            self._next_row_x += spacing_x
+            if self._next_row_x > 20:  # Simple row wrap
+                self._next_row_x = 0
+                self._next_row_y += spacing_y
 
     def reserve_near(
         self,
@@ -186,6 +186,57 @@ class LayoutEngine:
 
         return (snapped_x, snapped_y)
 
+    def set_cluster_bounds(self, bounds: Optional[Tuple[int, int, int, int]]) -> None:
+        """Set bounds for next placements (x1, y1, x2, y2) or None to clear."""
+        self._cluster_bounds = bounds
+        if bounds is not None:
+            # Reset row placement to start of bounds
+            self._next_row_x = bounds[0]
+            self._next_row_y = bounds[1]
+            self._current_row_max_height = 1
+        else:
+            # Clear bounds, reset to normal placement
+            self._next_row_x = 0
+            self._next_row_y = 0
+            self._current_row_max_height = 1
+
+    def get_cluster_position(
+        self,
+        footprint: Tuple[int, int] = (1, 1),
+        alignment: int = 1,
+    ) -> Tuple[int, int]:
+        """Get position within cluster bounds."""
+        
+        if self._cluster_bounds is None:
+            return self.get_next_position(footprint, 0, alignment)
+        
+        x1, y1, x2, y2 = self._cluster_bounds
+        
+        # Simple row placement within bounds
+        while self._next_row_y < y2:
+            while self._next_row_x < x2:
+                candidate = (self._next_row_x, self._next_row_y)
+                
+                if candidate[0] % alignment == 0 and candidate[1] % alignment == 0:
+                    if self._position_available(candidate, footprint, 0):
+                        if self._next_row_x + footprint[0] <= x2 and self._next_row_y + footprint[1] <= y2:
+                            result = self._claim_position(candidate, footprint, 0, enqueue_neighbors=False)
+                            # Track the tallest entity in this row
+                            self._current_row_max_height = max(self._current_row_max_height, footprint[1])
+                            self._next_row_x += max(alignment, footprint[0])
+                            return result
+                
+                self._next_row_x += alignment
+            
+            # Move to next row - advance by the tallest entity in the previous row
+            self._next_row_x = x1
+            self._next_row_y += max(alignment, self._current_row_max_height)
+            self._current_row_max_height = 1  # Reset for next row
+        
+        # Cluster full - fall back to unrestricted placement
+        # This allows overflow entities to be placed outside the cluster bounds
+        return self.get_next_position(footprint, 0, alignment)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -199,51 +250,8 @@ class LayoutEngine:
         enqueue_neighbors: bool = True,
     ) -> Tuple[int, int]:
         self.used_positions.add(pos)
-        self._queued_positions.discard(pos)
         self._mark_occupied(pos, footprint, padding)
-        if enqueue_neighbors:
-            self._enqueue_neighbors(pos)
         return pos
-
-    def _push_candidate(
-        self, pos: Tuple[int, int], reference: Tuple[int, int] = None
-    ) -> None:
-        if pos in self.used_positions or pos in self._queued_positions:
-            return
-
-        ref = reference or self._origin
-        spacing_x = max(1, self.entity_spacing)
-        spacing_y = max(1, self.row_height)
-        dx = (pos[0] - ref[0]) / spacing_x
-        dy = (pos[1] - ref[1]) / spacing_y
-        priority = max(abs(dx), abs(dy))
-
-        heapq.heappush(self._candidate_heap, (priority, self._sequence_counter, pos))
-        self._sequence_counter += 1
-        self._queued_positions.add(pos)
-
-    def _enqueue_neighbors(self, pos: Tuple[int, int]) -> None:
-        for neighbor in self._iter_neighbor_positions(pos):
-            self._push_candidate(neighbor, reference=pos)
-
-    def _iter_neighbor_positions(self, pos: Tuple[int, int]):
-        spacing_x = max(1, self.entity_spacing)
-        spacing_y = max(1, self.row_height)
-        x, y = pos
-
-        offsets = (
-            (spacing_x, 0),
-            (-spacing_x, 0),
-            (0, spacing_y),
-            (0, -spacing_y),
-            (spacing_x, spacing_y),
-            (spacing_x, -spacing_y),
-            (-spacing_x, spacing_y),
-            (-spacing_x, -spacing_y),
-        )
-
-        for dx, dy in offsets:
-            yield (x + dx, y + dy)
 
     def _snap_to_alignment(
         self, pos: Tuple[Union[int, float], Union[int, float]], alignment: int
@@ -305,8 +313,20 @@ class LayoutEngine:
                 pos, footprint, padding
             ):
                 return pos
-            for neighbor in self._iter_neighbor_positions(pos):
-                push(neighbor)
+            # Generate neighbors inline
+            x, y = pos
+            offsets = (
+                (spacing_x, 0),
+                (-spacing_x, 0),
+                (0, spacing_y),
+                (0, -spacing_y),
+                (spacing_x, spacing_y),
+                (spacing_x, -spacing_y),
+                (-spacing_x, spacing_y),
+                (-spacing_x, -spacing_y),
+            )
+            for dx, dy in offsets:
+                push((x + dx, y + dy))
 
         return None
 

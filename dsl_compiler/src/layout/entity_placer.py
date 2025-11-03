@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, List
 from dsl_compiler.src.common import ProgramDiagnostics
 from dsl_compiler.src.common import get_entity_footprint, get_entity_alignment
 from .layout_engine import LayoutEngine
@@ -6,6 +6,7 @@ from .layout_plan import LayoutPlan, EntityPlacement, WireConnection
 from .signal_analyzer import SignalUsageEntry, SignalMaterializer
 from .signal_resolver import SignalResolver
 from .signal_graph import SignalGraph
+from .cluster_analyzer import Cluster
 
 
 from dsl_compiler.src.ir import (
@@ -36,6 +37,8 @@ class EntityPlacer:
         materializer: SignalMaterializer,
         signal_resolver: SignalResolver,
         diagnostics: ProgramDiagnostics,
+        clusters: Optional[List[Cluster]] = None,
+        entity_to_cluster: Optional[Dict[str, int]] = None,
     ):
         self.layout = layout_engine
         self.plan = layout_plan
@@ -53,6 +56,11 @@ class EntityPlacer:
             str, str
         ] = {}  # Track which memory each read came from
         self._ir_nodes: Dict[str, IRNode] = {}  # Track all IR nodes by ID for lookups
+        
+        # Cluster support
+        self.clusters = clusters or []
+        self.entity_to_cluster = entity_to_cluster or {}
+        self._current_cluster_idx: Optional[int] = None
 
     def _build_debug_info(
         self, 
@@ -123,10 +131,46 @@ class EntityPlacer:
             
         return debug_info
 
+    def setup_cluster_bounds(self) -> None:
+        """Compute and assign bounds for each cluster."""
+        
+        if not self.clusters:
+            return
+        
+        # Simple grid layout: clusters in rows
+        cluster_size = 7  # 5 tiles + 2 spacing
+        clusters_per_row = 5
+        
+        for idx, cluster in enumerate(self.clusters):
+            row = idx // clusters_per_row
+            col = idx % clusters_per_row
+            
+            x1 = col * cluster_size
+            y1 = row * cluster_size
+            x2 = x1 + 5  # Actual cluster region is 5×5
+            y2 = y1 + 5
+            
+            cluster.center = ((x1 + x2) / 2, (y1 + y2) / 2)
+            cluster.bounds = (x1, y1, x2, y2)
+
     def place_ir_operation(self, op: IRNode) -> None:
         """Place a single IR operation."""
         # Track this IR node for later lookups
         self._ir_nodes[op.node_id] = op
+
+        # Find cluster for this operation and set bounds if switching to a new cluster
+        cluster_idx = self.entity_to_cluster.get(op.node_id, -1)
+        if cluster_idx >= 0 and cluster_idx < len(self.clusters):
+            # Only reset bounds if we're switching to a different cluster
+            if cluster_idx != self._current_cluster_idx:
+                cluster = self.clusters[cluster_idx]
+                if hasattr(cluster, 'bounds') and cluster.bounds is not None:
+                    self.layout.set_cluster_bounds(cluster.bounds)
+                    self._current_cluster_idx = cluster_idx
+        elif cluster_idx == -1 and self._current_cluster_idx is not None:
+            # Entity not in any cluster - clear cluster bounds
+            self.layout.set_cluster_bounds(None)
+            self._current_cluster_idx = None
 
         if isinstance(op, IR_Const):
             self._place_constant(op)
@@ -161,8 +205,11 @@ class EntityPlacer:
         signal_name = self.materializer.resolve_signal_name(op.output_type, usage)
         signal_type = self.materializer.resolve_signal_type(op.output_type, usage)
 
-        # Reserve position in north literals zone
-        pos = self.layout.reserve_in_zone("north_literals")
+        # Use cluster-bounded positioning if available, otherwise zone
+        if self.layout._cluster_bounds is not None:
+            pos = self.layout.get_cluster_position(footprint=(1, 2))
+        else:
+            pos = self.layout.reserve_in_zone("north_literals")
 
         # Build debug info
         debug_info = self._build_debug_info(op)
@@ -183,7 +230,7 @@ class EntityPlacer:
                 "signal_name": signal_name,
                 "signal_type": signal_type,
                 "value": op.value,
-                "footprint": (1, 1),
+                "footprint": (1, 2),
                 "debug_info": debug_info,
             },
             role="literal",
@@ -206,13 +253,15 @@ class EntityPlacer:
         if right_pos:
             deps.append(right_pos)
 
-        # Reserve position near dependencies
-        if deps:
+        # Reserve position - cluster-bounded if available
+        if self.layout._cluster_bounds is not None:
+            pos = self.layout.get_cluster_position(footprint=(1, 2))
+        elif deps:
             avg_x = sum(p[0] for p in deps) / len(deps)
             avg_y = sum(p[1] for p in deps) / len(deps)
-            pos = self.layout.reserve_near((avg_x, avg_y), footprint=(1, 1))
+            pos = self.layout.reserve_near((avg_x, avg_y), footprint=(1, 2))
         else:
-            pos = self.layout.get_next_position(footprint=(1, 1))
+            pos = self.layout.get_next_position(footprint=(1, 2))
 
         # Resolve operands and output
         usage = self.signal_usage.get(op.node_id)
@@ -230,7 +279,7 @@ class EntityPlacer:
                 "left_operand": left_operand,
                 "right_operand": right_operand,
                 "output_signal": output_signal,
-                "footprint": (1, 1),
+                "footprint": (1, 2),
                 "debug_info": self._build_debug_info(op),
             },
             role="arithmetic",
@@ -254,13 +303,15 @@ class EntityPlacer:
             if p:
                 deps.append(p)
 
-        # Reserve position near dependencies
-        if deps:
+        # Reserve position - cluster-bounded if available
+        if self.layout._cluster_bounds is not None:
+            pos = self.layout.get_cluster_position(footprint=(1, 2))
+        elif deps:
             avg_x = sum(p[0] for p in deps) / len(deps)
             avg_y = sum(p[1] for p in deps) / len(deps)
-            pos = self.layout.reserve_near((avg_x, avg_y), footprint=(1, 1))
+            pos = self.layout.reserve_near((avg_x, avg_y), footprint=(1, 2))
         else:
-            pos = self.layout.get_next_position(footprint=(1, 1))
+            pos = self.layout.get_next_position(footprint=(1, 2))
 
         # Resolve operands
         usage = self.signal_usage.get(op.node_id)
@@ -284,7 +335,7 @@ class EntityPlacer:
                 "output_signal": output_signal,
                 "output_value": output_value,
                 "copy_count_from_input": copy_count_from_input,
-                "footprint": (1, 1),
+                "footprint": (1, 2),
                 "debug_info": self._build_debug_info(op),
             },
             role="decider",

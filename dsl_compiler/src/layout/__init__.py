@@ -1,3 +1,4 @@
+from .cluster_analyzer import ClusterAnalyzer, Cluster
 from .layout_engine import LayoutEngine
 from .connection_planner import ConnectionPlanner
 from .planner import LayoutPlanner
@@ -45,6 +46,9 @@ materialise a Factorio blueprint.
 """
 
 __all__ = [
+    # NEW: Clustering
+    "ClusterAnalyzer",
+    "Cluster",
     # Core planning
     "LayoutPlanner",
     "LayoutPlan",

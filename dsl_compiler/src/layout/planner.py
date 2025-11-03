@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from dsl_compiler.src.ir import IRNode
-from dsl_compiler.src.common import ProgramDiagnostics
+from dsl_compiler.src.ir.nodes import (
+    IRNode,
+    IRValue,
+    SignalRef,
+    IR_Arith,
+    IR_Decider,
+    IR_MemWrite,
+    IR_EntityPropWrite,
+    IR_WireMerge,
+)
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 from .connection_planner import ConnectionPlanner
 from .layout_engine import LayoutEngine
@@ -17,6 +26,8 @@ from .signal_analyzer import (
     SignalUsageEntry,
 )
 from .signal_resolver import SignalResolver
+from .signal_graph import SignalGraph
+from .cluster_analyzer import ClusterAnalyzer, Cluster
 
 
 class LayoutPlanner:
@@ -46,6 +57,11 @@ class LayoutPlanner:
         self.signal_graph: Any = None
         self._memory_modules: Dict[str, Any] = {}
         self._wire_merge_junctions: Dict[str, Any] = {}
+        
+        # Clustering infrastructure
+        self.cluster_analyzer: Optional[ClusterAnalyzer] = None
+        self.clusters: List[Cluster] = []
+        self.entity_to_cluster: Dict[str, int] = {}
 
     def plan_layout(
         self,
@@ -67,6 +83,13 @@ class LayoutPlanner:
         self._setup_signal_analysis(ir_operations)
         self._setup_materialization()
         self._setup_signal_resolver()
+        
+        # NEW: Build signal graph before clustering
+        self._build_signal_graph(ir_operations)
+        
+        # NEW: Clustering phase
+        self._analyze_clusters(ir_operations)
+        
         self._place_entities(ir_operations)
         self._plan_connections()
         self._plan_power_if_requested()
@@ -85,6 +108,9 @@ class LayoutPlanner:
         self.signal_graph = None
         self._memory_modules = {}
         self._wire_merge_junctions = {}
+        self.cluster_analyzer = None
+        self.clusters = []
+        self.entity_to_cluster = {}
 
     def _setup_signal_analysis(self, ir_operations: list[IRNode]) -> None:
         """Initialize and run signal analysis."""
@@ -109,6 +135,49 @@ class LayoutPlanner:
             signal_usage=self.signal_usage,
         )
 
+    def _build_signal_graph(self, ir_operations: list[IRNode]) -> None:
+        """Build signal graph from IR before placement."""
+        
+        self.signal_graph = SignalGraph()
+        
+        # Add all value-producing operations as sources
+        for op in ir_operations:
+            if isinstance(op, IRValue):
+                self.signal_graph.set_source(op.node_id, op.node_id)
+        
+        # Add all consumption edges
+        for op in ir_operations:
+            if isinstance(op, IR_Arith):
+                self._add_value_ref_sink(op.left, op.node_id)
+                self._add_value_ref_sink(op.right, op.node_id)
+            elif isinstance(op, IR_Decider):
+                self._add_value_ref_sink(op.left, op.node_id)
+                self._add_value_ref_sink(op.right, op.node_id)
+                self._add_value_ref_sink(op.output_value, op.node_id)
+            elif isinstance(op, IR_MemWrite):
+                self._add_value_ref_sink(op.data_signal, op.node_id)
+                self._add_value_ref_sink(op.write_enable, op.node_id)
+            elif isinstance(op, IR_EntityPropWrite):
+                self._add_value_ref_sink(op.value, op.node_id)
+            elif isinstance(op, IR_WireMerge):
+                for source in op.sources:
+                    self._add_value_ref_sink(source, op.node_id)
+
+    def _add_value_ref_sink(self, value_ref: Any, consumer_id: str) -> None:
+        """Helper to add signal sink from ValueRef."""
+        if isinstance(value_ref, SignalRef):
+            self.signal_graph.add_sink(value_ref.source_id, consumer_id)
+
+    def _analyze_clusters(self, ir_operations: list[IRNode]) -> None:
+        """Analyze and form connectivity-based clusters."""
+        
+        self.cluster_analyzer = ClusterAnalyzer(self.diagnostics)
+        self.clusters = self.cluster_analyzer.analyze(
+            ir_operations,
+            self.signal_graph
+        )
+        self.entity_to_cluster = self.cluster_analyzer.entity_to_cluster
+
     def _plan_connections(self) -> None:
         """Plan wire connections between entities."""
         self.connection_planner = ConnectionPlanner(
@@ -117,6 +186,8 @@ class LayoutPlanner:
             self.diagnostics,
             self.layout_engine,
             max_wire_span=self.max_wire_span,
+            clusters=self.clusters,
+            entity_to_cluster=self.entity_to_cluster,
         )
 
         locked_colors = self._determine_locked_wire_colors()
@@ -136,6 +207,7 @@ class LayoutPlanner:
             self.layout_engine,
             self.layout_plan,
             self.diagnostics,
+            clusters=self.clusters,
         )
         power_planner.plan_power_grid(self.power_pole_type)
 
@@ -155,7 +227,12 @@ class LayoutPlanner:
             self.materializer,
             self.signal_resolver,
             self.diagnostics,
+            clusters=self.clusters,
+            entity_to_cluster=self.entity_to_cluster,
         )
+        
+        # Setup cluster bounds before placement
+        placer.setup_cluster_bounds()
 
         for op in ir_operations:
             placer.place_ir_operation(op)
@@ -164,6 +241,7 @@ class LayoutPlanner:
         placer.cleanup_unused_entities()
 
         # Store signal graph and memory info for connection planning
+        # Note: signal_graph already built, but entity_placer might have modified it
         self.signal_graph = placer.signal_graph
         self._memory_modules = placer._memory_modules
         self._wire_merge_junctions = placer._wire_merge_junctions
