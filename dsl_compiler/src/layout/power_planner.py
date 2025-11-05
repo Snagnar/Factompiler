@@ -78,7 +78,7 @@ class PowerPlanner:
     # ---------------------------------------------------------------------
 
     def plan_power_grid(self, pole_type: str) -> List[PlannedPowerPole]:
-        """Compute power pole placements for the requested ``pole_type`` - simplified with clusters."""
+        """Compute power pole placements using pre-reserved positions."""
 
         if not pole_type:
             return []
@@ -98,59 +98,27 @@ class PowerPlanner:
         self.layout_plan.power_poles.clear()
 
         if self.clusters:
-            # Place pole at center of each cluster (or nearby if center is occupied)
+            # Use pre-reserved power pole positions from clusters
             for cluster in self.clusters:
-                if hasattr(cluster, "center"):
-                    center = (int(cluster.center[0]), int(cluster.center[1]))
-
-                    # Try exact center first
-                    claimed = self.layout.reserve_exact(
-                        center,
-                        footprint=self._footprint,
-                        padding=self._padding,
+                if hasattr(cluster, "power_pole_position"):
+                    position = cluster.power_pole_position
+                    self._record_power_pole(position, config["prototype"])
+                    self.diagnostics.info(
+                        f"Placed power pole at reserved position {position}"
+                    )
+                else:
+                    self.diagnostics.warning(
+                        f"Cluster {cluster.cluster_id} has no reserved power pole position!"
                     )
 
-                    # DEBUG
-                    if not claimed:
-                        # Check why it failed
-                        tiles = list(
-                            self.layout._iter_footprint_tiles(
-                                center, self._footprint, self._padding
-                            )
-                        )
-                        occupied = [
-                            t for t in tiles if t in self.layout._occupied_tiles
-                        ]
-                        self.diagnostics.info(
-                            f"Cluster center {center} occupied. Tiles: {tiles}, Occupied: {occupied}"
-                        )
-
-                    # If center is occupied, find nearby position with larger search radius
-                    if not claimed:
-                        claimed = self.layout.reserve_near(
-                            center,
-                            max_radius=20,  # Increased to ensure finding free spot
-                            footprint=self._footprint,
-                            padding=self._padding,
-                            alignment=1,
-                        )
-                        if claimed:
-                            self.diagnostics.info(
-                                f"Placed pole near {center} at {claimed}"
-                            )
-
-                    # Only record if we actually got a position
-                    if claimed:
-                        self._record_power_pole(claimed, config["prototype"])
-
-            # Cover relays
+            # Cover relay poles
             self._cover_relay_positions(config["prototype"])
         else:
             # Fallback to coverage-based (existing algorithm)
             return self._plan_coverage_based_grid(pole_type, config)
 
-        # Ensure connectivity
-        self._ensure_connectivity(config["prototype"])
+        # Enable connectivity (was previously disabled)
+        self._ensure_connectivity_fixed(config["prototype"])
 
         return list(self._planned)
 
@@ -260,7 +228,7 @@ class PowerPlanner:
 
         relay_positions = []
         for placement in self.layout_plan.entity_placements.values():
-            if placement.role == "relay":
+            if placement.role in ("relay", "wire_relay"):
                 relay_positions.append(placement.position)
 
         for pos in relay_positions:
@@ -580,6 +548,62 @@ class PowerPlanner:
                 f"Could not fully connect power grid after {max_attempts} attempts. "
                 f"{len(components)} disconnected components remain."
             )
+
+    def _ensure_connectivity_fixed(self, prototype: str) -> None:
+        """Ensure power poles connect, with fixed logic that prevents infinite loops."""
+        if self._wire_reach <= 0 or len(self._planned) < 2:
+            return
+
+        reach_limit = max(0.0, self._wire_reach - 0.35)
+        reach_sq = reach_limit * reach_limit
+
+        # Find disconnected components
+        components = self._compute_components(reach_sq)
+
+        if len(components) <= 1:
+            return  # Already connected
+
+        # Connect components with single intermediate pole
+        base_component = components[0]
+
+        for candidate_component in components[1:]:
+            # Find closest pair between components
+            best_distance = float("inf")
+            closest_pair = None
+
+            for pole_a in base_component:
+                center_a = self._position_center(pole_a.position)
+                for pole_b in candidate_component:
+                    center_b = self._position_center(pole_b.position)
+                    distance = math.dist(center_a, center_b)
+                    if distance < best_distance:
+                        best_distance = distance
+                        closest_pair = (pole_a, pole_b)
+
+            if not closest_pair or best_distance <= reach_limit:
+                continue  # Already connected or no valid pair
+
+            # Place ONE intermediate pole at midpoint
+            pole_a, pole_b = closest_pair
+            center_a = self._position_center(pole_a.position)
+            center_b = self._position_center(pole_b.position)
+
+            mid_x = (center_a[0] + center_b[0]) / 2
+            mid_y = (center_a[1] + center_b[1]) / 2
+
+            # Try to place intermediate pole
+            placement_pos = self.layout.reserve_near(
+                (mid_x, mid_y),
+                max_radius=3,
+                footprint=self._footprint,
+                padding=self._padding,
+            )
+
+            if placement_pos:
+                self._record_power_pole(placement_pos, prototype)
+                self.diagnostics.info(
+                    f"Added intermediate power pole at {placement_pos} to connect components"
+                )
 
     def _compute_components(
         self,

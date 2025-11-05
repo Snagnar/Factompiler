@@ -79,7 +79,6 @@ class LayoutPlanner:
         Returns:
             LayoutPlan containing entity placements and wire connections
         """
-        self._reset_state()
         self._setup_signal_analysis(ir_operations)
         self._setup_materialization()
         self._setup_signal_resolver()
@@ -90,27 +89,14 @@ class LayoutPlanner:
         # NEW: Clustering phase
         self._analyze_clusters(ir_operations)
 
+        # NEW: Pre-reserve infrastructure before entity placement
+        self._reserve_infrastructure()
+
         self._place_entities(ir_operations)
         self._plan_connections()
         self._plan_power_if_requested()
         self._set_metadata(blueprint_label, blueprint_description)
         return self.layout_plan
-
-    def _reset_state(self) -> None:
-        """Reset state for a fresh planning run."""
-        self.layout_engine = LayoutEngine()
-        self.layout_plan = LayoutPlan()
-        self.signal_analyzer = None
-        self.signal_usage = {}
-        self.materializer = None
-        self.signal_resolver = None
-        self.connection_planner = None
-        self.signal_graph = None
-        self._memory_modules = {}
-        self._wire_merge_junctions = {}
-        self.cluster_analyzer = None
-        self.clusters = []
-        self.entity_to_cluster = {}
 
     def _setup_signal_analysis(self, ir_operations: list[IRNode]) -> None:
         """Initialize and run signal analysis."""
@@ -174,6 +160,24 @@ class LayoutPlanner:
         self.cluster_analyzer = ClusterAnalyzer(self.diagnostics)
         self.clusters = self.cluster_analyzer.analyze(ir_operations, self.signal_graph)
         self.entity_to_cluster = self.cluster_analyzer.entity_to_cluster
+
+    def _reserve_infrastructure(self) -> None:
+        """Reserve power poles and relay corridors before placing entities."""
+        from .entity_placer import EntityPlacer
+
+        placer = EntityPlacer(
+            self.layout_engine,
+            self.layout_plan,
+            self.signal_usage,
+            self.materializer,
+            self.signal_resolver,
+            self.diagnostics,
+            clusters=self.clusters,
+            entity_to_cluster=self.entity_to_cluster,
+        )
+
+        # This now also reserves infrastructure
+        placer.setup_cluster_bounds()
 
     def _plan_connections(self) -> None:
         """Plan wire connections between entities."""

@@ -1,6 +1,5 @@
 """Semantic analysis for the Factorio Circuit DSL."""
 
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from dsl_compiler.src.ast.expressions import (
@@ -59,10 +58,7 @@ from .type_system import (
     ValueInfo,
 )
 
-try:  # pragma: no cover - optional dependency
-    from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
-except Exception:  # pragma: no cover - fallback when draftsman data unavailable
-    signal_data = None  # type: ignore[assignment]
+from draftsman.data import signals as signal_data
 
 
 class SemanticAnalyzer(ASTVisitor):
@@ -72,9 +68,10 @@ class SemanticAnalyzer(ASTVisitor):
         "signal-W": ("error", "the memory write-enable channel"),
     }
 
-    def __init__(self, strict_types: bool = False):
+    def __init__(self, diagnostics: ProgramDiagnostics, strict_types: bool = False):
         self.strict_types = strict_types
-        self.diagnostics = ProgramDiagnostics()
+        self.diagnostics = diagnostics
+        self.diagnostics.default_stage = "semantic"
         self.symbol_table = SymbolTable()
         self.current_scope = self.symbol_table
 
@@ -99,18 +96,6 @@ class SemanticAnalyzer(ASTVisitor):
     def signal_type_map(self) -> Dict[str, Any]:
         """Get signal type map from registry."""
         return self.signal_registry.get_all_mappings()
-
-    def _error(self, message: str, node: Optional[ASTNode] = None) -> None:
-        """Add a semantic error diagnostic."""
-        self.diagnostics.error(message, stage="semantic", node=node)
-
-    def _warning(self, message: str, node: Optional[ASTNode] = None) -> None:
-        """Add a semantic warning diagnostic."""
-        self.diagnostics.warning(message, stage="semantic", node=node)
-
-    def _info(self, message: str, node: Optional[ASTNode] = None) -> None:
-        """Add a semantic info diagnostic."""
-        self.diagnostics.info(message, stage="semantic", node=node)
 
     def mark_as_simple_source(self, name: str) -> None:
         """Record that a symbol originates from a simple source."""
@@ -156,32 +141,6 @@ class SemanticAnalyzer(ASTVisitor):
         # Fallback: treat as computed to be safe
         self.mark_as_computed(target)
 
-    def _warn(self, message: str, node: Optional[ASTNode] = None) -> None:
-        """Emit a warning, augmenting with explanations when requested."""
-
-        if self.diagnostics.explain and node is not None:
-            explanation = self._get_warning_explanation(message, node)
-            if explanation:
-                message = f"{message}\n\nExplanation: {explanation}"
-
-        self._warning(message, node)
-
-    def _get_warning_explanation(
-        self, message: str, node: Optional[ASTNode] = None
-    ) -> Optional[str]:
-        """Return an explanatory note for well-known warning patterns."""
-
-        if "Mixed signal types" in message:
-            return (
-                "The compiler follows a left-operand-wins rule when arithmetic mixes"
-                " signal channels. The resulting combinator keeps the left signal"
-                " type because Factorio combinators can only output a single signal"
-                " channel at a time. Use projections to align both operands or to"
-                " choose the desired output channel explicitly."
-            )
-
-        return None
-
     def _emit_reserved_signal_diagnostic(
         self, signal_name: str, node: ASTNode, context: str
     ) -> None:
@@ -192,9 +151,9 @@ class SemanticAnalyzer(ASTVisitor):
         severity, reserved_context = rule
         message = f"Signal '{signal_name}' is reserved for {reserved_context} and cannot be used {context}."
         if severity == "error":
-            self._error(message, node)
+            self.diagnostics.error(message, stage="semantic", node=node)
         else:
-            self._warn(message, node)
+            self.diagnostics.warning(message, stage="semantic", node=node)
 
     @staticmethod
     def _is_virtual_channel(signal_info: SignalTypeInfo) -> bool:
@@ -319,7 +278,9 @@ class SemanticAnalyzer(ASTVisitor):
         elif isinstance(expr, IdentifierExpr):
             symbol = self.current_scope.lookup(expr.name)
             if symbol is None:
-                self._error(f"Undefined variable '{expr.name}'", expr)
+                self.diagnostics.error(
+                    f"Undefined variable '{expr.name}'", stage="semantic", node=expr
+                )
                 return IntValue()
             return symbol.value_type
 
@@ -327,10 +288,16 @@ class SemanticAnalyzer(ASTVisitor):
             # read(memory) returns the memory's signal type
             symbol = self.current_scope.lookup(expr.memory_name)
             if symbol is None:
-                self._error(f"Undefined memory '{expr.memory_name}'", expr)
+                self.diagnostics.error(
+                    f"Undefined memory '{expr.memory_name}'",
+                    stage="semantic",
+                    node=expr,
+                )
                 return SignalValue(signal_type=self.allocate_implicit_type())
             if symbol.symbol_type != SymbolType.MEMORY:
-                self._error(f"'{expr.memory_name}' is not a memory", expr)
+                self.diagnostics.error(
+                    f"'{expr.memory_name}' is not a memory", stage="semantic", node=expr
+                )
             return symbol.value_type
 
         elif isinstance(expr, WriteExpr):
@@ -352,25 +319,35 @@ class SemanticAnalyzer(ASTVisitor):
 
             symbol = self.current_scope.lookup(expr.memory_name)
             if symbol is None:
-                self._error(f"Undefined memory '{expr.memory_name}' in write().", expr)
+                self.diagnostics.error(
+                    f"Undefined memory '{expr.memory_name}' in write().",
+                    stage="semantic",
+                    node=expr,
+                )
                 return SignalValue(signal_type=self.allocate_implicit_type())
 
             if symbol.symbol_type != SymbolType.MEMORY:
-                self._error(f"'{expr.memory_name}' is not a memory symbol.", expr)
+                self.diagnostics.error(
+                    f"'{expr.memory_name}' is not a memory symbol.",
+                    stage="semantic",
+                    node=expr,
+                )
                 return SignalValue(signal_type=self.allocate_implicit_type())
 
             if expr.when is not None and not isinstance(
                 enable_type, (SignalValue, IntValue)
             ):
-                self._error(
+                self.diagnostics.error(
                     "write when= argument must evaluate to a signal or integer.",
-                    expr,
+                    stage="semantic",
+                    node=expr,
                 )
 
             if not isinstance(value_type, SignalValue):
-                self._error(
+                self.diagnostics.error(
                     "write() expects a Signal value; provide a signal literal or projection.",
-                    expr,
+                    stage="semantic",
+                    node=expr,
                 )
                 return symbol.value_type
 
@@ -423,16 +400,18 @@ class SemanticAnalyzer(ASTVisitor):
                 expected_type = write_signal_name
 
             if expected_type is None:
-                self._error(
+                self.diagnostics.error(
                     f"Memory '{expr.memory_name}' does not have a resolved signal type.",
-                    expr,
+                    stage="semantic",
+                    node=expr,
                 )
                 return symbol.value_type
 
             if write_signal_name is None:
-                self._error(
+                self.diagnostics.error(
                     f"Cannot determine signal type for value written to memory '{expr.memory_name}'.",
-                    expr,
+                    stage="semantic",
+                    node=expr,
                 )
                 return symbol.value_type
 
@@ -444,11 +423,11 @@ class SemanticAnalyzer(ASTVisitor):
 
                 if mem_info is not None and not mem_info.explicit:
                     if self.strict_types:
-                        self._error(message, expr)
+                        self.diagnostics.error(message, stage="semantic", node=expr)
                     else:
-                        self._warn(message, expr)
+                        self.diagnostics.warning(message, stage="semantic", node=expr)
                 else:
-                    self._error(message, expr)
+                    self.diagnostics.error(message, stage="semantic", node=expr)
 
             return symbol.value_type
 
@@ -499,7 +478,11 @@ class SemanticAnalyzer(ASTVisitor):
             # Entity or module property access
             object_symbol = self.current_scope.lookup(expr.object_name)
             if object_symbol is None:
-                self._error(f"Undefined variable '{expr.object_name}'", expr)
+                self.diagnostics.error(
+                    f"Undefined variable '{expr.object_name}'",
+                    stage="semantic",
+                    node=expr,
+                )
                 return IntValue()
             elif object_symbol.symbol_type == SymbolType.ENTITY:
                 # Entity properties return signals for circuit control
@@ -513,15 +496,17 @@ class SemanticAnalyzer(ASTVisitor):
                     func_symbol = object_symbol.properties[expr.property_name]
                     return func_symbol.value_type
                 else:
-                    self._error(
+                    self.diagnostics.error(
                         f"Module '{expr.object_name}' has no function '{expr.property_name}'",
-                        expr,
+                        stage="semantic",
+                        node=expr,
                     )
                     return IntValue()
             else:
-                self._error(
+                self.diagnostics.error(
                     f"Cannot access property '{expr.property_name}' on '{expr.object_name}' of type {object_symbol.symbol_type}",
-                    expr,
+                    stage="semantic",
+                    node=expr,
                 )
                 return IntValue()
 
@@ -529,7 +514,11 @@ class SemanticAnalyzer(ASTVisitor):
             # Entity or module property access in expression context
             object_symbol = self.current_scope.lookup(expr.object_name)
             if object_symbol is None:
-                self._error(f"Undefined variable '{expr.object_name}'", expr)
+                self.diagnostics.error(
+                    f"Undefined variable '{expr.object_name}'",
+                    stage="semantic",
+                    node=expr,
+                )
                 return IntValue()
             elif object_symbol.symbol_type == SymbolType.ENTITY:
                 # Entity properties return signals for circuit control
@@ -543,20 +532,24 @@ class SemanticAnalyzer(ASTVisitor):
                     func_symbol = object_symbol.properties[expr.property_name]
                     return func_symbol.value_type
                 else:
-                    self._error(
+                    self.diagnostics.error(
                         f"Module '{expr.object_name}' has no function '{expr.property_name}'",
-                        expr,
+                        stage="semantic",
+                        node=expr,
                     )
                     return IntValue()
             else:
-                self._error(
+                self.diagnostics.error(
                     f"Cannot access property '{expr.property_name}' on '{expr.object_name}' of type {object_symbol.symbol_type}",
-                    expr,
+                    stage="semantic",
+                    node=expr,
                 )
                 return IntValue()
 
         else:
-            self._error(f"Unknown expression type: {type(expr)}", expr)
+            self.diagnostics.error(
+                f"Unknown expression type: {type(expr)}", stage="semantic", node=expr
+            )
             return IntValue()
 
     def _check_signal_type_compatibility(
@@ -647,9 +640,9 @@ class SemanticAnalyzer(ASTVisitor):
 
         if warning_msg:
             if self.strict_types:
-                self._error(warning_msg, expr)
+                self.diagnostics.error(warning_msg, stage="semantic", node=expr)
             else:
-                self._warn(warning_msg, expr)
+                self.diagnostics.warning(warning_msg, stage="semantic", node=expr)
 
         return result_type
 
@@ -689,9 +682,10 @@ class SemanticAnalyzer(ASTVisitor):
 
         # Validate that the value matches the declared type
         if not self._value_matches_type(value_type, node.type_name):
-            self._error(
+            self.diagnostics.error(
                 f"Cannot assign {self._value_type_name(value_type)} to {node.type_name} variable '{node.name}'",
-                node,
+                stage="semantic",
+                node=node,
             )
 
         # Define symbol with explicit type
@@ -704,7 +698,7 @@ class SemanticAnalyzer(ASTVisitor):
         try:
             self.current_scope.define(symbol)
         except SemanticError as e:
-            self._error(e.message, node)
+            self.diagnostics.error(e.message, stage="semantic", node=node)
             return
 
         self._register_signal_metadata(node.name, node, value_type, node.type_name)
@@ -892,17 +886,19 @@ class SemanticAnalyzer(ASTVisitor):
     def _validate_place_call(self, node: CallExpr) -> None:
         """Validate place() builtin call."""
         if not (3 <= len(node.args) <= 4):
-            self._error(
+            self.diagnostics.error(
                 "place() requires 3 or 4 arguments (prototype, x, y, [properties])",
-                node,
+                stage="semantic",
+                node=node,
             )
             return
 
         prototype = node.args[0]
         if not isinstance(prototype, StringLiteral):
-            self._error(
+            self.diagnostics.error(
                 "place() prototype must be a string literal",
-                prototype if node.args else node,
+                stage="semantic",
+                node=(prototype if node.args else node),
             )
 
         # Analyze coordinate expressions
@@ -913,9 +909,10 @@ class SemanticAnalyzer(ASTVisitor):
 
         if len(node.args) == 4:
             if not isinstance(node.args[3], DictLiteral):
-                self._error(
+                self.diagnostics.error(
                     "place() properties must be a dictionary literal",
-                    node.args[3],
+                    stage="semantic",
+                    node=node.args[3],
                 )
             else:
                 # Analyze property values
@@ -928,18 +925,20 @@ class SemanticAnalyzer(ASTVisitor):
     def _validate_memory_call(self, node: CallExpr) -> None:
         """Validate memory() builtin call."""
         if not (1 <= len(node.args) <= 2):
-            self._error(
+            self.diagnostics.error(
                 "memory() expects one or two arguments (initial, [type])",
-                node,
+                stage="semantic",
+                node=node,
             )
 
         if len(node.args) >= 1:
             self.get_expr_type(node.args[0])
 
         if len(node.args) == 2 and not isinstance(node.args[1], StringLiteral):
-            self._error(
+            self.diagnostics.error(
                 "memory() explicit type must be a string literal",
-                node.args[1],
+                stage="semantic",
+                node=node.args[1],
             )
         elif len(node.args) == 2:
             node.metadata["explicit_type"] = node.args[1].value
@@ -954,9 +953,10 @@ class SemanticAnalyzer(ASTVisitor):
             signal_info = self.allocate_implicit_type()
         else:
             if not self.is_valid_signal_type(declared_type):
-                self._error(
+                self.diagnostics.error(
                     f"Invalid signal type '{declared_type}' for memory '{node.name}'",
-                    node,
+                    stage="semantic",
+                    node=node,
                 )
             elif declared_type in self.RESERVED_SIGNAL_RULES:
                 self._emit_reserved_signal_diagnostic(
@@ -977,7 +977,7 @@ class SemanticAnalyzer(ASTVisitor):
         try:
             self.current_scope.define(symbol)
         except SemanticError as e:
-            self._error(e.message, node)
+            self.diagnostics.error(e.message, stage="semantic", node=node)
             return
 
         mem_info = MemoryInfo(
@@ -1004,13 +1004,14 @@ class SemanticAnalyzer(ASTVisitor):
                     node.signal_type = init_signal_name
                     declared_type = init_signal_name
                 elif init_signal_name != mem_info.signal_type:
-                    self._warn(
+                    self.diagnostics.warning(
                         (
                             f"Memory '{node.name}' initialization writes '{init_signal_name}'"
                             f" but declaration expects '{mem_info.signal_type}'."
                             " Project the initializer to the declared type or update the declaration."
                         ),
-                        node.init_expr,
+                        stage="semantic",
+                        node=node.init_expr,
                     )
             elif isinstance(init_type, IntValue) and mem_info.signal_type is None:
                 # Preserve implicit virtual channel for integer initializers until a
@@ -1047,7 +1048,7 @@ class SemanticAnalyzer(ASTVisitor):
         try:
             self.current_scope.define(func_symbol)
         except SemanticError as e:
-            self._error(e.message, node)
+            self.diagnostics.error(e.message, stage="semantic", node=node)
             return  # Skip processing function body if definition failed
 
         # Create new scope for function body
@@ -1068,7 +1069,7 @@ class SemanticAnalyzer(ASTVisitor):
             try:
                 self.current_scope.define(param_symbol)
             except SemanticError as e:
-                self._error(e.message, node)
+                self.diagnostics.error(e.message, stage="semantic", node=node)
 
         # Analyze function body
         for stmt in node.body:
@@ -1116,12 +1117,20 @@ class SemanticAnalyzer(ASTVisitor):
                     try:
                         self.current_scope.define(entity_symbol)
                     except SemanticError as e:
-                        self._error(e.message, node.target)
+                        self.diagnostics.error(
+                            e.message, stage="semantic", node=node.target
+                        )
                 else:
-                    self._error(f"Undefined variable '{node.target.name}'", node.target)
+                    self.diagnostics.error(
+                        f"Undefined variable '{node.target.name}'",
+                        stage="semantic",
+                        node=node.target,
+                    )
             elif not symbol.is_mutable and symbol.symbol_type != SymbolType.ENTITY:
-                self._error(
-                    f"Cannot assign to immutable '{node.target.name}'", node.target
+                self.diagnostics.error(
+                    f"Cannot assign to immutable '{node.target.name}'",
+                    stage="semantic",
+                    node=node.target,
                 )
             else:
                 target_symbol = symbol
@@ -1129,13 +1138,16 @@ class SemanticAnalyzer(ASTVisitor):
             # Check that the object exists
             object_symbol = self.current_scope.lookup(node.target.object_name)
             if object_symbol is None:
-                self._error(
-                    f"Undefined entity '{node.target.object_name}'", node.target
+                self.diagnostics.error(
+                    f"Undefined entity '{node.target.object_name}'",
+                    stage="semantic",
+                    node=node.target,
                 )
             elif object_symbol.symbol_type != SymbolType.ENTITY:
-                self._error(
+                self.diagnostics.error(
                     f"Cannot access property '{node.target.property_name}' on non-entity '{node.target.object_name}'",
-                    node.target,
+                    stage="semantic",
+                    node=node.target,
                 )
 
         # Type check assignment
@@ -1157,9 +1169,10 @@ class SemanticAnalyzer(ASTVisitor):
         # replaced with the actual imported content, so this should rarely be called.
         # If we do encounter an import statement, it means the file wasn't found
         # during preprocessing, so we'll just log a warning.
-        self._error(
+        self.diagnostics.error(
             f"Import statement found in AST - file may not have been found during preprocessing: {node.path}",
-            node,
+            stage="semantic",
+            node=node,
         )
 
     def visit_ReturnStmt(self, node: ReturnStmt) -> None:
@@ -1178,11 +1191,15 @@ class SemanticAnalyzer(ASTVisitor):
             if node.name in builtin_names:
                 self._validate_builtin_call(node)
                 return
-            self._error(f"Undefined function '{node.name}'", node)
+            self.diagnostics.error(
+                f"Undefined function '{node.name}'", stage="semantic", node=node
+            )
             return
 
         if func_symbol.symbol_type != SymbolType.FUNCTION:
-            self._error(f"'{node.name}' is not a function", node)
+            self.diagnostics.error(
+                f"'{node.name}' is not a function", stage="semantic", node=node
+            )
             return
 
         # User-defined function call
@@ -1190,9 +1207,10 @@ class SemanticAnalyzer(ASTVisitor):
             expected_params = len(func_symbol.function_def.params)
             actual_args = len(node.args)
             if actual_args != expected_params:
-                self._error(
+                self.diagnostics.error(
                     f"Function '{node.name}' expects {expected_params} arguments, got {actual_args}",
-                    node,
+                    stage="semantic",
+                    node=node,
                 )
 
         for arg in node.args:
@@ -1212,52 +1230,3 @@ class SemanticAnalyzer(ASTVisitor):
                 for item in field_value:
                     if isinstance(item, ASTNode):
                         self.visit(item)
-
-
-# =============================================================================
-# Public API
-# =============================================================================
-
-
-def analyze_program(
-    program: Program,
-    strict_types: bool = False,
-    analyzer: Optional["SemanticAnalyzer"] = None,
-    file_path: Optional[str] = None,
-) -> ProgramDiagnostics:
-    """Perform semantic analysis on a program AST.
-
-    Args:
-        program: The AST program node to analyze
-        strict_types: Whether to enforce strict type checking
-        analyzer: Optional pre-configured analyzer instance
-        file_path: Source file path for import resolution
-
-    Returns:
-        ProgramDiagnostics containing warnings and errors from analysis
-    """
-    if analyzer is None:
-        analyzer = SemanticAnalyzer(strict_types=strict_types)
-
-    # Set current file directory for import resolution
-    if file_path:
-        analyzer.current_file_dir = Path(file_path).parent
-    else:
-        analyzer.current_file_dir = Path("tests/sample_programs")  # Default for tests
-
-    analyzer.visit(program)
-    return analyzer.diagnostics
-
-
-def analyze_file(file_path: str, strict_types: bool = False) -> ProgramDiagnostics:
-    """Analyze a DSL file."""
-    from dsl_compiler.src.parsing import DSLParser
-
-    parser = DSLParser()
-    try:
-        program = parser.parse_file(Path(file_path))
-        return analyze_program(program, strict_types)
-    except Exception as e:
-        diagnostics = ProgramDiagnostics()
-        diagnostics.error(f"Failed to parse {file_path}: {e}", stage="parsing")
-        return diagnostics

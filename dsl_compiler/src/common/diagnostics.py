@@ -50,11 +50,12 @@ class ProgramDiagnostics:
         self.explain = explain
         self._error_count = 0
         self._warning_count = 0
+        self.default_stage = "unknown"
 
     def info(
         self,
         message: str,
-        stage: str = "unknown",
+        stage: str | None = None,
         line: int = 0,
         column: int = 0,
         source_file: Optional[str] = None,
@@ -69,7 +70,7 @@ class ProgramDiagnostics:
     def warning(
         self,
         message: str,
-        stage: str = "unknown",
+        stage: str | None = None,
         line: int = 0,
         column: int = 0,
         source_file: Optional[str] = None,
@@ -84,7 +85,7 @@ class ProgramDiagnostics:
     def error(
         self,
         message: str,
-        stage: str = "unknown",
+        stage: str | None = None,
         line: int = 0,
         column: int = 0,
         source_file: Optional[str] = None,
@@ -100,7 +101,7 @@ class ProgramDiagnostics:
         self,
         severity: DiagnosticSeverity,
         message: str,
-        stage: str,
+        stage: str | None,
         line: int,
         column: int,
         source_file: Optional[str],
@@ -117,7 +118,7 @@ class ProgramDiagnostics:
         diag = Diagnostic(
             severity=severity,
             message=message,
-            stage=stage,
+            stage=stage or self.default_stage,
             line=line,
             column=column,
             source_file=source_file,

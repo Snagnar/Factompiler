@@ -1,8 +1,27 @@
 from __future__ import annotations
+import os
 from pathlib import Path
 from typing import Optional, Set
 
 """Import preprocessing utilities for the Factorio Circuit DSL."""
+
+if "FACTORIO_IMPORT_PATH" not in os.environ:
+    os.environ["FACTORIO_IMPORT_PATH"] = ".;tests/sample_programs" + str(
+        Path(__file__).resolve().parent.parent.parent
+    )
+
+
+def resolve_import_path(import_path: str, base_path: Optional[Path] = None) -> Path:
+    """Resolve the full path of an import statement."""
+    import_path_obj = Path(import_path)
+    base_paths = os.environ["FACTORIO_IMPORT_PATH"].split(";")
+    if base_path is not None:
+        base_paths.insert(0, str(base_path.resolve()))
+    for base in base_paths:
+        candidate_path = Path(base) / import_path_obj
+        if candidate_path.exists():
+            return candidate_path.resolve()
+    raise FileNotFoundError(f"Import file not found: {import_path}")
 
 
 def preprocess_imports(
@@ -13,11 +32,6 @@ def preprocess_imports(
     """Inline imports by recursively expanding `import "...";` statements."""
     if processed_files is None:
         processed_files = set()
-
-    if base_path is None:
-        base_path = Path("tests/sample_programs").resolve()
-    else:
-        base_path = base_path.resolve()
 
     lines = source_code.split("\n")
     processed_lines = []
@@ -31,11 +45,7 @@ def preprocess_imports(
             if import_path.suffix != ".fcdsl":
                 import_path = import_path.with_suffix(".fcdsl")
 
-            if not import_path.is_absolute():
-                file_path = (base_path / import_path).resolve()
-            else:
-                file_path = import_path
-
+            file_path = resolve_import_path(import_path, base_path)
             if file_path in processed_files:
                 processed_lines.append(f"# Skipped circular import: {import_path}")
                 continue
@@ -52,14 +62,9 @@ def preprocess_imports(
                         processed_files=processed_files,
                     )
 
-                    display_path = (
-                        str(import_path)
-                        if import_path.is_absolute()
-                        else str(import_path)
-                    )
-                    processed_lines.append(f"# --- Imported from {display_path} ---")
+                    processed_lines.append(f"# --- Imported from {file_path:!s} ---")
                     processed_lines.append(imported_content)
-                    processed_lines.append(f"# --- End import {display_path} ---")
+                    processed_lines.append(f"# --- End import {file_path:!s} ---")
                 else:
                     processed_lines.append(line)
             except Exception:

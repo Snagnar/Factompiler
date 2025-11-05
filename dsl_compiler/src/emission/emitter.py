@@ -112,10 +112,12 @@ class BlueprintEmitter:
 
     def __init__(
         self,
+        diagnostics: ProgramDiagnostics,
         signal_type_map: Optional[Dict[str, str]] = None,
     ) -> None:
         self.signal_type_map = signal_type_map or {}
-        self.diagnostics = ProgramDiagnostics()
+        self.diagnostics = diagnostics
+        self.diagnostics.default_stage = "emission"
         self.blueprint = Blueprint()
         self._ensure_signal_map_registered()
         self.entity_factory = PlanEntityEmitter(self.diagnostics, self.signal_type_map)

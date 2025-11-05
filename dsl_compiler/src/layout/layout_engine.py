@@ -12,6 +12,10 @@ class LayoutEngine:
         self._origin = (0, 0)
         self.used_positions: Set[Tuple[int, int]] = set()
         self._occupied_tiles: Set[Tuple[int, int]] = set()
+        self._reserved_infrastructure: Set[Tuple[int, int]] = set()
+        self._reserved_corridors: Set[Tuple[int, int]] = (
+            set()
+        )  # For relays, blocks entities
         self._zone_states: Dict[str, Dict[str, Any]] = {}
         self._zone_defaults: Dict[str, int] = {
             "north_literals": -self.row_height * 3,
@@ -152,13 +156,16 @@ class LayoutEngine:
         *,
         footprint: Tuple[int, int] = (1, 1),
         padding: int = 0,
+        for_infrastructure: bool = True,  # Default to infrastructure (relays/power poles)
     ) -> Optional[Tuple[int, int]]:
         """Attempt to claim the exact snapped position if it is currently unused."""
 
         snapped = self.snap_to_grid(pos)
         if snapped in self.used_positions:
             return None
-        if not self._position_available(snapped, footprint, padding):
+        if not self._position_available(
+            snapped, footprint, padding, for_infrastructure
+        ):
             return None
         return self._claim_position(snapped, footprint, padding)
 
@@ -168,13 +175,14 @@ class LayoutEngine:
         *,
         footprint: Tuple[int, int] = (1, 1),
         padding: int = 0,
+        for_infrastructure: bool = True,  # Default to infrastructure (relays/power poles)
     ) -> bool:
         """Check whether a position is available without mutating layout state."""
 
         snapped = self.snap_to_grid(pos)
         if snapped in self.used_positions:
             return False
-        return self._position_available(snapped, footprint, padding)
+        return self._position_available(snapped, footprint, padding, for_infrastructure)
 
     def snap_to_grid(
         self, pos: Tuple[Union[int, float], Union[int, float]]
@@ -187,6 +195,29 @@ class LayoutEngine:
         snapped_y = int(round(y / spacing_y) * spacing_y)
 
         return (snapped_x, snapped_y)
+
+    def reserve_infrastructure(
+        self, position: Tuple[int, int], footprint: Tuple[int, int]
+    ) -> bool:
+        """Reserve tiles for infrastructure (power poles, relays).
+
+        Returns True if successfully reserved, False if already occupied.
+        """
+        tiles = set(self._iter_footprint_tiles(position, footprint, padding=0))
+
+        # Check if any tiles conflict with entities or infrastructure
+        if tiles & self._occupied_tiles:
+            return False
+        if tiles & self._reserved_infrastructure:
+            return False
+
+        # Reserve these tiles
+        self._reserved_infrastructure.update(tiles)
+        return True
+
+    def is_in_corridor(self, pos: Tuple[int, int]) -> bool:
+        """Check if position is in a reserved corridor."""
+        return pos in self._reserved_corridors
 
     def set_cluster_bounds(self, bounds: Optional[Tuple[int, int, int, int]]) -> None:
         """Set bounds for next placements (x1, y1, x2, y2) or None to clear."""
@@ -244,6 +275,8 @@ class LayoutEngine:
 
         # Cluster full - fall back to unrestricted placement
         # This allows overflow entities to be placed outside the cluster bounds
+        # Note: This may increase wire distances, but it's better than having all
+        # overflow entities pile up at the same boundary position
         return self.get_next_position(footprint, 0, alignment)
 
     # ------------------------------------------------------------------
@@ -344,10 +377,19 @@ class LayoutEngine:
     # ------------------------------------------------------------------
 
     def _position_available(
-        self, pos: Tuple[int, int], footprint: Tuple[int, int], padding: int
+        self,
+        pos: Tuple[int, int],
+        footprint: Tuple[int, int],
+        padding: int,
+        for_infrastructure: bool = False,
     ) -> bool:
         for tile in self._iter_footprint_tiles(pos, footprint, padding):
             if tile in self._occupied_tiles:
+                return False
+            if tile in self._reserved_infrastructure:
+                return False
+            if not for_infrastructure and tile in self._reserved_corridors:
+                # Entities can't use corridors, but infrastructure (relays/power poles) can
                 return False
         return True
 

@@ -49,10 +49,13 @@ from .statement_lowerer import StatementLowerer
 class ASTLowerer:
     """Facade that coordinates specialised lowering helpers."""
 
-    def __init__(self, semantic_analyzer: SemanticAnalyzer):
+    def __init__(
+        self, semantic_analyzer: SemanticAnalyzer, diagnostics: ProgramDiagnostics
+    ):
         self.semantic = semantic_analyzer
         self.ir_builder = IRBuilder()
-        self.diagnostics = ProgramDiagnostics()
+        self.diagnostics = diagnostics
+        self.diagnostics.default_stage = "lowering"
 
         # Symbol tables for IR references
         self.signal_refs: Dict[str, SignalRef] = {}

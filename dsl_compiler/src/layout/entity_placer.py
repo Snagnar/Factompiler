@@ -156,6 +156,48 @@ class EntityPlacer:
             cluster.center = ((x1 + x2) / 2, (y1 + y2) / 2)
             cluster.bounds = (x1, y1, x2, y2)
 
+            # NEW: Reserve power pole position at cluster center
+            center_int = (int(cluster.center[0]), int(cluster.center[1]))
+            footprint = (1, 1)  # Power pole size
+
+            if self.layout.reserve_infrastructure(center_int, footprint):
+                cluster.power_pole_position = center_int
+                self.diagnostics.info(
+                    f"Reserved power pole at {center_int} for cluster {idx}"
+                )
+            else:
+                # Try nearby positions in a small radius
+                reserved = False
+                for dx in range(-1, 2):
+                    for dy in range(-1, 2):
+                        if dx == 0 and dy == 0:
+                            continue
+                        alt_pos = (center_int[0] + dx, center_int[1] + dy)
+                        if self.layout.reserve_infrastructure(alt_pos, footprint):
+                            cluster.power_pole_position = alt_pos
+                            self.diagnostics.info(
+                                f"Reserved power pole at {alt_pos} for cluster {idx}"
+                            )
+                            reserved = True
+                            break
+                    if reserved:
+                        break
+
+            # NEW: Reserve relay corridor between clusters
+            # Reserve vertical corridor to the right
+            if (idx + 1) % clusters_per_row != 0:  # Not rightmost column
+                x_corridor = x2  # Right edge of cluster
+                for y in range(y1, y2 + 1):
+                    self.layout._reserved_corridors.add((x_corridor, y))
+                    self.layout._reserved_corridors.add((x_corridor + 1, y))
+
+            # Reserve horizontal corridor below
+            if idx + clusters_per_row < len(self.clusters):  # Not bottom row
+                y_corridor = y2  # Bottom edge of cluster
+                for x in range(x1, x2 + 1):
+                    self.layout._reserved_corridors.add((x, y_corridor))
+                    self.layout._reserved_corridors.add((x, y_corridor + 1))
+
     def place_ir_operation(self, op: IRNode) -> None:
         """Place a single IR operation."""
         # Track this IR node for later lookups
@@ -853,6 +895,10 @@ class EntityPlacer:
                 footprint=footprint,
                 alignment=alignment,
             )
+            if pos != desired:
+                self.diagnostics.warning(
+                    f"Could not place {prototype} at requested position {desired}, using {pos} instead"
+                )
         else:
             pos = self.layout.get_next_position(
                 footprint=footprint, alignment=alignment

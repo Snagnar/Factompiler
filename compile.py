@@ -14,15 +14,14 @@ import sys
 import click
 from pathlib import Path
 import json
-from dsl_compiler.src.parsing import DSLParser
-from dsl_compiler.src.semantic import (
-    analyze_program,
+from dsl_compiler.src.parsing.parser import DSLParser
+from dsl_compiler.src.semantic.analyzer import (
     SemanticAnalyzer,
 )
-from dsl_compiler.src.lowering import lower_program
-from dsl_compiler.src.layout import LayoutPlanner
-from dsl_compiler.src.emission import BlueprintEmitter
-from dsl_compiler.src.ir import CSEOptimizer
+from dsl_compiler.src.lowering.lowerer import ASTLowerer
+from dsl_compiler.src.layout.planner import LayoutPlanner
+from dsl_compiler.src.emission.emitter import BlueprintEmitter
+from dsl_compiler.src.ir.optimizer import CSEOptimizer
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 
@@ -74,49 +73,20 @@ def compile_dsl_file(
         # Parse
         parser = DSLParser()
         program = parser.parse(dsl_code.strip(), str(input_path.resolve()))
+        if diagnostics.has_errors():
+            return False, "Parsing failed", diagnostics.get_messages()
 
         # Semantic analysis
-        analyzer = SemanticAnalyzer(strict_types=strict_types)
-        semantic_results = analyze_program(
-            program,
-            strict_types=strict_types,
-            analyzer=analyzer,
-            file_path=str(input_path),
-        )
-
-        # Merge semantic diagnostics
-        if hasattr(semantic_results, "diagnostics"):
-            for diag in semantic_results.diagnostics:
-                diagnostics._add(
-                    diag.severity,
-                    diag.message,
-                    diag.stage,
-                    diag.line,
-                    diag.column,
-                    diag.source_file,
-                    diag.node,
-                )
-
-        if semantic_results.has_errors():
+        analyzer = SemanticAnalyzer(strict_types=strict_types, diagnostics=diagnostics)
+        analyzer.visit(program)
+        if diagnostics.has_errors():
             return False, "Semantic analysis failed", diagnostics.get_messages()
 
         # IR generation
-        ir_operations, lowering_diag, signal_type_map = lower_program(program, analyzer)
+        lowerer = ASTLowerer(analyzer, diagnostics)
+        ir_operations = lowerer.lower_program(program)
 
-        # Merge lowering diagnostics
-        if hasattr(lowering_diag, "diagnostics"):
-            for diag in lowering_diag.diagnostics:
-                diagnostics._add(
-                    diag.severity,
-                    diag.message,
-                    diag.stage,
-                    diag.line,
-                    diag.column,
-                    diag.source_file,
-                    diag.node,
-                )
-
-        if lowering_diag.has_errors():
+        if diagnostics.has_errors():
             return False, "IR lowering failed", diagnostics.get_messages()
 
         # Optimize
@@ -125,8 +95,8 @@ def compile_dsl_file(
 
         # Layout planning
         planner = LayoutPlanner(
-            signal_type_map,
-            diagnostics=ProgramDiagnostics(),  # Use separate diagnostics to avoid infinite loop
+            lowerer.ir_builder.signal_type_map,
+            diagnostics=diagnostics,
             power_pole_type=power_pole_type,
         )
 
@@ -136,42 +106,14 @@ def compile_dsl_file(
             blueprint_description="",
         )
 
-        # Merge layout diagnostics
-        if hasattr(planner.diagnostics, "diagnostics"):
-            for diag in planner.diagnostics.diagnostics:
-                diagnostics._add(
-                    diag.severity,
-                    diag.message,
-                    diag.stage,
-                    diag.line,
-                    diag.column,
-                    diag.source_file,
-                    diag.node,
-                )
-
         if planner.diagnostics.has_errors():
             return False, "Layout planning failed", diagnostics.get_messages()
 
         # Blueprint emission
-        emitter = BlueprintEmitter(signal_type_map)
+        emitter = BlueprintEmitter(lowerer.ir_builder.signal_type_map)
         blueprint = emitter.emit_from_plan(layout_plan)
 
-        # Merge emission diagnostics
-        if hasattr(emitter, "diagnostics") and hasattr(
-            emitter.diagnostics, "diagnostics"
-        ):
-            for diag in emitter.diagnostics.diagnostics:
-                diagnostics._add(
-                    diag.severity,
-                    diag.message,
-                    diag.stage,
-                    diag.line,
-                    diag.column,
-                    diag.source_file,
-                    diag.node,
-                )
-
-        if hasattr(emitter, "diagnostics") and emitter.diagnostics.has_errors():
+        if diagnostics.has_errors():
             return False, "Blueprint emission failed", diagnostics.get_messages()
 
         if output_json:
