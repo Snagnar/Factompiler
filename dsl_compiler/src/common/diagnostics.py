@@ -42,7 +42,7 @@ class ProgramDiagnostics:
             print(diagnostics.format_for_user())
     """
 
-    def __init__(self, log_level: str, raise_errors: bool = False):
+    def __init__(self, log_level: str = "info", raise_errors: bool = False):
         self.diagnostics: List[Diagnostic] = []
         self.log_level = log_level
         self.raise_errors = raise_errors

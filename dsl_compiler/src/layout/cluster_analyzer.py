@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Set, Tuple, Optional
 import math
 
-from dsl_compiler.src.common.entity_data import EntityDataHelper
 from dsl_compiler.src.ir.nodes import (
     IRNode,
     IR_Const,

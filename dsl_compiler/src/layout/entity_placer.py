@@ -761,6 +761,33 @@ class EntityPlacer:
         memory_module["write_gate_unused"] = True
         memory_module["hold_gate_unused"] = True
 
+        # CRITICAL FIX: Remove stale signal graph references to unused gates
+        # When gates are marked unused, any existing sinks pointing to them must be removed
+        write_gate = memory_module.get("write_gate")
+        hold_gate = memory_module.get("hold_gate")
+
+        from dsl_compiler.src.layout.layout_plan import EntityPlacement
+
+        if isinstance(write_gate, EntityPlacement):
+            # Remove all edges where write_gate is a sink
+            for signal_id in list(self.signal_graph._sinks.keys()):
+                sinks = self.signal_graph._sinks[signal_id]
+                if write_gate.ir_node_id in sinks:
+                    sinks.remove(write_gate.ir_node_id)
+                    self.diagnostics.info(
+                        f"Removed stale sink reference: {signal_id} -> {write_gate.ir_node_id} (optimized away)"
+                    )
+
+        if isinstance(hold_gate, EntityPlacement):
+            # Remove all edges where hold_gate is a sink
+            for signal_id in list(self.signal_graph._sinks.keys()):
+                sinks = self.signal_graph._sinks[signal_id]
+                if hold_gate.ir_node_id in sinks:
+                    sinks.remove(hold_gate.ir_node_id)
+                    self.diagnostics.info(
+                        f"Removed stale sink reference: {signal_id} -> {hold_gate.ir_node_id} (optimized away)"
+                    )
+
         # Update signal graph: all memory reads now come from final combinator
         self.signal_graph.set_source(op.memory_id, final_op_id)
 
@@ -1116,3 +1143,19 @@ class EntityPlacer:
             removed = self.plan.entity_placements.pop(entity_id, None)
             if removed:
                 self.diagnostics.info(f"Removed unused entity: {entity_id}")
+
+        # Also remove any planned wire connections that reference removed entities
+        if entities_to_remove:
+            remaining_connections = []
+            for conn in self.plan.wire_connections:
+                if (
+                    conn.source_entity_id in entities_to_remove
+                    or conn.sink_entity_id in entities_to_remove
+                ):
+                    self.diagnostics.info(
+                        f"Removed stale wire connection referencing removed entity: {conn.signal_name} ({conn.source_entity_id} -> {conn.sink_entity_id})"
+                    )
+                    continue
+                remaining_connections.append(conn)
+
+            self.plan.wire_connections = remaining_connections
