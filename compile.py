@@ -14,6 +14,8 @@ import sys
 import click
 from pathlib import Path
 import json
+import logging
+
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import (
     SemanticAnalyzer,
@@ -42,10 +44,8 @@ def compile_dsl_file(
     strict_types: bool = False,
     program_name: str = None,
     optimize: bool = True,
-    explain: bool = False,
+    log_level: str = "error",
     power_pole_type: str | None = None,
-    verbose: bool = False,
-    debug: bool = False,
     output_json: bool = False,
 ) -> tuple[bool, str | dict, list]:
     """
@@ -67,65 +67,68 @@ def compile_dsl_file(
         program_name = input_path.stem.replace("_", " ").title()
 
     # Create unified diagnostics collector
-    diagnostics = ProgramDiagnostics(verbose=verbose, debug=debug, explain=explain)
+    diagnostics = ProgramDiagnostics(log_level=log_level, raise_errors=True)
 
-    try:
-        # Parse
-        parser = DSLParser()
-        program = parser.parse(dsl_code.strip(), str(input_path.resolve()))
-        if diagnostics.has_errors():
-            return False, "Parsing failed", diagnostics.get_messages()
+    # Parse
+    parser = DSLParser()
+    program = parser.parse(dsl_code.strip(), str(input_path.resolve()))
+    if diagnostics.has_errors():
+        return False, "Parsing failed", diagnostics.get_messages()
 
-        # Semantic analysis
-        analyzer = SemanticAnalyzer(strict_types=strict_types, diagnostics=diagnostics)
-        analyzer.visit(program)
-        if diagnostics.has_errors():
-            return False, "Semantic analysis failed", diagnostics.get_messages()
+    # Semantic analysis
+    analyzer = SemanticAnalyzer(strict_types=strict_types, diagnostics=diagnostics)
+    analyzer.visit(program)
+    if diagnostics.has_errors():
+        return False, "Semantic analysis failed", diagnostics.get_messages()
 
-        # IR generation
-        lowerer = ASTLowerer(analyzer, diagnostics)
-        ir_operations = lowerer.lower_program(program)
+    # IR generation
+    lowerer = ASTLowerer(analyzer, diagnostics)
+    ir_operations = lowerer.lower_program(program)
 
-        if diagnostics.has_errors():
-            return False, "IR lowering failed", diagnostics.get_messages()
+    if diagnostics.has_errors():
+        return False, "IR lowering failed", diagnostics.get_messages()
 
-        # Optimize
-        if optimize:
-            ir_operations = CSEOptimizer().optimize(ir_operations)
+    # Optimize
+    if optimize:
+        ir_operations = CSEOptimizer().optimize(ir_operations)
 
-        # Layout planning
-        planner = LayoutPlanner(
-            lowerer.ir_builder.signal_type_map,
-            diagnostics=diagnostics,
-            power_pole_type=power_pole_type,
-        )
+    # Layout planning
+    planner = LayoutPlanner(
+        lowerer.ir_builder.signal_type_map,
+        diagnostics=diagnostics,
+        power_pole_type=power_pole_type,
+    )
 
-        layout_plan = planner.plan_layout(
-            ir_operations,
-            blueprint_label=f"{program_name} Blueprint",
-            blueprint_description="",
-        )
+    layout_plan = planner.plan_layout(
+        ir_operations,
+        blueprint_label=f"{program_name} Blueprint",
+        blueprint_description="",
+    )
 
-        if planner.diagnostics.has_errors():
-            return False, "Layout planning failed", diagnostics.get_messages()
+    if planner.diagnostics.has_errors():
+        return False, "Layout planning failed", diagnostics.get_messages()
 
-        # Blueprint emission
-        emitter = BlueprintEmitter(lowerer.ir_builder.signal_type_map)
-        blueprint = emitter.emit_from_plan(layout_plan)
+    # Blueprint emission
+    emitter = BlueprintEmitter(diagnostics, lowerer.ir_builder.signal_type_map)
+    blueprint = emitter.emit_from_plan(layout_plan)
 
-        if diagnostics.has_errors():
-            return False, "Blueprint emission failed", diagnostics.get_messages()
+    if diagnostics.has_errors():
+        return False, "Blueprint emission failed", diagnostics.get_messages()
 
-        if output_json:
-            blueprint_result = json.dumps(blueprint.to_dict())
-        else:
-            blueprint_result = blueprint.to_string()
+    if output_json:
+        blueprint_result = json.dumps(blueprint.to_dict())
+    else:
+        blueprint_result = blueprint.to_string()
 
-        return True, blueprint_result, diagnostics.get_messages()
+    return True, blueprint_result, diagnostics.get_messages()
 
-    except Exception as e:
-        diagnostics.error(f"Compilation failed: {e}", stage="compiler")
-        return False, f"Compilation failed: {e}", diagnostics.get_messages()
+
+def setup_logging(level: str) -> None:
+    """Setup logging configuration."""
+    numeric_level = getattr(logging, level.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError(f"Invalid log level: {level}")
+    logging.basicConfig(level=numeric_level)
 
 
 @click.command()
@@ -140,8 +143,12 @@ def compile_dsl_file(
 @click.option(
     "--name", type=str, help="Blueprint name (default: derived from input filename)"
 )
-@click.option("-v", "--verbose", is_flag=True, help="Show detailed diagnostic messages")
-@click.option("--debug", is_flag=True, help="Show debug-level diagnostics")
+@click.option(
+    "--log-level",
+    type=click.Choice(["debug", "info", "warning", "error"], case_sensitive=False),
+    default="error",
+    help="Set the logging level",
+)
 @click.option("--no-optimize", is_flag=True, help="Disable IR optimizations")
 @click.option(
     "--explain", is_flag=True, help="Add extended explanations to diagnostics"
@@ -160,16 +167,16 @@ def main(
     output,
     strict,
     name,
-    verbose,
+    log_level,
     no_optimize,
     explain,
     power_poles,
-    debug,
     json,
 ):
     """Compile Factorio Circuit DSL files to blueprint format."""
+    setup_logging(log_level)
 
-    if verbose or debug:
+    if log_level == "debug" or log_level == "info":
         click.echo(f"Compiling {input_file}...")
         if strict:
             click.echo("Using strict type checking mode.")
@@ -180,19 +187,11 @@ def main(
         strict_types=strict,
         program_name=name,
         optimize=not no_optimize,
-        explain=explain,
         power_pole_type=power_poles,
-        verbose=verbose,
-        debug=debug,
+        log_level=log_level,
         output_json=json,
     )
-
-    # Print diagnostics if needed
-    if diagnostic_messages and (verbose or debug or not success):
-        click.echo("Diagnostics:", err=True)
-        for msg in diagnostic_messages:
-            click.echo(f"  {msg}", err=True)
-        click.echo("", err=True)
+    verbose = log_level in ["debug", "info"]
 
     if not success:
         click.echo(f"Compilation failed: {result}", err=True)
@@ -203,7 +202,7 @@ def main(
         try:
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(result, encoding="utf-8")
-            if verbose or debug:
+            if verbose:
                 click.echo(f"Blueprint saved to {output}")
         except Exception as e:
             click.echo(f"Failed to write output file: {e}", err=True)
@@ -211,7 +210,7 @@ def main(
     else:
         click.echo(result)
 
-    if verbose or debug:
+    if verbose:
         msg_count = len(diagnostic_messages) if diagnostic_messages else 0
         msg = (
             f"Compilation completed with {msg_count} diagnostic(s)."

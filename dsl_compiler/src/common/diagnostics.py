@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import logging
 from enum import Enum
 from typing import List, Optional, Any
 from pathlib import Path
@@ -41,13 +42,11 @@ class ProgramDiagnostics:
             print(diagnostics.format_for_user())
     """
 
-    def __init__(
-        self, verbose: bool = False, debug: bool = False, explain: bool = False
-    ):
+    def __init__(self, log_level: str, raise_errors: bool = False):
         self.diagnostics: List[Diagnostic] = []
-        self.verbose = verbose
-        self.debug = debug
-        self.explain = explain
+        self.log_level = log_level
+        self.raise_errors = raise_errors
+        self.raise_errors = raise_errors
         self._error_count = 0
         self._warning_count = 0
         self.default_stage = "unknown"
@@ -62,10 +61,10 @@ class ProgramDiagnostics:
         node: Optional[Any] = None,
     ) -> None:
         """Add an informational message (shown in verbose mode)."""
-        if self.verbose:
-            self._add(
-                DiagnosticSeverity.INFO, message, stage, line, column, source_file, node
-            )
+        logging.info(message)
+        self._add(
+            DiagnosticSeverity.INFO, message, stage, line, column, source_file, node
+        )
 
     def warning(
         self,
@@ -77,6 +76,7 @@ class ProgramDiagnostics:
         node: Optional[Any] = None,
     ) -> None:
         """Add a warning (always shown, doesn't stop compilation)."""
+        logging.warning(message)
         self._add(
             DiagnosticSeverity.WARNING, message, stage, line, column, source_file, node
         )
@@ -92,9 +92,12 @@ class ProgramDiagnostics:
         node: Optional[Any] = None,
     ) -> None:
         """Add an error (always shown, stops compilation)."""
+        logging.error(message)
         self._add(
             DiagnosticSeverity.ERROR, message, stage, line, column, source_file, node
         )
+        if self.raise_errors:
+            raise Exception(message)
         self._error_count += 1
 
     def _add(
@@ -172,26 +175,6 @@ class ProgramDiagnostics:
 
         location = ":".join(location_parts)
         return f"{parts[0]} [{location}]: {diag.message}"
-
-    def format_for_user(self) -> str:
-        """Format all diagnostics for user-friendly output."""
-        if not self.diagnostics:
-            return "No diagnostics."
-
-        # Get messages at appropriate level
-        if self.debug:
-            min_severity = DiagnosticSeverity.DEBUG
-        elif self.verbose:
-            min_severity = DiagnosticSeverity.INFO
-        else:
-            min_severity = DiagnosticSeverity.WARNING
-
-        messages = self.get_messages(min_severity)
-
-        # Add summary
-        summary = f"\nCompilation summary: {self._error_count} error(s), {self._warning_count} warning(s)"
-
-        return "\n".join(messages) + summary
 
     def merge(self, other: "ProgramDiagnostics") -> None:
         """Merge diagnostics from another collector."""

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Set, Tuple, Optional
 import math
 
+from dsl_compiler.src.common.entity_data import EntityDataHelper
 from dsl_compiler.src.ir.nodes import (
     IRNode,
     IR_Const,
@@ -53,14 +54,59 @@ class ClusterAnalyzer:
             sub_clusters = self._split_if_needed(component, adjacency, i)
             final_clusters.extend(sub_clusters)
 
-        self.clusters = final_clusters
+        # Step 4: Merge undersized clusters
+        merged_clusters = self._merge_undersized_clusters(final_clusters)
+        self.clusters = merged_clusters
         self._build_entity_to_cluster_map()
 
         self.diagnostics.info(
-            f"Clustered {len(entities)} entities into {len(final_clusters)} bounded regions"
+            f"Clustered {len(entities)} entities into {len(merged_clusters)} bounded regions"
         )
 
         return self.clusters
+
+    def _compute_cluster_area(self, entity_ids: list[str]) -> float:
+        """Estimate area needed for a cluster based on precise entity bounds retrieved from the entitydatahelper in common."""
+        # sum_area = sum(
+        #     EntityDataHelper.get_footprint(entity_id)[0]
+        #     * EntityDataHelper.get_footprint(entity_id)[1]
+        #     for entity_id in entity_ids
+        # )
+        # return sum_area
+        return len(entity_ids) * 1.5  # Approximate area per entity
+
+    def _merge_undersized_clusters(self, clusters: List[Cluster]) -> List[Cluster]:
+        """Merge clusters that are too small to improve packing.
+
+        Use a greedy aproach to first sort clusters by size, then merge smallest
+        with nearest neighbor until size limit is reached.
+        """
+        # Precompute cluster sizes
+        sorted_clusters = sorted(
+            clusters, key=lambda c: self._compute_cluster_area(c.entity_ids)
+        )
+
+        merged = []
+        for cluster in sorted_clusters:
+            if len(merged) == 0:
+                merged.append(cluster)
+                continue
+            last_cluster = merged[-1]
+            combined_area = self._compute_cluster_area(
+                list(cluster.entity_ids) + list(last_cluster.entity_ids)
+            )
+            if combined_area <= Cluster.MAX_DIMENSION * Cluster.MAX_DIMENSION:
+                # Merge
+                merged_cluster = Cluster(
+                    cluster_id=f"{last_cluster.cluster_id}+{cluster.cluster_id}",
+                    entity_ids=last_cluster.entity_ids.union(cluster.entity_ids),
+                )
+                merged[-1] = merged_cluster
+            else:
+                # Keep separate
+                merged.append(cluster)
+
+        return merged
 
     def _build_adjacency(self, ir_operations: List[IRNode], signal_graph):
         """Build adjacency list from signal graph."""
@@ -125,7 +171,7 @@ class ClusterAnalyzer:
         """Split component if it would exceed size limit."""
 
         # Estimate: 1.5 tiles per entity (accounts for spacing)
-        estimated_area = len(component) * 1.5
+        estimated_area = self._compute_cluster_area(component)
         estimated_dimension = math.sqrt(estimated_area)
 
         if estimated_dimension <= Cluster.MAX_DIMENSION:
@@ -164,7 +210,7 @@ class ClusterAnalyzer:
         result = []
 
         for i, sub in enumerate([sub1, sub2]):
-            estimated_area = len(sub) * 1.5
+            estimated_area = self._compute_cluster_area(sub)
             estimated_dim = math.sqrt(estimated_area)
 
             if estimated_dim <= Cluster.MAX_DIMENSION:

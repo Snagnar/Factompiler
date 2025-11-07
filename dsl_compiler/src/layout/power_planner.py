@@ -110,9 +110,6 @@ class PowerPlanner:
                     self.diagnostics.warning(
                         f"Cluster {cluster.cluster_id} has no reserved power pole position!"
                     )
-
-            # Cover relay poles
-            self._cover_relay_positions(config["prototype"])
         else:
             # Fallback to coverage-based (existing algorithm)
             return self._plan_coverage_based_grid(pole_type, config)
@@ -220,31 +217,7 @@ class PowerPlanner:
             )
             self._record_power_pole(claimed, config["prototype"])
 
-        self._ensure_connectivity(config["prototype"])
         return list(self._planned)
-
-    def _cover_relay_positions(self, prototype: str) -> None:
-        """Add poles near relay positions if needed."""
-
-        relay_positions = []
-        for placement in self.layout_plan.entity_placements.values():
-            if placement.role in ("relay", "wire_relay"):
-                relay_positions.append(placement.position)
-
-        for pos in relay_positions:
-            # Check if already covered
-            if self._position_has_power_coverage(pos):
-                continue
-
-            # Add pole nearby
-            claimed = self.layout.reserve_near(
-                pos,
-                max_radius=3,
-                footprint=self._footprint,
-                padding=self._padding,
-            )
-            if claimed:
-                self._record_power_pole(claimed, prototype)
 
     def _position_has_power_coverage(self, pos: Tuple[int, int]) -> bool:
         """Check if position has power coverage."""
@@ -443,111 +416,6 @@ class PowerPlanner:
     # ------------------------------------------------------------------
     # Connectivity helpers
     # ------------------------------------------------------------------
-
-    def _ensure_connectivity(self, prototype: str) -> None:
-        """Ensure power poles are connected across clusters.
-
-        DISABLED: This method was causing issues by placing poles at arbitrary
-        locations when intended positions were occupied. Power connectivity
-        should be ensured through proper cluster center coverage and relay poles.
-        """
-        return  # Disabled - rely on cluster centers and relay coverage instead
-        if self._wire_reach <= 0 or len(self._planned) < 2:
-            return
-
-        reach_limit = max(0.0, self._wire_reach - 0.35)
-        if reach_limit <= 0:
-            reach_limit = self._wire_reach
-
-        reach_sq = reach_limit * reach_limit
-        # ✅ FIX: Cap iterations to prevent infinite loops on complex blueprints
-        max_attempts = min(len(self._planned) + 8, 50)
-        attempts = 0
-        last_component_count = float("inf")  # ✅ Track progress
-
-        while attempts < max_attempts:
-            components = self._compute_components(reach_sq)
-            if len(components) <= 1:
-                break
-
-            # Add progress check - if no improvement after 5 iterations, abort
-            if attempts > 0 and attempts % 5 == 0:
-                if len(components) == last_component_count:
-                    self.diagnostics.warning(
-                        f"Power connectivity stalled after {attempts} attempts with "
-                        f"{len(components)} components remaining. Stopping early."
-                    )
-                    break
-
-            last_component_count = len(components)
-
-            base_component = components[0]
-            best_distance = float("inf")
-            closest_pair: Optional[Tuple[PlannedPowerPole, PlannedPowerPole]] = None
-
-            for candidate_component in components[1:]:
-                for pole_a in base_component:
-                    center_a = self._position_center(pole_a.position)
-                    for pole_b in candidate_component:
-                        center_b = self._position_center(pole_b.position)
-                        distance = math.dist(center_a, center_b)
-                        if distance < best_distance:
-                            best_distance = distance
-                            closest_pair = (pole_a, pole_b)
-
-            if not closest_pair:
-                break
-
-            if best_distance <= reach_limit:
-                attempts += 1
-                continue
-
-            pole_a, pole_b = closest_pair
-            span_cap = reach_limit if reach_limit > 0 else self._wire_reach
-            needed = max(1, math.ceil(best_distance / span_cap) - 1)
-            center_a = self._position_center(pole_a.position)
-            center_b = self._position_center(pole_b.position)
-
-            for index in range(1, needed + 1):
-                ratio = index / (needed + 1)
-                target_center = (
-                    center_a[0] + (center_b[0] - center_a[0]) * ratio,
-                    center_a[1] + (center_b[1] - center_a[1]) * ratio,
-                )
-                approx_top_left = (
-                    target_center[0] - self._footprint[0] / 2.0,
-                    target_center[1] - self._footprint[1] / 2.0,
-                )
-                placement_pos = self.layout.reserve_exact(
-                    approx_top_left,
-                    footprint=self._footprint,
-                    padding=self._padding,
-                )
-                if placement_pos is None:
-                    placement_pos = self.layout.reserve_near(
-                        approx_top_left,
-                        max_radius=max(6, math.ceil(self._wire_reach)),
-                        footprint=self._footprint,
-                        padding=self._padding,
-                    )
-                # Don't fallback to get_next_position() - it would place pole far from intended path
-                # Only record the pole if we successfully found a nearby position
-                if placement_pos is not None:
-                    self._record_power_pole(placement_pos, prototype)
-                else:
-                    # Failed to place intermediate pole - connectivity may be broken
-                    self.diagnostics.debug(
-                        f"Could not place intermediate power pole at {approx_top_left} "
-                        f"(ratio {ratio} between {center_a} and {center_b})"
-                    )
-
-            attempts += 1
-
-        if attempts >= max_attempts and len(components) > 1:
-            self.diagnostics.warning(
-                f"Could not fully connect power grid after {max_attempts} attempts. "
-                f"{len(components)} disconnected components remain."
-            )
 
     def _ensure_connectivity_fixed(self, prototype: str) -> None:
         """Ensure power poles connect, with fixed logic that prevents infinite loops."""

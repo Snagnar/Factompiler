@@ -363,37 +363,48 @@ class ConnectionPlanner:
                 f"distance={distance:.2f}, span_limit={span_limit:.2f}"
             )
 
-        # Build path with relays using greedy straight-line approach
-        path = self._build_relay_path(source, sink, span_limit)
+            # Build path with relays using greedy straight-line approach
+            path = self._build_relay_path(source, sink, span_limit)
 
-        # Create wire connections along the path
-        for i, (start_id, end_id) in enumerate(zip(path, path[1:])):
-            # Use sides for first and last connection
-            conn_source_side = source_side if i == 0 else None
-            conn_sink_side = sink_side if i == len(path) - 2 else None
+            # Create wire connections along the path
+            for i, (start_id, end_id) in enumerate(zip(path, path[1:])):
+                # Use sides for first and last connection
+                conn_source_side = source_side if i == 0 else None
+                conn_sink_side = sink_side if i == len(path) - 2 else None
 
-            # DEBUG: Log wire connection with positions
-            start_placement = self.layout_plan.get_placement(start_id)
-            end_placement = self.layout_plan.get_placement(end_id)
-            if start_placement and end_placement:
-                seg_distance = math.dist(
-                    start_placement.position, end_placement.position
-                )
-                if seg_distance > span_limit:
-                    self.diagnostics.warning(
-                        f"Creating wire segment that exceeds span_limit: "
-                        f"{start_id} at {start_placement.position} -> "
-                        f"{end_id} at {end_placement.position}, "
-                        f"distance={seg_distance:.2f} > {span_limit:.2f}"
+                # DEBUG: Log wire connection with positions
+                start_placement = self.layout_plan.get_placement(start_id)
+                end_placement = self.layout_plan.get_placement(end_id)
+                if start_placement and end_placement:
+                    seg_distance = math.dist(
+                        start_placement.position, end_placement.position
                     )
+                    if seg_distance > span_limit:
+                        self.diagnostics.warning(
+                            f"Creating wire segment that exceeds span_limit: "
+                            f"{start_id} at {start_placement.position} -> "
+                            f"{end_id} at {end_placement.position}, "
+                            f"distance={seg_distance:.2f} > {span_limit:.2f}"
+                        )
 
+                connection = WireConnection(
+                    source_entity_id=start_id,
+                    sink_entity_id=end_id,
+                    signal_name=edge.resolved_signal_name,
+                    wire_color=wire_color,
+                    source_side=conn_source_side,
+                    sink_side=conn_sink_side,
+                )
+                self.layout_plan.add_wire_connection(connection)
+        else:
+            # Direct connection without relays
             connection = WireConnection(
-                source_entity_id=start_id,
-                sink_entity_id=end_id,
+                source_entity_id=edge.source_entity_id,
+                sink_entity_id=edge.sink_entity_id,
                 signal_name=edge.resolved_signal_name,
                 wire_color=wire_color,
-                source_side=conn_source_side,
-                sink_side=conn_sink_side,
+                source_side=source_side,
+                sink_side=sink_side,
             )
             self.layout_plan.add_wire_connection(connection)
 
