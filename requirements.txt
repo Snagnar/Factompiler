@@ -25,3 +25,8 @@ sphinx>=5.0.0
 ruff
 mypy
 pre-commit
+
+numpy
+scipy
+scikit-learn
+ortools

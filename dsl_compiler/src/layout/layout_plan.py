@@ -10,7 +10,7 @@ class EntityPlacement:
 
     ir_node_id: str
     entity_type: str  # draftsman entity type
-    position: Tuple[int, int]
+    position: Optional[Tuple[int, int]] = None  # None until positioned by ClusterPacker
     properties: Dict[str, Any] = field(default_factory=dict)
     role: Optional[str] = None
     zone: Optional[str] = None

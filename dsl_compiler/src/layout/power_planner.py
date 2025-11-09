@@ -1,11 +1,10 @@
 from __future__ import annotations
 import math
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from .layout_engine import LayoutEngine
 from .layout_plan import LayoutPlan, EntityPlacement, PowerPolePlacement
-from .cluster_analyzer import Cluster
 
 """Power infrastructure planning for the layout module."""
 
@@ -58,7 +57,7 @@ class PowerPlanner:
         layout: LayoutEngine,
         layout_plan: LayoutPlan,
         diagnostics: ProgramDiagnostics,
-        clusters: Optional[List[Cluster]] = None,
+        clusters: Optional[List[Any]] = None,
     ) -> None:
         self.layout: LayoutEngine = layout
         self.layout_plan: LayoutPlan = layout_plan

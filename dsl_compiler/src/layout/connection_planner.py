@@ -7,7 +7,6 @@ from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from .layout_engine import LayoutEngine
 from .layout_plan import LayoutPlan, WireConnection, EntityPlacement
 from .signal_analyzer import SignalUsageEntry
-from .cluster_analyzer import Cluster
 
 from .wire_router import (
     CircuitEdge,
@@ -40,7 +39,7 @@ class ConnectionPlanner:
         diagnostics: ProgramDiagnostics,
         layout_engine: LayoutEngine,
         max_wire_span: float = 9.0,
-        clusters: Optional[List[Cluster]] = None,
+        clusters: Optional[List[Any]] = None,
         entity_to_cluster: Optional[Dict[str, int]] = None,
     ) -> None:
         self.layout_plan = layout_plan
@@ -441,9 +440,13 @@ class ConnectionPlanner:
         if distance <= span_limit * 0.95:
             return [source.ir_node_id, sink.ir_node_id]
 
-        # Need relays - use CONSERVATIVE interval to ensure segments stay under limit
-        # Use 6.0 instead of 7.0 to give margin for displacement
-        safe_interval = 6.0
+        # Need relays - calculate exact number needed
+        # We need to ensure EVERY segment is < span_limit
+        # With positions potentially displaced by up to 2 tiles during placement,
+        # we need to use a VERY conservative interval
+        # If a relay can be displaced by up to 2 tiles, worst case is 4 tiles total displacement
+        # So we use span_limit / 2 as the safe interval (3.6 tiles for 7.2 span limit)
+        safe_interval = span_limit / 2.0
         num_relays = int(math.ceil(distance / safe_interval)) - 1
 
         if num_relays <= 0:
@@ -484,6 +487,56 @@ class ConnectionPlanner:
 
         return path
 
+    def _is_position_available(
+        self, position: Tuple[int, int], footprint: Tuple[int, int] = (1, 1)
+    ) -> bool:
+        """Check if position is available for placing an entity.
+
+        Checks BOTH layout engine grid AND existing entity placements.
+        This prevents relays from overlapping with already-placed entities.
+
+        Args:
+            position: Tile position (x, y) to check
+            footprint: Size (width, height) of entity to place
+
+        Returns:
+            True if position is completely free, False otherwise
+        """
+        # Check 1: Layout engine grid
+        if not self.layout_engine.can_reserve(position, footprint=footprint):
+            return False
+
+        # Check 2: Existing entity placements (including relays)
+        x, y = position
+        width, height = footprint
+
+        for placement in self.layout_plan.entity_placements.values():
+            if not placement.position:
+                continue
+
+            # Get placement's footprint
+            p_footprint = placement.properties.get("footprint", (1, 1))
+            p_width, p_height = p_footprint
+
+            # Convert center position back to tile position
+            p_center_x, p_center_y = placement.position
+            p_tile_x = p_center_x - p_width / 2.0
+            p_tile_y = p_center_y - p_height / 2.0
+
+            # Check for AABB overlap
+            # No overlap if: one is completely to left/right/above/below the other
+            if (
+                x + width <= p_tile_x  # entity is to the left
+                or p_tile_x + p_width <= x  # entity is to the right
+                or y + height <= p_tile_y  # entity is above
+                or p_tile_y + p_height <= y
+            ):  # entity is below
+                continue  # No overlap
+            else:
+                return False  # Overlap detected!
+
+        return True
+
     def _create_relay_in_corridor(
         self,
         position: Tuple[int, int],
@@ -497,7 +550,7 @@ class ConnectionPlanner:
         footprint = (1, 1)
 
         # Priority 1: Exact position
-        if self.layout_engine.can_reserve(position, footprint=footprint):
+        if self._is_position_available(position, footprint=footprint):
             reserved_pos = self.layout_engine.reserve_exact(
                 position, footprint=footprint
             )
@@ -512,7 +565,7 @@ class ConnectionPlanner:
                     if abs(dx) + abs(dy) > radius:
                         continue
                     alt_pos = (position[0] + dx, position[1] + dy)
-                    if self.layout_engine.can_reserve(alt_pos, footprint=footprint):
+                    if self._is_position_available(alt_pos, footprint=footprint):
                         reserved_pos = self.layout_engine.reserve_exact(
                             alt_pos, footprint=footprint
                         )

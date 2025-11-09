@@ -71,5 +71,17 @@ class SignalGraph:
             for sink in sinks:
                 yield signal_id, source, sink
 
+    def get_entity_signal_info(self, entity_id: str) -> Dict[str, List[str]]:
+        """Get all signals produced and consumed by a given entity."""
+        produced_signals = [
+            signal_id
+            for signal_id, source in self._sources.items()
+            if source == entity_id
+        ]
+        consumed_signals = [
+            signal_id for signal_id, sinks in self._sinks.items() if entity_id in sinks
+        ]
+        return f"{consumed_signals} -> {entity_id} -> {produced_signals}"
+
 
 __all__ = ["SignalGraph"]

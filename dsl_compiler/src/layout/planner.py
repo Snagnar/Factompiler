@@ -27,7 +27,6 @@ from .signal_analyzer import (
 )
 from .signal_resolver import SignalResolver
 from .signal_graph import SignalGraph
-from .cluster_analyzer import ClusterAnalyzer, Cluster
 
 
 class LayoutPlanner:
@@ -59,8 +58,7 @@ class LayoutPlanner:
         self._wire_merge_junctions: Dict[str, Any] = {}
 
         # Clustering infrastructure
-        self.cluster_analyzer: Optional[ClusterAnalyzer] = None
-        self.clusters: List[Cluster] = []
+        self.clusters: List[Any] = []
         self.entity_to_cluster: Dict[str, int] = {}
 
     def plan_layout(
@@ -71,6 +69,16 @@ class LayoutPlanner:
     ) -> LayoutPlan:
         """Produce a fresh layout plan for the provided IR operations.
 
+        SIMPLIFIED FLOW:
+        1. Signal analysis & materialization
+        2. Build signal graph
+        3. Create entities (without positions)
+        4. Cluster and pack (analyze connectivity + assign positions)
+        5. Reserve infrastructure
+        6. Plan connections
+        7. Plan power grid
+        8. Set metadata
+
         Args:
             ir_operations: List of IR nodes representing the program
             blueprint_label: Label for the resulting blueprint
@@ -79,23 +87,28 @@ class LayoutPlanner:
         Returns:
             LayoutPlan containing entity placements and wire connections
         """
+        # Phase 1: Analysis
         self._setup_signal_analysis(ir_operations)
         self._setup_materialization()
         self._setup_signal_resolver()
-
-        # NEW: Build signal graph before clustering
         self._build_signal_graph(ir_operations)
 
-        # NEW: Clustering phase
-        self._analyze_clusters(ir_operations)
+        # Phase 2: Create entities (no positions yet)
+        self._create_entities(ir_operations)
 
-        # NEW: Pre-reserve infrastructure before entity placement
+        # Phase 3: Cluster and pack (analyzes connectivity + positions entities)
+        self._cluster_and_pack()
+
+        # Phase 4: Infrastructure & connections
         self._reserve_infrastructure()
-
-        self._place_entities(ir_operations)
         self._plan_connections()
+
+        # Update occupied tiles again after relays are added
+        self._update_layout_engine_from_placements()
+
         self._plan_power_if_requested()
         self._set_metadata(blueprint_label, blueprint_description)
+
         return self.layout_plan
 
     def _setup_signal_analysis(self, ir_operations: list[IRNode]) -> None:
@@ -154,17 +167,91 @@ class LayoutPlanner:
         if isinstance(value_ref, SignalRef):
             self.signal_graph.add_sink(value_ref.source_id, consumer_id)
 
-    def _analyze_clusters(self, ir_operations: list[IRNode]) -> None:
-        """Analyze and form connectivity-based clusters."""
+    def _create_entities(self, ir_operations: list[IRNode]) -> None:
+        """Create entity records without positions (NEW simplified flow).
 
-        self.cluster_analyzer = ClusterAnalyzer(self.diagnostics)
-        self.clusters = self.cluster_analyzer.analyze(ir_operations, self.signal_graph)
-        self.entity_to_cluster = self.cluster_analyzer.entity_to_cluster
-
-    def _reserve_infrastructure(self) -> None:
-        """Reserve power poles and relay corridors before placing entities."""
+        Entities are created with footprints and properties, but positions
+        are assigned later by ClusterPacker.
+        """
         from .entity_placer import EntityPlacer
 
+        placer = EntityPlacer(
+            self.layout_engine,
+            self.layout_plan,
+            self.signal_usage,
+            self.materializer,
+            self.signal_resolver,
+            self.diagnostics,
+            constrained=False,  # No cluster constraints during entity creation
+        )
+
+        # Create all entities (positions will be None)
+        for op in ir_operations:
+            placer.place_ir_operation(op)
+
+        # Clean up optimized-away entities
+        placer.cleanup_unused_entities()
+
+        # Store signal graph and metadata
+        self.signal_graph = placer.signal_graph
+        self._memory_modules = placer._memory_modules
+        self._wire_merge_junctions = placer._wire_merge_junctions
+
+    def _cluster_and_pack(self) -> None:
+        """Analyze connectivity and pack entities into clusters (NEW unified step).
+
+        This replaces the old separate steps of:
+        - Analyze clusters from placements
+        - Rearrange entities into clusters
+
+        Now it's a single unified operation that analyzes connectivity
+        and immediately packs entities into cluster bounds.
+        """
+        from .cluster_packer import ClusterPacker
+
+        packer = ClusterPacker(
+            self.layout_plan,
+            self.signal_graph,
+            self.diagnostics,
+        )
+
+        result = packer.pack()
+        self.clusters = result.clusters
+        self.entity_to_cluster = result.entity_to_cluster
+
+    def _update_layout_engine_from_placements(self) -> None:
+        """Update layout engine's occupied tiles from entity placements."""
+        self.layout_engine._occupied_tiles.clear()
+
+        for entity_id, placement in self.layout_plan.entity_placements.items():
+            if placement.position is None:
+                continue
+
+            footprint = placement.properties.get("footprint", (1, 1))
+            # Convert center position back to tile position
+            tile_x = int(placement.position[0] - footprint[0] / 2.0)
+            tile_y = int(placement.position[1] - footprint[1] / 2.0)
+
+            # Mark all tiles as occupied
+            for x in range(tile_x, tile_x + footprint[0]):
+                for y in range(tile_y, tile_y + footprint[1]):
+                    self.layout_engine._occupied_tiles.add((x, y))
+
+    def _reserve_infrastructure(self) -> None:
+        """Reserve power poles and relay corridors.
+
+        Called after clustering/packing, so cluster bounds are known.
+
+        NOTE: Actual entities haven't been positioned yet, so this just
+        reserves SPACE for infrastructure. The update_layout_engine call
+        happens AFTER connection planning (which adds relay entities).
+        """
+        from .entity_placer import EntityPlacer
+
+        # Update occupied tiles from clustered entities BEFORE reserving infrastructure
+        self._update_layout_engine_from_placements()
+
+        # Create a placer just to call setup_cluster_bounds
         placer = EntityPlacer(
             self.layout_engine,
             self.layout_plan,
@@ -176,7 +263,7 @@ class LayoutPlanner:
             entity_to_cluster=self.entity_to_cluster,
         )
 
-        # This now also reserves infrastructure
+        # Reserve infrastructure based on finalized cluster layout
         placer.setup_cluster_bounds()
 
     def _plan_connections(self) -> None:
@@ -216,36 +303,6 @@ class LayoutPlanner:
         """Set blueprint metadata."""
         self.layout_plan.blueprint_label = blueprint_label
         self.layout_plan.blueprint_description = blueprint_description
-
-    def _place_entities(self, ir_operations: list[IRNode]) -> None:
-        """Place all entities in the layout plan."""
-        from .entity_placer import EntityPlacer
-
-        placer = EntityPlacer(
-            self.layout_engine,
-            self.layout_plan,
-            self.signal_usage,
-            self.materializer,
-            self.signal_resolver,
-            self.diagnostics,
-            clusters=self.clusters,
-            entity_to_cluster=self.entity_to_cluster,
-        )
-
-        # Setup cluster bounds before placement
-        placer.setup_cluster_bounds()
-
-        for op in ir_operations:
-            placer.place_ir_operation(op)
-
-        # ✅ Clean up optimized-away entities
-        placer.cleanup_unused_entities()
-
-        # Store signal graph and memory info for connection planning
-        # Note: signal_graph already built, but entity_placer might have modified it
-        self.signal_graph = placer.signal_graph
-        self._memory_modules = placer._memory_modules
-        self._wire_merge_junctions = placer._wire_merge_junctions
 
     def _determine_locked_wire_colors(self) -> Dict[tuple[str, str], str]:
         """Determine wire colors that must be locked for correctness.

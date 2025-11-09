@@ -137,8 +137,6 @@ class BlueprintEmitter:
             if entity is None:
                 continue
             entity_map[placement.ir_node_id] = entity
-
-            # Convert draftsman warnings to errors when adding entities
             self.blueprint.entities.append(entity, copy=False)
 
         self._materialize_power_grid(layout_plan, entity_map)

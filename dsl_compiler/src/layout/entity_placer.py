@@ -9,7 +9,6 @@ from .layout_plan import LayoutPlan, EntityPlacement, WireConnection
 from .signal_analyzer import SignalUsageEntry, SignalMaterializer
 from .signal_resolver import SignalResolver
 from .signal_graph import SignalGraph
-from .cluster_analyzer import Cluster
 
 
 from dsl_compiler.src.ir.builder import (
@@ -42,8 +41,9 @@ class EntityPlacer:
         materializer: SignalMaterializer,
         signal_resolver: SignalResolver,
         diagnostics: ProgramDiagnostics,
-        clusters: Optional[List[Cluster]] = None,
+        clusters: Optional[List[Any]] = None,
         entity_to_cluster: Optional[Dict[str, int]] = None,
+        constrained: bool = True,
     ):
         self.layout = layout_engine
         self.plan = layout_plan
@@ -52,6 +52,7 @@ class EntityPlacer:
         self.resolver = signal_resolver
         self.diagnostics = diagnostics
         self.signal_graph = SignalGraph()
+        self.constrained = constrained  # Whether to apply cluster bounds
 
         self.next_entity_number = 1
         self._memory_modules: Dict[str, Dict[str, Any]] = {}
@@ -204,18 +205,20 @@ class EntityPlacer:
         self._ir_nodes[op.node_id] = op
 
         # Find cluster for this operation and set bounds if switching to a new cluster
-        cluster_idx = self.entity_to_cluster.get(op.node_id, -1)
-        if cluster_idx >= 0 and cluster_idx < len(self.clusters):
-            # Only reset bounds if we're switching to a different cluster
-            if cluster_idx != self._current_cluster_idx:
-                cluster = self.clusters[cluster_idx]
-                if hasattr(cluster, "bounds") and cluster.bounds is not None:
-                    self.layout.set_cluster_bounds(cluster.bounds)
-                    self._current_cluster_idx = cluster_idx
-        elif cluster_idx == -1 and self._current_cluster_idx is not None:
-            # Entity not in any cluster - clear cluster bounds
-            self.layout.set_cluster_bounds(None)
-            self._current_cluster_idx = None
+        # Only apply bounds if constrained mode is enabled
+        if self.constrained:
+            cluster_idx = self.entity_to_cluster.get(op.node_id, -1)
+            if cluster_idx >= 0 and cluster_idx < len(self.clusters):
+                # Only reset bounds if we're switching to a different cluster
+                if cluster_idx != self._current_cluster_idx:
+                    cluster = self.clusters[cluster_idx]
+                    if hasattr(cluster, "bounds") and cluster.bounds is not None:
+                        self.layout.set_cluster_bounds(cluster.bounds)
+                        self._current_cluster_idx = cluster_idx
+            elif cluster_idx == -1 and self._current_cluster_idx is not None:
+                # Entity not in any cluster - clear cluster bounds
+                self.layout.set_cluster_bounds(None)
+                self._current_cluster_idx = None
 
         if isinstance(op, IR_Const):
             self._place_constant(op)
@@ -402,8 +405,8 @@ class EntityPlacer:
         # The full memory builder will be refactored later
         signal_name = self.resolver.get_signal_name(op.signal_type)
 
-        # Create write gate
-        write_pos = self.layout.get_next_position(footprint=(1, 1))
+        # Create write gate (decider combinator is 1x2 tiles)
+        write_pos = self.layout.get_next_position(footprint=(1, 2))
         write_id = f"{op.memory_id}_write_gate"
 
         # Build debug info for memory write gate
@@ -425,7 +428,7 @@ class EntityPlacer:
             entity_type="decider-combinator",
             position=write_pos,
             properties={
-                "footprint": (1, 1),
+                "footprint": (1, 2),
                 "operation": ">",
                 "left_operand": "signal-W",
                 "right_operand": 0,
@@ -438,8 +441,8 @@ class EntityPlacer:
         )
         self.plan.add_placement(write_placement)
 
-        # Create hold gate
-        hold_pos = self.layout.get_next_position(footprint=(1, 1))
+        # Create hold gate (decider combinator is 1x2 tiles)
+        hold_pos = self.layout.get_next_position(footprint=(1, 2))
         hold_id = f"{op.memory_id}_hold_gate"
 
         # Build debug info for memory hold gate
@@ -461,7 +464,7 @@ class EntityPlacer:
             entity_type="decider-combinator",
             position=hold_pos,
             properties={
-                "footprint": (1, 1),
+                "footprint": (1, 2),
                 "operation": "=",
                 "left_operand": "signal-W",
                 "right_operand": 0,
@@ -1159,3 +1162,15 @@ class EntityPlacer:
                 remaining_connections.append(conn)
 
             self.plan.wire_connections = remaining_connections
+
+        # create new signal graph, iterate through iter_source_sink_pairs of old graph and only add entries not involving removed entities
+        new_signal_graph = SignalGraph()
+        for signal_id, source_id, sink_id in self.signal_graph.iter_source_sink_pairs():
+            if source_id in entities_to_remove or sink_id in entities_to_remove:
+                self.diagnostics.info(
+                    f"Removed stale signal graph edge referencing removed entity: {signal_id} ({source_id} -> {sink_id})"
+                )
+                continue
+            new_signal_graph.add_sink(source_id, sink_id)
+            new_signal_graph.set_source(signal_id, source_id)
+        self.signal_graph = new_signal_graph

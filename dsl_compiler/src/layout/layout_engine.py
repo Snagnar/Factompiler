@@ -401,14 +401,26 @@ class LayoutEngine:
     def _iter_footprint_tiles(
         self, pos: Tuple[int, int], footprint: Tuple[int, int], padding: int
     ) -> Iterable[Tuple[int, int]]:
+        """Calculate tile coordinates occupied by an entity.
+
+        Args:
+            pos: Top-left tile position of entity (tile coordinates)
+            footprint: (width, height) in tiles
+            padding: Additional padding around entity
+
+        Returns:
+            Iterator of (x, y) tile coordinates that the entity occupies
+        """
         width = max(1, int(footprint[0]))
         height = max(1, int(footprint[1]))
         pad = max(0, int(padding))
 
+        # `pos` is already the top-left corner in tile coordinates.
+        # Simply expand the footprint with padding.
         start_x = pos[0] - pad
         start_y = pos[1] - pad
-        end_x = pos[0] + width + pad - 1
-        end_y = pos[1] + height + pad - 1
+        end_x = pos[0] + width - 1 + pad
+        end_y = pos[1] + height - 1 + pad
 
         for x in range(start_x, end_x + 1):
             for y in range(start_y, end_y + 1):
@@ -430,6 +442,25 @@ class LayoutEngine:
             return 0
         step = ((index + 1) // 2) * spacing
         return step if index % 2 == 1 else -step
+
+    def rebuild_from_placements(self, layout_plan) -> None:
+        """Rebuild occupation map from current entity placements.
+
+        This is used after rearrangement to update the layout engine's
+        internal state to match the new positions.
+        """
+        # Clear occupation map
+        self._occupied_tiles.clear()
+
+        # Rebuild from all placements
+        for entity_id, placement in layout_plan.entity_placements.items():
+            footprint = placement.properties.get("footprint", (1, 1))
+            position = placement.position
+
+            # Mark all tiles as occupied
+            for x in range(position[0], position[0] + footprint[0]):
+                for y in range(position[1], position[1] + footprint[1]):
+                    self._occupied_tiles.add((x, y))
 
 
 __all__ = ["LayoutEngine"]

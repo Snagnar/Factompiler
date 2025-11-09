@@ -100,7 +100,13 @@ class PlanEntityEmitter:
                     pass
 
         entity.id = placement.ir_node_id
-        entity.tile_position = placement.position
+
+        # Set entity position from placement
+        # placement.position is already in CENTER coordinates (set by ClusterPacker)
+        # which matches draftsman's entity.position
+        if placement.position is not None:
+            entity.position = placement.position
+
         return entity
 
     def _configure_decider(

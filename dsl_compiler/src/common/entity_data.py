@@ -28,7 +28,14 @@ class EntityDataHelper:
         try:
             entity_info = entity_data.raw.get(prototype, {})
 
-            # Try collision_box first (most accurate)
+            # Use tile_width/tile_height first (most reliable for tile footprint)
+            width = entity_info.get("tile_width")
+            height = entity_info.get("tile_height")
+
+            if width is not None and height is not None:
+                return (max(1, int(width)), max(1, int(height)))
+
+            # Fallback to collision_box if tile dimensions not available
             collision_box = entity_info.get("collision_box")
             if collision_box:
                 # collision_box is [[x1, y1], [x2, y2]]
@@ -36,10 +43,7 @@ class EntityDataHelper:
                 height = max(1, math.ceil(collision_box[1][1] - collision_box[0][1]))
                 return (width, height)
 
-            # Fallback to tile_width/tile_height
-            width = entity_info.get("tile_width", 1)
-            height = entity_info.get("tile_height", 1)
-            return (max(1, width), max(1, height))
+            return (1, 1)  # Final fallback
 
         except Exception:
             return (1, 1)  # Fallback for any errors

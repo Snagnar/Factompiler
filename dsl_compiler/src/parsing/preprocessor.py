@@ -50,24 +50,21 @@ def preprocess_imports(
                 processed_lines.append(f"# Skipped circular import: {import_path}")
                 continue
 
-            try:
-                if file_path.exists():
-                    processed_files.add(file_path)
-                    with open(file_path, "r", encoding="utf-8") as handle:
-                        imported_content = handle.read()
+            if file_path.exists():
+                processed_files.add(file_path)
+                with open(file_path, "r", encoding="utf-8") as handle:
+                    imported_content = handle.read()
 
-                    imported_content = preprocess_imports(
-                        imported_content,
-                        base_path=file_path.parent,
-                        processed_files=processed_files,
-                    )
+                imported_content = preprocess_imports(
+                    imported_content,
+                    base_path=file_path.parent,
+                    processed_files=processed_files,
+                )
 
-                    processed_lines.append(f"# --- Imported from {file_path:!s} ---")
-                    processed_lines.append(imported_content)
-                    processed_lines.append(f"# --- End import {file_path:!s} ---")
-                else:
-                    processed_lines.append(line)
-            except Exception:
+                processed_lines.append(f"# --- Imported from {str(file_path)} ---")
+                processed_lines.append(imported_content)
+                processed_lines.append(f"# --- End import {str(file_path)} ---")
+            else:
                 processed_lines.append(line)
         else:
             processed_lines.append(line)
