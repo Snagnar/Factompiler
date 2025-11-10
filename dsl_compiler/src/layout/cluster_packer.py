@@ -43,19 +43,28 @@ class ClusterPacker:
     - New: Analyze connectivity → Pack directly into clusters
     """
 
-    CLUSTER_SIZE = 6  # 6x6 tiles per cluster
     CLUSTER_SPACING = 2  # 2 tiles between clusters
     CLUSTERS_PER_ROW = 5
+
+    # Default cluster sizes by power pole type
+    DEFAULT_CLUSTER_WIDTH = 6
+    DEFAULT_CLUSTER_HEIGHT = 6
 
     def __init__(
         self,
         layout_plan: LayoutPlan,
         signal_graph: SignalGraph,
         diagnostics: ProgramDiagnostics,
+        cluster_width: int = None,
+        cluster_height: int = None,
     ):
         self.layout_plan = layout_plan
         self.signal_graph = signal_graph
         self.diagnostics = diagnostics
+
+        # Dynamic cluster sizing based on power pole type
+        self.cluster_width = cluster_width or self.DEFAULT_CLUSTER_WIDTH
+        self.cluster_height = cluster_height or self.DEFAULT_CLUSTER_HEIGHT
 
     def pack(self) -> PackingResult:
         """Main entry point: analyze connectivity and pack entities.
@@ -82,7 +91,7 @@ class ClusterPacker:
 
         # We'll perform an integer binary search on the cluster "area" (in tiles)
         # to find the smallest max_cluster_size that yields no packing overflows.
-        best_size = self.CLUSTER_SIZE * self.CLUSTER_SIZE
+        best_size = self.cluster_width * self.cluster_height
 
         # Minimum feasible cluster area can't be less than the largest single
         # entity footprint area (otherwise that entity could never fit).
@@ -125,7 +134,8 @@ class ClusterPacker:
             if viable:
                 break
             else:
-                best_size -= self.CLUSTER_SIZE  # decrease by one cluster row
+                # Decrease by one cluster's worth of area
+                best_size -= min(self.cluster_width, self.cluster_height)
 
         self.diagnostics.info(f"Search complete, chosen cluster area={best_size}")
 
@@ -257,9 +267,9 @@ class ClusterPacker:
         return optimized
 
     def _compute_cluster_area(self, entity_ids: List[str]) -> float:
-        """Simulate packing to get ACTUAL space needed, not just sum of footprints.
+        """Simulate packing to get ACTUAL space needed.
 
-        This accounts for row-based packing waste.
+        Uses dynamic cluster dimensions based on power pole type.
 
         Args:
             entity_ids: List of entity IDs
@@ -292,8 +302,8 @@ class ClusterPacker:
             footprint = entity.properties.get("footprint", (1, 1))
             width, height = footprint
 
-            # Check if entity fits in current row (assume max width of CLUSTER_SIZE)
-            if current_x + width > self.CLUSTER_SIZE:
+            # Check if entity fits in current row - use dynamic cluster_width
+            if current_x + width > self.cluster_width:
                 # Move to next row
                 if row_max_height > 0:
                     current_y += row_max_height
@@ -360,7 +370,7 @@ class ClusterPacker:
             Merged cluster list
         """
         if len(clusters) <= 1:
-            return clusters
+            return clusters, False  # No merging possible
 
         # Sort by size for better merging
         sorted_clusters = sorted(clusters, key=len)
@@ -395,10 +405,7 @@ class ClusterPacker:
     def _calculate_cluster_grid(
         self, num_clusters: int
     ) -> List[Tuple[int, int, int, int]]:
-        """Calculate grid positions for clusters with fixed 5x5 sizing.
-
-        All clusters are CLUSTER_SIZE x CLUSTER_SIZE (5x5) to reserve space
-        for relay poles in the spacing areas between clusters.
+        """Calculate grid positions for clusters with dynamic sizing.
 
         Args:
             num_clusters: Number of clusters to position
@@ -407,7 +414,9 @@ class ClusterPacker:
             List of (x1, y1, x2, y2) bounds for each cluster
         """
         bounds_list = []
-        cluster_stride = self.CLUSTER_SIZE + self.CLUSTER_SPACING  # 5 + 2 = 7
+        # Use maximum dimension for stride to maintain consistent spacing
+        max_dimension = max(self.cluster_width, self.cluster_height)
+        cluster_stride = max_dimension + self.CLUSTER_SPACING
 
         for idx in range(num_clusters):
             row = idx // self.CLUSTERS_PER_ROW
@@ -415,8 +424,8 @@ class ClusterPacker:
 
             x1 = col * cluster_stride
             y1 = row * cluster_stride
-            x2 = x1 + self.CLUSTER_SIZE
-            y2 = y1 + self.CLUSTER_SIZE
+            x2 = x1 + self.cluster_width  # Use dynamic width
+            y2 = y1 + self.cluster_height  # Use dynamic height
 
             bounds_list.append((x1, y1, x2, y2))
 

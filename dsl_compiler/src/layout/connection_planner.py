@@ -41,12 +41,14 @@ class ConnectionPlanner:
         max_wire_span: float = 9.0,
         clusters: Optional[List[Any]] = None,
         entity_to_cluster: Optional[Dict[str, int]] = None,
+        power_pole_type: Optional[str] = None,
     ) -> None:
         self.layout_plan = layout_plan
         self.signal_usage = signal_usage
         self.diagnostics = diagnostics
         self.max_wire_span = max_wire_span
         self.layout_engine = layout_engine
+        self.power_pole_type = power_pole_type
 
         self._circuit_edges: List[CircuitEdge] = []
         self._node_color_assignments: Dict[Tuple[str, str], str] = {}
@@ -606,9 +608,21 @@ class ConnectionPlanner:
 
     def _create_relay_entity(self, relay_id: str, position: Tuple[int, int]) -> None:
         """Helper to create relay placement."""
+        # Use configured power pole type, default to medium if not specified
+        pole_type = self.power_pole_type if self.power_pole_type else "medium"
+
+        # Map pole type to entity name
+        pole_map = {
+            "small": "small-electric-pole",
+            "medium": "medium-electric-pole",
+            "big": "big-electric-pole",
+            "substation": "substation",
+        }
+        entity_type = pole_map.get(pole_type.lower(), "medium-electric-pole")
+
         relay_placement = EntityPlacement(
             ir_node_id=relay_id,
-            entity_type="medium-electric-pole",
+            entity_type=entity_type,
             position=position,
             properties={
                 "debug_info": {

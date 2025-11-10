@@ -62,6 +62,29 @@ class LayoutPlanner:
         self.clusters: List[Any] = []
         self.entity_to_cluster: Dict[str, int] = {}
 
+    def _get_cluster_dimensions_for_pole_type(
+        self, pole_type: Optional[str]
+    ) -> tuple[int, int]:
+        """Determine cluster dimensions based on power pole type.
+
+        Returns:
+            (width, height) in tiles
+        """
+        if not pole_type:
+            return (6, 6)  # Default for no power poles
+
+        pole_type_lower = pole_type.lower()
+
+        if pole_type_lower in ["small", "big"]:
+            # Small coverage area - use narrow clusters
+            return (6, 4)
+        elif pole_type_lower in ["medium", "substation"]:
+            # Medium to large coverage - use square clusters
+            return (6, 6)
+        else:
+            # Unknown pole type - use default
+            return (6, 6)
+
     def plan_layout(
         self,
         ir_operations: list[IRNode],
@@ -210,10 +233,17 @@ class LayoutPlanner:
         """
         from .cluster_packer import ClusterPacker
 
+        # Determine cluster size based on power pole type
+        cluster_width, cluster_height = self._get_cluster_dimensions_for_pole_type(
+            self.power_pole_type
+        )
+
         packer = ClusterPacker(
             self.layout_plan,
             self.signal_graph,
             self.diagnostics,
+            cluster_width=cluster_width,
+            cluster_height=cluster_height,
         )
 
         result = packer.pack()
@@ -277,6 +307,7 @@ class LayoutPlanner:
             max_wire_span=self.max_wire_span,
             clusters=self.clusters,
             entity_to_cluster=self.entity_to_cluster,
+            power_pole_type=self.power_pole_type,
         )
 
         locked_colors = self._determine_locked_wire_colors()

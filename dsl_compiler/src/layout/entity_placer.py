@@ -136,68 +136,46 @@ class EntityPlacer:
         return debug_info
 
     def setup_cluster_bounds(self) -> None:
-        """Compute and assign bounds for each cluster."""
+        """Compute and assign bounds for each cluster.
+
+        NOTE: Power poles are now placed OUTSIDE clusters by PowerPlanner,
+        so we don't need to reserve space inside clusters for poles anymore.
+        We only reserve corridors between clusters for relay wires.
+        """
 
         if not self.clusters:
             return
 
-        # Simple grid layout: clusters in rows
-        cluster_size = 7  # 5 tiles + 2 spacing
-        clusters_per_row = 5
+        # Clusters already have bounds set by ClusterPacker
+        # Just need to reserve relay corridors
+
+        from .cluster_packer import ClusterPacker
 
         for idx, cluster in enumerate(self.clusters):
-            row = idx // clusters_per_row
-            col = idx % clusters_per_row
+            if not hasattr(cluster, "bounds") or cluster.bounds is None:
+                continue
 
-            x1 = col * cluster_size
-            y1 = row * cluster_size
-            x2 = x1 + 5  # Actual cluster region is 5×5
-            y2 = y1 + 5
+            x1, y1, x2, y2 = cluster.bounds
 
-            cluster.center = ((x1 + x2) / 2, (y1 + y2) / 2)
-            cluster.bounds = (x1, y1, x2, y2)
-
-            # NEW: Reserve power pole position at cluster center
-            center_int = (int(cluster.center[0]), int(cluster.center[1]))
-            footprint = (1, 1)  # Power pole size
-
-            if self.layout.reserve_infrastructure(center_int, footprint):
-                cluster.power_pole_position = center_int
-                self.diagnostics.info(
-                    f"Reserved power pole at {center_int} for cluster {idx}"
-                )
-            else:
-                # Try nearby positions in a small radius
-                reserved = False
-                for dx in range(-1, 2):
-                    for dy in range(-1, 2):
-                        if dx == 0 and dy == 0:
-                            continue
-                        alt_pos = (center_int[0] + dx, center_int[1] + dy)
-                        if self.layout.reserve_infrastructure(alt_pos, footprint):
-                            cluster.power_pole_position = alt_pos
-                            self.diagnostics.info(
-                                f"Reserved power pole at {alt_pos} for cluster {idx}"
-                            )
-                            reserved = True
-                            break
-                    if reserved:
-                        break
-
-            # NEW: Reserve relay corridor between clusters
-            # Reserve vertical corridor to the right
-            if (idx + 1) % clusters_per_row != 0:  # Not rightmost column
+            # Reserve vertical corridor to the right (for relays between clusters)
+            if (idx + 1) % ClusterPacker.CLUSTERS_PER_ROW != 0:  # Not rightmost column
                 x_corridor = x2  # Right edge of cluster
                 for y in range(y1, y2 + 1):
                     self.layout._reserved_corridors.add((x_corridor, y))
                     self.layout._reserved_corridors.add((x_corridor + 1, y))
 
-            # Reserve horizontal corridor below
-            if idx + clusters_per_row < len(self.clusters):  # Not bottom row
+            # Reserve horizontal corridor below (for relays between clusters)
+            if idx + ClusterPacker.CLUSTERS_PER_ROW < len(
+                self.clusters
+            ):  # Not bottom row
                 y_corridor = y2  # Bottom edge of cluster
                 for x in range(x1, x2 + 1):
                     self.layout._reserved_corridors.add((x, y_corridor))
                     self.layout._reserved_corridors.add((x, y_corridor + 1))
+
+        self.diagnostics.info(
+            f"Reserved relay corridors for {len(self.clusters)} clusters"
+        )
 
     def place_ir_operation(self, op: IRNode) -> None:
         """Place a single IR operation."""
