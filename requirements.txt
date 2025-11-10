@@ -30,3 +30,4 @@ numpy
 scipy
 scikit-learn
 ortools
+networkx

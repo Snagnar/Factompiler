@@ -5,6 +5,7 @@ and entity packing (positioning entities within cluster bounds) in a single pass
 """
 
 import math
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple
 
@@ -12,6 +13,13 @@ from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.layout.cluster_split import partition_component_spectral
 from .layout_plan import LayoutPlan, EntityPlacement
 from .signal_graph import SignalGraph
+
+try:
+    import networkx as nx
+
+    HAS_NETWORKX = True
+except ImportError:
+    HAS_NETWORKX = False
 
 
 @dataclass
@@ -65,6 +73,67 @@ class ClusterPacker:
         # Dynamic cluster sizing based on power pole type
         self.cluster_width = cluster_width or self.DEFAULT_CLUSTER_WIDTH
         self.cluster_height = cluster_height or self.DEFAULT_CLUSTER_HEIGHT
+        self.entity_to_cluster = {}  # Will be populated during pack()
+
+    def _optimize_cluster_positions(
+        self,
+        components: List[List[str]],
+    ) -> List[Tuple[int, int]]:
+        """
+        Use force-directed graph layout to position clusters optimally.
+
+        Returns: List of (x, y) center positions for each cluster
+        """
+        if not HAS_NETWORKX:
+            # Fallback to simple grid layout
+            self.diagnostics.info("NetworkX not available, using simple grid layout")
+            return None
+
+        # Build cluster connectivity graph
+        G = nx.Graph()
+        for idx in range(len(components)):
+            G.add_node(idx)
+
+        # Add weighted edges based on signal count between clusters
+        inter_cluster_signals = defaultdict(int)
+        for signal_id, source_id, sink_id in self.signal_graph.iter_source_sink_pairs():
+            # Find which cluster each entity belongs to
+            src_cluster = -1
+            sink_cluster = -1
+
+            for cluster_idx, component in enumerate(components):
+                if source_id in component:
+                    src_cluster = cluster_idx
+                if sink_id in component:
+                    sink_cluster = cluster_idx
+
+            if src_cluster >= 0 and sink_cluster >= 0 and src_cluster != sink_cluster:
+                edge = tuple(sorted([src_cluster, sink_cluster]))
+                inter_cluster_signals[edge] += 1
+
+        for (c1, c2), weight in inter_cluster_signals.items():
+            G.add_edge(c1, c2, weight=weight)
+
+        # Use spring layout with weights
+        pos = nx.spring_layout(
+            G,
+            weight="weight",
+            iterations=50,
+            k=2.0 + self.DEFAULT_CLUSTER_WIDTH,  # Optimal distance between nodes
+            scale=20.0,  # Scale to reasonable tile coordinates
+        )
+
+        # Convert to tile coordinates
+        positions = []
+        for idx in range(len(components)):
+            x, y = pos[idx]
+            # Snap to cluster grid (multiples of cluster_width + spacing)
+            stride = max(self.cluster_width, self.cluster_height) + self.CLUSTER_SPACING
+            tile_x = int(round(x / stride)) * stride
+            tile_y = int(round(y / stride)) * stride
+            positions.append((tile_x, tile_y))
+
+        return positions
 
     def pack(self) -> PackingResult:
         """Main entry point: analyze connectivity and pack entities.
@@ -142,9 +211,18 @@ class ClusterPacker:
         # Use the chosen size to produce the final clusters
         current_clusters = self._optimize_cluster_sizes(components, best_size)
 
+        # Optimize cluster positions based on connectivity
+        optimized_positions = self._optimize_cluster_positions(current_clusters)
+        if optimized_positions:
+            self.diagnostics.info(
+                "Using optimized cluster positions based on connectivity"
+            )
+
         # Final packing pass (like before) - we'll still support one round of
         # splitting if something unexpectedly overflows.
-        cluster_bounds = self._calculate_cluster_grid(len(current_clusters))
+        cluster_bounds = self._calculate_cluster_grid(
+            len(current_clusters), optimized_positions
+        )
         overflowing_cluster_indices = []
         cluster_infos = []
         entity_to_cluster = {}
@@ -403,12 +481,13 @@ class ClusterPacker:
         return merged, did_merge
 
     def _calculate_cluster_grid(
-        self, num_clusters: int
+        self, num_clusters: int, optimized_positions: List[Tuple[int, int]] = None
     ) -> List[Tuple[int, int, int, int]]:
         """Calculate grid positions for clusters with dynamic sizing.
 
         Args:
             num_clusters: Number of clusters to position
+            optimized_positions: Optional list of (x, y) center positions from optimization
 
         Returns:
             List of (x1, y1, x2, y2) bounds for each cluster
@@ -419,11 +498,18 @@ class ClusterPacker:
         cluster_stride = max_dimension + self.CLUSTER_SPACING
 
         for idx in range(num_clusters):
-            row = idx // self.CLUSTERS_PER_ROW
-            col = idx % self.CLUSTERS_PER_ROW
+            if optimized_positions and idx < len(optimized_positions):
+                # Use optimized position as center
+                center_x, center_y = optimized_positions[idx]
+                x1 = center_x - self.cluster_width // 2
+                y1 = center_y - self.cluster_height // 2
+            else:
+                # Fallback to simple grid layout
+                row = idx // self.CLUSTERS_PER_ROW
+                col = idx % self.CLUSTERS_PER_ROW
+                x1 = col * cluster_stride
+                y1 = row * cluster_stride
 
-            x1 = col * cluster_stride
-            y1 = row * cluster_stride
             x2 = x1 + self.cluster_width  # Use dynamic width
             y2 = y1 + self.cluster_height  # Use dynamic height
 

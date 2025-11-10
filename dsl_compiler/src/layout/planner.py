@@ -328,6 +328,7 @@ class LayoutPlanner:
             self.layout_plan,
             self.diagnostics,
             clusters=self.clusters,
+            connection_planner=self.connection_planner,  # Pass connection planner for relay network integration
         )
         power_planner.plan_power_grid(self.power_pole_type)
 

@@ -53,11 +53,13 @@ class PowerPlanner:
         layout_plan: LayoutPlan,
         diagnostics: ProgramDiagnostics,
         clusters: Optional[List[Any]] = None,
+        connection_planner: Optional[Any] = None,
     ) -> None:
         self.layout = layout
         self.layout_plan = layout_plan
         self.diagnostics = diagnostics
         self.clusters = clusters or []
+        self.connection_planner = connection_planner
         self._planned: List[PlannedPowerPole] = []
 
     # -------------------------------------------------------------------------
@@ -246,5 +248,13 @@ class PowerPlanner:
                 position=position,
             )
         )
+
+        # Register with relay network so it can be reused for circuit routing
+        if self.connection_planner and hasattr(
+            self.connection_planner, "relay_network"
+        ):
+            self.connection_planner.relay_network.add_relay_node(
+                position, pole_id, prototype
+            )
 
         return pole
