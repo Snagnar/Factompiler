@@ -248,7 +248,11 @@ class ClusterPacker:
             optimized.extend(split_clusters)
 
         # Try merging small clusters
-        optimized = self._try_merge_small_clusters(optimized, max_cluster_size)
+        did_merge = True
+        while did_merge:
+            optimized, did_merge = self._try_merge_small_clusters(
+                optimized, max_cluster_size
+            )
 
         return optimized
 
@@ -362,6 +366,7 @@ class ClusterPacker:
         sorted_clusters = sorted(clusters, key=len)
         merged = []
         skip_indices = set()
+        did_merge = False
 
         for i, cluster1 in enumerate(sorted_clusters):
             if i in skip_indices:
@@ -381,10 +386,11 @@ class ClusterPacker:
                     # Can merge
                     merged_cluster.extend(cluster2)
                     skip_indices.add(j)
+                    did_merge = True
 
             merged.append(merged_cluster)
 
-        return merged
+        return merged, did_merge
 
     def _calculate_cluster_grid(
         self, num_clusters: int
