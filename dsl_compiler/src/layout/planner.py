@@ -35,13 +35,14 @@ class LayoutPlanner:
     def __init__(
         self,
         signal_type_map: Dict[str, str],
-        diagnostics: Optional[ProgramDiagnostics] = None,
+        diagnostics: ProgramDiagnostics,
         *,
         power_pole_type: Optional[str] = None,
         max_wire_span: float = 9.0,
     ) -> None:
         self.signal_type_map = signal_type_map
-        self.diagnostics = diagnostics or ProgramDiagnostics()
+        self.diagnostics = diagnostics
+        self.diagnostics.default_stage = "layout_planning"
         self.power_pole_type = power_pole_type
         self.max_wire_span = max_wire_span
 

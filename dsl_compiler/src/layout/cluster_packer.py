@@ -43,7 +43,7 @@ class ClusterPacker:
     - New: Analyze connectivity → Pack directly into clusters
     """
 
-    CLUSTER_SIZE = 5  # 5x5 tiles per cluster
+    CLUSTER_SIZE = 6  # 6x6 tiles per cluster
     CLUSTER_SPACING = 2  # 2 tiles between clusters
     CLUSTERS_PER_ROW = 5
 
@@ -71,6 +71,7 @@ class ClusterPacker:
         """
         # Get all entities that need positioning
         entities = self.layout_plan.entity_placements
+        self.adjacency = self._build_adjacency_map(list(entities.keys()))
 
         if not entities:
             self.diagnostics.info("No entities to cluster")
@@ -79,78 +80,72 @@ class ClusterPacker:
         # 1. Find connected components based on signal connectivity
         components = self._find_connected_components(entities)
 
-        # 2. Initial optimization (split large, merge small)
-        current_clusters = self._optimize_cluster_sizes(components)
+        # We'll perform an integer binary search on the cluster "area" (in tiles)
+        # to find the smallest max_cluster_size that yields no packing overflows.
+        best_size = self.CLUSTER_SIZE * self.CLUSTER_SIZE
 
-        # 3. ITERATIVE PACK-AND-SPLIT
-        max_iterations = 8  # Increased from 4 to handle larger programs
-        for iteration in range(max_iterations):
-            self.diagnostics.info(f"Pack iteration {iteration + 1}/{max_iterations}")
+        # Minimum feasible cluster area can't be less than the largest single
+        # entity footprint area (otherwise that entity could never fit).
+        max_single_area = 1
+        for eid, ent in entities.items():
+            fp = ent.properties.get("footprint", (1, 1))
+            max_single_area = max(max_single_area, fp[0] * fp[1])
 
-            # Calculate grid positions for current clusters
-            cluster_bounds = self._calculate_cluster_grid(len(current_clusters))
+        # Helper that tests whether a given max_cluster_size produces any overflows.
+        def _test_size(size: int) -> bool:
+            # Optimize clusters for this size
+            candidate_clusters = self._optimize_cluster_sizes(components, size)
 
-            # Pack each cluster and detect overflows
-            overflowing_cluster_indices = []
+            # Prepare grid and backup positions so trials don't persist placements
+            candidate_bounds = self._calculate_cluster_grid(len(candidate_clusters))
+            positions_backup = {eid: entities[eid].position for eid in entities}
 
-            for cluster_idx, (entity_ids, bounds) in enumerate(
-                zip(current_clusters, cluster_bounds)
+            # Clear positions for a clean trial
+            for eid in entities:
+                entities[eid].position = None
+
+            overflow_found = False
+            for idx, (entity_ids, bounds) in enumerate(
+                zip(candidate_clusters, candidate_bounds)
             ):
-                has_overflow = self._pack_cluster(cluster_idx, entity_ids, bounds)
-                if has_overflow:
-                    overflowing_cluster_indices.append(cluster_idx)
+                if self._pack_cluster(idx, entity_ids, bounds):
+                    overflow_found = True
+                    break
 
-            # Check if we have any overflows
-            if not overflowing_cluster_indices:
-                self.diagnostics.info(
-                    f"No overflows detected, packing complete after {iteration + 1} iteration(s)"
-                )
+            # Restore positions to previous state
+            for eid, pos in positions_backup.items():
+                entities[eid].position = pos
+
+            # Return True when NO overflow (i.e., size is viable)
+            return not overflow_found
+
+        while best_size > max_single_area:
+            self.diagnostics.info(f"Testing cluster area={best_size} ")
+            viable = _test_size(best_size)
+            if viable:
                 break
+            else:
+                best_size -= self.CLUSTER_SIZE  # decrease by one cluster row
 
-            self.diagnostics.warning(
-                f"Iteration {iteration + 1}: {len(overflowing_cluster_indices)} cluster(s) overflowed: {overflowing_cluster_indices}"
-            )
+        self.diagnostics.info(f"Search complete, chosen cluster area={best_size}")
 
-            # If this is the last iteration, we can't split anymore
-            if iteration == max_iterations - 1:
-                self.diagnostics.error(
-                    f"Max iterations ({max_iterations}) reached with {len(overflowing_cluster_indices)} "
-                    f"overflowing clusters. Some entities will overlap!"
-                )
-                break
+        # Use the chosen size to produce the final clusters
+        current_clusters = self._optimize_cluster_sizes(components, best_size)
 
-            # Split overflowing clusters and rebuild cluster list
-            new_clusters = []
-            for cluster_idx, entity_ids in enumerate(current_clusters):
-                if cluster_idx in overflowing_cluster_indices:
-                    # Split this cluster
-                    self.diagnostics.info(
-                        f"Splitting overflowing cluster {cluster_idx} with {len(entity_ids)} entities"
-                    )
-                    adjacency = self._build_adjacency_map(entity_ids)
-                    sub_clusters = self._split_cluster(entity_ids, adjacency)
-                    new_clusters.extend(sub_clusters)
-                    self.diagnostics.info(
-                        f"  Split into {len(sub_clusters)} sub-clusters"
-                    )
-                else:
-                    # Keep this cluster as-is
-                    new_clusters.append(entity_ids)
-
-            current_clusters = new_clusters
-
-            # Clear positions from all entities for re-packing
-            for entity_id in entities:
-                entities[entity_id].position = None
-
-        # 4. Build final result after successful packing
+        # Final packing pass (like before) - we'll still support one round of
+        # splitting if something unexpectedly overflows.
+        cluster_bounds = self._calculate_cluster_grid(len(current_clusters))
+        overflowing_cluster_indices = []
         cluster_infos = []
         entity_to_cluster = {}
-        cluster_bounds = self._calculate_cluster_grid(len(current_clusters))
 
         for cluster_idx, (entity_ids, bounds) in enumerate(
             zip(current_clusters, cluster_bounds)
         ):
+            has_overflow = self._pack_cluster(cluster_idx, entity_ids, bounds)
+            if has_overflow:
+                overflowing_cluster_indices.append(cluster_idx)
+
             x1, y1, x2, y2 = bounds
             cluster_infos.append(
                 ClusterInfo(
@@ -164,6 +159,11 @@ class ClusterPacker:
             # Map entities to cluster
             for entity_id in entity_ids:
                 entity_to_cluster[entity_id] = cluster_idx
+
+        if overflowing_cluster_indices:
+            self.diagnostics.warning(
+                f"After binary-search sizing, {len(overflowing_cluster_indices)} cluster(s) still overflowed: {overflowing_cluster_indices}. Proceeding without further splitting."
+            )
 
         self.diagnostics.info(
             f"Final result: {len(entities)} entities in {len(cluster_infos)} clusters"
@@ -225,7 +225,9 @@ class ClusterPacker:
 
         return components
 
-    def _optimize_cluster_sizes(self, components: List[List[str]]) -> List[List[str]]:
+    def _optimize_cluster_sizes(
+        self, components: List[List[str]], max_cluster_size: int
+    ) -> List[List[str]]:
         """Split large components and merge small ones.
 
         Ported from cluster_analyzer.py to properly handle clusters that
@@ -237,53 +239,18 @@ class ClusterPacker:
         Returns:
             Optimized list of entity ID lists that fit in cluster bounds
         """
-        MAX_DIMENSION = self.CLUSTER_SIZE  # 5 tiles
-
-        # Build adjacency map for splitting
-        adjacency = self._build_adjacency()
 
         # Split large clusters
         optimized = []
 
         for component in components:
-            split_clusters = self._split_if_needed(component, adjacency)
+            split_clusters = self._split_if_needed(component, max_cluster_size)
             optimized.extend(split_clusters)
 
         # Try merging small clusters
-        optimized = self._try_merge_small_clusters(optimized, MAX_DIMENSION)
+        optimized = self._try_merge_small_clusters(optimized, max_cluster_size)
 
         return optimized
-
-    def _build_adjacency(self) -> Dict[str, List[str]]:
-        """Build adjacency map for all entities.
-
-        Args:
-            components: Not used, kept for consistency with cluster_analyzer
-
-        Returns:
-            Adjacency map: entity_id -> list of connected entity_ids
-        """
-        adjacency = {}
-
-        # Initialize adjacency for all entities
-        for entity_id in self.layout_plan.entity_placements.keys():
-            adjacency[entity_id] = []
-
-        # Build connections from signal graph
-        for signal_id, source_id, sink_id in self.signal_graph.iter_source_sink_pairs():
-            if source_id and sink_id:
-                # Add bidirectional edge
-                if source_id not in adjacency:
-                    adjacency[source_id] = []
-                if sink_id not in adjacency:
-                    adjacency[sink_id] = []
-
-                if sink_id not in adjacency[source_id]:
-                    adjacency[source_id].append(sink_id)
-                if source_id not in adjacency[sink_id]:
-                    adjacency[sink_id].append(source_id)
-
-        return adjacency
 
     def _compute_cluster_area(self, entity_ids: List[str]) -> float:
         """Simulate packing to get ACTUAL space needed, not just sum of footprints.
@@ -343,7 +310,7 @@ class ClusterPacker:
     def _split_if_needed(
         self,
         component: List[str],
-        adjacency: Dict[str, List[str]],
+        max_cluster_size: int,
     ) -> List[List[str]]:
         """Split component if it won't fit in cluster bounds.
 
@@ -358,20 +325,20 @@ class ClusterPacker:
         """
         # Determine how many sub-clusters needed
         area = self._compute_cluster_area(component)
-        max_area = self.CLUSTER_SIZE * self.CLUSTER_SIZE
-        if area <= max_area:
+
+        if area <= max_cluster_size:
             return [component]
 
         # Use ceiling division and add 1 extra cluster for safety margin
         # This ensures we have enough capacity even with packing inefficiencies
-        num_parts = int(math.ceil(area / max_area)) + 1
+        num_parts = int(math.ceil(area / max_cluster_size)) + 1
 
         # Partition using spectral clustering
         sub_clusters = partition_component_spectral(
             component,
-            adjacency,
+            self.adjacency,
             num_parts,
-            max_area,
+            max_cluster_size,
             self.layout_plan.entity_placements,
         )
         return sub_clusters
@@ -410,7 +377,7 @@ class ClusterPacker:
                 cluster2 = sorted_clusters[j]
                 combined_area = self._compute_cluster_area(merged_cluster + cluster2)
 
-                if combined_area <= max_dimension * max_dimension:
+                if combined_area <= max_dimension:
                     # Can merge
                     merged_cluster.extend(cluster2)
                     skip_indices.add(j)
@@ -554,9 +521,6 @@ class ClusterPacker:
             # Check if we're overflowing vertically
             if current_y + height > y2:
                 has_overflow = True
-                print(
-                    f"[OVERFLOW] Cluster {cluster_idx}: entity '{entity_id}' at ({current_x}, {current_y}) with height {height} exceeds y2={y2}"
-                )
                 self.diagnostics.warning(
                     f"Cluster {cluster_idx} overflow: entity '{entity_id}' "
                     f"at tile ({current_x}, {current_y}) exceeds bounds {bounds}. "
