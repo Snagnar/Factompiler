@@ -123,14 +123,48 @@ class ClusterPacker:
             scale=20.0,  # Scale to reasonable tile coordinates
         )
 
-        # Convert to tile coordinates
+        # ✅ FIX: Convert to tile coordinates with collision detection
         positions = []
+        used_positions = set()
+        stride = max(self.cluster_width, self.cluster_height) + self.CLUSTER_SPACING
+
         for idx in range(len(components)):
             x, y = pos[idx]
             # Snap to cluster grid (multiples of cluster_width + spacing)
-            stride = max(self.cluster_width, self.cluster_height) + self.CLUSTER_SPACING
             tile_x = int(round(x / stride)) * stride
             tile_y = int(round(y / stride)) * stride
+
+            # ✅ Ensure no collision with already-placed clusters
+            attempt = 0
+            while (tile_x, tile_y) in used_positions and attempt < 20:
+                # Try spiral pattern around original position
+                offset = (attempt // 4 + 1) * stride
+                direction = attempt % 4
+                if direction == 0:  # right
+                    tile_x += offset
+                elif direction == 1:  # down
+                    tile_y += offset
+                elif direction == 2:  # left
+                    tile_x -= offset
+                else:  # up
+                    tile_y -= offset
+                attempt += 1
+
+            if (tile_x, tile_y) in used_positions:
+                # If still colliding after many attempts, use fallback grid position
+                self.diagnostics.warning(
+                    f"Cluster {idx} could not find unique position after optimization, "
+                    f"using fallback grid placement"
+                )
+                row = idx // self.CLUSTERS_PER_ROW
+                col = idx % self.CLUSTERS_PER_ROW
+                tile_x = col * stride
+                tile_y = row * stride
+                # Ensure this fallback is also unique
+                while (tile_x, tile_y) in used_positions:
+                    tile_x += stride
+
+            used_positions.add((tile_x, tile_y))
             positions.append((tile_x, tile_y))
 
         return positions

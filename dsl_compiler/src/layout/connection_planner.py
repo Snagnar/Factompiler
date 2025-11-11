@@ -150,7 +150,7 @@ class RelayNetwork:
         # - Placement imprecision (relays might not land exactly on ideal spot)
         # - Reserve failures requiring nearby placement
         # - Entity center positions might not be tile-aligned
-        safe_interval = span_limit * 0.55
+        safe_interval = span_limit * 0.8
         num_relays = max(1, int(math.ceil(distance / safe_interval)) - 1)
 
         path = []
