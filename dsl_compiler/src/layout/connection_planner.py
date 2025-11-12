@@ -182,8 +182,12 @@ class RelayNetwork:
                 if reserved_pos:
                     self._relay_counter += 1
                     relay_id = f"__relay_{self._relay_counter}"
+                    # ✅ FIX: Ensure reserved_pos is integer tile position
+                    tile_x = int(round(reserved_pos[0]))
+                    tile_y = int(round(reserved_pos[1]))
                     # Convert tile to center position for draftsman
-                    center_pos = (reserved_pos[0] + 0.5, reserved_pos[1] + 0.5)
+                    # Power poles are 1x1, so center is at +0.5, +0.5
+                    center_pos = (tile_x + 0.5, tile_y + 0.5)
                     relay_node = self.add_relay_node(
                         center_pos, relay_id, "medium-electric-pole"
                     )
@@ -230,10 +234,12 @@ class RelayNetwork:
                             if reserved_pos:
                                 self._relay_counter += 1
                                 new_relay_id = f"__relay_{self._relay_counter}"
-                                center_pos = (
-                                    reserved_pos[0] + 0.5,
-                                    reserved_pos[1] + 0.5,
-                                )
+                                # ✅ FIX: Ensure reserved_pos is integer tile position
+                                tile_x = int(round(reserved_pos[0]))
+                                tile_y = int(round(reserved_pos[1]))
+                                # Convert tile to center position for draftsman
+                                # Power poles are 1x1, so center is at +0.5, +0.5
+                                center_pos = (tile_x + 0.5, tile_y + 0.5)
                                 new_node = self.add_relay_node(
                                     center_pos, new_relay_id, "medium-electric-pole"
                                 )

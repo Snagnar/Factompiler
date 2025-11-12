@@ -307,10 +307,10 @@ class ForceDirectedLayoutEngine:
         )
 
         # Run sequential optimization
-        if population_size > 1 and parallel:
-            results = self._parallel_optimization(population_size, max_iterations)
-        else:
-            results = self._sequential_optimization(population_size, max_iterations)
+        # if population_size > 1 and parallel:
+        #     results = self._parallel_optimization(population_size, max_iterations)
+        # else:
+        results = self._sequential_optimization(population_size, max_iterations)
 
         # Select best result
         best_result = min(results, key=lambda r: r.energy)

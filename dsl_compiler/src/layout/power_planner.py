@@ -158,13 +158,18 @@ class PowerPlanner:
         Returns:
             PlannedPowerPole object
         """
+        # ✅ FIX: Snap position to integer grid
+        snapped_x = int(round(position[0]))
+        snapped_y = int(round(position[1]))
+        snapped_position = (snapped_x, snapped_y)
+        
         # Check for duplicate at this exact position
         for existing in self._planned:
-            if existing.position == position:
+            if existing.position == snapped_position:
                 return existing  # Return existing pole
 
         # Create new pole
-        pole = PlannedPowerPole(position=position, prototype=prototype)
+        pole = PlannedPowerPole(position=snapped_position, prototype=prototype)
         self._planned.append(pole)
 
         # Add to layout plan
@@ -173,7 +178,7 @@ class PowerPlanner:
             PowerPolePlacement(
                 pole_id=pole_id,
                 pole_type=prototype,
-                position=position,
+                position=snapped_position,
             )
         )
 
@@ -181,8 +186,13 @@ class PowerPlanner:
         if self.connection_planner and hasattr(
             self.connection_planner, "relay_network"
         ):
+            # Convert tile position to center position for relay network
+            center_x = snapped_position[0] + footprint[0] / 2.0
+            center_y = snapped_position[1] + footprint[1] / 2.0
+            center_position = (center_x, center_y)
+            
             self.connection_planner.relay_network.add_relay_node(
-                position, pole_id, prototype
+                center_position, pole_id, prototype
             )
 
         return pole
