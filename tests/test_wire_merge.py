@@ -3,10 +3,11 @@
 import pytest
 
 from dsl_compiler.src.parsing.parser import DSLParser
-from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer, analyze_program
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 from dsl_compiler.src.lowering.lowerer import lower_program
 from dsl_compiler.src.emission.emitter import emit_blueprint
 from dsl_compiler.src.ir.builder import IR_Arith, IR_WireMerge
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 
 @pytest.fixture
@@ -15,9 +16,10 @@ def parser():
 
 
 def _lower_ir(parser: DSLParser, code: str):
-    analyzer = SemanticAnalyzer()
+    diagnostics = ProgramDiagnostics()
+    analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
     program = parser.parse(code)
-    diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+    analyzer.visit(program)
     assert not diagnostics.has_errors(), diagnostics.get_messages()
     ir_operations, lower_diags, signal_map = lower_program(program, analyzer)
     assert not lower_diags.has_errors(), lower_diags.get_messages()

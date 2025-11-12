@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from dsl_compiler.src.ir.nodes import (
     IRNode,
@@ -27,6 +27,7 @@ from .signal_analyzer import (
 )
 from .signal_resolver import SignalResolver
 from .signal_graph import SignalGraph
+from .force_directed_layout import ForceDirectedLayoutEngine, LayoutConstraints
 
 
 class LayoutPlanner:
@@ -58,33 +59,6 @@ class LayoutPlanner:
         self._memory_modules: Dict[str, Any] = {}
         self._wire_merge_junctions: Dict[str, Any] = {}
 
-        # Clustering infrastructure
-        self.clusters: List[Any] = []
-        self.entity_to_cluster: Dict[str, int] = {}
-
-    def _get_cluster_dimensions_for_pole_type(
-        self, pole_type: Optional[str]
-    ) -> tuple[int, int]:
-        """Determine cluster dimensions based on power pole type.
-
-        Returns:
-            (width, height) in tiles
-        """
-        if not pole_type:
-            return (6, 6)  # Default for no power poles
-
-        pole_type_lower = pole_type.lower()
-
-        if pole_type_lower in ["small", "big"]:
-            # Small coverage area - use narrow clusters
-            return (6, 4)
-        elif pole_type_lower in ["medium", "substation"]:
-            # Medium to large coverage - use square clusters
-            return (6, 6)
-        else:
-            # Unknown pole type - use default
-            return (6, 6)
-
     def plan_layout(
         self,
         ir_operations: list[IRNode],
@@ -93,15 +67,14 @@ class LayoutPlanner:
     ) -> LayoutPlan:
         """Produce a fresh layout plan for the provided IR operations.
 
-        SIMPLIFIED FLOW:
+        FLOW:
         1. Signal analysis & materialization
         2. Build signal graph
         3. Create entities (without positions)
-        4. Cluster and pack (analyze connectivity + assign positions)
-        5. Reserve infrastructure
-        6. Plan connections
-        7. Plan power grid
-        8. Set metadata
+        4. Optimize positions using force-directed layout
+        5. Plan connections with relay routing
+        6. Plan power grid adaptively
+        7. Set metadata
 
         Args:
             ir_operations: List of IR nodes representing the program
@@ -120,17 +93,16 @@ class LayoutPlanner:
         # Phase 2: Create entities (no positions yet)
         self._create_entities(ir_operations)
 
-        # Phase 3: Cluster and pack (analyzes connectivity + positions entities)
-        self._cluster_and_pack()
+        # Phase 3: Optimize positions using force-directed layout
+        self._optimize_positions()
 
         # Phase 4: Infrastructure & connections
-        self._reserve_infrastructure()
-        self._plan_connections()
-
-        # Update occupied tiles again after relays are added
         self._update_layout_engine_from_placements()
-
+        self._plan_connections()
+        self._update_layout_engine_from_placements()  # Again after relays added
         self._plan_power_if_requested()
+
+        # Phase 5: Metadata
         self._set_metadata(blueprint_label, blueprint_description)
 
         return self.layout_plan
@@ -192,10 +164,10 @@ class LayoutPlanner:
             self.signal_graph.add_sink(value_ref.source_id, consumer_id)
 
     def _create_entities(self, ir_operations: list[IRNode]) -> None:
-        """Create entity records without positions (NEW simplified flow).
+        """Create entity records without positions.
 
         Entities are created with footprints and properties, but positions
-        are assigned later by ClusterPacker.
+        are assigned later by force-directed optimization.
         """
         from .entity_placer import EntityPlacer
 
@@ -206,7 +178,6 @@ class LayoutPlanner:
             self.materializer,
             self.signal_resolver,
             self.diagnostics,
-            constrained=False,  # No cluster constraints during entity creation
         )
 
         # Create all entities (positions will be None)
@@ -221,34 +192,44 @@ class LayoutPlanner:
         self._memory_modules = placer._memory_modules
         self._wire_merge_junctions = placer._wire_merge_junctions
 
-    def _cluster_and_pack(self) -> None:
-        """Analyze connectivity and pack entities into clusters (NEW unified step).
-
-        This replaces the old separate steps of:
-        - Analyze clusters from placements
-        - Rearrange entities into clusters
-
-        Now it's a single unified operation that analyzes connectivity
-        and immediately packs entities into cluster bounds.
-        """
-        from .cluster_packer import ClusterPacker
-
-        # Determine cluster size based on power pole type
-        cluster_width, cluster_height = self._get_cluster_dimensions_for_pole_type(
-            self.power_pole_type
+    def _optimize_positions(self) -> None:
+        """Optimize entity positions using force-directed layout."""
+        layout_engine = ForceDirectedLayoutEngine(
+            signal_graph=self.signal_graph,
+            entity_placements=self.layout_plan.entity_placements,
+            diagnostics=self.diagnostics,
+            constraints=LayoutConstraints(
+                max_wire_span=self.max_wire_span,
+                entity_spacing=0.5,
+            ),
         )
 
-        packer = ClusterPacker(
-            self.layout_plan,
-            self.signal_graph,
-            self.diagnostics,
-            cluster_width=cluster_width,
-            cluster_height=cluster_height,
+        # Determine population size based on problem complexity
+        n_entities = len(self.layout_plan.entity_placements)
+        if n_entities < 10:
+            population_size = 5
+        elif n_entities < 50:
+            population_size = 10
+        elif n_entities < 200:
+            population_size = 15
+        else:
+            population_size = 20
+
+        # Run optimization
+        optimized_positions = layout_engine.optimize(
+            population_size=population_size,
+            max_iterations=500,
+            parallel=True,
         )
 
-        result = packer.pack()
-        self.clusters = result.clusters
-        self.entity_to_cluster = result.entity_to_cluster
+        # Apply positions
+        for entity_id, position in optimized_positions.items():
+            if entity_id in self.layout_plan.entity_placements:
+                self.layout_plan.entity_placements[entity_id].position = position
+
+        self.diagnostics.info(
+            f"Optimized positions for {len(optimized_positions)} entities"
+        )
 
     def _update_layout_engine_from_placements(self) -> None:
         """Update layout engine's occupied tiles from entity placements."""
@@ -268,35 +249,6 @@ class LayoutPlanner:
                 for y in range(tile_y, tile_y + footprint[1]):
                     self.layout_engine._occupied_tiles.add((x, y))
 
-    def _reserve_infrastructure(self) -> None:
-        """Reserve power poles and relay corridors.
-
-        Called after clustering/packing, so cluster bounds are known.
-
-        NOTE: Actual entities haven't been positioned yet, so this just
-        reserves SPACE for infrastructure. The update_layout_engine call
-        happens AFTER connection planning (which adds relay entities).
-        """
-        from .entity_placer import EntityPlacer
-
-        # Update occupied tiles from clustered entities BEFORE reserving infrastructure
-        self._update_layout_engine_from_placements()
-
-        # Create a placer just to call setup_cluster_bounds
-        placer = EntityPlacer(
-            self.layout_engine,
-            self.layout_plan,
-            self.signal_usage,
-            self.materializer,
-            self.signal_resolver,
-            self.diagnostics,
-            clusters=self.clusters,
-            entity_to_cluster=self.entity_to_cluster,
-        )
-
-        # Reserve infrastructure based on finalized cluster layout
-        placer.setup_cluster_bounds()
-
     def _plan_connections(self) -> None:
         """Plan wire connections between entities."""
         self.connection_planner = ConnectionPlanner(
@@ -305,8 +257,6 @@ class LayoutPlanner:
             self.diagnostics,
             self.layout_engine,
             max_wire_span=self.max_wire_span,
-            clusters=self.clusters,
-            entity_to_cluster=self.entity_to_cluster,
             power_pole_type=self.power_pole_type,
         )
 
@@ -327,8 +277,7 @@ class LayoutPlanner:
             self.layout_engine,
             self.layout_plan,
             self.diagnostics,
-            clusters=self.clusters,
-            connection_planner=self.connection_planner,  # Pass connection planner for relay network integration
+            connection_planner=self.connection_planner,
         )
         power_planner.plan_power_grid(self.power_pole_type)
 

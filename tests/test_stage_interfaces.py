@@ -10,12 +10,22 @@ This module validates that:
 import pytest
 
 from dsl_compiler.src.parsing.parser import DSLParser
-from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer, analyze_program
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 from dsl_compiler.src.lowering.lowerer import lower_program
 from dsl_compiler.src.layout.planner import LayoutPlanner
 from dsl_compiler.src.emission.emitter import emit_blueprint
 from dsl_compiler.src.ast.statements import Program
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+
+
+def analyze_program(ast, analyzer=None, strict_types=False, diagnostics=None):
+    """Helper to analyze a program AST."""
+    if diagnostics is None:
+        diagnostics = ProgramDiagnostics()
+    if analyzer is None:
+        analyzer = SemanticAnalyzer(diagnostics, strict_types=strict_types)
+    analyzer.visit(ast)
+    return diagnostics
 
 
 class TestParserInterface:
@@ -83,7 +93,8 @@ class TestSemanticAnalyzerInterface:
         source = "Signal x = 10;"  # Implicit virtual signal
         ast = parser.parse(source)
 
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
         # Should have allocated an implicit virtual signal
@@ -96,7 +107,8 @@ class TestSemanticAnalyzerInterface:
         source = "Signal x = 5;"  # Will need implicit virtual signal
         ast = parser.parse(source)
 
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
         # Signal allocator should have used the same registry
@@ -112,7 +124,8 @@ class TestLowererInterface:
         source = "Signal x = 5 + 3;"
         ast = parser.parse(source)
 
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
         ir_ops, diagnostics, signal_map = lower_program(ast, analyzer)
@@ -127,7 +140,8 @@ class TestLowererInterface:
         source = "Signal x = 10;"  # Implicit signal
         ast = parser.parse(source)
 
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
         # Get the registry before lowering
@@ -148,11 +162,13 @@ class TestLowererInterface:
         source2 = "Signal y = 2;"
 
         ast1 = parser.parse(source1)
-        analyzer1 = SemanticAnalyzer()
+        diagnostics1 = ProgramDiagnostics()
+        analyzer1 = SemanticAnalyzer(diagnostics1)
         analyze_program(ast1, analyzer=analyzer1)
 
         ast2 = parser.parse(source2)
-        analyzer2 = SemanticAnalyzer()
+        diagnostics2 = ProgramDiagnostics()
+        analyzer2 = SemanticAnalyzer(diagnostics2)
         analyze_program(ast2, analyzer=analyzer2)
 
         ir_ops1, _, _ = lower_program(ast1, analyzer1)
@@ -171,7 +187,8 @@ class TestLayoutPlannerInterface:
         source = "Signal x = 5;"
         ast = parser.parse(source)
 
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
         ir_ops, diagnostics, signal_map = lower_program(ast, analyzer)
@@ -189,7 +206,8 @@ class TestLayoutPlannerInterface:
         source = "Signal x = 5;"
         ast = parser.parse(source)
 
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
         ir_ops, _, signal_map = lower_program(ast, analyzer)
@@ -211,7 +229,8 @@ class TestBlueprintEmitterInterface:
         source = "Signal x = 5;"
         ast = parser.parse(source)
 
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
         ir_ops, _, signal_map = lower_program(ast, analyzer)
@@ -229,7 +248,8 @@ class TestBlueprintEmitterInterface:
         source = "Signal x = 5;"
         ast = parser.parse(source)
 
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
         ir_ops, _, signal_map = lower_program(ast, analyzer)
@@ -250,7 +270,8 @@ class TestStageIsolation:
         source = "Signal x = 5;"
         ast = parser.parse(source)
 
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
         # AST structure should not be modified (only annotated)
@@ -263,7 +284,8 @@ class TestStageIsolation:
         source = "Signal x = 10;"  # Implicit signal
         ast = parser.parse(source)
 
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
         ir_ops, _, signal_map = lower_program(ast, analyzer)
@@ -278,7 +300,8 @@ class TestStageIsolation:
         source = "Signal x = 5;"
         ast = parser.parse(source)
 
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         semantic_diagnostics = analyze_program(ast, analyzer=analyzer)
 
         _, lowering_diagnostics, _ = lower_program(ast, analyzer)
@@ -309,7 +332,8 @@ class TestEndToEndPipeline:
         assert isinstance(ast, Program)
 
         # Stage 2: Semantic Analysis
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         semantic_diagnostics = analyze_program(ast, analyzer=analyzer)
         assert not semantic_diagnostics.has_errors()
 
@@ -341,7 +365,8 @@ class TestEndToEndPipeline:
 
         ast = parser.parse(source)
 
-        analyzer = SemanticAnalyzer()
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
         # Verify signals allocated

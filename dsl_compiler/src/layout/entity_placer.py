@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Optional, Tuple
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.common.entity_data import (
     get_entity_footprint,
@@ -41,9 +41,6 @@ class EntityPlacer:
         materializer: SignalMaterializer,
         signal_resolver: SignalResolver,
         diagnostics: ProgramDiagnostics,
-        clusters: Optional[List[Any]] = None,
-        entity_to_cluster: Optional[Dict[str, int]] = None,
-        constrained: bool = True,
     ):
         self.layout = layout_engine
         self.plan = layout_plan
@@ -52,7 +49,6 @@ class EntityPlacer:
         self.resolver = signal_resolver
         self.diagnostics = diagnostics
         self.signal_graph = SignalGraph()
-        self.constrained = constrained  # Whether to apply cluster bounds
 
         self.next_entity_number = 1
         self._memory_modules: Dict[str, Dict[str, Any]] = {}
@@ -62,11 +58,6 @@ class EntityPlacer:
             str, str
         ] = {}  # Track which memory each read came from
         self._ir_nodes: Dict[str, IRNode] = {}  # Track all IR nodes by ID for lookups
-
-        # Cluster support
-        self.clusters = clusters or []
-        self.entity_to_cluster = entity_to_cluster or {}
-        self._current_cluster_idx: Optional[int] = None
 
     def _build_debug_info(
         self, op: IRNode, role_override: Optional[str] = None
@@ -135,68 +126,10 @@ class EntityPlacer:
 
         return debug_info
 
-    def setup_cluster_bounds(self) -> None:
-        """Compute and assign bounds for each cluster.
-
-        NOTE: Power poles are now placed OUTSIDE clusters by PowerPlanner,
-        so we don't need to reserve space inside clusters for poles anymore.
-        We only reserve corridors between clusters for relay wires.
-        """
-
-        if not self.clusters:
-            return
-
-        # Clusters already have bounds set by ClusterPacker
-        # Just need to reserve relay corridors
-
-        from .cluster_packer import ClusterPacker
-
-        for idx, cluster in enumerate(self.clusters):
-            if not hasattr(cluster, "bounds") or cluster.bounds is None:
-                continue
-
-            x1, y1, x2, y2 = cluster.bounds
-
-            # Reserve vertical corridor to the right (for relays between clusters)
-            if (idx + 1) % ClusterPacker.CLUSTERS_PER_ROW != 0:  # Not rightmost column
-                x_corridor = x2  # Right edge of cluster
-                for y in range(y1, y2 + 1):
-                    self.layout._reserved_corridors.add((x_corridor, y))
-                    self.layout._reserved_corridors.add((x_corridor + 1, y))
-
-            # Reserve horizontal corridor below (for relays between clusters)
-            if idx + ClusterPacker.CLUSTERS_PER_ROW < len(
-                self.clusters
-            ):  # Not bottom row
-                y_corridor = y2  # Bottom edge of cluster
-                for x in range(x1, x2 + 1):
-                    self.layout._reserved_corridors.add((x, y_corridor))
-                    self.layout._reserved_corridors.add((x, y_corridor + 1))
-
-        self.diagnostics.info(
-            f"Reserved relay corridors for {len(self.clusters)} clusters"
-        )
-
     def place_ir_operation(self, op: IRNode) -> None:
         """Place a single IR operation."""
         # Track this IR node for later lookups
         self._ir_nodes[op.node_id] = op
-
-        # Find cluster for this operation and set bounds if switching to a new cluster
-        # Only apply bounds if constrained mode is enabled
-        if self.constrained:
-            cluster_idx = self.entity_to_cluster.get(op.node_id, -1)
-            if cluster_idx >= 0 and cluster_idx < len(self.clusters):
-                # Only reset bounds if we're switching to a different cluster
-                if cluster_idx != self._current_cluster_idx:
-                    cluster = self.clusters[cluster_idx]
-                    if hasattr(cluster, "bounds") and cluster.bounds is not None:
-                        self.layout.set_cluster_bounds(cluster.bounds)
-                        self._current_cluster_idx = cluster_idx
-            elif cluster_idx == -1 and self._current_cluster_idx is not None:
-                # Entity not in any cluster - clear cluster bounds
-                self.layout.set_cluster_bounds(None)
-                self._current_cluster_idx = None
 
         if isinstance(op, IR_Const):
             self._place_constant(op)
@@ -893,8 +826,11 @@ class EntityPlacer:
         # Determine alignment requirement dynamically
         alignment = get_entity_alignment(prototype)
 
+        # Check if coordinates are constants (user-specified position)
+        user_specified = isinstance(op.x, int) and isinstance(op.y, int)
+
         # Determine position
-        if isinstance(op.x, int) and isinstance(op.y, int):
+        if user_specified:
             # Explicit position provided
             desired = (int(op.x), int(op.y))
             pos = self.layout.reserve_near(
@@ -922,6 +858,10 @@ class EntityPlacer:
             alignment=alignment,
         )
         placement.properties["footprint"] = footprint
+
+        # Mark user-specified positions
+        if user_specified:
+            placement.properties["user_specified_position"] = True
 
         # Add debug info for user-placed entities
         entity_debug = {

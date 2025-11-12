@@ -4,7 +4,8 @@ Tests for semantic.py - Semantic analysis functionality.
 
 import pytest
 from dsl_compiler.src.parsing.parser import DSLParser
-from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer, analyze_program
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 
 class TestSemanticAnalyzer:
@@ -15,23 +16,25 @@ class TestSemanticAnalyzer:
         return DSLParser()
 
     @pytest.fixture
-    def analyzer(self):
-        return SemanticAnalyzer()
+    def diagnostics(self):
+        return ProgramDiagnostics()
+
+    @pytest.fixture
+    def analyzer(self, diagnostics):
+        return SemanticAnalyzer(diagnostics, strict_types=False)
 
     def test_analyzer_initialization(self, analyzer):
         """Test analyzer can be initialized."""
         assert analyzer is not None
 
-    def test_basic_semantic_analysis(self, parser, analyzer):
+    def test_basic_semantic_analysis(self, parser, analyzer, diagnostics):
         """Test basic semantic analysis."""
         program = parser.parse("Signal x = 42;")
-        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
-        # analyze_program returns ProgramDiagnostics
-        from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
-
+        analyzer.visit(program)
+        # Check diagnostics
         assert isinstance(diagnostics, ProgramDiagnostics)
 
-    def test_semantic_analysis_sample_files(self, parser, analyzer):
+    def test_semantic_analysis_sample_files(self, parser):
         """Test semantic analysis on sample files."""
         import os
 
@@ -45,15 +48,12 @@ class TestSemanticAnalyzer:
                 with open(file_path, "r") as f:
                     code = f.read()
                 program = parser.parse(code)
-                diagnostics = analyze_program(
-                    program, strict_types=False, analyzer=analyzer
-                )
-                # analyze_program returns ProgramDiagnostics
-                from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+                diagnostics = ProgramDiagnostics()
+                analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+                analyzer.visit(program)
+                assert not diagnostics.has_errors()
 
-                assert isinstance(diagnostics, ProgramDiagnostics)
-
-    def test_write_legacy_syntax_rejected(self, parser, analyzer):
+    def test_write_legacy_syntax_rejected(self, parser):
         """Ensure legacy write(memory, value) form produces a migration error."""
 
         code = """
@@ -64,7 +64,9 @@ class TestSemanticAnalyzer:
         """
 
         program = parser.parse(code)
-        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer.visit(program)
 
         assert diagnostics.has_errors(), "Legacy write syntax should raise an error"
         messages = diagnostics.get_messages()
@@ -72,7 +74,7 @@ class TestSemanticAnalyzer:
             "Expected a diagnostic explaining that the target must be a memory"
         )
 
-    def test_write_with_enable_signal_passes(self, parser, analyzer):
+    def test_write_with_enable_signal_passes(self, parser):
         """Verify semantic analysis accepts write(value, memory, when=signal)."""
 
         code = """
@@ -83,19 +85,23 @@ class TestSemanticAnalyzer:
         """
 
         program = parser.parse(code)
-        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer.visit(program)
 
         assert not diagnostics.has_errors(), (
             diagnostics.get_messages() if diagnostics.has_errors() else ""
         )
 
-    def test_signal_w_literal_is_rejected(self, parser, analyzer):
+    def test_signal_w_literal_is_rejected(self, parser):
         """User-declared signal literals must not target the reserved signal-W channel."""
 
         code = 'Signal bad = ("signal-W", 10);'
 
         program = parser.parse(code)
-        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer.visit(program)
 
         assert diagnostics.has_errors(), (
             "Expected an error when using reserved signal-W"
@@ -105,13 +111,15 @@ class TestSemanticAnalyzer:
             "signal-W" in message and "reserved" in message for message in messages
         ), "Diagnostic should explain that signal-W is reserved"
 
-    def test_signal_w_projection_is_rejected(self, parser, analyzer):
+    def test_signal_w_projection_is_rejected(self, parser):
         """Projecting onto signal-W must surface a reservation error."""
 
         code = 'Signal x = 10 | "signal-W";'
 
         program = parser.parse(code)
-        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer.visit(program)
 
         assert diagnostics.has_errors(), (
             "Expected an error when projecting onto reserved signal-W"
@@ -121,13 +129,15 @@ class TestSemanticAnalyzer:
             "signal-W" in message and "reserved" in message for message in messages
         ), "Diagnostic should explain that signal-W is reserved"
 
-    def test_signal_w_memory_declaration_is_rejected(self, parser, analyzer):
+    def test_signal_w_memory_declaration_is_rejected(self, parser):
         """Memory declarations must not claim the reserved signal-W channel."""
 
         code = 'Memory w: "signal-W";'
 
         program = parser.parse(code)
-        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer.visit(program)
 
         assert diagnostics.has_errors(), (
             "Expected an error when reserving signal-W for memory storage"
@@ -137,8 +147,11 @@ class TestSemanticAnalyzer:
             "signal-W" in message and "reserved" in message for message in messages
         ), "Diagnostic should explain that signal-W is reserved"
 
-    def test_virtual_signal_allocation_unbounded(self, analyzer):
+    def test_virtual_signal_allocation_unbounded(self):
         """Allocator must keep producing unique implicit virtual signals."""
+
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
 
         allocations = [analyzer.allocate_implicit_type() for _ in range(60)]
         names = [info.name for info in allocations]
@@ -146,5 +159,6 @@ class TestSemanticAnalyzer:
         assert len(names) == len(set(names))
         # Access signal names through the registry
         assert analyzer.signal_registry.resolve_name(names[0]) == "signal-A"
+
         assert analyzer.signal_registry.resolve_name(names[25]) == "signal-Z"
         assert analyzer.signal_registry.resolve_name(names[26]) == "signal-AA"

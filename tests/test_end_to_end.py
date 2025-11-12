@@ -12,9 +12,10 @@ import pytest
 from draftsman.blueprintable import Blueprint
 
 from dsl_compiler.src.parsing.parser import DSLParser
-from dsl_compiler.src.semantic.analyzer import analyze_program, SemanticAnalyzer
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 from dsl_compiler.src.lowering.lowerer import lower_program
 from dsl_compiler.src.emission.emitter import emit_blueprint_string
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 sample_files = glob.glob("tests/sample_programs/*.fcdsl")
 
@@ -33,10 +34,9 @@ class TestEndToEndCompilation:
         program = self.parser.parse(dsl_code.strip())
 
         # Semantic analysis
-        analyzer = SemanticAnalyzer()
-        semantic_diagnostics = analyze_program(
-            program, strict_types=False, analyzer=analyzer
-        )
+        semantic_diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(semantic_diagnostics, strict_types=False)
+        analyzer.visit(program)
 
         if semantic_diagnostics.has_errors():
             return False, f"Semantic errors: {semantic_diagnostics.get_messages()}"
@@ -269,10 +269,9 @@ class TestCompilerPipeline:
                 dsl_code = f.read()
 
             program = self.parser.parse(dsl_code)
-            analyzer = SemanticAnalyzer()
-            diagnostics = analyze_program(
-                program, strict_types=False, analyzer=analyzer
-            )
+            diagnostics = ProgramDiagnostics()
+            analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+            analyzer.visit(program)
 
             assert not diagnostics.has_errors(), (
                 f"Semantic analysis failed on {sample_path.name}: {diagnostics.get_messages()}"
@@ -287,10 +286,11 @@ class TestCompilerPipeline:
                 dsl_code = f.read()
 
             program = self.parser.parse(dsl_code)
-            analyzer = SemanticAnalyzer()
-            analyze_program(program, strict_types=False, analyzer=analyzer)
+            diagnostics = ProgramDiagnostics()
+            analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+            analyzer.visit(program)
 
-            ir_operations, diagnostics, signal_type_map = lower_program(
+            ir_operations, lowering_diags, signal_type_map = lower_program(
                 program, analyzer
             )
 

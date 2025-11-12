@@ -52,13 +52,11 @@ class PowerPlanner:
         layout: LayoutEngine,
         layout_plan: LayoutPlan,
         diagnostics: ProgramDiagnostics,
-        clusters: Optional[List[Any]] = None,
         connection_planner: Optional[Any] = None,
     ) -> None:
         self.layout = layout
         self.layout_plan = layout_plan
         self.diagnostics = diagnostics
-        self.clusters = clusters or []
         self.connection_planner = connection_planner
         self._planned: List[PlannedPowerPole] = []
 
@@ -67,19 +65,13 @@ class PowerPlanner:
     # -------------------------------------------------------------------------
 
     def plan_power_grid(self, pole_type: str) -> List[PlannedPowerPole]:
-        """Compute power pole placements using geometric corner/perimeter placement.
+        """
+        Compute power pole placements based on entity positions.
 
-        This is a vastly simplified algorithm compared to the old coverage-based approach:
-        1. Get pole config (footprint, prototype name)
-        2. For each cluster, calculate corner/perimeter positions based on pole type
-        3. Place poles at those positions (outside cluster bounds)
-        4. Done! No coverage checks, no connectivity checks needed.
-
-        Args:
-            pole_type: One of "small", "medium", "big", "substation"
-
-        Returns:
-            List of PlannedPowerPole objects
+        Uses adaptive placement:
+        1. Estimate bounding box from entity positions
+        2. Place poles in a grid covering the area
+        3. Ensure all entities are within supply radius
         """
         if not pole_type:
             return []
@@ -87,131 +79,67 @@ class PowerPlanner:
         config = POWER_POLE_CONFIG.get(pole_type.lower())
         if config is None:
             self.diagnostics.warning(
-                f"Unknown power pole type '{pole_type}'; skipping power grid deployment"
+                f"Unknown power pole type '{pole_type}'; skipping power grid"
             )
             return []
 
-        if not self.clusters:
-            self.diagnostics.warning("No clusters available for power pole placement")
+        # Get bounding box of all entities
+        bounds = self._compute_entity_bounds()
+        if bounds is None:
+            self.diagnostics.warning("No entities to place power poles for")
             return []
 
-        self._planned = []
-        self.layout_plan.power_poles.clear()
+        x_min, y_min, x_max, y_max = bounds
+
+        # Add margin
+        margin = config["supply_radius"]
+        x_min -= margin
+        y_min -= margin
+        x_max += margin
+        y_max += margin
+
+        # Place poles in grid
+        supply_radius = config["supply_radius"]
+        spacing = supply_radius * 1.5  # Overlap for reliability
 
         prototype = config["prototype"]
         footprint = tuple(int(v) for v in config.get("footprint", (1, 1)))
 
-        # Place poles for each cluster based on type
-        pole_type_lower = pole_type.lower()
+        self._planned = []
+        self.layout_plan.power_poles.clear()
 
-        for cluster in self.clusters:
-            if not hasattr(cluster, "bounds") or cluster.bounds is None:
-                continue
-
-            x1, y1, x2, y2 = cluster.bounds
-
-            if pole_type_lower == "small":
-                positions = self._get_small_pole_positions(x1, y1, x2, y2)
-            elif pole_type_lower == "medium":
-                positions = self._get_medium_pole_positions(x1, y1, x2, y2)
-            elif pole_type_lower == "big":
-                positions = self._get_big_pole_positions(x1, y1, x2, y2)
-            elif pole_type_lower == "substation":
-                positions = self._get_substation_positions(x1, y1, x2, y2)
-            else:
-                # Fallback to corner placement
-                positions = self._get_medium_pole_positions(x1, y1, x2, y2)
-
-            # Place all poles for this cluster
-            for pos in positions:
-                self._place_pole(pos, prototype, footprint)
+        x = x_min
+        while x <= x_max:
+            y = y_min
+            while y <= y_max:
+                self._place_pole((int(x), int(y)), prototype, footprint)
+                y += spacing
+            x += spacing
 
         self.diagnostics.info(
-            f"Placed {len(self._planned)} {pole_type} power poles "
-            f"for {len(self.clusters)} clusters"
+            f"Placed {len(self._planned)} {pole_type} power poles in adaptive grid"
         )
 
         return list(self._planned)
 
-    # -------------------------------------------------------------------------
-    # Position calculation methods (geometric formulas)
-    # -------------------------------------------------------------------------
+    def _compute_entity_bounds(self) -> Optional[Tuple[float, float, float, float]]:
+        """Compute bounding box of all positioned entities."""
+        if not self.layout_plan.entity_placements:
+            return None
 
-    def _get_small_pole_positions(
-        self, x1: int, y1: int, x2: int, y2: int
-    ) -> List[Tuple[int, int]]:
-        """Get positions for small poles (1x1 footprint, 8 poles per cluster).
-
-        Places poles at 4 corners + 4 midpoints, all outside cluster bounds.
-        """
-        mid_x = (x1 + x2) // 2
-        mid_y = (y1 + y2) // 2
-
-        return [
-            # Corners (outside cluster by 1 tile)
-            (x1 - 1, y1 - 1),  # Top-left
-            (x2, y1 - 1),  # Top-right
-            (x1 - 1, y2),  # Bottom-left
-            (x2, y2),  # Bottom-right
-            # Midpoints (outside cluster by 1 tile)
-            (x1 - 1, mid_y),  # Mid-left
-            (x2, mid_y),  # Mid-right
-            (mid_x, y1 - 1),  # Mid-top
-            (mid_x, y2),  # Mid-bottom
+        positions = [
+            p.position
+            for p in self.layout_plan.entity_placements.values()
+            if p.position is not None
         ]
 
-    def _get_medium_pole_positions(
-        self, x1: int, y1: int, x2: int, y2: int
-    ) -> List[Tuple[int, int]]:
-        """Get positions for medium poles (1x1 footprint, 4 poles per cluster).
+        if not positions:
+            return None
 
-        Places poles at 4 corners only, outside cluster bounds.
-        """
-        return [
-            (x1 - 1, y1 - 1),  # Top-left
-            (x2, y1 - 1),  # Top-right
-            (x1 - 1, y2),  # Bottom-left
-            (x2, y2),  # Bottom-right
-        ]
+        xs = [p[0] for p in positions]
+        ys = [p[1] for p in positions]
 
-    def _get_big_pole_positions(
-        self, x1: int, y1: int, x2: int, y2: int
-    ) -> List[Tuple[int, int]]:
-        """Get positions for big poles (2x2 footprint, 8 poles per cluster).
-
-        Places poles at 4 corners + 4 midpoints, with extra space for 2x2 footprint.
-        Positions are for top-left corner of the 2x2 footprint.
-        """
-        mid_x = (x1 + x2) // 2
-        mid_y = (y1 + y2) // 2
-
-        return [
-            # Corners (outside cluster by 2 tiles for 2x2 footprint)
-            (x1 - 2, y1 - 2),  # Top-left
-            (x2, y1 - 2),  # Top-right
-            (x1 - 2, y2),  # Bottom-left
-            (x2, y2),  # Bottom-right
-            # Midpoints (outside cluster by 2 tiles)
-            (x1 - 2, mid_y),  # Mid-left
-            (x2, mid_y),  # Mid-right
-            (mid_x, y1 - 2),  # Mid-top
-            (mid_x, y2),  # Mid-bottom
-        ]
-
-    def _get_substation_positions(
-        self, x1: int, y1: int, x2: int, y2: int
-    ) -> List[Tuple[int, int]]:
-        """Get positions for substations (2x2 footprint, 1 pole per cluster).
-
-        Places single pole at top-center, above cluster bounds.
-        Position is for top-left corner of the 2x2 footprint.
-        """
-        mid_x = (x1 + x2) // 2
-
-        return [
-            # Top-center (-1 to center the 2x2 footprint, -2 to be outside cluster)
-            (mid_x - 1, y1 - 2),
-        ]
+        return (min(xs), min(ys), max(xs), max(ys))
 
     # -------------------------------------------------------------------------
     # Pole placement helper

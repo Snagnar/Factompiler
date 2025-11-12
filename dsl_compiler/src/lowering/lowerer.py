@@ -302,6 +302,7 @@ def lower_program(
     Returns:
         Tuple of (IR operations list, diagnostics, signal type map)
     """
-    lowerer = ASTLowerer(semantic_analyzer)
+    diagnostics = ProgramDiagnostics()
+    lowerer = ASTLowerer(semantic_analyzer, diagnostics)
     ir_operations = lowerer.lower_program(program)
     return ir_operations, lowerer.diagnostics, lowerer.ir_builder.signal_type_map

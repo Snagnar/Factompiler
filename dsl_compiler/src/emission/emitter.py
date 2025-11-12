@@ -275,7 +275,8 @@ def emit_blueprint(
     """Convert IR operations to Factorio blueprint."""
     signal_type_map = signal_type_map or {}
 
-    emitter = BlueprintEmitter(signal_type_map)
+    emitter_diagnostics = ProgramDiagnostics()
+    emitter = BlueprintEmitter(emitter_diagnostics, signal_type_map)
 
     planner_diagnostics = ProgramDiagnostics()
     from dsl_compiler.src.layout.planner import LayoutPlanner

@@ -5,7 +5,8 @@ Tests for parser.py - Core parsing functionality.
 import pytest
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.ast.statements import Program
-from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer, analyze_program
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 
 class TestParser:
@@ -57,7 +58,8 @@ class TestParser:
 
         parser = DSLParser()
         program = parser.parse_file(main_path)
-        analyzer = SemanticAnalyzer()
-        diagnostics = analyze_program(program, analyzer=analyzer)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer.visit(program)
 
         assert not diagnostics.has_errors(), diagnostics.get_messages()

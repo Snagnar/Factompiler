@@ -295,8 +295,6 @@ class ConnectionPlanner:
         diagnostics: ProgramDiagnostics,
         layout_engine: LayoutEngine,
         max_wire_span: float = 9.0,
-        clusters: Optional[List[Any]] = None,
-        entity_to_cluster: Optional[Dict[str, int]] = None,
         power_pole_type: Optional[str] = None,
     ) -> None:
         self.layout_plan = layout_plan
@@ -313,15 +311,11 @@ class ConnectionPlanner:
         self._coloring_success = True
         self._relay_counter = 0
 
-        # Cluster support
-        self.clusters = clusters or []
-        self.entity_to_cluster = entity_to_cluster or {}
-
         # Create relay network for shared infrastructure
         self.relay_network = RelayNetwork(
             self.layout_engine,
-            self.clusters,
-            self.entity_to_cluster,
+            None,  # No clusters
+            {},  # No entity_to_cluster mapping
             self.max_wire_span,
             self.layout_plan,
             self.diagnostics,

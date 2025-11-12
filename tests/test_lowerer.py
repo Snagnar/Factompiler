@@ -12,7 +12,8 @@ from dsl_compiler.src.ir.nodes import (
 )
 from dsl_compiler.src.lowering.lowerer import lower_program
 from dsl_compiler.src.parsing.parser import DSLParser
-from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer, analyze_program
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 
 class TestLowerer:
@@ -23,23 +24,24 @@ class TestLowerer:
         return DSLParser()
 
     @pytest.fixture
-    def analyzer(self):
-        return SemanticAnalyzer()
+    def diagnostics(self):
+        return ProgramDiagnostics()
 
-    def test_basic_lowering(self, parser, analyzer):
+    @pytest.fixture
+    def analyzer(self, diagnostics):
+        return SemanticAnalyzer(diagnostics, strict_types=False)
+
+    def test_basic_lowering(self, parser, analyzer, diagnostics):
         """Test basic lowering to IR."""
         program = parser.parse("Signal x = 42;")
-        analyze_program(program, strict_types=False, analyzer=analyzer)
-        ir_operations, diagnostics, signal_map = lower_program(program, analyzer)
+        analyzer.visit(program)
+        ir_operations, lower_diags, signal_map = lower_program(program, analyzer)
 
         assert isinstance(ir_operations, list)
-        # lower_program returns ProgramDiagnostics, not list
-        from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
-
-        assert isinstance(diagnostics, ProgramDiagnostics)
+        assert isinstance(lower_diags, ProgramDiagnostics)
         assert isinstance(signal_map, dict)
 
-    def test_lowering_sample_files(self, parser, analyzer):
+    def test_lowering_sample_files(self, parser):
         """Test lowering on sample files."""
         import os
 
@@ -53,15 +55,19 @@ class TestLowerer:
                 with open(file_path, "r") as f:
                     code = f.read()
                 program = parser.parse(code)
-                analyze_program(program, strict_types=False, analyzer=analyzer)
-                ir_operations, diagnostics, signal_map = lower_program(
+                diagnostics = ProgramDiagnostics()
+                analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+                analyzer.visit(program)
+                ir_operations, lower_diags, signal_map = lower_program(
                     program, analyzer
                 )
 
                 assert isinstance(ir_operations, list)
                 assert len(ir_operations) > 0
 
-    def test_write_without_when_uses_signal_w_enable(self, parser, analyzer):
+    def test_write_without_when_uses_signal_w_enable(
+        self, parser, analyzer, diagnostics
+    ):
         """Ensure lowering injects a signal-W enable when none is provided."""
 
         code = """
@@ -70,10 +76,10 @@ class TestLowerer:
         """
 
         program = parser.parse(code)
-        analyze_program(program, strict_types=False, analyzer=analyzer)
-        ir_operations, diagnostics, _ = lower_program(program, analyzer)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
 
-        assert not diagnostics.has_errors(), diagnostics.get_messages()
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
 
         mem_writes = [op for op in ir_operations if isinstance(op, IR_MemWrite)]
         assert mem_writes, "Expected at least one memory write operation"
@@ -86,7 +92,7 @@ class TestLowerer:
             "Write enable should default to signal-W"
         )
 
-    def test_constant_folding_eliminates_arith(self, parser, analyzer):
+    def test_constant_folding_eliminates_arith(self, parser, analyzer, diagnostics):
         """Constant arithmetic should fold to IR constants with no combinators."""
 
         code = """
@@ -96,10 +102,10 @@ class TestLowerer:
         """
 
         program = parser.parse(code)
-        analyze_program(program, strict_types=False, analyzer=analyzer)
-        ir_operations, diagnostics, _ = lower_program(program, analyzer)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
 
-        assert not diagnostics.has_errors(), diagnostics.get_messages()
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
 
         consts = [op for op in ir_operations if isinstance(op, IR_Const)]
         ariths = [op for op in ir_operations if isinstance(op, IR_Arith)]
@@ -107,7 +113,7 @@ class TestLowerer:
         assert len(consts) >= 3
         assert len(ariths) == 0
 
-    def test_redundant_projection_eliminated(self, parser, analyzer):
+    def test_redundant_projection_eliminated(self, parser, analyzer, diagnostics):
         """Projecting to the same signal should not create arithmetic nodes."""
 
         code = """
@@ -116,21 +122,23 @@ class TestLowerer:
         """
 
         program = parser.parse(code)
-        analyze_program(program, strict_types=False, analyzer=analyzer)
-        ir_operations, diagnostics, _ = lower_program(program, analyzer)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
 
-        assert not diagnostics.has_errors(), diagnostics.get_messages()
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
 
         ariths = [op for op in ir_operations if isinstance(op, IR_Arith)]
         assert len(ariths) == 0
 
-    def test_memory_initialization_sugar(self, parser, analyzer):
+    def test_memory_initialization_sugar(self, parser):
         """Memory declarations with initializers should emit one-shot writes."""
 
         code = 'Memory counter: "signal-A" = ("signal-A", 5);'
 
         program = parser.parse(code)
-        diagnostics = analyze_program(program, strict_types=False, analyzer=analyzer)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer.visit(program)
         assert not diagnostics.has_errors(), diagnostics.get_messages()
 
         ir_operations, lower_diag, _ = lower_program(program, analyzer)
