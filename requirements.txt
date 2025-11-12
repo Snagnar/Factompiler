@@ -31,3 +31,5 @@ scipy
 scikit-learn
 ortools
 networkx
+numba
+tqdm
