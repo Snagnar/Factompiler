@@ -1,10 +1,11 @@
 from __future__ import annotations
 import math
+from dataclasses import dataclass
 from collections import Counter
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from dsl_compiler.src.ir.builder import SignalRef
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
-from .layout_engine import LayoutEngine
+from .tile_grid import TileGrid
 from .layout_plan import LayoutPlan, WireConnection, EntityPlacement
 from .signal_analyzer import SignalUsageEntry
 
@@ -14,54 +15,18 @@ from .wire_router import (
     collect_circuit_edges,
     plan_wire_colors,
 )
-from collections import defaultdict
 
 
 """Connection planning for wire routing."""
 
 
+@dataclass
 class RelayNode:
-    """Represents a pole that can relay circuit signals."""
+    """A relay pole for routing circuit signals."""
 
-    def __init__(self, position: Tuple[float, float], entity_id: str, pole_type: str):
-        self.position = position
-        self.entity_id = entity_id
-        self.pole_type = pole_type
-        # Track which wire colors are in use on this pole
-        # Key: signal_name, Value: wire_color
-        self.signal_assignments: Dict[str, str] = {}
-
-    def can_carry_signal(self, signal_name: str, preferred_color: str) -> Optional[str]:
-        """
-        Check if this pole can carry a signal.
-        Returns wire color to use, or None if pole is full.
-        """
-        if signal_name in self.signal_assignments:
-            return self.signal_assignments[signal_name]
-
-        # Check if preferred color available
-        signals_on_red = [s for s, c in self.signal_assignments.items() if c == "red"]
-        signals_on_green = [
-            s for s, c in self.signal_assignments.items() if c == "green"
-        ]
-
-        if preferred_color == "red" and len(signals_on_red) == 0:
-            return "red"
-        elif preferred_color == "green" and len(signals_on_green) == 0:
-            return "green"
-
-        # Try opposite color
-        other_color = "green" if preferred_color == "red" else "red"
-        if other_color == "red" and len(signals_on_red) == 0:
-            return "red"
-        elif other_color == "green" and len(signals_on_green) == 0:
-            return "green"
-
-        return None  # Pole is full (both colors used)
-
-    def assign_signal(self, signal_name: str, wire_color: str):
-        """Record that this signal uses this wire color on this pole."""
-        self.signal_assignments[signal_name] = wire_color
+    position: Tuple[float, float]
+    entity_id: str
+    pole_type: str
 
 
 class RelayNetwork:
@@ -69,14 +34,14 @@ class RelayNetwork:
 
     def __init__(
         self,
-        layout_engine,
+        tile_grid,
         clusters,
         entity_to_cluster,
         max_span: float,
         layout_plan,
         diagnostics,
     ):
-        self.layout_engine = layout_engine
+        self.tile_grid = tile_grid
         self.clusters = clusters
         self.entity_to_cluster = entity_to_cluster
         self.max_span = max_span
@@ -84,8 +49,6 @@ class RelayNetwork:
         self.diagnostics = diagnostics
         # Map: pole_position → RelayNode
         self.relay_nodes: Dict[Tuple[int, int], RelayNode] = {}
-        # Spatial index for finding nearby poles
-        self.pole_grid: Dict[Tuple[int, int], List[RelayNode]] = defaultdict(list)
         self._relay_counter = 0
 
     def add_relay_node(
@@ -100,27 +63,17 @@ class RelayNetwork:
         node = RelayNode(position, entity_id, pole_type)
         self.relay_nodes[tile_pos] = node
 
-        # Add to spatial grid
-        grid_x = tile_pos[0] // 10
-        grid_y = tile_pos[1] // 10
-        self.pole_grid[(grid_x, grid_y)].append(node)
-
         return node
 
     def find_relay_near(
         self, position: Tuple[float, float], max_distance: float
     ) -> Optional[RelayNode]:
         """Find existing relay pole near position, or None."""
-        grid_x = int(position[0]) // 10
-        grid_y = int(position[1]) // 10
-
-        # Check nearby grid cells
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                for node in self.pole_grid.get((grid_x + dx, grid_y + dy), []):
-                    dist = math.dist(position, node.position)
-                    if dist <= max_distance:
-                        return node
+        # Simple linear search - for typical layouts this is fast enough
+        for node in self.relay_nodes.values():
+            dist = math.dist(position, node.position)
+            if dist <= max_distance:
+                return node
         return None
 
     def route_signal(
@@ -170,14 +123,25 @@ class RelayNetwork:
                 # Create new relay
                 tile_pos = (int(round(relay_x)), int(round(relay_y)))
                 # Try exact position first
-                reserved_pos = self.layout_engine.reserve_exact(
-                    tile_pos, footprint=(1, 1), for_infrastructure=True
-                )
-                if reserved_pos is None:
-                    # Fall back to finding nearby position (without for_infrastructure parameter)
-                    reserved_pos = self.layout_engine.reserve_near(
-                        tile_pos, max_radius=3, footprint=(1, 1)
-                    )
+                if self.tile_grid.reserve_exact(tile_pos, footprint=(1, 1)):
+                    reserved_pos = tile_pos
+                else:
+                    # Fall back to finding nearby positions
+                    reserved_pos = None
+                    for offset in [
+                        (0, 1),
+                        (1, 0),
+                        (0, -1),
+                        (-1, 0),
+                        (1, 1),
+                        (-1, 1),
+                        (1, -1),
+                        (-1, -1),
+                    ]:
+                        nearby_pos = (tile_pos[0] + offset[0], tile_pos[1] + offset[1])
+                        if self.tile_grid.reserve_exact(nearby_pos, footprint=(1, 1)):
+                            reserved_pos = nearby_pos
+                            break
 
                 if reserved_pos:
                     self._relay_counter += 1
@@ -210,68 +174,8 @@ class RelayNetwork:
                     self.layout_plan.add_placement(relay_placement)
 
             if relay_node:
-                # Try to assign signal to this relay
-                assigned_color = relay_node.can_carry_signal(signal_name, wire_color)
-                if assigned_color:
-                    relay_node.assign_signal(signal_name, assigned_color)
-                    path.append((relay_node.entity_id, assigned_color))
-                else:
-                    # Pole is full, need to create new one nearby
-                    placed_fallback = False
-                    # Try offset positions
-                    for offset_dx in [-1, 1, 0]:
-                        for offset_dy in [-1, 1, 0]:
-                            if offset_dx == 0 and offset_dy == 0:
-                                continue
-                            offset_pos = (relay_x + offset_dx, relay_y + offset_dy)
-                            tile_offset = (
-                                int(round(offset_pos[0])),
-                                int(round(offset_pos[1])),
-                            )
-                            reserved_pos = self.layout_engine.reserve_exact(
-                                tile_offset, footprint=(1, 1), for_infrastructure=True
-                            )
-                            if reserved_pos:
-                                self._relay_counter += 1
-                                new_relay_id = f"__relay_{self._relay_counter}"
-                                # ✅ FIX: Ensure reserved_pos is integer tile position
-                                tile_x = int(round(reserved_pos[0]))
-                                tile_y = int(round(reserved_pos[1]))
-                                # Convert tile to center position for draftsman
-                                # Power poles are 1x1, so center is at +0.5, +0.5
-                                center_pos = (tile_x + 0.5, tile_y + 0.5)
-                                new_node = self.add_relay_node(
-                                    center_pos, new_relay_id, "medium-electric-pole"
-                                )
-
-                                # Create entity placement
-                                relay_placement = EntityPlacement(
-                                    ir_node_id=new_relay_id,
-                                    entity_type="medium-electric-pole",
-                                    position=center_pos,
-                                    properties={
-                                        "debug_info": {
-                                            "variable": f"relay_{self._relay_counter}",
-                                            "operation": "infrastructure",
-                                            "details": "wire_relay",
-                                            "role": "relay",
-                                        }
-                                    },
-                                    role="wire_relay",
-                                )
-                                self.layout_plan.add_placement(relay_placement)
-
-                                new_node.assign_signal(signal_name, wire_color)
-                                path.append((new_node.entity_id, wire_color))
-                                placed_fallback = True
-                                break
-                        if placed_fallback:
-                            break
-
-                    if not placed_fallback:
-                        self.diagnostics.warning(
-                            f"Failed to place relay for {signal_name} - pole at {ideal_pos} is full and no nearby positions available"
-                        )
+                # Simplified: just use the relay node without tracking signals
+                path.append((relay_node.entity_id, wire_color))
             else:
                 # Relay placement completely failed
                 self.diagnostics.warning(
@@ -299,7 +203,7 @@ class ConnectionPlanner:
         layout_plan: LayoutPlan,
         signal_usage: Dict[str, SignalUsageEntry],
         diagnostics: ProgramDiagnostics,
-        layout_engine: LayoutEngine,
+        tile_grid: TileGrid,
         max_wire_span: float = 9.0,
         power_pole_type: Optional[str] = None,
     ) -> None:
@@ -307,7 +211,7 @@ class ConnectionPlanner:
         self.signal_usage = signal_usage
         self.diagnostics = diagnostics
         self.max_wire_span = max_wire_span
-        self.layout_engine = layout_engine
+        self.tile_grid = tile_grid
         self.power_pole_type = power_pole_type
 
         self._circuit_edges: List[CircuitEdge] = []
@@ -319,7 +223,7 @@ class ConnectionPlanner:
 
         # Create relay network for shared infrastructure
         self.relay_network = RelayNetwork(
-            self.layout_engine,
+            self.tile_grid,
             None,  # No clusters
             {},  # No entity_to_cluster mapping
             self.max_wire_span,

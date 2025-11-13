@@ -4,11 +4,11 @@ from dsl_compiler.src.common.entity_data import (
     get_entity_footprint,
     get_entity_alignment,
 )
-from .layout_engine import LayoutEngine
 from .layout_plan import LayoutPlan, EntityPlacement, WireConnection
-from .signal_analyzer import SignalUsageEntry, SignalMaterializer
-from .signal_resolver import SignalResolver
+from .signal_analyzer import SignalAnalyzer, SignalUsageEntry
 from .signal_graph import SignalGraph
+from .tile_grid import TileGrid
+from .memory_builder import MemoryBuilder
 
 
 from dsl_compiler.src.ir.builder import (
@@ -35,20 +35,22 @@ class EntityPlacer:
 
     def __init__(
         self,
-        layout_engine: LayoutEngine,
+        tile_grid: TileGrid,
         layout_plan: LayoutPlan,
-        signal_usage: Dict[str, SignalUsageEntry],
-        materializer: SignalMaterializer,
-        signal_resolver: SignalResolver,
+        signal_analyzer: SignalAnalyzer,
         diagnostics: ProgramDiagnostics,
     ):
-        self.layout = layout_engine
+        self.tile_grid = tile_grid
         self.plan = layout_plan
-        self.signal_usage = signal_usage
-        self.materializer = materializer
-        self.resolver = signal_resolver
+        self.signal_analyzer = signal_analyzer
+        self.signal_usage = signal_analyzer.signal_usage
         self.diagnostics = diagnostics
         self.signal_graph = SignalGraph()
+
+        # Create memory builder
+        self.memory_builder = MemoryBuilder(
+            tile_grid, layout_plan, signal_analyzer, diagnostics
+        )
 
         self.next_entity_number = 1
         self._memory_modules: Dict[str, Dict[str, Any]] = {}
@@ -128,8 +130,9 @@ class EntityPlacer:
 
     def place_ir_operation(self, op: IRNode) -> None:
         """Place a single IR operation."""
-        # Track this IR node for later lookups
+        # Track this IR node for later lookups and for memory builder
         self._ir_nodes[op.node_id] = op
+        self.memory_builder.register_ir_node(op)
 
         if isinstance(op, IR_Const):
             self._place_constant(op)
@@ -138,11 +141,14 @@ class EntityPlacer:
         elif isinstance(op, IR_Decider):
             self._place_decider(op)
         elif isinstance(op, IR_MemCreate):
-            self._place_memory_create(op)
+            # Delegate to memory builder
+            self.memory_builder.create_memory(op, self.signal_graph)
         elif isinstance(op, IR_MemRead):
-            self._place_memory_read(op)
+            # Delegate to memory builder
+            self.memory_builder.handle_read(op, self.signal_graph)
         elif isinstance(op, IR_MemWrite):
-            self._place_memory_write(op)
+            # Delegate to memory builder
+            self.memory_builder.handle_write(op, self.signal_graph)
         elif isinstance(op, IR_PlaceEntity):
             self._place_user_entity(op)
         elif isinstance(op, IR_EntityPropWrite):
@@ -161,14 +167,11 @@ class EntityPlacer:
             return
 
         # Determine signal name and type
-        signal_name = self.materializer.resolve_signal_name(op.output_type, usage)
-        signal_type = self.materializer.resolve_signal_type(op.output_type, usage)
+        signal_name = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
+        signal_type = self.signal_analyzer.resolve_signal_type(op.output_type, usage)
 
-        # Use cluster-bounded positioning if available, otherwise zone
-        if self.layout._cluster_bounds is not None:
-            pos = self.layout.get_cluster_position(footprint=(1, 2))
-        else:
-            pos = self.layout.reserve_in_zone("north_literals")
+        # Position will be set by force-directed layout
+        pos = None
 
         # Build debug info
         debug_info = self._build_debug_info(op)
@@ -195,7 +198,6 @@ class EntityPlacer:
                 "debug_info": debug_info,
             },
             role="literal",
-            zone="north_literals",
         )
         self.plan.add_placement(placement)
 
@@ -214,21 +216,14 @@ class EntityPlacer:
         if right_pos:
             deps.append(right_pos)
 
-        # Reserve position - cluster-bounded if available
-        if self.layout._cluster_bounds is not None:
-            pos = self.layout.get_cluster_position(footprint=(1, 2))
-        elif deps:
-            avg_x = sum(p[0] for p in deps) / len(deps)
-            avg_y = sum(p[1] for p in deps) / len(deps)
-            pos = self.layout.reserve_near((avg_x, avg_y), footprint=(1, 2))
-        else:
-            pos = self.layout.get_next_position(footprint=(1, 2))
+        # Position will be set by force-directed layout
+        pos = None
 
         # Resolve operands and output
         usage = self.signal_usage.get(op.node_id)
-        left_operand = self.resolver.get_operand_for_combinator(op.left)
-        right_operand = self.resolver.get_operand_for_combinator(op.right)
-        output_signal = self.materializer.resolve_signal_name(op.output_type, usage)
+        left_operand = self.signal_analyzer.get_operand_for_combinator(op.left)
+        right_operand = self.signal_analyzer.get_operand_for_combinator(op.right)
+        output_signal = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
 
         # Store placement
         placement = EntityPlacement(
@@ -264,22 +259,15 @@ class EntityPlacer:
             if p:
                 deps.append(p)
 
-        # Reserve position - cluster-bounded if available
-        if self.layout._cluster_bounds is not None:
-            pos = self.layout.get_cluster_position(footprint=(1, 2))
-        elif deps:
-            avg_x = sum(p[0] for p in deps) / len(deps)
-            avg_y = sum(p[1] for p in deps) / len(deps)
-            pos = self.layout.reserve_near((avg_x, avg_y), footprint=(1, 2))
-        else:
-            pos = self.layout.get_next_position(footprint=(1, 2))
+        # Position will be set by force-directed layout
+        pos = None
 
         # Resolve operands
         usage = self.signal_usage.get(op.node_id)
-        left_operand = self.resolver.get_operand_for_combinator(op.left)
-        right_operand = self.resolver.get_operand_for_combinator(op.right)
-        output_signal = self.materializer.resolve_signal_name(op.output_type, usage)
-        output_value = self.resolver.get_operand_for_combinator(op.output_value)
+        left_operand = self.signal_analyzer.get_operand_for_combinator(op.left)
+        right_operand = self.signal_analyzer.get_operand_for_combinator(op.right)
+        output_signal = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
+        output_value = self.signal_analyzer.get_operand_for_combinator(op.output_value)
 
         # Determine copy_count_from_input flag
         copy_count_from_input = not isinstance(op.output_value, int)
@@ -310,512 +298,6 @@ class EntityPlacer:
         if not isinstance(op.output_value, int):
             self._add_signal_sink(op.output_value, op.node_id)
 
-    def _place_memory_create(self, op: IR_MemCreate) -> None:
-        """Place memory module components."""
-        # Simplified memory placement - create basic SR latch structure
-        # The full memory builder will be refactored later
-        signal_name = self.resolver.get_signal_name(op.signal_type)
-
-        # Create write gate (decider combinator is 1x2 tiles)
-        write_pos = self.layout.get_next_position(footprint=(1, 2))
-        write_id = f"{op.memory_id}_write_gate"
-
-        # Build debug info for memory write gate
-        write_debug = {
-            "variable": f"mem:{op.memory_id}",
-            "operation": "memory",
-            "details": "write_gate",
-            "signal_type": signal_name,
-            "role": "memory_write_gate",
-        }
-        if hasattr(op, "source_ast") and op.source_ast:
-            if hasattr(op.source_ast, "line"):
-                write_debug["line"] = op.source_ast.line
-            if hasattr(op.source_ast, "source_file"):
-                write_debug["source_file"] = op.source_ast.source_file
-
-        write_placement = EntityPlacement(
-            ir_node_id=write_id,
-            entity_type="decider-combinator",
-            position=write_pos,
-            properties={
-                "footprint": (1, 2),
-                "operation": ">",
-                "left_operand": "signal-W",
-                "right_operand": 0,
-                "output_signal": signal_name,
-                "copy_count_from_input": True,
-                "debug_info": write_debug,
-            },
-            role="memory_write_gate",
-            zone="memory",
-        )
-        self.plan.add_placement(write_placement)
-
-        # Create hold gate (decider combinator is 1x2 tiles)
-        hold_pos = self.layout.get_next_position(footprint=(1, 2))
-        hold_id = f"{op.memory_id}_hold_gate"
-
-        # Build debug info for memory hold gate
-        hold_debug = {
-            "variable": f"mem:{op.memory_id}",
-            "operation": "memory",
-            "details": "hold_gate",
-            "signal_type": signal_name,
-            "role": "memory_hold_gate",
-        }
-        if hasattr(op, "source_ast") and op.source_ast:
-            if hasattr(op.source_ast, "line"):
-                hold_debug["line"] = op.source_ast.line
-            if hasattr(op.source_ast, "source_file"):
-                hold_debug["source_file"] = op.source_ast.source_file
-
-        hold_placement = EntityPlacement(
-            ir_node_id=hold_id,
-            entity_type="decider-combinator",
-            position=hold_pos,
-            properties={
-                "footprint": (1, 2),
-                "operation": "=",
-                "left_operand": "signal-W",
-                "right_operand": 0,
-                "output_signal": signal_name,
-                "copy_count_from_input": True,
-                "debug_info": hold_debug,
-            },
-            role="memory_hold_gate",
-            zone="memory",
-        )
-        self.plan.add_placement(hold_placement)
-
-        # Store memory module components
-        self._memory_modules[op.memory_id] = {
-            "write_gate": write_placement,
-            "hold_gate": hold_placement,
-            "signal_type": signal_name,
-            "always_write": False,
-        }
-
-        # Track signal source - memory output comes from hold gate
-        self.signal_graph.set_source(op.memory_id, hold_id)
-
-    def _place_memory_read(self, op: IR_MemRead) -> None:
-        """Memory reads are passive - they just connect to the memory's output."""
-        memory_module = self._memory_modules.get(op.memory_id)
-        if not memory_module:
-            self.diagnostics.warning(
-                f"Memory read from undefined memory: {op.memory_id}"
-            )
-            return
-
-        # Track which memory this read came from
-        self._memory_read_sources[op.node_id] = op.memory_id
-
-        optimization = memory_module.get("optimization")
-
-        # Handle optimized memories
-        if optimization == "arithmetic_feedback":
-            output_node_id = memory_module.get("output_node_id")
-            if output_node_id:
-                self.signal_graph.set_source(op.node_id, output_node_id)
-                return
-
-        if optimization == "single_gate":
-            write_gate = memory_module.get("write_gate")
-            if isinstance(write_gate, EntityPlacement):
-                self.signal_graph.set_source(op.node_id, write_gate.ir_node_id)
-                return
-
-        # Standard SR latch
-        hold_gate = memory_module.get("hold_gate")
-        if not isinstance(hold_gate, EntityPlacement):
-            self.diagnostics.warning(
-                f"Memory module '{op.memory_id}' is missing hold gate placement"
-            )
-            return
-
-        # Ensure reads source the actual hold gate so wiring resolves correctly.
-        self.signal_graph.set_source(op.node_id, hold_gate.ir_node_id)
-
-    def _place_memory_write(self, op: IR_MemWrite) -> None:
-        """Place memory write circuitry and record necessary wiring."""
-
-        memory_module = self._memory_modules.get(op.memory_id)
-        if not memory_module:
-            self.diagnostics.warning(
-                f"Memory write to undefined memory: {op.memory_id}"
-            )
-            return
-
-        # ✅ NEW: Detect multiple writes to same memory
-        if memory_module.get("_has_write"):
-            self.diagnostics.warning(
-                f"Multiple writes to memory '{op.memory_id}' detected. "
-                f"Only the last write will be optimized. "
-                f"Consider using a single write with conditional logic instead."
-            )
-        memory_module["_has_write"] = True
-
-        # Check if write_enable is a constant 1
-        is_always_write = False
-        if isinstance(op.write_enable, int) and op.write_enable == 1:
-            is_always_write = True
-        elif isinstance(op.write_enable, SignalRef):
-            # Check if it's a reference to a constant 1 by looking up the IR node
-            const_ir = self._ir_nodes.get(op.write_enable.source_id)
-            if isinstance(const_ir, IR_Const) and const_ir.value == 1:
-                is_always_write = True
-
-        write_gate = memory_module.get("write_gate")
-        hold_gate = memory_module.get("hold_gate")
-
-        if not isinstance(write_gate, EntityPlacement) or not isinstance(
-            hold_gate, EntityPlacement
-        ):
-            self.diagnostics.warning(
-                f"Memory module '{op.memory_id}' is missing gate placements"
-            )
-            return
-
-        if is_always_write:
-            # Check if this can be optimized to arithmetic feedback (Fix 2)
-            if self._can_use_arithmetic_feedback(op, memory_module):
-                self._optimize_to_arithmetic_feedback(op, memory_module)
-                return
-
-            # Otherwise use simplified single-gate memory
-            self._place_single_gate_memory(op, memory_module)
-            return
-
-        # Standard SR latch for conditional writes
-        # ✅ FIX: Only connect data to write gate, NOT to hold gate!
-        self._add_signal_sink(op.data_signal, write_gate.ir_node_id)
-        # REMOVED: self._add_signal_sink(op.data_signal, hold_gate.ir_node_id)
-
-        enable_source = self._ensure_constant_write_enable(op)
-        if enable_source:
-            self.signal_graph.add_sink(enable_source, write_gate.ir_node_id)
-            self.signal_graph.add_sink(enable_source, hold_gate.ir_node_id)
-        else:
-            self._add_signal_sink(op.write_enable, write_gate.ir_node_id)
-            self._add_signal_sink(op.write_enable, hold_gate.ir_node_id)
-
-        if not memory_module.get("_feedback_connected"):
-            signal_name = memory_module.get("signal_type")
-            if signal_name:
-                feedback_conn = WireConnection(
-                    source_entity_id=write_gate.ir_node_id,
-                    sink_entity_id=hold_gate.ir_node_id,
-                    signal_name=signal_name,
-                    wire_color="red",
-                    source_side="output",
-                    sink_side="input",
-                )
-                self.plan.add_wire_connection(feedback_conn)
-
-                hold_feedback = WireConnection(
-                    source_entity_id=hold_gate.ir_node_id,
-                    sink_entity_id=hold_gate.ir_node_id,
-                    signal_name=signal_name,
-                    wire_color="red",
-                    source_side="output",
-                    sink_side="input",
-                )
-                self.plan.add_wire_connection(hold_feedback)
-
-                memory_module["_feedback_connected"] = True
-
-    def _can_use_arithmetic_feedback(
-        self, op: IR_MemWrite, memory_module: dict
-    ) -> bool:
-        """Detect if always-write memory can use arithmetic self-feedback optimization.
-
-        Returns True if:
-        - Write is always-on (when=1)
-        - Written value comes from arithmetic operation(s)
-        - At least one operation in the chain reads from this same memory
-        """
-        if not isinstance(op.data_signal, SignalRef):
-            return False
-
-        # Find the operation that produces the data signal
-        final_op_id = op.data_signal.source_id
-        final_placement = self.plan.get_placement(final_op_id)
-
-        if final_placement is None:
-            return False
-
-        # Must be an arithmetic combinator
-        if final_placement.entity_type != "arithmetic-combinator":
-            return False
-
-        # Check if this arithmetic operation (or its inputs) reads from the memory
-        return self._operation_depends_on_memory(final_op_id, op.memory_id)
-
-    def _operation_depends_on_memory(
-        self, op_id: str, memory_id: str, visited: set = None, depth: int = 0
-    ) -> bool:
-        """Check if an operation depends on a memory read (directly or transitively)."""
-        if depth > 10:  # Prevent infinite recursion
-            return False
-
-        if visited is None:
-            visited = set()
-
-        if op_id in visited:
-            return False
-        visited.add(op_id)
-
-        # Check if this operation IS a memory read from our memory
-        source_memory = self._memory_read_sources.get(op_id)
-        if source_memory == memory_id:
-            return True
-
-        # Check if any of the inputs to this operation depend on the memory
-        placement = self.plan.get_placement(op_id)
-        if not placement:
-            return False
-
-        # Check if this is an arithmetic operation - get its inputs from IR node
-        if placement.entity_type == "arithmetic-combinator":
-            # Look up the IR node to get the actual operands
-            ir_node = self._ir_nodes.get(op_id)
-            if not isinstance(ir_node, IR_Arith):
-                return False
-
-            left = ir_node.left
-            right = ir_node.right
-
-            # Check if either operand is a SignalRef that depends on memory
-            if isinstance(left, SignalRef):
-                if self._operation_depends_on_memory(
-                    left.source_id, memory_id, visited, depth + 1
-                ):
-                    return True
-            if isinstance(right, SignalRef):
-                if self._operation_depends_on_memory(
-                    right.source_id, memory_id, visited, depth + 1
-                ):
-                    return True
-
-        return False
-
-    def _find_first_memory_consumer(
-        self, memory_id: str, final_op_id: str
-    ) -> Optional[str]:
-        """Find the first operation in the chain that reads from memory.
-
-        Args:
-            memory_id: Memory being optimized
-            final_op_id: Final operation in the chain
-
-        Returns:
-            Entity ID of first consumer, or None
-        """
-        # Check all memory reads that were registered
-        for read_node_id, source_memory_id in self._memory_read_sources.items():
-            if source_memory_id != memory_id:
-                continue
-
-            # Find operations that consume this read
-            consumers = list(self.signal_graph.iter_sinks(read_node_id))
-            if consumers:
-                # Return the first consumer (start of the chain)
-                return consumers[0]
-
-        return None
-
-    def _optimize_to_arithmetic_feedback(
-        self, op: IR_MemWrite, memory_module: dict
-    ) -> None:
-        """Optimize always-write memory to use arithmetic combinator feedback.
-
-        For single-operation chains: Use self-feedback on one combinator
-        For multi-operation chains: Wire a feedback loop between combinators
-        """
-        final_op_id = op.data_signal.source_id
-        final_placement = self.plan.get_placement(final_op_id)
-
-        if final_placement is None:
-            return
-
-        signal_name = memory_module.get("signal_type")
-
-        # Determine if this is a single-operation or multi-operation chain
-        first_consumer_id = self._find_first_memory_consumer(op.memory_id, final_op_id)
-        is_single_operation = (
-            first_consumer_id == final_op_id or first_consumer_id is None
-        )
-
-        if is_single_operation:
-            # Single operation: mark for self-feedback
-            final_placement.properties["has_self_feedback"] = True
-            final_placement.properties["feedback_signal"] = signal_name
-
-            # Preserve memory information in debug info for optimized combinator
-            if "debug_info" in final_placement.properties:
-                final_placement.properties["debug_info"]["memory_name"] = op.memory_id
-                final_placement.properties["debug_info"]["details"] = (
-                    f"{final_placement.properties['debug_info'].get('details', 'arith')} + memory:{op.memory_id}"
-                )
-
-            self.diagnostics.info(
-                f"Optimized memory '{op.memory_id}' to single-combinator self-feedback"
-            )
-        else:
-            # Multi-operation chain: feedback loop will be wired via signal graph
-            # Do NOT add self-feedback marker
-            self.diagnostics.info(
-                f"Optimized memory '{op.memory_id}' to multi-combinator feedback loop"
-            )
-
-        # Mark memory gates as unused (they'll be removed in cleanup)
-        memory_module["optimization"] = "arithmetic_feedback"
-        memory_module["output_node_id"] = final_op_id
-        memory_module["write_gate_unused"] = True
-        memory_module["hold_gate_unused"] = True
-
-        # CRITICAL FIX: Remove stale signal graph references to unused gates
-        # When gates are marked unused, any existing sinks pointing to them must be removed
-        write_gate = memory_module.get("write_gate")
-        hold_gate = memory_module.get("hold_gate")
-
-        from dsl_compiler.src.layout.layout_plan import EntityPlacement
-
-        if isinstance(write_gate, EntityPlacement):
-            # Remove all edges where write_gate is a sink
-            for signal_id in list(self.signal_graph._sinks.keys()):
-                sinks = self.signal_graph._sinks[signal_id]
-                if write_gate.ir_node_id in sinks:
-                    sinks.remove(write_gate.ir_node_id)
-                    self.diagnostics.info(
-                        f"Removed stale sink reference: {signal_id} -> {write_gate.ir_node_id} (optimized away)"
-                    )
-
-        if isinstance(hold_gate, EntityPlacement):
-            # Remove all edges where hold_gate is a sink
-            for signal_id in list(self.signal_graph._sinks.keys()):
-                sinks = self.signal_graph._sinks[signal_id]
-                if hold_gate.ir_node_id in sinks:
-                    sinks.remove(hold_gate.ir_node_id)
-                    self.diagnostics.info(
-                        f"Removed stale sink reference: {signal_id} -> {hold_gate.ir_node_id} (optimized away)"
-                    )
-
-        # Update signal graph: all memory reads now come from final combinator
-        self.signal_graph.set_source(op.memory_id, final_op_id)
-
-        for read_node_id, source_memory_id in self._memory_read_sources.items():
-            if source_memory_id == op.memory_id:
-                self.signal_graph.set_source(read_node_id, final_op_id)
-
-        # For multi-operation chains: register feedback edge in signal graph
-        if first_consumer_id and first_consumer_id != final_op_id:
-            # Add edge: final_op produces signal that first_consumer needs
-            self.signal_graph.add_sink(final_op_id, first_consumer_id)
-            self.diagnostics.info(
-                f"Registered feedback loop: {final_op_id} -> {first_consumer_id}"
-            )
-
-    def _place_single_gate_memory(self, op: IR_MemWrite, memory_module: dict) -> None:
-        """Fallback: simplified single-gate always-write memory."""
-        write_gate = memory_module.get("write_gate")
-        if not isinstance(write_gate, EntityPlacement):
-            return
-
-        signal_name = memory_module.get("signal_type")
-
-        # Connect data input
-        self._add_signal_sink(op.data_signal, write_gate.ir_node_id)
-
-        # Configure as always-on latch
-        write_gate.properties["operation"] = ">"
-        write_gate.properties["left_operand"] = signal_name
-        write_gate.properties["right_operand"] = -2147483648
-        write_gate.properties["copy_count_from_input"] = True
-
-        # Add self-feedback
-        if not memory_module.get("_feedback_connected"):
-            self_feedback = WireConnection(
-                source_entity_id=write_gate.ir_node_id,
-                sink_entity_id=write_gate.ir_node_id,
-                signal_name=signal_name,
-                wire_color="red",
-                source_side="output",
-                sink_side="input",
-            )
-            self.plan.add_wire_connection(self_feedback)
-            memory_module["_feedback_connected"] = True
-
-        # Mark hold gate as unused
-        memory_module["optimization"] = "single_gate"
-        memory_module["hold_gate_unused"] = True
-
-        self.signal_graph.set_source(op.memory_id, write_gate.ir_node_id)
-
-    def _ensure_constant_write_enable(self, op: IR_MemWrite) -> Optional[str]:
-        """Materialize or reuse a write-enable source."""
-        if isinstance(op.write_enable, int):
-            const_id = f"{op.memory_id}_write_enable_{self.next_entity_number}"
-            self.next_entity_number += 1
-            return self._create_write_enable_constant(const_id, op.write_enable)
-
-        if isinstance(op.write_enable, SignalRef):
-            source_id = op.write_enable.source_id
-            entry = self.signal_usage.get(source_id)
-            placement = self.plan.get_placement(source_id)
-            if placement is not None:
-                if entry and entry.literal_value is not None:
-                    placement.properties["value"] = int(entry.literal_value)
-                placement.properties["signal_name"] = "signal-W"
-                placement.properties["signal_type"] = "virtual"
-                self.signal_graph.set_source(source_id, placement.ir_node_id)
-                if entry:
-                    entry.should_materialize = True
-                    entry.resolved_signal_name = "signal-W"
-                    entry.resolved_signal_type = "virtual"
-                return source_id
-
-            if entry and isinstance(entry.producer, IR_Const):
-                value = entry.literal_value
-                if value is None:
-                    value = getattr(entry.producer, "value", 0)
-                created_id = self._create_write_enable_constant(source_id, int(value))
-                entry.should_materialize = True
-                entry.resolved_signal_name = "signal-W"
-                entry.resolved_signal_type = "virtual"
-                return created_id
-
-            return source_id
-
-        return None
-
-    def _create_write_enable_constant(self, constant_id: str, value: int) -> str:
-        position = self.layout.reserve_in_zone("north_literals")
-        placement = EntityPlacement(
-            ir_node_id=constant_id,
-            entity_type="constant-combinator",
-            position=position,
-            properties={
-                "signal_name": "signal-W",
-                "signal_type": "virtual",
-                "value": value,
-                "footprint": (1, 1),
-                "debug_info": {
-                    "variable": "write_enable",
-                    "operation": "const",
-                    "details": f"value={value}",
-                    "signal_type": "signal-W",
-                    "role": "write_enable_constant",
-                },
-            },
-            role="write_enable_constant",
-            zone="north_literals",
-        )
-        self.plan.add_placement(placement)
-        self.signal_graph.set_source(constant_id, placement.ir_node_id)
-        return constant_id
-
     def _place_user_entity(self, op: IR_PlaceEntity) -> None:
         """Place user-requested entity."""
         prototype = op.prototype
@@ -831,22 +313,13 @@ class EntityPlacer:
 
         # Determine position
         if user_specified:
-            # Explicit position provided
+            # Explicit position provided - use it directly
+            # (force-directed layout will respect user-specified positions)
             desired = (int(op.x), int(op.y))
-            pos = self.layout.reserve_near(
-                desired,
-                max_radius=4,
-                footprint=footprint,
-                alignment=alignment,
-            )
-            if pos != desired:
-                self.diagnostics.warning(
-                    f"Could not place {prototype} at requested position {desired}, using {pos} instead"
-                )
+            pos = desired
         else:
-            pos = self.layout.get_next_position(
-                footprint=footprint, alignment=alignment
-            )
+            # Position will be set by force-directed layout
+            pos = None
 
         # Store placement
         placement = EntityPlacement(
@@ -855,9 +328,11 @@ class EntityPlacer:
             position=pos,
             properties=op.properties or {},
             role="user_entity",
-            alignment=alignment,
         )
         placement.properties["footprint"] = footprint
+        placement.properties["alignment"] = (
+            alignment  # Store alignment in properties if needed
+        )
 
         # Mark user-specified positions
         if user_specified:
@@ -1034,23 +509,11 @@ class EntityPlacer:
 
     def cleanup_unused_entities(self) -> None:
         """Remove entities marked as unused during optimization."""
-        entities_to_remove = []
-
-        # Remove unused memory gates
-        for memory_id, memory_module in self._memory_modules.items():
-            # Remove unused write gates
-            if memory_module.get("write_gate_unused"):
-                write_gate = memory_module.get("write_gate")
-                if isinstance(write_gate, EntityPlacement):
-                    entities_to_remove.append(write_gate.ir_node_id)
-
-            # Remove unused hold gates
-            if memory_module.get("hold_gate_unused"):
-                hold_gate = memory_module.get("hold_gate")
-                if isinstance(hold_gate, EntityPlacement):
-                    entities_to_remove.append(hold_gate.ir_node_id)
+        # Delegate memory cleanup to memory builder
+        self.memory_builder.cleanup_unused_gates(self.plan, self.signal_graph)
 
         # Remove inlined comparisons
+        entities_to_remove = []
         for entity_id, placement in list(self.plan.entity_placements.items()):
             for prop_writes in placement.properties.get("property_writes", {}).values():
                 if prop_writes.get("type") == "inline_comparison":

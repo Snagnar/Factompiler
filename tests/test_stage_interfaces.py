@@ -193,7 +193,8 @@ class TestLayoutPlannerInterface:
 
         ir_ops, diagnostics, signal_map = lower_program(ast, analyzer)
 
-        planner = LayoutPlanner(signal_map)
+        planner_diagnostics = ProgramDiagnostics()
+        planner = LayoutPlanner(signal_map, planner_diagnostics)
         layout_plan = planner.plan_layout(ir_ops)
 
         from dsl_compiler.src.layout.layout_plan import LayoutPlan
@@ -342,7 +343,8 @@ class TestEndToEndPipeline:
         assert len(ir_ops) > 0
 
         # Stage 4: Plan Layout
-        planner = LayoutPlanner(signal_map)
+        planner_diagnostics = ProgramDiagnostics()
+        planner = LayoutPlanner(signal_map, planner_diagnostics)
         layout_plan = planner.plan_layout(ir_ops)
         assert layout_plan is not None
 

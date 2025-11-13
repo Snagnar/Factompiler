@@ -10,11 +10,12 @@ class EntityPlacement:
 
     ir_node_id: str
     entity_type: str  # draftsman entity type
-    position: Optional[Tuple[int, int]] = None  # None until positioned by ClusterPacker
+    position: Optional[Tuple[float, float]] = (
+        None  # None until positioned by force-directed layout
+    )
     properties: Dict[str, Any] = field(default_factory=dict)
     role: Optional[str] = None
-    zone: Optional[str] = None
-    alignment: int = 1  # 1 for normal, 2 for 2x2 grid alignment
+    # Note: position is initially None, set by force-directed optimization
 
 
 @dataclass

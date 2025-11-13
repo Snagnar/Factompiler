@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
-from .layout_engine import LayoutEngine
+from .tile_grid import TileGrid
 from .layout_plan import LayoutPlan, PowerPolePlacement
 
 """Power infrastructure planning for the layout module."""
@@ -49,12 +49,12 @@ class PowerPlanner:
 
     def __init__(
         self,
-        layout: LayoutEngine,
+        tile_grid: TileGrid,
         layout_plan: LayoutPlan,
         diagnostics: ProgramDiagnostics,
         connection_planner: Optional[Any] = None,
     ) -> None:
-        self.layout = layout
+        self.tile_grid = tile_grid
         self.layout_plan = layout_plan
         self.diagnostics = diagnostics
         self.connection_planner = connection_planner
@@ -162,7 +162,7 @@ class PowerPlanner:
         snapped_x = int(round(position[0]))
         snapped_y = int(round(position[1]))
         snapped_position = (snapped_x, snapped_y)
-        
+
         # Check for duplicate at this exact position
         for existing in self._planned:
             if existing.position == snapped_position:
@@ -190,7 +190,7 @@ class PowerPlanner:
             center_x = snapped_position[0] + footprint[0] / 2.0
             center_y = snapped_position[1] + footprint[1] / 2.0
             center_position = (center_x, center_y)
-            
+
             self.connection_planner.relay_network.add_relay_node(
                 center_position, pole_id, prototype
             )

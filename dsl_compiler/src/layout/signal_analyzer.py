@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
 from dsl_compiler.src.ast.expressions import SignalLiteral
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
@@ -42,10 +42,13 @@ class SignalUsageEntry:
 
 
 class SignalAnalyzer:
-    """Analyzes IR to determine signal usage patterns."""
+    """Analyzes IR to determine signal usage patterns, materialization decisions, and signal name resolution."""
 
-    def __init__(self, diagnostics: ProgramDiagnostics):
+    def __init__(
+        self, diagnostics: ProgramDiagnostics, signal_type_map: Dict[str, Any]
+    ):
         self.diagnostics = diagnostics
+        self.signal_type_map = signal_type_map
         self.signal_usage: Dict[str, SignalUsageEntry] = {}
 
     def analyze(self, ir_operations: List[IRNode]) -> Dict[str, SignalUsageEntry]:
@@ -141,36 +144,27 @@ class SignalAnalyzer:
                         entry.debug_metadata["is_output"] = True
 
         self.signal_usage = usage
+
+        # Finalize materialization decisions and signal identity resolution
+        self.finalize_materialization()
+
         return usage
 
-
-class SignalMaterializer:
-    """Decides when and how to materialize logical signals."""
-
-    def __init__(
-        self,
-        signal_usage: Dict[str, SignalUsageEntry],
-        signal_type_map: Dict[str, Any],
-        diagnostics: ProgramDiagnostics,
-    ) -> None:
-        self.signal_usage = signal_usage
-        self.signal_type_map = signal_type_map
-        self.diagnostics = diagnostics
-
-    def finalize(self) -> None:
+    def finalize_materialization(self) -> None:
         """Populate materialization decisions and physical signal metadata."""
-
         for entry in self.signal_usage.values():
             self._decide_materialization(entry)
             self._resolve_signal_identity(entry)
 
     def should_materialize(self, signal_id: str) -> bool:
+        """Check if a signal should be materialized as a constant combinator."""
         entry = self.signal_usage.get(signal_id)
         if not entry:
             return True
         return entry.should_materialize
 
     def can_inline_constant(self, signal_ref: SignalRef) -> bool:
+        """Check if a signal reference can be inlined as a literal value."""
         entry = self.signal_usage.get(signal_ref.source_id)
         if not entry:
             return False
@@ -181,6 +175,7 @@ class SignalMaterializer:
         return entry.literal_value is not None
 
     def inline_value(self, signal_ref: SignalRef) -> Optional[int]:
+        """Get the inlined literal value for a signal reference if possible."""
         if self.can_inline_constant(signal_ref):
             entry = self.signal_usage[signal_ref.source_id]
             return entry.literal_value
@@ -191,6 +186,7 @@ class SignalMaterializer:
         signal_type: Optional[str],
         entry: Optional[SignalUsageEntry] = None,
     ) -> str:
+        """Resolve a signal type to a Factorio signal name."""
         lookup_entry = entry
         if lookup_entry is None and signal_type:
             lookup_entry = self.signal_usage.get(signal_type)
@@ -203,6 +199,7 @@ class SignalMaterializer:
     def resolve_signal_type(
         self, signal_type: Optional[str], entry: Optional[SignalUsageEntry] = None
     ) -> Optional[str]:
+        """Resolve a signal type to its category (virtual, item, fluid)."""
         lookup_entry = entry
         if lookup_entry is None and signal_type:
             lookup_entry = self.signal_usage.get(signal_type)
@@ -214,6 +211,116 @@ class SignalMaterializer:
         if lookup_entry and lookup_entry.resolved_signal_type:
             return lookup_entry.resolved_signal_type
         return None
+
+    def get_signal_name(self, operand: Any) -> str:
+        """Get Factorio signal name for any operand type.
+
+        This is a high-level API that handles SignalRef, str, int, and other types.
+        """
+        if isinstance(operand, int):
+            return "signal-0"
+
+        if isinstance(operand, SignalRef):
+            entry = self.signal_usage.get(operand.source_id)
+            resolved = self.resolve_signal_name(operand.signal_type, entry)
+            if resolved:
+                return resolved
+
+        if hasattr(operand, "signal_type"):
+            operand_str = getattr(operand, "signal_type")
+        else:
+            operand_str = str(operand)
+
+        clean_name = operand_str.split("@")[0]
+
+        mapped_signal = self.signal_type_map.get(clean_name)
+        if mapped_signal is not None:
+            if isinstance(mapped_signal, dict):
+                signal_name = mapped_signal.get("name", clean_name)
+                signal_type = mapped_signal.get("type", "virtual")
+                if signal_data is not None and signal_name not in signal_data.raw:
+                    try:
+                        signal_data.add_signal(signal_name, signal_type)
+                    except Exception as exc:
+                        self.diagnostics.warning(
+                            f"Could not register custom signal '{signal_name}': {exc}"
+                        )
+                return signal_name
+            if signal_data is not None and mapped_signal not in signal_data.raw:
+                try:
+                    signal_data.add_signal(mapped_signal, "virtual")
+                except Exception as exc:
+                    self.diagnostics.warning(
+                        f"Could not register signal '{mapped_signal}' as virtual: {exc}"
+                    )
+            return str(mapped_signal)
+
+        if signal_data is not None and clean_name in signal_data.raw:
+            return clean_name
+
+        if clean_name.startswith("__v"):
+            try:
+                index = int(clean_name[3:])
+                letter = chr(ord("A") + (index - 1) % 26)
+                return f"signal-{letter}"
+            except ValueError:
+                pass
+
+        if signal_data is not None and clean_name not in signal_data.raw:
+            try:
+                signal_data.add_signal(clean_name, "virtual")
+            except Exception as exc:
+                self.diagnostics.warning(
+                    f"Could not register signal '{clean_name}' as virtual: {exc}"
+                )
+
+        return clean_name
+
+    def get_operand_for_combinator(self, operand: Any) -> Union[str, int]:
+        """Resolve an operand for combinator use (inline constants or signal names)."""
+        if isinstance(operand, int):
+            return operand
+
+        if isinstance(operand, SignalRef):
+            # Try to inline constant
+            inlined = self.inline_value(operand)
+            if inlined is not None:
+                return inlined
+            # Otherwise resolve to signal name
+            usage_entry = self.signal_usage.get(operand.source_id)
+            resolved = self.resolve_signal_name(operand.signal_type, usage_entry)
+            if resolved is not None:
+                return resolved
+            return self.get_signal_name(operand.signal_type)
+
+        if isinstance(operand, str):
+            return self.get_signal_name(operand)
+
+        return self.get_signal_name(str(operand))
+
+    def get_operand_value(self, operand: Any):
+        """Get the value of an operand (for general use)."""
+        if isinstance(operand, int):
+            return operand
+
+        if isinstance(operand, SignalRef):
+            # Try to inline constant
+            inlined = self.inline_value(operand)
+            if inlined is not None:
+                return inlined
+            # Otherwise resolve to signal name
+            usage_entry = self.signal_usage.get(operand.source_id)
+            resolved = self.resolve_signal_name(operand.signal_type, usage_entry)
+            if resolved:
+                return resolved
+            if hasattr(operand, "signal_type"):
+                return self.get_signal_name(operand.signal_type)
+            return str(operand)
+
+        if isinstance(operand, str):
+            return self.get_signal_name(operand)
+
+        return str(operand)
 
     def _decide_materialization(self, entry: SignalUsageEntry) -> None:
         producer = entry.producer

@@ -30,7 +30,7 @@ from .force_directed_layout_debug_viz import LayoutVisualizer
 
 VISUAL_DEBUG = False
 VISUAL_DEBUG_PATH = "output/layout_visualization4"
-RENDER_RESULT = True
+RENDER_RESULT = False
 RENDER_RESULT_PATH = "output/layout_result4"
 
 
@@ -377,9 +377,10 @@ class ForceDirectedLayoutEngine:
                     result = future.result()
                     results.append(result)
 
-                    self._render_final_result(
-                        result.positions, suffix=f"attempt_{seed}"
-                    )
+                    if RENDER_RESULT:
+                        self._render_final_result(
+                            result.positions, suffix=f"attempt_{seed}"
+                        )
                     # Early stopping: if we found a perfect solution, stop
                     # if result.violations == 0 and result.success:
                     #     self.diagnostics.info(
@@ -407,7 +408,10 @@ class ForceDirectedLayoutEngine:
                 print(
                     f"Attempt {seed}: energy={result.energy:.2f}, violations={result.violations}"
                 )
-                self._render_final_result(result.positions, suffix=f"attempt_{seed}")
+                if RENDER_RESULT:
+                    self._render_final_result(
+                        result.positions, suffix=f"attempt_{seed}"
+                    )
 
                 # Early stopping: if we found a perfect solution, stop
                 # if result.violations == 0 and result.success:

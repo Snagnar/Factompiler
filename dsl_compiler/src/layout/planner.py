@@ -4,29 +4,17 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, List, Tuple
 
-from dsl_compiler.src.ir.nodes import (
-    IRNode,
-    IRValue,
-    SignalRef,
-    IR_Arith,
-    IR_Decider,
-    IR_MemWrite,
-    IR_EntityPropWrite,
-    IR_WireMerge,
-)
+from dsl_compiler.src.ir.nodes import IRNode
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 from .connection_planner import ConnectionPlanner
-from .layout_engine import LayoutEngine
 from .layout_plan import LayoutPlan
 from .power_planner import PowerPlanner
 from .signal_analyzer import (
     SignalAnalyzer,
-    SignalMaterializer,
     SignalUsageEntry,
 )
-from .signal_resolver import SignalResolver
-from .signal_graph import SignalGraph
+from .tile_grid import TileGrid
 from .force_directed_layout import ForceDirectedLayoutEngine, LayoutConstraints
 
 
@@ -47,13 +35,11 @@ class LayoutPlanner:
         self.power_pole_type = power_pole_type
         self.max_wire_span = max_wire_span
 
-        self.layout_engine = LayoutEngine()
+        self.tile_grid = TileGrid()
         self.layout_plan = LayoutPlan()
 
         self.signal_analyzer: Optional[SignalAnalyzer] = None
         self.signal_usage: Dict[str, SignalUsageEntry] = {}
-        self.materializer: Optional[SignalMaterializer] = None
-        self.signal_resolver: Optional[SignalResolver] = None
         self.connection_planner: Optional[ConnectionPlanner] = None
         self.signal_graph: Any = None
         self._memory_modules: Dict[str, Any] = {}
@@ -86,20 +72,17 @@ class LayoutPlanner:
         """
         # Phase 1: Analysis
         self._setup_signal_analysis(ir_operations)
-        self._setup_materialization()
-        self._setup_signal_resolver()
-        self._build_signal_graph(ir_operations)
 
-        # Phase 2: Create entities (no positions yet)
+        # Phase 2: Create entities (no positions yet, signal graph built during placement)
         self._create_entities(ir_operations)
 
         # Phase 3: Optimize positions using force-directed layout
         self._optimize_positions()
 
         # Phase 4: Infrastructure & connections
-        self._update_layout_engine_from_placements()
+        self._update_tile_grid()
         self._plan_connections()
-        self._update_layout_engine_from_placements()  # Again after relays added
+        self._update_tile_grid()  # Again after relays added
         self._plan_power_if_requested()
 
         # Phase 5: Metadata
@@ -108,60 +91,10 @@ class LayoutPlanner:
         return self.layout_plan
 
     def _setup_signal_analysis(self, ir_operations: list[IRNode]) -> None:
-        """Initialize and run signal analysis."""
-        self.signal_analyzer = SignalAnalyzer(self.diagnostics)
+        """Initialize and run signal analysis with materialization."""
+        self.signal_analyzer = SignalAnalyzer(self.diagnostics, self.signal_type_map)
         self.signal_usage = self.signal_analyzer.analyze(ir_operations)
-
-    def _setup_materialization(self) -> None:
-        """Initialize materialization decisions."""
-        self.materializer = SignalMaterializer(
-            self.signal_usage,
-            self.signal_type_map,
-            self.diagnostics,
-        )
-        self.materializer.finalize()
-
-    def _setup_signal_resolver(self) -> None:
-        """Initialize signal resolver."""
-        self.signal_resolver = SignalResolver(
-            self.signal_type_map,
-            self.diagnostics,
-            materializer=self.materializer,
-            signal_usage=self.signal_usage,
-        )
-
-    def _build_signal_graph(self, ir_operations: list[IRNode]) -> None:
-        """Build signal graph from IR before placement."""
-
-        self.signal_graph = SignalGraph()
-
-        # Add all value-producing operations as sources
-        for op in ir_operations:
-            if isinstance(op, IRValue):
-                self.signal_graph.set_source(op.node_id, op.node_id)
-
-        # Add all consumption edges
-        for op in ir_operations:
-            if isinstance(op, IR_Arith):
-                self._add_value_ref_sink(op.left, op.node_id)
-                self._add_value_ref_sink(op.right, op.node_id)
-            elif isinstance(op, IR_Decider):
-                self._add_value_ref_sink(op.left, op.node_id)
-                self._add_value_ref_sink(op.right, op.node_id)
-                self._add_value_ref_sink(op.output_value, op.node_id)
-            elif isinstance(op, IR_MemWrite):
-                self._add_value_ref_sink(op.data_signal, op.node_id)
-                self._add_value_ref_sink(op.write_enable, op.node_id)
-            elif isinstance(op, IR_EntityPropWrite):
-                self._add_value_ref_sink(op.value, op.node_id)
-            elif isinstance(op, IR_WireMerge):
-                for source in op.sources:
-                    self._add_value_ref_sink(source, op.node_id)
-
-    def _add_value_ref_sink(self, value_ref: Any, consumer_id: str) -> None:
-        """Helper to add signal sink from ValueRef."""
-        if isinstance(value_ref, SignalRef):
-            self.signal_graph.add_sink(value_ref.source_id, consumer_id)
+        # Note: analyze() now calls finalize_materialization() internally
 
     def _create_entities(self, ir_operations: list[IRNode]) -> None:
         """Create entity records without positions.
@@ -172,11 +105,9 @@ class LayoutPlanner:
         from .entity_placer import EntityPlacer
 
         placer = EntityPlacer(
-            self.layout_engine,
+            self.tile_grid,
             self.layout_plan,
-            self.signal_usage,
-            self.materializer,
-            self.signal_resolver,
+            self.signal_analyzer,
             self.diagnostics,
         )
 
@@ -630,23 +561,9 @@ class LayoutPlanner:
                 tile = (tile_x + dx, tile_y + dy)
                 occupied_tiles[tile] = entity_id
 
-    def _update_layout_engine_from_placements(self) -> None:
-        """Update layout engine's occupied tiles from entity placements."""
-        self.layout_engine._occupied_tiles.clear()
-
-        for entity_id, placement in self.layout_plan.entity_placements.items():
-            if placement.position is None:
-                continue
-
-            footprint = placement.properties.get("footprint", (1, 1))
-            # Convert center position back to tile position
-            tile_x = int(placement.position[0] - footprint[0] / 2.0)
-            tile_y = int(placement.position[1] - footprint[1] / 2.0)
-
-            # Mark all tiles as occupied
-            for x in range(tile_x, tile_x + footprint[0]):
-                for y in range(tile_y, tile_y + footprint[1]):
-                    self.layout_engine._occupied_tiles.add((x, y))
+    def _update_tile_grid(self) -> None:
+        """Update tile grid's occupied tiles from entity placements."""
+        self.tile_grid.rebuild_from_placements(self.layout_plan.entity_placements)
 
     def _plan_connections(self) -> None:
         """Plan wire connections between entities."""
@@ -654,7 +571,7 @@ class LayoutPlanner:
             self.layout_plan,
             self.signal_usage,
             self.diagnostics,
-            self.layout_engine,
+            self.tile_grid,
             max_wire_span=self.max_wire_span,
             power_pole_type=self.power_pole_type,
         )
@@ -673,7 +590,7 @@ class LayoutPlanner:
             return
 
         power_planner = PowerPlanner(
-            self.layout_engine,
+            self.tile_grid,
             self.layout_plan,
             self.diagnostics,
             connection_planner=self.connection_planner,
