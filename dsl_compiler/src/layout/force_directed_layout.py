@@ -15,7 +15,7 @@ Preserves all constraints:
 from tqdm import tqdm
 import math
 import numpy as np
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from scipy.optimize import minimize
 from scipy.spatial import cKDTree
@@ -25,15 +25,23 @@ from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from .layout_plan import EntityPlacement
 from .signal_graph import SignalGraph
 
+# Optional debug visualization support
+from .force_directed_layout_debug_viz import LayoutVisualizer
+
+VISUAL_DEBUG = False
+VISUAL_DEBUG_PATH = "output/layout_visualization4"
+RENDER_RESULT = True
+RENDER_RESULT_PATH = "output/layout_result4"
+
 
 @dataclass
 class LayoutConstraints:
     """Constraints for layout optimization."""
 
-    max_wire_span: float = 9.0
+    max_wire_span: float = 8.0
     entity_spacing: float = 0.5
     boundary_penalty_start: float = 50.0
-    boundary_penalty_strength: float = 0.01
+    boundary_penalty_strength: float = 100
 
 
 @dataclass
@@ -178,6 +186,11 @@ class ForceDirectedLayoutEngine:
                 if idx1 > idx2:
                     idx1, idx2 = idx2, idx1
                 connections_list.append((idx1, idx2))
+            else:
+                self.diagnostics.warning(
+                    f"Signal '{signal_id}' connects unknown entities "
+                    f"'{source_id}' and/or '{sink_id}'"
+                )
 
         # Remove duplicates and convert to NumPy array
         connections_set = set(connections_list)
@@ -240,26 +253,29 @@ class ForceDirectedLayoutEngine:
     def _init_constants(self) -> None:
         """Initialize constants used in energy calculations."""
         # Repulsion parameters
-        self.repulsion_strength = 10.0
+        self.repulsion_strength = 0.1
         self.min_distance_sq = 0.01
         self.repulsion_cutoff_distance = 31.6  # sqrt(1000)
 
         # Collision parameters
-        self.collision_penalty = 1000.0
+        self.collision_penalty = 100000.0
 
         # Spring parameters
         self.ideal_spring_distance = 3.0
-        self.spring_constant = 1.0
+        self.spring_constant = 20000.0
 
         # Constraint parameters
-        self.violation_penalty = 100.0
+        self.violation_penalty = 10000.0
         self.fixed_penalty = 1e9
+
+        self.wire_length_constant = 1
 
     def optimize(
         self,
         population_size: int = None,
         max_iterations: int = None,
         parallel: bool = True,  # Not implemented in optimized version
+        visualization_dir: str = "output/layout_visualization",
     ) -> Dict[str, Tuple[float, float]]:
         """
         Optimize layout using population-based multi-start approach.
@@ -268,10 +284,12 @@ class ForceDirectedLayoutEngine:
             population_size: Number of random initializations to try (adaptive if None)
             max_iterations: Maximum optimization iterations per attempt (adaptive if None)
             parallel: Unused (kept for API compatibility)
+            visualization_dir: Directory to save visualization GIFs
 
         Returns:
             Dict mapping entity_id to (x, y) position
         """
+        global RENDER_RESULT_PATH
         self.diagnostics.info(
             f"Starting optimized force-directed layout: {self.n_entities} entities, "
             f"{len(self.connection_pairs)} connections"
@@ -285,11 +303,11 @@ class ForceDirectedLayoutEngine:
             if self.n_entities <= 3:
                 population_size = 1
             elif self.n_entities <= 10:
-                population_size = 2
+                population_size = 5
             elif self.n_entities <= 30:
-                population_size = 3
+                population_size = 10
             else:
-                population_size = 4
+                population_size = 15
 
         if max_iterations is None:
             if self.n_entities <= 3:
@@ -306,11 +324,17 @@ class ForceDirectedLayoutEngine:
             f"max_iterations={max_iterations}"
         )
 
-        # Run sequential optimization
-        # if population_size > 1 and parallel:
-        #     results = self._parallel_optimization(population_size, max_iterations)
-        # else:
-        results = self._sequential_optimization(population_size, max_iterations)
+        ores = RENDER_RESULT_PATH
+        # Run optimization
+        # RENDER_RESULT_PATH = ores + "_parallel"
+        # results = self._parallel_optimization(population_size, max_iterations)
+        # RENDER_RESULT_PATH = ores + "_sequential"
+        # results = self._sequential_optimization(population_size, max_iterations)
+        parallel = False
+        if population_size > 1 and parallel:
+            results = self._parallel_optimization(population_size, max_iterations)
+        else:
+            results = self._sequential_optimization(population_size, max_iterations)
 
         # Select best result
         best_result = min(results, key=lambda r: r.energy)
@@ -319,6 +343,10 @@ class ForceDirectedLayoutEngine:
             f"Optimization complete: energy={best_result.energy:.2f}, "
             f"violations={best_result.violations}"
         )
+
+        # Render final result if enabled
+        if RENDER_RESULT:
+            self._render_final_result(best_result.positions)
 
         return best_result.positions
 
@@ -332,10 +360,13 @@ class ForceDirectedLayoutEngine:
         futures = []
 
         with ProcessPoolExecutor() as executor:
+            # for seed in [2]:
             for seed in range(population_size):
                 futures.append(
                     executor.submit(
-                        self._single_optimization_attempt, seed, max_iterations
+                        self._single_optimization_attempt_two_phase,
+                        seed,
+                        max_iterations,
                     )
                 )
 
@@ -346,12 +377,15 @@ class ForceDirectedLayoutEngine:
                     result = future.result()
                     results.append(result)
 
+                    self._render_final_result(
+                        result.positions, suffix=f"attempt_{seed}"
+                    )
                     # Early stopping: if we found a perfect solution, stop
-                    if result.violations == 0 and result.success:
-                        self.diagnostics.info(
-                            "Found perfect solution early in parallel optimization"
-                        )
-                        break
+                    # if result.violations == 0 and result.success:
+                    #     self.diagnostics.info(
+                    #         "Found perfect solution early in parallel optimization"
+                    #     )
+                    #     break
                 except Exception as e:
                     self.diagnostics.warning(f"Optimization attempt failed: {e}")
 
@@ -363,17 +397,24 @@ class ForceDirectedLayoutEngine:
         """Run multiple optimizations sequentially."""
         results = []
 
+        # for seed in tqdm([2], desc="Optimizing"):
         for seed in tqdm(range(population_size), desc="Optimizing"):
             try:
-                result = self._single_optimization_attempt(seed, max_iterations)
+                result = self._single_optimization_attempt_two_phase(
+                    seed, max_iterations
+                )
                 results.append(result)
+                print(
+                    f"Attempt {seed}: energy={result.energy:.2f}, violations={result.violations}"
+                )
+                self._render_final_result(result.positions, suffix=f"attempt_{seed}")
 
                 # Early stopping: if we found a perfect solution, stop
-                if result.violations == 0 and result.success:
-                    self.diagnostics.info(
-                        f"Found perfect solution early (attempt {seed + 1}/{population_size})"
-                    )
-                    break
+                # if result.violations == 0 and result.success:
+                #     self.diagnostics.info(
+                #         f"Found perfect solution early (attempt {seed + 1}/{population_size})"
+                #     )
+                #     break
             except Exception as e:
                 self.diagnostics.warning(f"Optimization attempt {seed} failed: {e}")
 
@@ -388,12 +429,30 @@ class ForceDirectedLayoutEngine:
         # Initialize positions as flat NumPy array (for L-BFGS-B)
         pos_flat = self._initialize_positions(seed)
 
+        # Setup visualization if enabled
+        visualizer = None
+
+        visualizer = (
+            LayoutVisualizer(
+                layout_engine=self,
+                attempt_id=seed,
+                phase_name="",
+                output_base_dir=VISUAL_DEBUG_PATH,
+                frame_skip=max(1, max_iterations // 50),
+            )
+            if VISUAL_DEBUG
+            else None
+        )
+
         # Optimize using L-BFGS-B WITH analytical gradients
         result = minimize(
             fun=lambda x: self._energy_and_gradient(x),  # Returns (energy, grad)
             x0=pos_flat,
             method="L-BFGS-B",
             jac=True,  # ← KEY: Tell scipy we provide gradients
+            callback=visualizer.create_callback(self._energy_and_gradient)
+            if visualizer
+            else None,
             options={
                 "maxiter": max_iterations,
                 "ftol": 1e-6,  # Can be stricter now with analytical gradients
@@ -401,12 +460,18 @@ class ForceDirectedLayoutEngine:
             },
         )
 
+        # Save GIF if visualization was enabled
+        if visualizer:
+            visualizer.create_gif()
+            visualizer.cleanup()
+
         # Convert to position dict
         pos_array = result.x.reshape(-1, 2)
         positions = self._array_to_positions(pos_array)
 
         # Count violations
         violations = self._count_violations(pos_array)
+        print(f"Phase 1 complete after {result.nit} iterations.")  # Debug
 
         return OptimizationResult(
             positions=positions,
@@ -436,7 +501,15 @@ class ForceDirectedLayoutEngine:
     def _init_grid_layout(self, pos_array: np.ndarray) -> None:
         """Initialize with simple grid layout."""
         grid_size = int(math.ceil(math.sqrt(self.n_entities)))
-        spacing = 3.0
+
+        # Adaptive spacing based on entity sizes
+        if len(self.footprints) > 0:
+            avg_width = np.mean(self.footprints[:, 0])
+            avg_height = np.mean(self.footprints[:, 1])
+            avg_size = (avg_width + avg_height) / 2
+            spacing = max(5.0, avg_size * 3)  # At least 3x entity size
+        else:
+            spacing = 5.0  # ← NEW: Wider spacing!
 
         idx = 0
         for i in range(self.n_entities):
@@ -508,9 +581,9 @@ class ForceDirectedLayoutEngine:
         total_energy += e1
         grad_array += g1
 
-        e2, g2 = self._repulsion_energy_grad(pos_array)
-        total_energy += e2
-        grad_array += g2
+        # e2, g2 = self._repulsion_energy_grad(pos_array)
+        # total_energy += e2
+        # grad_array += g2
 
         e3, g3 = self._collision_energy_grad(pos_array)
         total_energy += e3
@@ -528,6 +601,16 @@ class ForceDirectedLayoutEngine:
         total_energy += e6
         grad_array += g6
 
+        if len(self.fixed_indices) > 0:
+            grad_array[self.fixed_indices] = 0
+        # print(
+        #     f"Phase 2 energy: {total_energy:.2f} spring energy: {e1:.2f}, repulsion energy: {0:.2f}, collision energy: {e3:.2f}, span energy: {e4:.2f}, boundary energy: {e5:.2f}, fixed energy: {e6:.2f}"
+        # )  # Debug
+        # if total_energy < 10000:
+        #     print("Low energy reached, detailed breakdown:")
+        #     print(
+        #         f"Low energy debug: spring energy: {e1:.2f}, repulsion energy: {0:.2f}, collision energy: {e3:.2f}, span energy: {e4:.2f}, boundary energy: {e5:.2f}, fixed energy: {e6:.2f}"
+        #     )
         return total_energy, grad_array.flatten()
 
     def _count_violations(self, pos_array: np.ndarray) -> int:
@@ -554,6 +637,7 @@ class ForceDirectedLayoutEngine:
 
     def _fallback_result(self) -> OptimizationResult:
         """Create fallback result using simple grid layout."""
+        print("Returning fallback layout result (grid layout).")
         pos_array = np.zeros((self.n_entities, 2), dtype=np.float64)
         self._init_grid_layout(pos_array)
         positions = self._array_to_positions(pos_array)
@@ -564,6 +648,43 @@ class ForceDirectedLayoutEngine:
             violations=self._count_violations(pos_array),
             success=False,
         )
+
+    def _render_final_result(
+        self, positions: Dict[str, Tuple[float, float]], suffix=""
+    ):
+        """Render the final optimization result to an image file.
+
+        Args:
+            positions: Dictionary mapping entity_id to (x, y) position
+        """
+        from pathlib import Path
+        from .force_directed_layout_debug_viz import visualize_graph
+
+        # Convert positions dict to flat array
+        pos_array = np.zeros((self.n_entities, 2), dtype=np.float64)
+        for i, entity_id in enumerate(self.entity_ids):
+            if entity_id in positions:
+                pos_array[i] = positions[entity_id]
+
+        # Create output directory if needed
+        output_dir = Path(RENDER_RESULT_PATH)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate filename with entity count for uniqueness
+        output_file = (
+            output_dir / f"layout_result_{self.n_entities}_entities_{suffix}.png"
+        )
+
+        # Render the visualization
+        visualize_graph(
+            layout_engine=self,
+            pos_flat=pos_array.flatten(),
+            output_path=str(output_file),
+            figsize=(16, 16),
+            dpi=200,
+        )
+
+        self.diagnostics.info(f"Final layout rendered to: {output_file}")
 
     # ========================================================================
     # GRADIENT FUNCTIONS - ANALYTICAL GRADIENTS FOR 5-10x SPEEDUP
@@ -730,43 +851,15 @@ class ForceDirectedLayoutEngine:
 
     def _boundary_energy_grad(self, pos_array: np.ndarray) -> Tuple[float, np.ndarray]:
         """
-        Boundary penalty energy with analytical gradient.
-
-        DERIVATION:
-        Energy:   E = strength * sum_i max(0, r_i - r_max)^2
-
-        Gradient: ∂E/∂x_i = 2 * strength * max(0, r_i - r_max) * x_i / r_i
-                  where r_i = ||pos_i||
-
-        This pushes entities back toward the origin if they stray too far.
+        Simple L2 regularization towards origin with analytical gradient.
         """
-        penalty_start = self.constraints.boundary_penalty_start
-        penalty_strength = self.constraints.boundary_penalty_strength
-
-        # Radial distances
-        radial_dist = np.linalg.norm(pos_array, axis=1, keepdims=True)  # Shape: (n, 1)
-
-        # Energy
-        excesses = np.maximum(0, radial_dist.squeeze() - penalty_start)
-        energy = penalty_strength * np.sum(excesses**2)
-
-        # Gradient
-        violation_mask = radial_dist.squeeze() > penalty_start
         grad = np.zeros_like(pos_array)
-
-        if np.any(violation_mask):
-            # Direction: pos_i / ||pos_i|| (outward from origin)
-            directions = pos_array / np.maximum(radial_dist, 1e-6)
-
-            # Magnitude: 2 * strength * (r - r_max)
-            force_magnitude = 2 * penalty_strength * excesses[:, np.newaxis]
-
-            # Total gradient
-            grad = force_magnitude * directions
-
-            # Zero out non-violations
-            grad[~violation_mask] = 0
-
+        energy = np.sum(
+            self.constraints.boundary_penalty_strength * pos_array**2
+        ) / len(pos_array)
+        grad = (
+            2 * self.constraints.boundary_penalty_strength * pos_array / len(pos_array)
+        )
         return energy, grad
 
     def _fixed_position_energy_grad(
@@ -926,3 +1019,175 @@ class ForceDirectedLayoutEngine:
                 grad[j, 1] += grad_y_j
 
         return energy, grad
+
+    def _total_wire_length_grad(
+        self, pos_array: np.ndarray
+    ) -> Tuple[float, np.ndarray]:
+        """
+        Total wire length with analytical gradient.
+
+        DERIVATION:
+        Energy:   E = sum_edges d_ij
+
+        Gradient: ∂E/∂x_i = sum_j (x_i - x_j) / d_ij
+
+        Where:
+        - d_ij = ||pos_i - pos_j||
+        """
+        if len(self.connection_pairs) == 0:
+            return 0.0, np.zeros_like(pos_array)
+
+        grad = np.zeros_like(pos_array)
+
+        # Get positions of connected pairs
+        pos1 = pos_array[self.connection_pairs[:, 0]]  # Shape: (n_edges, 2)
+        pos2 = pos_array[self.connection_pairs[:, 1]]  # Shape: (n_edges, 2)
+
+        # Compute distances
+        diff = pos1 - pos2  # Shape: (n_edges, 2)
+        distances = np.linalg.norm(diff, axis=1, keepdims=True)  # Shape: (n_edges, 1)
+        distances = np.maximum(distances, 1e-6)  # Avoid division by zero
+
+        # Energy
+        energy = np.sum(distances) * self.wire_length_constant
+
+        # Gradient
+        force_direction = diff / distances
+        force_direction *= self.wire_length_constant
+
+        # Accumulate forces at each node
+        np.add.at(grad, self.connection_pairs[:, 0], force_direction)
+        np.add.at(grad, self.connection_pairs[:, 1], -force_direction)
+
+        return energy, grad
+
+    def _single_optimization_attempt_two_phase(
+        self, seed: int, max_iterations: int
+    ) -> OptimizationResult:
+        """
+        Two-phase optimization for better convergence:
+        Phase 1: Rough layout without collision penalties (faster)
+        Phase 2: Refinement with all constraints (precise)
+        """
+        np.random.seed(seed)
+        pos_flat = self._initialize_positions(seed)
+
+        # Setup single visualizer for both phases if enabled
+        visualizer = (
+            LayoutVisualizer(
+                layout_engine=self,
+                attempt_id=seed,
+                phase_name="",
+                output_base_dir=VISUAL_DEBUG_PATH,
+                frame_skip=max(1, max_iterations // 100),  # ~100 frames total
+            )
+            if VISUAL_DEBUG
+            else None
+        )
+
+        # Phase 1: Without collision (50% budget)
+
+        if visualizer:
+            visualizer.set_phase("Phase 1")
+
+        result_phase1 = minimize(
+            fun=lambda x: self._energy_no_collision(x),
+            x0=pos_flat,
+            method="L-BFGS-B",
+            jac=True,
+            callback=visualizer.create_callback(self._energy_no_collision)
+            if visualizer
+            else None,
+            options={"maxiter": max_iterations, "ftol": 1e-8, "gtol": 1e-8},
+        )
+
+        old_spring_constant = self.spring_constant
+        old_boundary_penalty = self.constraints.boundary_penalty_strength
+        # Phase 2: With collision (50% budget)
+        self.spring_constant *= 0.05  # Soften springs for refinement
+        self.constraints.boundary_penalty_strength *= 0.01  # Soften boundary
+
+        if visualizer:
+            visualizer.set_phase("Phase 2")
+
+        result_phase2 = minimize(
+            fun=lambda x: self._energy_and_gradient(x),
+            x0=result_phase1.x,
+            method="L-BFGS-B",
+            jac=True,
+            callback=visualizer.create_callback(self._energy_and_gradient)
+            if visualizer
+            else None,
+            options={"maxiter": max_iterations, "ftol": 1e-7, "gtol": 1e-7},
+        )
+
+        # Restore original constants
+        self.spring_constant = old_spring_constant
+        self.constraints.boundary_penalty_strength = old_boundary_penalty
+
+        # Save single GIF with both phases
+        if visualizer:
+            visualizer.create_gif()
+            visualizer.cleanup()
+
+        pos_array = result_phase2.x.reshape(-1, 2)
+        positions = self._array_to_positions(pos_array)
+        violations = self._count_violations(pos_array)
+        print(
+            f"Two-phase optimization complete after {result_phase2.nit + result_phase1.nit} iterations ({result_phase1.nit} in "
+            f"phase 1, {result_phase2.nit} in phase 2, final energy: {result_phase2.fun}, phase 1 end reason: {result_phase1.message}, "
+            f"phase 2 end reason: {result_phase2.message})."
+        )
+        if RENDER_RESULT:
+            self._render_final_result(positions, suffix=f"attempt_{seed}_two_phase")
+
+        return OptimizationResult(
+            positions=positions,
+            energy=result_phase2.fun,
+            violations=violations,
+            success=result_phase2.success,
+        )
+
+    def _energy_no_collision(self, vec: np.ndarray) -> Tuple[float, np.ndarray]:
+        """Energy function WITHOUT collision penalties (for phase 1)."""
+        pos_array = vec.reshape(-1, 2)
+        grad_array = np.zeros_like(pos_array)
+        total_energy = 0.0
+
+        # Include: springs, repulsion, boundary, span, fixed
+        e1, g1 = self._spring_energy_grad(pos_array)
+        total_energy += e1
+        grad_array += g1
+
+        e2, g2 = self._repulsion_energy_grad(pos_array)
+        total_energy += e2
+        grad_array += g2
+
+        e3, g3 = self._total_wire_length_grad(pos_array)
+        total_energy += e3
+        grad_array += g3
+
+        # Skip collision (expensive!)
+        # e3, g3 = self._collision_energy_grad(pos_array)
+
+        e4, g4 = self._span_constraint_energy_grad(pos_array)
+        total_energy += e4
+        grad_array += g4
+
+        e5, g5 = self._boundary_energy_grad(pos_array)
+        total_energy += e5
+        grad_array += g5
+
+        e6, g6 = self._fixed_position_energy_grad(pos_array)
+        total_energy += e6
+        grad_array += g6
+
+        # Zero out fixed entity gradients
+        if len(self.fixed_indices) > 0:
+            grad_array[self.fixed_indices] = 0
+        # if total_energy < 10000:
+        #     print("super low energy in phase 1")
+        #     print(
+        #         f"Phase 1 energy: {total_energy:.2f} spring energy: {e1:.2f}, repulsion energy: {e2:.2f}, span energy: {e4:.2f}, boundary energy: {e5:.2f}, fixed energy: {e6:.2f}"
+        #     )  # Debug
+        return total_energy, grad_array.flatten()

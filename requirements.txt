@@ -33,3 +33,5 @@ ortools
 networkx
 numba
 tqdm
+matplotlib
+pillow

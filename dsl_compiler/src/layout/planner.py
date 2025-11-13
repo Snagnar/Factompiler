@@ -199,7 +199,7 @@ class LayoutPlanner:
             entity_placements=self.layout_plan.entity_placements,
             diagnostics=self.diagnostics,
             constraints=LayoutConstraints(
-                max_wire_span=self.max_wire_span,
+                max_wire_span=8.0,
                 entity_spacing=0.5,
             ),
         )
@@ -218,7 +218,7 @@ class LayoutPlanner:
         # Run optimization
         optimized_positions = layout_engine.optimize(
             population_size=population_size,
-            max_iterations=500,
+            max_iterations=1000,
             parallel=True,  # Avoid ProcessPoolExecutor hang issues
         )
 
