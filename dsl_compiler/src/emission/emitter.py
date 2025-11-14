@@ -154,13 +154,7 @@ class BlueprintEmitter:
         layout_plan: LayoutPlan,
         entity_map: Dict[str, Entity],
     ) -> None:
-        self.diagnostics.info(
-            f"Materializing {len(layout_plan.wire_connections)} wire connections"
-        )
         for connection in layout_plan.wire_connections:
-            self.diagnostics.info(
-                f"Wire: {connection.source_entity_id} -> {connection.sink_entity_id} ({connection.signal_name})"
-            )
             source = entity_map.get(connection.source_entity_id)
             sink = entity_map.get(connection.sink_entity_id)
 
@@ -188,9 +182,6 @@ class BlueprintEmitter:
             # Convert draftsman warnings to errors as user requested
             try:
                 self.blueprint.add_circuit_connection(**kwargs)
-                self.diagnostics.info(
-                    f"Successfully added circuit connection: {connection.source_entity_id} -> {connection.sink_entity_id}"
-                )
             except Exception as e:
                 self.diagnostics.error(
                     f"Failed to add wire connection {connection.source_entity_id} -> {connection.sink_entity_id}: {e}"

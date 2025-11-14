@@ -313,9 +313,6 @@ class MemoryBuilder:
         first_consumer_id = self._find_first_memory_consumer(
             op.memory_id, arith_node_id
         )
-        self.diagnostics.info(
-            f"First consumer of memory '{op.memory_id}': {first_consumer_id}, final op: {arith_node_id}"
-        )
         is_single_operation = (
             first_consumer_id == arith_node_id or first_consumer_id is None
         )

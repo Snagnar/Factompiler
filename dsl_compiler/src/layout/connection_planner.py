@@ -466,15 +466,8 @@ class ConnectionPlanner:
         return None
 
     def _populate_wire_connections(self) -> None:
-        self.diagnostics.info(
-            f"Populating wire connections from {len(self._circuit_edges)} edges"
-        )
         for edge in self._circuit_edges:
-            self.diagnostics.info(
-                f"Processing edge: {edge.source_entity_id} -> {edge.sink_entity_id} ({edge.resolved_signal_name})"
-            )
             if not edge.source_entity_id or not edge.sink_entity_id:
-                self.diagnostics.info(f"Skipping edge with missing source or sink")
                 continue
 
             color = self._edge_color_map.get(
@@ -524,17 +517,15 @@ class ConnectionPlanner:
 
         if not relay_path:
             # Direct connection
-            conn = WireConnection(
-                source_entity_id=edge.source_entity_id,
-                sink_entity_id=edge.sink_entity_id,
-                signal_name=edge.resolved_signal_name,
-                wire_color=wire_color,
-                source_side=source_side,
-                sink_side=sink_side,
-            )
-            self.layout_plan.add_wire_connection(conn)
-            self.diagnostics.info(
-                f"Added wire: {edge.source_entity_id} -> {edge.sink_entity_id} ({edge.resolved_signal_name}, {wire_color})"
+            self.layout_plan.add_wire_connection(
+                WireConnection(
+                    source_entity_id=edge.source_entity_id,
+                    sink_entity_id=edge.sink_entity_id,
+                    signal_name=edge.resolved_signal_name,
+                    wire_color=wire_color,
+                    source_side=source_side,
+                    sink_side=sink_side,
+                )
             )
         else:
             # Multi-hop through relays
