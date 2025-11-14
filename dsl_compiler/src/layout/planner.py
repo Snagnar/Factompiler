@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, List, Tuple
 
 from dsl_compiler.src.ir.nodes import IRNode
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.layout.integer_layout_solver import IntegerLayoutEngine
 
 from .connection_planner import ConnectionPlanner
 from .layout_plan import LayoutPlan
@@ -15,7 +16,6 @@ from .signal_analyzer import (
     SignalUsageEntry,
 )
 from .tile_grid import TileGrid
-from .force_directed_layout import ForceDirectedLayoutEngine, LayoutConstraints
 
 
 class LayoutPlanner:
@@ -125,45 +125,17 @@ class LayoutPlanner:
 
     def _optimize_positions(self) -> None:
         """Optimize entity positions using force-directed layout."""
-        layout_engine = ForceDirectedLayoutEngine(
+        layout_engine = IntegerLayoutEngine(
             signal_graph=self.signal_graph,
             entity_placements=self.layout_plan.entity_placements,
             diagnostics=self.diagnostics,
-            constraints=LayoutConstraints(
-                max_wire_span=8.0,
-                entity_spacing=0.5,
-            ),
         )
-
-        # Determine population size based on problem complexity
-        n_entities = len(self.layout_plan.entity_placements)
-        if n_entities < 10:
-            population_size = 5
-        elif n_entities < 50:
-            population_size = 10
-        elif n_entities < 200:
-            population_size = 15
-        else:
-            population_size = 20
-
-        # Run optimization
-        optimized_positions = layout_engine.optimize(
-            population_size=population_size,
-            max_iterations=1000,
-            parallel=True,  # Avoid ProcessPoolExecutor hang issues
-        )
-
-        # ✅ NEW: Snap positions to integer grid and resolve overlaps
-        snapped_positions = self._snap_and_resolve_overlaps(optimized_positions)
-
-        # Apply snapped positions
-        for entity_id, position in snapped_positions.items():
-            if entity_id in self.layout_plan.entity_placements:
-                self.layout_plan.entity_placements[entity_id].position = position
-
-        self.diagnostics.info(
-            f"Optimized and snapped positions for {len(snapped_positions)} entities"
-        )
+        optimized_positions = layout_engine.optimize(time_limit_seconds=30)
+        for entity_id, (x, y) in optimized_positions.items():
+            placement = self.layout_plan.entity_placements.get(entity_id)
+            if placement:
+                placement.position = (x, y)
+        self.diagnostics.info("Entity positions optimized using integer layout engine.")
 
     def _snap_and_resolve_overlaps(
         self, positions: Dict[str, Tuple[float, float]]
