@@ -430,10 +430,50 @@ class MemoryBuilder:
         self, op: IR_MemWrite, module: MemoryModule, signal_graph: SignalGraph
     ):
         """Set up standard SR latch write."""
-        # Standard SR latch needs connections from data/enable to write gate
-        # and feedback from hold gate to itself
-        # These connections will be set up by connection planner
-        pass
+        # For standard SR latch, we need to connect:
+        # 1. data_signal → write_gate (provides the value to write)
+        # 2. write_enable → write_gate (provides signal-W enable)
+        # 3. write_gate ↔ hold_gate (feedback loop)
+
+        if not module.write_gate or not module.hold_gate:
+            self.diagnostics.warning(
+                f"Cannot setup standard write for {op.memory_id}: missing gates"
+            )
+            return
+
+        # Add data_signal as a sink for the write_gate
+        if isinstance(op.data_signal, SignalRef):
+            signal_graph.add_sink(
+                op.data_signal.source_id, module.write_gate.ir_node_id
+            )
+            self.diagnostics.info(
+                f"Connected data signal {op.data_signal.source_id} → write_gate {module.write_gate.ir_node_id}"
+            )
+
+        # Add write_enable as a sink for the write_gate
+        if isinstance(op.write_enable, SignalRef):
+            signal_graph.add_sink(
+                op.write_enable.source_id, module.write_gate.ir_node_id
+            )
+            self.diagnostics.info(
+                f"Connected write_enable {op.write_enable.source_id} → write_gate {module.write_gate.ir_node_id}"
+            )
+
+        # Set up feedback: write_gate output → hold_gate input
+        signal_graph.set_source(
+            module.write_gate.ir_node_id, module.write_gate.ir_node_id
+        )
+        signal_graph.add_sink(module.write_gate.ir_node_id, module.hold_gate.ir_node_id)
+
+        # Set up feedback: hold_gate output → write_gate input
+        signal_graph.set_source(
+            module.hold_gate.ir_node_id, module.hold_gate.ir_node_id
+        )
+        signal_graph.add_sink(module.hold_gate.ir_node_id, module.write_gate.ir_node_id)
+
+        self.diagnostics.info(
+            f"Set up SR latch feedback loop for memory '{op.memory_id}'"
+        )
 
     def _make_debug_info(self, op, role) -> Dict[str, Any]:
         """Build debug info dict for memory gates."""

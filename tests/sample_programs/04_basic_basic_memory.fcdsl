@@ -1,10 +1,12 @@
 # Test 4: Memory operations and stateful logic
 # Tests: Memory declaration, read(), write(), memory persistence
 
-Memory counter: "iron-plate";
+Memory counter: "signal-A";
+write((read(counter) + 1) % 100, counter, when=1);
 
-Signal a = ("iron-plate", 10);
+Memory checkpoint: "signal-B";
+Signal at_checkpoint = read(counter) % 4 == 0;
+write(read(counter) | "signal-B", checkpoint, when=at_checkpoint);
 
-write(a, counter, when=once);
-
-Signal b = read(counter);
+Entity pulse_lamp = place("small-lamp", 0, 0);
+pulse_lamp.enable = read(checkpoint) < 50;

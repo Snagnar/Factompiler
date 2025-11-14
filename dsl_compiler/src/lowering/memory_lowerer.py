@@ -3,6 +3,7 @@ from typing import Any, Optional
 from dsl_compiler.src.ast.statements import ASTNode, MemDecl
 from dsl_compiler.src.ast.expressions import ReadExpr, WriteExpr
 from dsl_compiler.src.ir.builder import SignalRef, ValueRef
+from dsl_compiler.src.ir.nodes import IR_Const, IR_Decider
 from dsl_compiler.src.semantic.analyzer import SignalValue
 
 """Memory-related lowering helpers for the Factorio Circuit DSL."""
@@ -118,7 +119,35 @@ class MemoryLowerer:
         if is_once:
             write_enable = self._lower_once_enable(expr)
         elif expr.when is not None:
+            # Lower the condition expression
             write_enable = self.parent.expr_lowerer.lower_expr(expr.when)
+
+            # Check if write_enable is constant 1 (as integer or SignalRef to const)
+            is_const_one = False
+            if isinstance(write_enable, int) and write_enable == 1:
+                is_const_one = True
+            elif isinstance(write_enable, SignalRef):
+                const_node = self.ir_builder.get_operation(write_enable.source_id)
+                if isinstance(const_node, IR_Const) and const_node.value == 1:
+                    is_const_one = True
+
+            if not is_const_one:
+                # For non-constant conditions, ensure we output signal-W
+                if isinstance(write_enable, SignalRef):
+                    # Check if this came from a decider (comparison operation)
+                    source_node = self.ir_builder.get_operation(write_enable.source_id)
+                    if isinstance(source_node, IR_Decider):
+                        # Modify the decider to output signal-W = 1 directly
+                        # This eliminates the need for projection arithmetic combinator
+                        self.parent.ensure_signal_registered("signal-W")
+                        source_node.output_type = "signal-W"
+                        write_enable.signal_type = "signal-W"
+                    elif write_enable.signal_type != "signal-W":
+                        # Not a decider, use arithmetic projection for other signal types
+                        self.parent.ensure_signal_registered("signal-W")
+                        write_enable = self.ir_builder.arithmetic(
+                            "+", write_enable, 0, "signal-W", expr
+                        )
         else:
             self.parent.ensure_signal_registered("signal-W")
             write_enable = self.ir_builder.const("signal-W", 1, expr)

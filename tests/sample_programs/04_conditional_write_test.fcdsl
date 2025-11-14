@@ -1,0 +1,14 @@
+# Minimal test for conditional memory writes
+# A counter increments every tick
+# A checkpoint memory only updates when counter is divisible by 4
+# Expected behavior: checkpoint holds values 0, 4, 8, 12, 16, ...
+
+Memory counter: "signal-A";
+write((read(counter) + 1) % 400, counter, when=1);
+
+Memory checkpoint: "signal-B";
+Signal at_checkpoint = read(counter) % 100 == 0;
+write(read(counter) | "signal-B", checkpoint, when=at_checkpoint);
+
+Entity lamp = place("small-lamp", 0, 0);
+lamp.enable = read(checkpoint) > 200;
