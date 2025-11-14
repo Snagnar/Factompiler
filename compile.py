@@ -45,9 +45,19 @@ def compile_dsl_file(
     optimize: bool = True,
     log_level: str = "error",
     power_pole_type: str | None = None,
+    use_json: bool = False,
 ) -> tuple[bool, str, list]:
     """
     Compile a DSL file to blueprint string.
+
+    Args:
+        input_path: Path to the .fcdsl source file
+        strict_types: Enable strict type checking
+        program_name: Name for the blueprint (default: derived from filename)
+        optimize: Enable IR optimizations
+        log_level: Logging verbosity level
+        power_pole_type: Type of power poles to add (or None for no power poles)
+        use_json: If True, return JSON dict instead of compressed blueprint string
 
     Returns:
         (success: bool, result: str, diagnostics: list)
@@ -113,8 +123,13 @@ def compile_dsl_file(
     if diagnostics.has_errors():
         return False, "Blueprint emission failed", diagnostics.get_messages()
 
-    # Always use blueprint string format - to_dict() doesn't properly include wires
-    blueprint_result = blueprint.to_string()
+    # Return JSON dict or compressed blueprint string
+    if use_json:
+        import json
+
+        blueprint_result = json.dumps(blueprint.to_dict())
+    else:
+        blueprint_result = blueprint.to_string()
 
     return True, blueprint_result, diagnostics.get_messages()
 
@@ -157,6 +172,11 @@ def setup_logging(level: str) -> None:
     callback=validate_power_poles,
     help="Add power poles (small/medium/big/substation, defaults to medium if no value)",
 )
+@click.option(
+    "--json",
+    is_flag=True,
+    help="Output blueprint in JSON format instead of compressed string format",
+)
 def main(
     input_file,
     output,
@@ -166,6 +186,7 @@ def main(
     no_optimize,
     explain,
     power_poles,
+    json,
 ):
     """Compile Factorio Circuit DSL files to blueprint format."""
     setup_logging(log_level)
@@ -183,6 +204,7 @@ def main(
         optimize=not no_optimize,
         power_pole_type=power_poles,
         log_level=log_level,
+        use_json=json,
     )
     verbose = log_level in ["debug", "info"]
 

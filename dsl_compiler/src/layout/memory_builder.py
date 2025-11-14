@@ -254,7 +254,9 @@ class MemoryBuilder:
         self, op_id: str, memory_id: str, visited: set = None, depth: int = 0
     ) -> bool:
         """Check if an operation depends on a memory read (directly or transitively)."""
-        if depth > 10:  # Prevent infinite recursion
+        if (
+            depth > 50
+        ):  # Prevent infinite recursion (increased from 10 to support longer chains)
             return False
 
         if visited is None:

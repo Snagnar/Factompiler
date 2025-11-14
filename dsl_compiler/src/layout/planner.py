@@ -131,10 +131,25 @@ class LayoutPlanner:
             diagnostics=self.diagnostics,
         )
         optimized_positions = layout_engine.optimize(time_limit_seconds=30)
-        for entity_id, (x, y) in optimized_positions.items():
+
+        # Convert tile positions (integer grid) to center positions (may be half-integer)
+        # The solver returns tile coordinates (top-left corner), but Factorio/Draftsman
+        # uses entity center positions.
+        for entity_id, (tile_x, tile_y) in optimized_positions.items():
             placement = self.layout_plan.entity_placements.get(entity_id)
             if placement:
-                placement.position = (x, y)
+                footprint = placement.properties.get("footprint", (1, 1))
+                width, height = footprint
+
+                # Convert tile position to center position
+                # For a 1x1 entity at tile (0,0): center is (0.5, 0.5)
+                # For a 1x2 entity at tile (0,0): center is (0.5, 1.0)
+                # For a 2x2 entity at tile (0,0): center is (1.0, 1.0)
+                center_x = tile_x + width / 2.0
+                center_y = tile_y + height / 2.0
+
+                placement.position = (center_x, center_y)
+
         self.diagnostics.info("Entity positions optimized using integer layout engine.")
 
     def _snap_and_resolve_overlaps(

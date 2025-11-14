@@ -19,9 +19,14 @@ class LayoutConstraints:
 
 @dataclass
 class OptimizationResult:
-    """Result of layout optimization attempt."""
+    """Result of layout optimization attempt.
 
-    positions: Dict[str, Tuple[int, int]]
+    Note: positions are TILE positions (top-left corner on integer grid),
+    NOT center positions. They must be converted to center coordinates
+    before use in Draftsman/Factorio.
+    """
+
+    positions: Dict[str, Tuple[int, int]]  # entity_id -> (tile_x, tile_y)
     violations: int
     total_wire_length: int
     success: bool

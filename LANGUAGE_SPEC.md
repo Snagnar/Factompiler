@@ -1,7 +1,7 @@
 # Factorio Circuit DSL Language Specification
 
 **Version 2.0**  
-**Date: November 2, 2025**
+**Date: November 14, 2025**
 
 This document provides a complete specification of the Factorio Circuit DSL (Domain Specific Language) as currently implemented. The DSL compiles to Factorio 2.0 blueprint strings that can be imported into the game.
 
@@ -403,7 +403,7 @@ Imports use **C-style preprocessing**: the imported file's content is inlined be
 
 ## Memory System
 
-Memory in the DSL models **persistent state** using SR latch circuits. Each memory cell occupies two decider combinators (a write gate and a hold gate) and reserves the `signal-W` virtual signal for write enables.
+Memory in the DSL models **persistent state** using SR latch circuits or optimized arithmetic feedback loops. The compiler automatically chooses the most efficient implementation based on usage patterns.
 
 ### Memory Declaration
 
@@ -498,25 +498,32 @@ Memory counter: "signal-A" = 0;
 write(read(counter) + 1, counter);  # Always-on counter
 ```
 
-The compiler optimizes this to a **single arithmetic combinator** with self-feedback instead of the two-decider SR latch. This saves space and reduces tick delay.
+The compiler optimizes this to **arithmetic combinators with feedback loops** instead of the two-decider SR latch. This saves space and reduces tick delay.
 
 **When This Applies:**
 - `when=1` or omitted (unconditional write)
-- Value expression reads from the same memory
-- No complex conditions
+- Value expression (directly or indirectly) depends on reading from the same memory
+- The dependency chain can be arbitrarily long (up to 50 operations deep)
 
-**Result:** One arithmetic combinator with red self-feedback wire instead of two deciders.
+**Results:**
 
-#### Single-Gate Memory Optimization
-
-For simple always-write patterns that don't read from the memory:
-
+**Single-Operation Pattern:**
 ```fcdsl
-Memory buffer: "iron-plate" = 0;
-write(input_signal, buffer);
+Memory counter: "signal-A" = 0;
+write(read(counter) + 1, counter);
 ```
+Result: One arithmetic combinator with red self-feedback wire instead of two deciders.
 
-The compiler may optimize to a single decider with self-feedback.
+**Multi-Operation Chain Pattern:**
+```fcdsl
+Memory pattern_gen: "signal-D" = 0;
+Signal step1 = read(pattern_gen) + 1;
+Signal step2 = step1 * 3;
+Signal step3 = step2 % 17;
+Signal final = step3 % 100;
+write(final, pattern_gen);
+```
+Result: Chain of arithmetic combinators with a feedback wire from the last combinator's output back to the first combinator's input (e.g., final → step1).
 
 ### Reserved Signals
 
@@ -916,12 +923,22 @@ Signal same = iron | "iron-plate";  # No combinator generated
 
 ### Memory Optimization
 
-As described earlier, unconditional memory writes with feedback are optimized to single arithmetic combinators:
+As described earlier, unconditional memory writes with feedback are optimized to arithmetic combinators with feedback loops:
 
 ```fcdsl
+# Single-operation: self-feedback on one combinator
 Memory counter: "signal-A" = 0;
-write(read(counter) + 1, counter);  # Single arithmetic combinator
+write(read(counter) + 1, counter);
+
+# Multi-operation: feedback wire from last to first combinator
+Memory pattern: "signal-B" = 0;
+Signal s1 = read(pattern) + 1;
+Signal s2 = s1 * 3;
+Signal s3 = s2 % 17;
+write(s3, pattern);  # Creates feedback loop: s3 → s1
 ```
+
+The compiler detects dependency chains up to 50 operations deep and optimizes them automatically.
 
 ### Entity Property Inlining
 
@@ -1249,10 +1266,16 @@ python compile.py input.fcdsl -o output.blueprint
 python compile.py input.fcdsl --strict
 ```
 
-### Verbose Diagnostics
+### Debug Logging
 
 ```bash
-python compile.py input.fcdsl --verbose
+python compile.py input.fcdsl --log-level debug
+```
+
+### Extended Diagnostics
+
+```bash
+python compile.py input.fcdsl --explain
 ```
 
 ### Add Power Poles
@@ -1281,7 +1304,7 @@ python compile.py input.fcdsl --no-optimize
 python compile.py input.fcdsl --json
 ```
 
-Outputs raw blueprint JSON instead of encoded string.
+Outputs raw blueprint JSON instead of base64-encoded blueprint string.
 
 ---
 

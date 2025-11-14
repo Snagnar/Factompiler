@@ -83,7 +83,6 @@ class BlueprintEmitter:
 
             entity_map[placement.ir_node_id] = entity
             self.blueprint.entities.append(entity, copy=False)
-        print("nodes: ", list(entity_map.keys()))
         self._materialize_power_grid(layout_plan, entity_map)
         self._materialize_connections(layout_plan, entity_map)
         self._apply_blueprint_metadata(self.blueprint.description)
