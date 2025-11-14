@@ -208,3 +208,6 @@ __marimo__/
 
 *.blueprint
 .vscode
+temp/
+output/
+outputs/

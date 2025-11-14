@@ -34,3 +34,29 @@ When writing code, please follow these guidelines:
 - Write unit tests for new features or bug fixes to ensure code quality.
 - Do not use defensive programming unless explicitly told to do so.
 - Letting things fail/throw exceptions is often better than trying to handle every possible error case.
+
+# Testing stuff:
+
+- please make yourself aware of the compile script arguments:
+Usage: compile.py [OPTIONS] INPUT_FILE
+
+  Compile Factorio Circuit DSL files to blueprint format.
+
+Options:
+  -o, --output PATH               Output file for the blueprint (default:
+                                  stdout)
+  --strict                        Enable strict type checking
+  --name TEXT                     Blueprint name (default: derived from input
+                                  filename)
+  --log-level [debug|info|warning|error]
+                                  Set the logging level
+  --no-optimize                   Disable IR optimizations
+  --explain                       Add extended explanations to diagnostics
+  --power-poles TEXT              Add power poles
+                                  (small/medium/big/substation, defaults to
+                                  medium if no value)
+  --json                          Output blueprint in JSON format
+  --help                          Show this message and exit.
+
+- also, when you want to test things, do not execute python in a cli command with python -c! Instead, create a temporary script file and run that. This way, the venv dependencies will be correctly picked up and you can iterate on that file.
+- all temporary scripts and files you create should be placed into the temp/ directory in the factompiler repo root. This directory is gitignored, so you don't have to worry about cleaning up after yourself.

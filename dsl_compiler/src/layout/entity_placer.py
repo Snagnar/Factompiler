@@ -505,6 +505,11 @@ class EntityPlacer:
     def _add_signal_sink(self, value_ref: ValueRef, consumer_id: str) -> None:
         """Track signal consumption."""
         if isinstance(value_ref, SignalRef):
+            # Skip non-materialized constants - they're inlined and don't need wiring
+            source_usage = self.signal_usage.get(value_ref.source_id)
+            if source_usage and not source_usage.should_materialize:
+                return
+
             self.signal_graph.add_sink(value_ref.source_id, consumer_id)
 
     def cleanup_unused_entities(self) -> None:
@@ -552,6 +557,6 @@ class EntityPlacer:
                     f"Removed stale signal graph edge referencing removed entity: {signal_id} ({source_id} -> {sink_id})"
                 )
                 continue
-            new_signal_graph.add_sink(source_id, sink_id)
+            new_signal_graph.add_sink(signal_id, sink_id)
             new_signal_graph.set_source(signal_id, source_id)
         self.signal_graph = new_signal_graph

@@ -13,7 +13,6 @@ Usage:
 import sys
 import click
 from pathlib import Path
-import json
 import logging
 
 from dsl_compiler.src.parsing.parser import DSLParser
@@ -46,13 +45,12 @@ def compile_dsl_file(
     optimize: bool = True,
     log_level: str = "error",
     power_pole_type: str | None = None,
-    output_json: bool = False,
-) -> tuple[bool, str | dict, list]:
+) -> tuple[bool, str, list]:
     """
     Compile a DSL file to blueprint string.
 
     Returns:
-        (success: bool, result: str | dict, diagnostics: list)
+        (success: bool, result: str, diagnostics: list)
     """
     if not input_path.exists():
         return False, f"Input file '{input_path}' does not exist", []
@@ -115,10 +113,8 @@ def compile_dsl_file(
     if diagnostics.has_errors():
         return False, "Blueprint emission failed", diagnostics.get_messages()
 
-    if output_json:
-        blueprint_result = json.dumps(blueprint.to_dict())
-    else:
-        blueprint_result = blueprint.to_string()
+    # Always use blueprint string format - to_dict() doesn't properly include wires
+    blueprint_result = blueprint.to_string()
 
     return True, blueprint_result, diagnostics.get_messages()
 
@@ -161,7 +157,6 @@ def setup_logging(level: str) -> None:
     callback=validate_power_poles,
     help="Add power poles (small/medium/big/substation, defaults to medium if no value)",
 )
-@click.option("--json", is_flag=True, help="Output blueprint in JSON format")
 def main(
     input_file,
     output,
@@ -171,7 +166,6 @@ def main(
     no_optimize,
     explain,
     power_poles,
-    json,
 ):
     """Compile Factorio Circuit DSL files to blueprint format."""
     setup_logging(log_level)
@@ -189,7 +183,6 @@ def main(
         optimize=not no_optimize,
         power_pole_type=power_poles,
         log_level=log_level,
-        output_json=json,
     )
     verbose = log_level in ["debug", "info"]
 

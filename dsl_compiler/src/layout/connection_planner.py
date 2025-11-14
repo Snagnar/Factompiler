@@ -243,6 +243,9 @@ class ConnectionPlanner:
         locked_colors: Optional[Dict[Tuple[str, str], str]] = None,
     ) -> None:
         """Compute all wire connections with color assignments."""
+        # ✅ Add self-feedback for optimized arithmetic memories FIRST
+        self._add_self_feedback_connections()
+
         preserved_connections = list(self.layout_plan.wire_connections)
         self.layout_plan.wire_connections.clear()
         self._circuit_edges = []
@@ -251,9 +254,6 @@ class ConnectionPlanner:
         self._coloring_conflicts = []
         self._coloring_success = True
         self._relay_counter = 0
-
-        # ✅ Add self-feedback for optimized arithmetic memories
-        self._add_self_feedback_connections()
 
         base_edges = collect_circuit_edges(signal_graph, self.signal_usage, entities)
         expanded_edges = self._expand_merge_edges(
@@ -466,8 +466,15 @@ class ConnectionPlanner:
         return None
 
     def _populate_wire_connections(self) -> None:
+        self.diagnostics.info(
+            f"Populating wire connections from {len(self._circuit_edges)} edges"
+        )
         for edge in self._circuit_edges:
+            self.diagnostics.info(
+                f"Processing edge: {edge.source_entity_id} -> {edge.sink_entity_id} ({edge.resolved_signal_name})"
+            )
             if not edge.source_entity_id or not edge.sink_entity_id:
+                self.diagnostics.info(f"Skipping edge with missing source or sink")
                 continue
 
             color = self._edge_color_map.get(
@@ -517,15 +524,17 @@ class ConnectionPlanner:
 
         if not relay_path:
             # Direct connection
-            self.layout_plan.add_wire_connection(
-                WireConnection(
-                    source_entity_id=edge.source_entity_id,
-                    sink_entity_id=edge.sink_entity_id,
-                    signal_name=edge.resolved_signal_name,
-                    wire_color=wire_color,
-                    source_side=source_side,
-                    sink_side=sink_side,
-                )
+            conn = WireConnection(
+                source_entity_id=edge.source_entity_id,
+                sink_entity_id=edge.sink_entity_id,
+                signal_name=edge.resolved_signal_name,
+                wire_color=wire_color,
+                source_side=source_side,
+                sink_side=sink_side,
+            )
+            self.layout_plan.add_wire_connection(conn)
+            self.diagnostics.info(
+                f"Added wire: {edge.source_entity_id} -> {edge.sink_entity_id} ({edge.resolved_signal_name}, {wire_color})"
             )
         else:
             # Multi-hop through relays
