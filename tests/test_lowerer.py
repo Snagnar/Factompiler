@@ -1,6 +1,7 @@
 """
 Tests for lowerer.py - IR lowering functionality.
 """
+import os
 
 import pytest
 from dsl_compiler.src.ir.nodes import (
@@ -43,7 +44,6 @@ class TestLowerer:
 
     def test_lowering_sample_files(self, parser):
         """Test lowering on sample files."""
-        import os
 
         sample_files = [
             "tests/sample_programs/01_basic_arithmetic.fcdsl",

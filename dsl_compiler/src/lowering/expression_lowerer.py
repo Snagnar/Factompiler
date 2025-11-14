@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Union
 
 from dsl_compiler.src.ast.statements import (
     Expr,
@@ -37,14 +37,11 @@ from dsl_compiler.src.semantic.type_system import IntValue, SignalValue, ValueIn
 
 from .constant_folder import ConstantFolder
 
-if TYPE_CHECKING:  # pragma: no cover - type checking only
-    from .lowerer import ASTLowerer
-
 
 class ExpressionLowerer:
     """Handles lowering of expressions to IR operations."""
 
-    def __init__(self, parent: "ASTLowerer") -> None:
+    def __init__(self, parent: Any) -> None:
         self.parent = parent
 
     # ------------------------------------------------------------------

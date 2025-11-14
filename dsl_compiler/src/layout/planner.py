@@ -1,6 +1,7 @@
 """Main layout planning orchestrator."""
 
 from __future__ import annotations
+from .entity_placer import EntityPlacer
 
 from typing import Any, Dict, Optional, List, Tuple
 
@@ -102,7 +103,6 @@ class LayoutPlanner:
         Entities are created with footprints and properties, but positions
         are assigned later by force-directed optimization.
         """
-        from .entity_placer import EntityPlacer
 
         placer = EntityPlacer(
             self.tile_grid,

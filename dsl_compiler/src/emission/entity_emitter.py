@@ -28,6 +28,62 @@ def _infer_signal_type(signal_name: str) -> str:
     return "virtual"
 
 
+def format_entity_description(debug_info: Optional[dict]) -> str:
+    """Format entity debug information into a human-readable description.
+
+    Format: "variable_name in file.fcdsl at line X (operation details)"
+    Or: "file.fcdsl:X (operation details)" if no variable name
+
+    Args:
+        debug_info: Dict with keys: variable, operation, details, signal_type,
+                    source_file, line, role
+
+    Returns:
+        Formatted description string
+    """
+    if not debug_info:
+        return ""
+
+    parts = []
+
+    # Build location string
+    location_parts = []
+    if debug_info.get("variable"):
+        location_parts.append(debug_info["variable"])
+
+    if debug_info.get("source_file"):
+        file_name = debug_info["source_file"]
+        # Extract just filename if it's a path
+        if "/" in file_name or "\\" in file_name:
+            file_name = file_name.split("/")[-1].split("\\")[-1]
+
+        if debug_info.get("line"):
+            location_parts.append(f"in {file_name} at line {debug_info['line']}")
+        else:
+            location_parts.append(f"in {file_name}")
+    elif debug_info.get("line"):
+        location_parts.append(f"at line {debug_info['line']}")
+
+    if location_parts:
+        parts.append(" ".join(location_parts))
+
+    # Build operation description
+    op_parts = []
+    if debug_info.get("operation"):
+        op_parts.append(debug_info["operation"])
+
+    if debug_info.get("details"):
+        op_parts.append(debug_info["details"])
+
+    if debug_info.get("signal_type"):
+        op_parts.append(f"type={debug_info['signal_type']}")
+
+    if op_parts:
+        parts.append(f"({', '.join(op_parts)})")
+
+    return " ".join(parts)
+
+
 class PlanEntityEmitter:
     """Instantiate Draftsman entities from LayoutPlan placements."""
 
@@ -87,17 +143,45 @@ class PlanEntityEmitter:
             self._apply_property_writes(entity, property_writes, placement)
 
         # Set entity description from debug info
-        debug_info = placement.properties.get("debug_info")
-        if debug_info:
-            from dsl_compiler.src.emission.emitter import format_entity_description
+        # Set entity description from debug info
+        debug_info = placement.properties["debug_info"]
+        description = format_entity_description(debug_info)
+        entity.player_description = description
+        # if not hasattr(entity, "tags") or entity.tags is None:
+        #     entity.tags = {}
+        # entity.tags["description"] = description
+        self.diagnostics.info(
+            f"Set description tag for {placement.entity_type} '{placement.ir_node_id}'"
+        )
 
-            description = format_entity_description(debug_info)
-            if description and hasattr(entity, "description"):
-                try:
-                    entity.description = description
-                except Exception:
-                    # Some entity types might not support descriptions
-                    pass
+        # Log when description is successfully set (only in debug mode)
+        if self.diagnostics.log_level == "debug":
+            self.diagnostics.info(
+                f"Entity description: {description[:80]}{'...' if len(description) > 80 else ''}"
+            )
+        # debug_info = placement.properties.get("debug_info")
+        #     description = format_entity_description(debug_info)
+        #                 if not hasattr(entity, "tags"):
+        #                     entity.tags = {}
+        #                 elif entity.tags is None:
+        #                     entity.tags = {}
+
+        #                 entity.tags["description"] = description
+        #                 description_set = True
+        #                 self.diagnostics.info(
+        #                     f"Set description tag for {placement.entity_type} '{placement.ir_node_id}'"
+        #                 )
+        #             except Exception as fallback_e:
+        #                 self.diagnostics.warning(
+        #                     f"Could not set description for {placement.entity_type} '{placement.ir_node_id}': "
+        #                     f"direct set failed ({e}), tags fallback also failed ({fallback_e})"
+        #                 )
+
+        #         # Log when description is successfully set (only in debug mode)
+        #         if description_set and self.diagnostics.log_level == "debug":
+        #             self.diagnostics.info(
+        #                 f"Entity description: {description[:80]}{'...' if len(description) > 80 else ''}"
+        #             )
 
         entity.id = placement.ir_node_id
 

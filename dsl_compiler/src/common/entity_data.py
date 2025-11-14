@@ -1,12 +1,9 @@
 """Entity data extraction from draftsman."""
 
+from draftsman.data import entities as entity_data
+
 from typing import Tuple
 import math
-
-try:
-    from draftsman.data import entities as entity_data
-except ImportError:
-    entity_data = None
 
 
 class EntityDataHelper:

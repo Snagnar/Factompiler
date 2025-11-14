@@ -6,6 +6,8 @@ This module validates that:
 3. Shared state is properly managed (SignalTypeRegistry)
 4. Diagnostics flow correctly through the pipeline
 """
+from dsl_compiler.src.layout.layout_plan import LayoutPlan
+from draftsman.blueprintable import Blueprint
 
 import pytest
 
@@ -197,7 +199,6 @@ class TestLayoutPlannerInterface:
         planner = LayoutPlanner(signal_map, planner_diagnostics)
         layout_plan = planner.plan_layout(ir_ops)
 
-        from dsl_compiler.src.layout.layout_plan import LayoutPlan
 
         assert isinstance(layout_plan, LayoutPlan)
 
@@ -238,7 +239,6 @@ class TestBlueprintEmitterInterface:
 
         blueprint, diagnostics = emit_blueprint(ir_ops, signal_type_map=signal_map)
 
-        from draftsman.blueprintable import Blueprint
 
         assert isinstance(blueprint, Blueprint)
         assert isinstance(diagnostics, ProgramDiagnostics)

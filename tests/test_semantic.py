@@ -1,6 +1,7 @@
 """
 Tests for semantic.py - Semantic analysis functionality.
 """
+import os
 
 import pytest
 from dsl_compiler.src.parsing.parser import DSLParser
@@ -36,7 +37,6 @@ class TestSemanticAnalyzer:
 
     def test_semantic_analysis_sample_files(self, parser):
         """Test semantic analysis on sample files."""
-        import os
 
         sample_files = [
             "tests/sample_programs/01_basic_arithmetic.fcdsl",

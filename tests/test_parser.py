@@ -1,6 +1,7 @@
 """
 Tests for parser.py - Core parsing functionality.
 """
+import os
 
 import pytest
 from dsl_compiler.src.parsing.parser import DSLParser
@@ -24,7 +25,6 @@ class TestParser:
 
     def test_parse_sample_files(self, parser):
         """Test parsing of sample files."""
-        import os
 
         sample_files = [
             "tests/sample_programs/01_basic_arithmetic.fcdsl",

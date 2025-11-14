@@ -7,6 +7,7 @@ using the factorio-draftsman library to generate blueprint JSON.
 """
 
 from __future__ import annotations
+from dsl_compiler.src.layout.planner import LayoutPlanner
 
 from typing import Dict, List, Optional, Tuple, Any, TYPE_CHECKING
 
@@ -32,69 +33,9 @@ EDGE_LAYOUT_NOTE = (
 )
 
 
-if TYPE_CHECKING:  # pragma: no cover - type checking helper
-    pass
-
-
 # =============================================================================
 # Debug Formatting
 # =============================================================================
-
-
-def format_entity_description(debug_info: Optional[dict]) -> str:
-    """Format entity debug information into a human-readable description.
-
-    Format: "variable_name in file.fcdsl at line X (operation details)"
-    Or: "file.fcdsl:X (operation details)" if no variable name
-
-    Args:
-        debug_info: Dict with keys: variable, operation, details, signal_type,
-                    source_file, line, role
-
-    Returns:
-        Formatted description string
-    """
-    if not debug_info:
-        return ""
-
-    parts = []
-
-    # Build location string
-    location_parts = []
-    if debug_info.get("variable"):
-        location_parts.append(debug_info["variable"])
-
-    if debug_info.get("source_file"):
-        file_name = debug_info["source_file"]
-        # Extract just filename if it's a path
-        if "/" in file_name or "\\" in file_name:
-            file_name = file_name.split("/")[-1].split("\\")[-1]
-
-        if debug_info.get("line"):
-            location_parts.append(f"in {file_name} at line {debug_info['line']}")
-        else:
-            location_parts.append(f"in {file_name}")
-    elif debug_info.get("line"):
-        location_parts.append(f"at line {debug_info['line']}")
-
-    if location_parts:
-        parts.append(" ".join(location_parts))
-
-    # Build operation description
-    op_parts = []
-    if debug_info.get("operation"):
-        op_parts.append(debug_info["operation"])
-
-    if debug_info.get("details"):
-        op_parts.append(debug_info["details"])
-
-    if debug_info.get("signal_type"):
-        op_parts.append(f"type={debug_info['signal_type']}")
-
-    if op_parts:
-        parts.append(f"({', '.join(op_parts)})")
-
-    return " ".join(parts)
 
 
 # =============================================================================
@@ -135,10 +76,14 @@ class BlueprintEmitter:
         for placement in layout_plan.entity_placements.values():
             entity = self.entity_factory.create_entity(placement)
             if entity is None:
+                self.diagnostics.error(
+                    f"Failed to create entity for placement ID '{placement.ir_node_id}'."
+                )
                 continue
+
             entity_map[placement.ir_node_id] = entity
             self.blueprint.entities.append(entity, copy=False)
-
+        print("nodes: ", list(entity_map.keys()))
         self._materialize_power_grid(layout_plan, entity_map)
         self._materialize_connections(layout_plan, entity_map)
         self._apply_blueprint_metadata(self.blueprint.description)
@@ -284,7 +229,6 @@ def emit_blueprint(
     emitter = BlueprintEmitter(emitter_diagnostics, signal_type_map)
 
     planner_diagnostics = ProgramDiagnostics()
-    from dsl_compiler.src.layout.planner import LayoutPlanner
 
     planner = LayoutPlanner(
         signal_type_map,

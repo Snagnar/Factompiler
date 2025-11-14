@@ -3,8 +3,6 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 from dsl_compiler.src.ast.expressions import (
-    BinaryOp,
-    CallExpr,
     IdentifierExpr,
     ProjectionExpr,
     PropertyAccessExpr,
@@ -14,6 +12,8 @@ from dsl_compiler.src.ast.expressions import (
     WriteExpr,
     ASTNode,
     Expr,
+    CallExpr,
+    BinaryOp,
 )
 from dsl_compiler.src.ast.literals import (
     DictLiteral,
@@ -740,7 +740,6 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _function_returns_entity(self, function_name: str) -> bool:
         """Check if a function returns an entity by examining its definition."""
-        from dsl_compiler.src.ast.statements import ReturnStmt, CallExpr
 
         func_symbol = self.current_scope.lookup(function_name)
         if not func_symbol or func_symbol.symbol_type != SymbolType.FUNCTION:
@@ -757,7 +756,6 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _get_function_return_type(self, function_name: str) -> ValueInfo:
         """Determine the return type of a function by analyzing its return statements."""
-        from dsl_compiler.src.ast.statements import ReturnStmt
 
         func_symbol = self.current_scope.lookup(function_name)
         if not func_symbol or func_symbol.symbol_type != SymbolType.FUNCTION:
@@ -781,12 +779,6 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _expression_uses_identifier(self, expr, identifier_name: str) -> bool:
         """Check if an expression uses a specific identifier."""
-        from dsl_compiler.src.ast import (
-            IdentifierExpr,
-            BinaryOp,
-            CallExpr,
-            PropertyAccess,
-        )
 
         if isinstance(expr, IdentifierExpr):
             return expr.name == identifier_name
@@ -806,12 +798,6 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _expression_involves_parameter(self, expr) -> bool:
         """Check if an expression involves any function parameters."""
-        from dsl_compiler.src.ast import (
-            IdentifierExpr,
-            BinaryOp,
-            CallExpr,
-            PropertyAccess,
-        )
 
         if isinstance(expr, IdentifierExpr):
             # Check if this identifier is a parameter
@@ -834,7 +820,6 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _binary_op_involves_parameters(self, expr) -> bool:
         """Check if a binary operation involves function parameters."""
-        from dsl_compiler.src.ast import BinaryOp
 
         if isinstance(expr, BinaryOp):
             return self._expression_involves_parameter(
@@ -1080,7 +1065,6 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _infer_function_return_type(self, body: List[Statement]) -> ValueInfo:
         """Infer function return type by analyzing return statements."""
-        from dsl_compiler.src.ast.statements import ReturnStmt
 
         # Look for return statements
         for stmt in body:
