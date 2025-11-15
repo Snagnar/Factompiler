@@ -478,8 +478,11 @@ class MemoryBuilder:
             )
 
         # ===================================================================
-        # STEP 3: Set up bidirectional feedback loop between gates
+        # STEP 3: Set up unidirectional forward feedback + self-loop
         # ===================================================================
+        # Write gate output → hold gate input (forward feedback, RED wire)
+        # Hold gate output → hold gate input (self-loop, RED wire)
+        # This topology prevents write_gate from seeing feedback (no accumulation)
         # ✅ FIX: Use UNIQUE internal signal IDs for signal_graph (for layout proximity)
         # but create DIRECT wire connections with actual signal (to avoid self-loops)
 
@@ -498,36 +501,40 @@ class MemoryBuilder:
         signal_graph.add_sink(feedback_hold_to_write, module.write_gate.ir_node_id)
 
         # Create DIRECT wire connections with the ACTUAL signal name
-        # These bypass the normal wire planning to avoid self-loops
-        # Write gate output → hold gate input (GREEN wire)
+        # Use RED wire for data/feedback channel (signal-B)
+        # This creates a unidirectional forward feedback + self-loop topology
+
+        # Forward feedback: write_gate output → hold_gate input (RED)
         write_to_hold = WireConnection(
             source_entity_id=module.write_gate.ir_node_id,
             sink_entity_id=module.hold_gate.ir_node_id,
             signal_name=module.signal_type,  # Use ACTUAL signal, not internal ID
-            wire_color="green",
+            wire_color="red",  # ✅ RED for data/feedback
             source_side="output",
             sink_side="input",
         )
         self.layout_plan.add_wire_connection(write_to_hold)
 
-        # Hold gate output → write gate input (GREEN wire)
-        hold_to_write = WireConnection(
+        # Self-feedback: hold_gate output → hold_gate input (RED)
+        # This maintains the value when hold_gate is active
+        hold_to_hold = WireConnection(
             source_entity_id=module.hold_gate.ir_node_id,
-            sink_entity_id=module.write_gate.ir_node_id,
+            sink_entity_id=module.hold_gate.ir_node_id,
             signal_name=module.signal_type,  # Use ACTUAL signal, not internal ID
-            wire_color="green",
+            wire_color="red",  # ✅ RED for data/feedback
             source_side="output",
             sink_side="input",
         )
-        self.layout_plan.add_wire_connection(hold_to_write)
+        self.layout_plan.add_wire_connection(hold_to_hold)
 
         # Store feedback signal IDs in module for later detection
-        module._feedback_signal_ids = [feedback_write_to_hold, feedback_hold_to_write]
+        # Only forward feedback now (no bidirectional cross-coupling)
+        module._feedback_signal_ids = [feedback_write_to_hold]
 
         self.diagnostics.info(
             f"Set up SR latch feedback loop for memory '{op.memory_id}': "
             f"added internal edges to signal_graph for layout, "
-            f"created direct GREEN wire connections for actual signal '{module.signal_type}'"
+            f"created direct RED wire connections for actual signal '{module.signal_type}'"
         )
 
     def _make_debug_info(self, op, role) -> Dict[str, Any]:

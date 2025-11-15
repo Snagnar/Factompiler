@@ -596,34 +596,88 @@ class LayoutPlanner:
     def _determine_locked_wire_colors(self) -> Dict[tuple[str, str], str]:
         """Determine wire colors that must be locked for correctness.
 
-        Returns:
-            Dict mapping (entity_id, signal_name) → wire_color
+        For SR latch memories:
+        - Data/feedback channel: RED (signal-B or memory signal)
+        - Control channel: GREEN (signal-W)
+
+        This prevents signal summation at combinator inputs.
         """
         from .memory_builder import MemoryModule
 
         locked = {}
 
-        # Lock colors for non-optimized memory hold gates (standard SR latch)
+        # ===================================================================
+        # PART 1: Lock memory gate outputs
+        # ===================================================================
         for module in self._memory_modules.values():
-            # ✅ Handle MemoryModule objects directly
             if isinstance(module, MemoryModule):
-                # For standard SR latches (non-optimized), lock hold_gate to red
-                if module.optimization is None and module.hold_gate:
-                    locked[(module.hold_gate.ir_node_id, module.signal_type)] = "red"
-            else:
-                # Legacy dict format (deprecated, for backwards compatibility)
-                for component_name, placement in module.items():
-                    if component_name == "hold_gate":
-                        if not hasattr(placement, "properties"):
-                            continue
-                        # Memory hold gate output must use red wire for feedback loop stability
-                        signal_name = placement.properties.get("output_signal")
-                        if signal_name:
-                            locked[(placement.ir_node_id, signal_name)] = "red"
+                # Only for standard SR latches (not optimized memories)
+                if module.optimization is None:
+                    # Lock data/feedback channel to RED for both gates
+                    if module.write_gate:
+                        locked[(module.write_gate.ir_node_id, module.signal_type)] = (
+                            "red"
+                        )
+                    if module.hold_gate:
+                        locked[(module.hold_gate.ir_node_id, module.signal_type)] = (
+                            "red"
+                        )
 
-        # ✅ NEW: Lock colors for optimized arithmetic feedback combinators
-        # These use self-feedback wires hardcoded to red, so we must prevent
-        # other signals from using red to the same combinator
+        # ===================================================================
+        # PART 2: Lock signal-W (control signal) to GREEN globally
+        # ===================================================================
+        # signal-W is reserved for memory control and must use GREEN wire
+        # to separate from data signals that use RED
+
+        # Find all sources that output signal-W and lock them to GREEN
+        for signal_id, source_ids, sink_ids in self.signal_graph.iter_edges():
+            # Check if this is signal-W (the memory control signal)
+            usage = self.signal_usage.get(signal_id)
+            resolved_name = usage.resolved_signal_name if usage else None
+
+            if resolved_name == "signal-W" or signal_id == "signal-W":
+                # Lock all sources of signal-W to GREEN
+                for source_id in source_ids:
+                    locked[(source_id, "signal-W")] = "green"
+
+        # ===================================================================
+        # PART 3: Lock data signals going TO memory gates to RED
+        # ===================================================================
+        # For each memory, find what signal is being written (the data signal)
+        # and lock its source to RED to match the feedback channel
+
+        for module in self._memory_modules.values():
+            if isinstance(module, MemoryModule):
+                if module.optimization is None and module.write_gate:
+                    write_gate_id = module.write_gate.ir_node_id
+                    data_signal = module.signal_type  # e.g., "signal-B"
+
+                    # Find sources that feed this data signal to the write gate
+                    for (
+                        signal_id,
+                        source_ids,
+                        sink_ids,
+                    ) in self.signal_graph.iter_edges():
+                        # Check if this edge connects to write_gate with the data signal
+                        if write_gate_id in sink_ids:
+                            usage = self.signal_usage.get(signal_id)
+                            resolved_name = (
+                                usage.resolved_signal_name if usage else None
+                            )
+
+                            # If this is the data signal, lock its sources to RED
+                            if resolved_name == data_signal or signal_id == data_signal:
+                                for source_id in source_ids:
+                                    # Don't re-lock the memory gates themselves
+                                    if (
+                                        source_id != write_gate_id
+                                        and source_id != module.hold_gate.ir_node_id
+                                    ):
+                                        locked[(source_id, data_signal)] = "red"
+
+        # ===================================================================
+        # PART 4: Lock optimized arithmetic feedback (existing code)
+        # ===================================================================
         for entity_id, placement in self.layout_plan.entity_placements.items():
             if placement.properties.get("has_self_feedback"):
                 feedback_signal = placement.properties.get("feedback_signal")
