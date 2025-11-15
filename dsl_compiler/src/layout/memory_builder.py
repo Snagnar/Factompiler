@@ -1,7 +1,7 @@
 """Memory module construction for circuit-based memory cells."""
 
-from dataclasses import dataclass
-from typing import Dict, Optional, Any
+from dataclasses import dataclass, field
+from typing import Dict, Optional, Any, List
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.ir.builder import (
     IRNode,
@@ -42,6 +42,9 @@ class MemoryModule:
     hold_gate_unused: bool = False
     _feedback_connected: bool = False
     _has_write: bool = False
+
+    # Internal feedback signal IDs for signal_graph (used for layout only)
+    _feedback_signal_ids: List[str] = field(default_factory=list)
 
 
 class MemoryBuilder:
@@ -477,20 +480,54 @@ class MemoryBuilder:
         # ===================================================================
         # STEP 3: Set up bidirectional feedback loop between gates
         # ===================================================================
-        # Write gate output → hold gate input
-        signal_graph.set_source(
-            module.write_gate.ir_node_id, module.write_gate.ir_node_id
-        )
-        signal_graph.add_sink(module.write_gate.ir_node_id, module.hold_gate.ir_node_id)
+        # ✅ FIX: Use UNIQUE internal signal IDs for signal_graph (for layout proximity)
+        # but create DIRECT wire connections with actual signal (to avoid self-loops)
 
-        # Hold gate output → write gate input
-        signal_graph.set_source(
-            module.hold_gate.ir_node_id, module.hold_gate.ir_node_id
+        # Create unique internal signal identifiers to avoid signal_graph collisions
+        # These ensure the gates are placed close together during layout optimization
+        feedback_write_to_hold = f"__feedback_{op.memory_id}_w2h"
+        feedback_hold_to_write = f"__feedback_{op.memory_id}_h2w"
+
+        # Add feedback edges to signal_graph for LAYOUT purposes only
+        # Write gate → hold gate
+        signal_graph.set_source(feedback_write_to_hold, module.write_gate.ir_node_id)
+        signal_graph.add_sink(feedback_write_to_hold, module.hold_gate.ir_node_id)
+
+        # Hold gate → write gate
+        signal_graph.set_source(feedback_hold_to_write, module.hold_gate.ir_node_id)
+        signal_graph.add_sink(feedback_hold_to_write, module.write_gate.ir_node_id)
+
+        # Create DIRECT wire connections with the ACTUAL signal name
+        # These bypass the normal wire planning to avoid self-loops
+        # Write gate output → hold gate input (GREEN wire)
+        write_to_hold = WireConnection(
+            source_entity_id=module.write_gate.ir_node_id,
+            sink_entity_id=module.hold_gate.ir_node_id,
+            signal_name=module.signal_type,  # Use ACTUAL signal, not internal ID
+            wire_color="green",
+            source_side="output",
+            sink_side="input",
         )
-        signal_graph.add_sink(module.hold_gate.ir_node_id, module.write_gate.ir_node_id)
+        self.layout_plan.add_wire_connection(write_to_hold)
+
+        # Hold gate output → write gate input (GREEN wire)
+        hold_to_write = WireConnection(
+            source_entity_id=module.hold_gate.ir_node_id,
+            sink_entity_id=module.write_gate.ir_node_id,
+            signal_name=module.signal_type,  # Use ACTUAL signal, not internal ID
+            wire_color="green",
+            source_side="output",
+            sink_side="input",
+        )
+        self.layout_plan.add_wire_connection(hold_to_write)
+
+        # Store feedback signal IDs in module for later detection
+        module._feedback_signal_ids = [feedback_write_to_hold, feedback_hold_to_write]
 
         self.diagnostics.info(
-            f"Set up SR latch feedback loop for memory '{op.memory_id}' with proper signal routing to both gates"
+            f"Set up SR latch feedback loop for memory '{op.memory_id}': "
+            f"added internal edges to signal_graph for layout, "
+            f"created direct GREEN wire connections for actual signal '{module.signal_type}'"
         )
 
     def _make_debug_info(self, op, role) -> Dict[str, Any]:

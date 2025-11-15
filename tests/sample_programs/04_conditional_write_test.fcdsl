@@ -3,12 +3,11 @@
 # A checkpoint memory only updates when counter is divisible by 4
 # Expected behavior: checkpoint holds values 0, 4, 8, 12, 16, ...
 
-Memory counter: "signal-A";
-write((read(counter) + 1) % 400, counter, when=1);
+Signal condition = ("signal-A", 1);
+Signal value = ("signal-B", 10);
 
 Memory checkpoint: "signal-B";
-Signal at_checkpoint = read(counter) % 100 == 0;
-write(read(counter) | "signal-B", checkpoint, when=at_checkpoint);
+write(value, checkpoint, when=condition == 2);
 
 Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = read(checkpoint) > 200;

@@ -262,17 +262,51 @@ class ConnectionPlanner:
         expanded_edges = self._expand_merge_edges(
             base_edges, wire_merge_junctions, entities
         )
+
+        # Filter out internal feedback signal edges (they're already wired directly)
+        filtered_edges = []
+        for edge in expanded_edges:
+            if self._is_internal_feedback_signal(edge.resolved_signal_name):
+                self.diagnostics.info(
+                    f"Filtered out internal feedback signal edge: "
+                    f"{edge.source_entity_id} -> {edge.sink_entity_id} ({edge.resolved_signal_name})"
+                )
+                continue
+            filtered_edges.append(edge)
+
+        self.diagnostics.info(
+            f"Filtered {len(expanded_edges) - len(filtered_edges)} internal feedback edges "
+            f"({len(filtered_edges)} edges remaining for wire planning)"
+        )
+        expanded_edges = filtered_edges
         self._circuit_edges = expanded_edges
 
         self._log_multi_source_conflicts(expanded_edges, entities)
 
-        coloring_result = plan_wire_colors(expanded_edges, locked_colors)
+        # ✅ FIX: Filter out memory feedback edges from wire coloring
+        # Memory feedback edges always use GREEN wire and should not participate
+        # in the bipartite graph coloring algorithm
+        non_feedback_edges = [
+            edge
+            for edge in expanded_edges
+            if not self._is_memory_feedback_edge(
+                edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name
+            )
+        ]
+
+        if len(expanded_edges) != len(non_feedback_edges):
+            self.diagnostics.info(
+                f"Filtered {len(expanded_edges) - len(non_feedback_edges)} memory feedback edges from wire coloring "
+                f"({len(non_feedback_edges)} edges remaining)"
+            )
+
+        coloring_result = plan_wire_colors(non_feedback_edges, locked_colors)
         self._node_color_assignments = coloring_result.assignments
         self._coloring_conflicts = coloring_result.conflicts
         self._coloring_success = coloring_result.is_bipartite
 
         edge_color_map: Dict[Tuple[str, str, str], str] = {}
-        for edge in expanded_edges:
+        for edge in non_feedback_edges:  # ✅ Only map non-feedback edges
             if not edge.source_entity_id:
                 continue
             node_key = (edge.source_entity_id, edge.resolved_signal_name)
@@ -476,18 +510,22 @@ class ConnectionPlanner:
         Feedback edges (write_gate ↔ hold_gate) must use GREEN wire while
         data/enable connections use RED wire to prevent signal interference.
 
-        The feedback edges use the entity IDs themselves as signal names, e.g.:
-        - write_gate outputs on signal "write_gate_id" to hold_gate
-        - hold_gate outputs on signal "hold_gate_id" to write_gate
+        NOTE: With the new approach, feedback edges are created directly and
+        internal feedback signal IDs are filtered out before wire planning.
+        This function is now mainly for documentation and edge cases.
         """
         from .memory_builder import MemoryModule
 
         if not self._memory_modules:
-            self.diagnostics.debug(
-                "_is_memory_feedback_edge: No memory modules available"
-            )
             return False
 
+        # First check: is this an internal feedback signal ID?
+        # (These should be filtered out already, but check to be safe)
+        if self._is_internal_feedback_signal(signal_name):
+            return True
+
+        # Second check: is this an actual signal between memory gates?
+        # (This handles the direct wire connections we created)
         for module in self._memory_modules.values():
             if not isinstance(module, MemoryModule):
                 continue
@@ -502,19 +540,53 @@ class ConnectionPlanner:
             write_id = module.write_gate.ir_node_id
             hold_id = module.hold_gate.ir_node_id
 
-            # Check for feedback edges (signal name is the source entity ID)
-            # write_gate -> hold_gate with signal = write_gate_id
-            if source_id == write_id and sink_id == hold_id and signal_name == write_id:
-                self.diagnostics.info(
-                    f"✅ Detected memory feedback edge: {source_id} -> {sink_id} (signal={signal_name})"
-                )
+            # Check for feedback edges using ACTUAL SIGNAL TYPE
+            # write_gate -> hold_gate carrying the memory signal
+            if (
+                source_id == write_id
+                and sink_id == hold_id
+                and signal_name == module.signal_type
+            ):
                 return True
-            # hold_gate -> write_gate with signal = hold_gate_id
-            if source_id == hold_id and sink_id == write_id and signal_name == hold_id:
-                self.diagnostics.info(
-                    f"✅ Detected memory feedback edge: {source_id} -> {sink_id} (signal={signal_name})"
-                )
+
+            # hold_gate -> write_gate carrying the memory signal
+            if (
+                source_id == hold_id
+                and sink_id == write_id
+                and signal_name == module.signal_type
+            ):
                 return True
+
+        return False
+
+    def _is_internal_feedback_signal(self, signal_name: str) -> bool:
+        """Check if a signal name is an internal feedback identifier.
+
+        Internal feedback signals are used in signal_graph for layout proximity
+        but should not be wired (direct wire connections are created instead).
+        """
+        from .memory_builder import MemoryModule
+
+        # Check pattern: __feedback_*_w2h or __feedback_*_h2w
+        if not signal_name.startswith("__feedback_"):
+            return False
+
+        # Verify this matches a known memory module's feedback signals
+        for module in self._memory_modules.values():
+            if not isinstance(module, MemoryModule):
+                continue
+
+            if hasattr(module, "_feedback_signal_ids"):
+                if signal_name in module._feedback_signal_ids:
+                    # Don't log - too verbose
+                    return True
+
+        # If pattern matches but no module found, still filter it to be safe
+        if signal_name.startswith("__feedback_"):
+            self.diagnostics.warning(
+                f"Found feedback-like signal '{signal_name}' but no matching module"
+            )
+            return True
 
         return False
 
