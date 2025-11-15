@@ -443,20 +443,16 @@ class MemoryBuilder:
             return
 
         # ===================================================================
-        # STEP 1: Connect data signal to BOTH gates
+        # STEP 1: Connect data signal to WRITE GATE ONLY
         # ===================================================================
         if isinstance(op.data_signal, SignalRef):
-            # Connect to write gate
+            # Connect to write gate ONLY
+            # Hold gate should NOT receive data - only feedback and enable
             signal_graph.add_sink(
                 op.data_signal.source_id, module.write_gate.ir_node_id
             )
             self.diagnostics.info(
                 f"Connected data signal {op.data_signal.source_id} → write_gate {module.write_gate.ir_node_id}"
-            )
-            # Connect to hold gate (KEY FIX #1)
-            signal_graph.add_sink(op.data_signal.source_id, module.hold_gate.ir_node_id)
-            self.diagnostics.info(
-                f"Connected data signal {op.data_signal.source_id} → hold_gate {module.hold_gate.ir_node_id}"
             )
 
         # ===================================================================

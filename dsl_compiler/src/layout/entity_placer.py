@@ -517,6 +517,9 @@ class EntityPlacer:
         # Delegate memory cleanup to memory builder
         self.memory_builder.cleanup_unused_gates(self.plan, self.signal_graph)
 
+        # ✅ Copy memory modules from builder for later use in wiring
+        self._memory_modules = self.memory_builder._modules
+
         # Remove inlined comparisons
         entities_to_remove = []
         for entity_id, placement in list(self.plan.entity_placements.items()):

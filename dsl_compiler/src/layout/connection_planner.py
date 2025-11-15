@@ -221,6 +221,9 @@ class ConnectionPlanner:
         self._coloring_success = True
         self._relay_counter = 0
 
+        # ✅ Initialize for memory feedback detection
+        self._memory_modules: Dict[str, Any] = {}
+
         # Create relay network for shared infrastructure
         self.relay_network = RelayNetwork(
             self.tile_grid,
@@ -465,16 +468,80 @@ class ConnectionPlanner:
         # Other entities don't need sides specified
         return None
 
+    def _is_memory_feedback_edge(
+        self, source_id: str, sink_id: str, signal_name: str
+    ) -> bool:
+        """Check if an edge is a memory SR latch feedback connection.
+
+        Feedback edges (write_gate ↔ hold_gate) must use GREEN wire while
+        data/enable connections use RED wire to prevent signal interference.
+
+        The feedback edges use the entity IDs themselves as signal names, e.g.:
+        - write_gate outputs on signal "write_gate_id" to hold_gate
+        - hold_gate outputs on signal "hold_gate_id" to write_gate
+        """
+        from .memory_builder import MemoryModule
+
+        if not self._memory_modules:
+            self.diagnostics.debug(
+                "_is_memory_feedback_edge: No memory modules available"
+            )
+            return False
+
+        for module in self._memory_modules.values():
+            if not isinstance(module, MemoryModule):
+                continue
+
+            # Only check standard SR latches (not optimized memories)
+            if module.optimization is not None:
+                continue
+
+            if not module.write_gate or not module.hold_gate:
+                continue
+
+            write_id = module.write_gate.ir_node_id
+            hold_id = module.hold_gate.ir_node_id
+
+            # Check for feedback edges (signal name is the source entity ID)
+            # write_gate -> hold_gate with signal = write_gate_id
+            if source_id == write_id and sink_id == hold_id and signal_name == write_id:
+                self.diagnostics.info(
+                    f"✅ Detected memory feedback edge: {source_id} -> {sink_id} (signal={signal_name})"
+                )
+                return True
+            # hold_gate -> write_gate with signal = hold_gate_id
+            if source_id == hold_id and sink_id == write_id and signal_name == hold_id:
+                self.diagnostics.info(
+                    f"✅ Detected memory feedback edge: {source_id} -> {sink_id} (signal={signal_name})"
+                )
+                return True
+
+        return False
+
     def _populate_wire_connections(self) -> None:
         for edge in self._circuit_edges:
             if not edge.source_entity_id or not edge.sink_entity_id:
                 continue
 
-            color = self._edge_color_map.get(
-                (edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name)
-            )
-            if color is None:
-                color = WIRE_COLORS[0]
+            # ✅ Check if this is a memory feedback edge - must use GREEN
+            if self._is_memory_feedback_edge(
+                edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name
+            ):
+                color = "green"
+                self.diagnostics.info(
+                    f"🟢 Assigned GREEN wire to feedback edge: {edge.source_entity_id} -> {edge.sink_entity_id}"
+                )
+            else:
+                # Use normally assigned color
+                color = self._edge_color_map.get(
+                    (
+                        edge.source_entity_id,
+                        edge.sink_entity_id,
+                        edge.resolved_signal_name,
+                    )
+                )
+                if color is None:
+                    color = WIRE_COLORS[0]
 
             # Determine connection sides for combinators
             source_side = self._get_connection_side(

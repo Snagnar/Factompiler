@@ -563,7 +563,11 @@ class LayoutPlanner:
             power_pole_type=self.power_pole_type,
         )
 
+        # ✅ Pass memory modules for feedback edge detection
+        self.connection_planner._memory_modules = self._memory_modules
+
         locked_colors = self._determine_locked_wire_colors()
+
         self.connection_planner.plan_connections(
             self.signal_graph,
             self.layout_plan.entity_placements,
@@ -595,18 +599,27 @@ class LayoutPlanner:
         Returns:
             Dict mapping (entity_id, signal_name) → wire_color
         """
+        from .memory_builder import MemoryModule
+
         locked = {}
 
         # Lock colors for non-optimized memory hold gates (standard SR latch)
         for module in self._memory_modules.values():
-            for component_name, placement in module.items():
-                if component_name == "hold_gate":
-                    if not hasattr(placement, "properties"):
-                        continue
-                    # Memory hold gate output must use red wire for feedback loop stability
-                    signal_name = placement.properties.get("output_signal")
-                    if signal_name:
-                        locked[(placement.ir_node_id, signal_name)] = "red"
+            # ✅ Handle MemoryModule objects directly
+            if isinstance(module, MemoryModule):
+                # For standard SR latches (non-optimized), lock hold_gate to red
+                if module.optimization is None and module.hold_gate:
+                    locked[(module.hold_gate.ir_node_id, module.signal_type)] = "red"
+            else:
+                # Legacy dict format (deprecated, for backwards compatibility)
+                for component_name, placement in module.items():
+                    if component_name == "hold_gate":
+                        if not hasattr(placement, "properties"):
+                            continue
+                        # Memory hold gate output must use red wire for feedback loop stability
+                        signal_name = placement.properties.get("output_signal")
+                        if signal_name:
+                            locked[(placement.ir_node_id, signal_name)] = "red"
 
         # ✅ NEW: Lock colors for optimized arithmetic feedback combinators
         # These use self-feedback wires hardcoded to red, so we must prevent
