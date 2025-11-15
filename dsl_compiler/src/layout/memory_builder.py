@@ -486,19 +486,15 @@ class MemoryBuilder:
         # ✅ FIX: Use UNIQUE internal signal IDs for signal_graph (for layout proximity)
         # but create DIRECT wire connections with actual signal (to avoid self-loops)
 
-        # Create unique internal signal identifiers to avoid signal_graph collisions
-        # These ensure the gates are placed close together during layout optimization
+        # Create unique internal signal identifier to avoid signal_graph collisions
+        # This ensures the gates are placed close together during layout optimization
         feedback_write_to_hold = f"__feedback_{op.memory_id}_w2h"
-        feedback_hold_to_write = f"__feedback_{op.memory_id}_h2w"
 
-        # Add feedback edges to signal_graph for LAYOUT purposes only
-        # Write gate → hold gate
+        # Add feedback edge to signal_graph for LAYOUT purposes only
+        # Only forward feedback: write gate → hold gate
+        # (No reverse edge since we use unidirectional topology)
         signal_graph.set_source(feedback_write_to_hold, module.write_gate.ir_node_id)
         signal_graph.add_sink(feedback_write_to_hold, module.hold_gate.ir_node_id)
-
-        # Hold gate → write gate
-        signal_graph.set_source(feedback_hold_to_write, module.hold_gate.ir_node_id)
-        signal_graph.add_sink(feedback_hold_to_write, module.write_gate.ir_node_id)
 
         # Create DIRECT wire connections with the ACTUAL signal name
         # Use RED wire for data/feedback channel (signal-B)

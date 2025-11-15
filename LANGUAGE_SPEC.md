@@ -1,7 +1,7 @@
 # Factorio Circuit DSL Language Specification
 
-**Version 2.0**  
-**Date: November 14, 2025**
+**Version 2.1**  
+**Date: November 15, 2025**
 
 This document provides a complete specification of the Factorio Circuit DSL (Domain Specific Language) as currently implemented. The DSL compiles to Factorio 2.0 blueprint strings that can be imported into the game.
 
@@ -480,14 +480,43 @@ If omitted, `when=1` (constant enable) is assumed.
 
 #### SR Latch Architecture (Standard)
 
-For conditional writes, the compiler generates an SR latch:
+For conditional writes, the compiler generates an SR latch with the following architecture:
 
+**Combinator Configuration:**
 ```
-Write Gate: if (signal-W > 0) then output = data_signal
-Hold Gate:  if (signal-W == 0) then output = previous_value
+Write Gate (Decider): if (signal-W > 0) then output = data_signal
+Hold Gate (Decider):  if (signal-W == 0) then output = data_signal
 ```
 
-The two gates' outputs are wired together on red wire, creating the feedback loop.
+**Wire Color Strategy:**
+- **RED wires**: Data and feedback signals (e.g., signal-A, signal-B, iron-plate)
+- **GREEN wires**: Control signal (signal-W write enable)
+
+This wire color separation is **critical** for correctness. If control and data signals used the same wire color, they would sum at combinator inputs, causing incorrect behavior.
+
+**Feedback Topology:**
+
+The SR latch uses a **unidirectional forward feedback + self-loop** topology:
+
+1. **Data Input** → Write Gate (RED wire)
+2. **Write Gate Output** → Hold Gate Input (RED wire, forward feedback)
+3. **Hold Gate Output** → Hold Gate Input (RED wire, self-loop)
+4. **Control Signal (signal-W)** → Both Gates (GREEN wire)
+
+**Why This Works:**
+
+- **Write Phase** (signal-W > 0): Write gate outputs the new data value, which feeds into hold gate
+- **Hold Phase** (signal-W == 0): Hold gate outputs its stored value, which feeds back to itself (self-loop), maintaining the value
+- **Key Design**: Write gate never receives feedback, preventing value accumulation
+
+**Wire Diagram:**
+```
+Data Signal ──RED──> Write Gate ──RED──> Hold Gate ──RED──> Output
+                         ↑                    |              
+Control (signal-W) GREEN─┘          RED self-loop
+                         |                    |
+                    GREEN└────────────────────┘
+```
 
 #### Arithmetic Feedback Optimization
 
@@ -535,6 +564,8 @@ Signal ok = ("signal-A", 5);   # OK
 ```
 
 The compiler enforces this at compile time.
+
+**Wire Color Assignment:** The `signal-W` control signal is automatically routed on **GREEN wires** to all memory gates, while data and feedback signals use **RED wires**. This color separation prevents signal summation at combinator inputs, which would cause incorrect memory behavior.
 
 ---
 
@@ -817,9 +848,15 @@ The DSL respects these categories and validates signal names against the Factori
 
 Factorio has two circuit wire colors: **red** and **green**.
 
-The compiler's **wire router** automatically assigns colors to avoid conflicts when multiple sources produce the same signal type to the same destination.
+The compiler's **wire router** automatically assigns colors to avoid conflicts when multiple sources produce the same signal type to the same destination. Additionally, the compiler uses wire colors strategically for memory systems:
 
-**Example of Conflict:**
+**Memory Wire Color Strategy:**
+- **RED wires**: Data signals and feedback loops (e.g., signal-A, signal-B, iron-plate)
+- **GREEN wires**: Control signals (signal-W for memory write enable)
+
+This separation prevents signal summation at combinator inputs. For example, if a memory's data signal (signal-B) and control signal (signal-W) both arrived on RED wires at the write gate, they would sum together, causing incorrect behavior.
+
+**Example of Automatic Color Assignment:**
 
 ```fcdsl
 Signal a = ("signal-A", 10);
