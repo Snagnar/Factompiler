@@ -429,50 +429,72 @@ class MemoryBuilder:
     def _setup_standard_write(
         self, op: IR_MemWrite, module: MemoryModule, signal_graph: SignalGraph
     ):
-        """Set up standard SR latch write."""
-        # For standard SR latch, we need to connect:
-        # 1. data_signal → write_gate (provides the value to write)
-        # 2. write_enable → write_gate (provides signal-W enable)
-        # 3. write_gate ↔ hold_gate (feedback loop)
+        """Set up standard SR latch write.
 
+        CRITICAL: Both gates must receive ALL input signals for proper SR latch behavior:
+        - Data signal must go to both gates (so hold gate has data to hold)
+        - Write enable (signal-W) must go to both gates (so each gate knows when to activate)
+        - Feedback loop connects both gates' outputs to both gates' inputs
+        """
         if not module.write_gate or not module.hold_gate:
             self.diagnostics.warning(
                 f"Cannot setup standard write for {op.memory_id}: missing gates"
             )
             return
 
-        # Add data_signal as a sink for the write_gate
+        # ===================================================================
+        # STEP 1: Connect data signal to BOTH gates
+        # ===================================================================
         if isinstance(op.data_signal, SignalRef):
+            # Connect to write gate
             signal_graph.add_sink(
                 op.data_signal.source_id, module.write_gate.ir_node_id
             )
             self.diagnostics.info(
                 f"Connected data signal {op.data_signal.source_id} → write_gate {module.write_gate.ir_node_id}"
             )
+            # Connect to hold gate (KEY FIX #1)
+            signal_graph.add_sink(op.data_signal.source_id, module.hold_gate.ir_node_id)
+            self.diagnostics.info(
+                f"Connected data signal {op.data_signal.source_id} → hold_gate {module.hold_gate.ir_node_id}"
+            )
 
-        # Add write_enable as a sink for the write_gate
+        # ===================================================================
+        # STEP 2: Connect write enable (signal-W) to BOTH gates
+        # ===================================================================
         if isinstance(op.write_enable, SignalRef):
+            # Connect to write gate
             signal_graph.add_sink(
                 op.write_enable.source_id, module.write_gate.ir_node_id
             )
             self.diagnostics.info(
                 f"Connected write_enable {op.write_enable.source_id} → write_gate {module.write_gate.ir_node_id}"
             )
+            # Connect to hold gate (KEY FIX #2)
+            signal_graph.add_sink(
+                op.write_enable.source_id, module.hold_gate.ir_node_id
+            )
+            self.diagnostics.info(
+                f"Connected write_enable {op.write_enable.source_id} → hold_gate {module.hold_gate.ir_node_id}"
+            )
 
-        # Set up feedback: write_gate output → hold_gate input
+        # ===================================================================
+        # STEP 3: Set up bidirectional feedback loop between gates
+        # ===================================================================
+        # Write gate output → hold gate input
         signal_graph.set_source(
             module.write_gate.ir_node_id, module.write_gate.ir_node_id
         )
         signal_graph.add_sink(module.write_gate.ir_node_id, module.hold_gate.ir_node_id)
 
-        # Set up feedback: hold_gate output → write_gate input
+        # Hold gate output → write gate input
         signal_graph.set_source(
             module.hold_gate.ir_node_id, module.hold_gate.ir_node_id
         )
         signal_graph.add_sink(module.hold_gate.ir_node_id, module.write_gate.ir_node_id)
 
         self.diagnostics.info(
-            f"Set up SR latch feedback loop for memory '{op.memory_id}'"
+            f"Set up SR latch feedback loop for memory '{op.memory_id}' with proper signal routing to both gates"
         )
 
     def _make_debug_info(self, op, role) -> Dict[str, Any]:
