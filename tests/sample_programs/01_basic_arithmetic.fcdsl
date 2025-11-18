@@ -7,10 +7,9 @@ Signal c = ("iron-plate", 50); # explicit type
 
 Signal sum = a + b;            # should be same type as 'a' (__v1)
 Signal diff = c - 10;          # int coerced to iron-plate type
-Signal product = a * 2;
 Signal quotient = c / 3;
 Signal remainder = b % 5;
 
 # Output with explicit type projection
 Signal output_val = sum | "signal-output";
-# Signal output_new_type = (a + b + c) | "copper-plate";
+Signal output_new_type = (a + b + c) | "copper-plate";

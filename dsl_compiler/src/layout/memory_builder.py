@@ -349,6 +349,29 @@ class MemoryBuilder:
         module.write_gate_unused = True
         module.hold_gate_unused = True
 
+        # Update signal graph: replace all memory-related sources with arithmetic combinator
+
+        # 1. Update the memory IR node itself
+        if op.memory_id in signal_graph._sources:
+            old_sources = signal_graph._sources[op.memory_id]
+            self.diagnostics.info(
+                f"Clearing old sources for {op.memory_id}: {old_sources}"
+            )
+            signal_graph._sources[op.memory_id] = []
+        signal_graph.set_source(op.memory_id, arith_node_id)
+
+        # 2. Update all read operations from this memory
+        for read_id, mem_id in self._read_sources.items():
+            if mem_id == op.memory_id:
+                # This read is from the memory we're optimizing
+                if read_id in signal_graph._sources:
+                    old_read_sources = signal_graph._sources[read_id]
+                    self.diagnostics.info(
+                        f"Updating read {read_id} sources from {old_read_sources} to [{arith_node_id}]"
+                    )
+                    signal_graph._sources[read_id] = []
+                signal_graph.set_source(read_id, arith_node_id)
+
         # Remove stale signal graph references to unused gates
         if module.write_gate:
             for signal_id in list(signal_graph._sinks.keys()):

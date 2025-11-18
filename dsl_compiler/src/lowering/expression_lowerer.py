@@ -110,18 +110,65 @@ class ExpressionLowerer:
         self._error(f"Undefined identifier: {name}", expr)
         return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
+    def _get_actual_type_from_ref(
+        self, value_ref: ValueRef, semantic_type: ValueInfo
+    ) -> ValueInfo:
+        """Get actual type from a lowered ValueRef, accounting for function parameters.
+
+        When inside a function, parameter references may have different types than
+        their semantic analysis types. This method extracts the actual signal type
+        from the ValueRef if possible.
+        """
+        from dsl_compiler.src.semantic.type_system import SignalValue, SignalTypeInfo
+
+        if isinstance(value_ref, SignalRef):
+            # Extract signal type from the ref
+            signal_type_name = value_ref.signal_type
+            if signal_type_name and signal_type_name != (
+                semantic_type.signal_type.name
+                if isinstance(semantic_type, SignalValue)
+                else None
+            ):
+                # The actual signal type differs from semantic type (function parameter case)
+                return SignalValue(
+                    signal_type=SignalTypeInfo(
+                        name=signal_type_name, is_implicit=True, is_virtual=True
+                    )
+                )
+
+        return semantic_type
+
     # ------------------------------------------------------------------
     # Binary operations
     # ------------------------------------------------------------------
 
     def lower_binary_op(self, expr: BinaryOp) -> ValueRef:
         left_type = self.semantic.get_expr_type(expr.left)
-        self.semantic.get_expr_type(expr.right)
+        right_type = self.semantic.get_expr_type(expr.right)
         result_type = self.semantic.get_expr_type(expr)
 
         left_signal_type = (
             left_type.signal_type.name if isinstance(left_type, SignalValue) else None
         )
+
+        # Lower operands first to get actual ValueRefs
+        left_ref = self.lower_expr(expr.left)
+        right_ref = self.lower_expr(expr.right)
+
+        # If inside function call and operands are parameters, use actual argument types
+        # instead of semantic parameter types for better signal reuse
+        actual_left_type = self._get_actual_type_from_ref(left_ref, left_type)
+        actual_right_type = self._get_actual_type_from_ref(right_ref, right_type)
+
+        # Recompute result type based on actual operand types if we're in a function
+        if actual_left_type != left_type or actual_right_type != right_type:
+            # Recompute using the same logic as semantic analysis
+            if isinstance(actual_left_type, SignalValue):
+                result_type = actual_left_type
+                left_signal_type = actual_left_type.signal_type.name
+            elif isinstance(actual_right_type, SignalValue):
+                result_type = actual_right_type
+                left_signal_type = actual_right_type.signal_type.name
 
         # Determine output signal type for the operation
         if isinstance(result_type, SignalValue):
@@ -146,9 +193,6 @@ class ExpressionLowerer:
                     self.parent.ensure_signal_registered(output_type, left_signal_type)
                     return self.ir_builder.const(output_type, folded, expr)
                 return folded
-
-        left_ref = self.lower_expr(expr.left)
-        right_ref = self.lower_expr(expr.right)
 
         merge_candidate = self._attempt_wire_merge(
             expr, left_ref, right_ref, result_type
@@ -204,8 +248,17 @@ class ExpressionLowerer:
     # ------------------------------------------------------------------
 
     def lower_unary_op(self, expr: UnaryOp) -> ValueRef:
-        operand_ref = self.lower_expr(expr.expr)
+        operand_type = self.semantic.get_expr_type(expr.expr)
         result_type = self.semantic.get_expr_type(expr)
+
+        operand_ref = self.lower_expr(expr.expr)
+
+        # If inside function call and operand is parameter, use actual argument type
+        actual_operand_type = self._get_actual_type_from_ref(operand_ref, operand_type)
+        if actual_operand_type != operand_type:
+            # Unary ops preserve operand type
+            result_type = actual_operand_type
+
         if isinstance(result_type, SignalValue):
             output_type = result_type.signal_type.name
         else:
@@ -314,6 +367,12 @@ class ExpressionLowerer:
             ref.signal_type = signal_name
             ref.output_type = signal_name
             return ref
+
+        # Semantic returned IntValue - this is a bare number constant
+        # Unwrap and return as integer, not a signal
+        # (e.g., "7" in "7 + a" should be integer constant)
+        if isinstance(semantic_type, IntValue):
+            return self.lower_expr(expr.value)
 
         # Fallback: allocate fresh implicit (shouldn't happen in well-typed code)
         signal_name = self.ir_builder.allocate_implicit_type()

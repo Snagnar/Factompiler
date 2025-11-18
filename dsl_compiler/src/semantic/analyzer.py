@@ -343,6 +343,16 @@ class SemanticAnalyzer(ASTVisitor):
                     node=expr,
                 )
 
+            # Convert IntValue to SignalValue for write() value argument
+            if isinstance(value_type, IntValue):
+                # Allocate implicit signal type for bare integer constants in write()
+                implicit_signal_type = self.allocate_implicit_type()
+                value_type = SignalValue(
+                    signal_type=implicit_signal_type,
+                    count_expr=expr.value,
+                )
+                expr.value_type = value_type
+
             if not isinstance(value_type, SignalValue):
                 self.diagnostics.error(
                     "write() expects a Signal value; provide a signal literal or projection.",
@@ -456,10 +466,18 @@ class SemanticAnalyzer(ASTVisitor):
                     )
                 # Explicit type
                 signal_type = SignalTypeInfo(name=expr.signal_type)
+                return SignalValue(signal_type=signal_type, count_expr=expr.value)
             else:
-                # Implicit type
-                signal_type = self.allocate_implicit_type()
-            return SignalValue(signal_type=signal_type, count_expr=expr.value)
+                # Bare number literal (signal_type is None)
+                # These are syntactic sugar: "7" is parsed as SignalLiteral(NumberLiteral(7), None)
+                # Treat as integer constant for type propagation (Int + Signal -> Signal)
+                # Only allocate implicit signal type when used in Signal declaration context
+                if isinstance(expr.value, NumberLiteral):
+                    return IntValue()
+                else:
+                    # Non-number expression without explicit type - allocate implicit type
+                    signal_type = self.allocate_implicit_type()
+                    return SignalValue(signal_type=signal_type, count_expr=expr.value)
 
         elif isinstance(expr, CallExpr):
             self.visit_CallExpr(expr)

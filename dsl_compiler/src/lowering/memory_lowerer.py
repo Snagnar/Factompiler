@@ -58,6 +58,9 @@ class MemoryLowerer:
 
         self.parent.ensure_signal_registered(signal_type)
 
+        # Track the memory's signal type for later lookups
+        self.parent.memory_types[stmt.name] = signal_type
+
         self.ir_builder.memory_create(memory_id, signal_type, stmt)
 
         if stmt.init_expr is not None:
@@ -80,10 +83,10 @@ class MemoryLowerer:
 
         memory_id = self.parent.memory_refs[memory_name]
 
-        symbol = self.semantic.symbol_table.lookup(memory_name)
-        if symbol and isinstance(symbol.value_type, SignalValue):
-            signal_type = symbol.value_type.signal_type.name
-        else:
+        # Get signal type from lowerer's tracking (handles function-local memories)
+        signal_type = self._memory_signal_type(memory_name)
+        if signal_type is None:
+            # Fall back to implicit type if not found
             signal_type = self.ir_builder.allocate_implicit_type()
 
         self.parent.ensure_signal_registered(signal_type)
@@ -166,10 +169,16 @@ class MemoryLowerer:
     # ------------------------------------------------------------------
 
     def _memory_signal_type(self, memory_name: str) -> Optional[str]:
+        # First check lowerer's runtime tracking (handles function-local memories)
+        if memory_name in self.parent.memory_types:
+            return self.parent.memory_types[memory_name]
+
+        # Fall back to semantic analyzer's memory_types
         mem_info = getattr(self.semantic, "memory_types", {}).get(memory_name)
         if mem_info and getattr(mem_info, "signal_type", None):
             return mem_info.signal_type
 
+        # Last resort: symbol table lookup
         symbol = self.semantic.symbol_table.lookup(memory_name)
         if symbol and isinstance(symbol.value_type, SignalValue):
             signal_info = symbol.value_type.signal_type

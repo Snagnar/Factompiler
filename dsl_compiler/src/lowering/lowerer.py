@@ -60,6 +60,9 @@ class ASTLowerer:
         # Symbol tables for IR references
         self.signal_refs: Dict[str, SignalRef] = {}
         self.memory_refs: Dict[str, str] = {}
+        self.memory_types: Dict[
+            str, str
+        ] = {}  # Track memory signal types during lowering
         self.entity_refs: Dict[str, str] = {}
         self.param_values: Dict[str, ValueRef] = {}
 

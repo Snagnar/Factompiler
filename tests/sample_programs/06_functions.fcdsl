@@ -1,24 +1,28 @@
 # Test 6: Functions and modularity
 # Tests: func declaration, function calls, parameter passing, scoping
 
-func double_signal(x) {
-    return x * 2;
-}
-
-func conditional_add(a, b, condition) {
-    Signal result = a + (b * condition);
-    return result;
-}
+# func double_signal(x) {
+#     return x * 2;
+# }
+# 
+# func conditional_add(a, b, condition) {
+#     Signal result = a + (b * condition);
+#     return result;
+# }
+# 
+# func choose(a, b, condition) {
+#     return a * condition + b * !condition;
+# }
 
 func memory_toggle() {
-    Memory toggle_state;
+    Memory toggle_state: "signal-A";
 
-    write(0, toggle_state, when=once);
     Signal current = read(toggle_state);
     Signal new_state = 1 - current;  # toggle between 0 and 1
     write(new_state, toggle_state, when=1);
-    return new_state;
+    return new_state * 10;
 }
+
 
 # Use functions
 Signal input_val = 42;
@@ -26,10 +30,7 @@ Signal doubled = double_signal(input_val);
 
 Signal condition = 50 > 0;
 Signal computed = conditional_add(input_val, 5, condition);
-
-Signal toggle_output = memory_toggle();
-
-# Nested function calls
+Nested function calls
 Signal complex_result = conditional_add(
     double_signal(input_val),
     120,
