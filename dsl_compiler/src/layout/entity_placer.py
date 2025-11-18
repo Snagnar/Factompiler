@@ -563,3 +563,67 @@ class EntityPlacer:
             new_signal_graph.add_sink(signal_id, sink_id)
             new_signal_graph.set_source(signal_id, source_id)
         self.signal_graph = new_signal_graph
+
+    def create_output_anchors(self) -> None:
+        """Create empty constant combinators for output signals with no consumers.
+
+        For each signal marked as is_output (which already implies it has a
+        variable name and no consumers), create an empty constant combinator
+        as an anchor point for viewing output values.
+        """
+        for signal_id, entry in self.signal_usage.items():
+            # is_output already checks: has debug_label, no consumers, named signal
+            if not entry.debug_metadata.get("is_output"):
+                continue
+
+            # Get the producer node
+            if not entry.producer:
+                continue
+
+            # Skip if producer is already a constant combinator
+            if isinstance(entry.producer, IR_Const):
+                continue
+
+            # Create empty constant combinator as output anchor
+            anchor_id = f"{signal_id}_output_anchor"
+
+            # Build debug info for the anchor
+            debug_info = {
+                "variable": entry.debug_label,
+                "operation": "output",
+                "details": "anchor",
+                "signal_type": entry.resolved_signal_name or entry.signal_type,
+            }
+
+            # Add location info from metadata
+            if "location" in entry.debug_metadata:
+                location = entry.debug_metadata["location"]
+                if ":" in location:
+                    file_part, line_part = location.rsplit(":", 1)
+                    debug_info["source_file"] = file_part
+                    try:
+                        debug_info["line"] = int(line_part)
+                    except ValueError:
+                        pass
+
+            # Create the placement
+            placement = EntityPlacement(
+                ir_node_id=anchor_id,
+                entity_type="constant-combinator",
+                position=None,  # Will be set by layout optimizer
+                properties={
+                    "signals": [],  # Empty constant combinator
+                    "footprint": (1, 1),
+                    "debug_info": debug_info,
+                },
+                role="output_anchor",
+            )
+            self.plan.add_placement(placement)
+
+            # Wire the producer's output to this anchor
+            # The anchor acts as a sink for the signal
+            self.signal_graph.add_sink(signal_id, anchor_id)
+
+            self.diagnostics.info(
+                f"Created output anchor '{anchor_id}' for signal '{entry.debug_label}'"
+            )

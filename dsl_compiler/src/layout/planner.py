@@ -115,6 +115,9 @@ class LayoutPlanner:
         for op in ir_operations:
             placer.place_ir_operation(op)
 
+        # Create output anchor combinators for signals with no consumers
+        placer.create_output_anchors()
+
         # Clean up optimized-away entities
         placer.cleanup_unused_entities()
 
@@ -130,7 +133,7 @@ class LayoutPlanner:
             entity_placements=self.layout_plan.entity_placements,
             diagnostics=self.diagnostics,
         )
-        optimized_positions = layout_engine.optimize(time_limit_seconds=30)
+        optimized_positions = layout_engine.optimize(time_limit_seconds=5)
 
         # Convert tile positions (integer grid) to center positions (may be half-integer)
         # The solver returns tile coordinates (top-left corner), but Factorio/Draftsman

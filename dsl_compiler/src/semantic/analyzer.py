@@ -663,8 +663,79 @@ class SemanticAnalyzer(ASTVisitor):
         for stmt in node.statements:
             self.visit(stmt)
 
+    def _try_simplify_signal_projection(
+        self, proj_expr: ProjectionExpr
+    ) -> Optional[SignalLiteral]:
+        """
+        Try to simplify a projection of a literal to a direct signal literal.
+
+        Transforms:
+        - 50 | "signal-A" → ("signal-A", 50)
+        - ("copper-plate", 10) | "iron-plate" → ("iron-plate", 10)
+        - ((50 | "A") | "B") | "C" → ("C", 50) (recursive simplification)
+
+        This ensures we materialize only one constant combinator instead of
+        constant + arithmetic combinator.
+
+        Returns:
+            SignalLiteral if simplification is safe, None otherwise.
+        """
+        source = proj_expr.expr
+        target_type = proj_expr.target_type
+
+        # Case 1: NumberLiteral projection (e.g., 50 | "signal-A")
+        if isinstance(source, NumberLiteral):
+            return SignalLiteral(
+                value=source,
+                signal_type=target_type,
+                line=proj_expr.line,
+                column=proj_expr.column,
+                raw_text=proj_expr.raw_text,
+            )
+
+        # Case 2: SignalLiteral projection (e.g., ("copper", 50) | "iron-plate")
+        # Extract the inner value and apply the new type
+        if isinstance(source, SignalLiteral):
+            return SignalLiteral(
+                value=source.value,  # Keep the original value expression
+                signal_type=target_type,
+                line=proj_expr.line,
+                column=proj_expr.column,
+                raw_text=proj_expr.raw_text,
+            )
+
+        # Case 3: Nested projection (e.g., (50 | "A") | "B")
+        # Recursively simplify the inner projection first
+        if isinstance(source, ProjectionExpr):
+            inner_simplified = self._try_simplify_signal_projection(source)
+            if inner_simplified is not None:
+                # Inner simplified successfully, now apply outer projection
+                return SignalLiteral(
+                    value=inner_simplified.value,
+                    signal_type=target_type,
+                    line=proj_expr.line,
+                    column=proj_expr.column,
+                    raw_text=proj_expr.raw_text,
+                )
+
+        # Case 4: Identifier projection - NOT simplified
+        # Even with single consumer, we don't simplify to preserve user expectations.
+        # If user writes: Signal a = 5; Signal b = a | "type";
+        # They expect 'a' to be materialized, not optimized away.
+
+        # Cannot simplify
+        return None
+
     def visit_DeclStmt(self, node: DeclStmt) -> None:
         """Analyze typed declaration statement."""
+        # Try to simplify signal literal projections before type checking
+        # This transforms: Signal x = 50 | "signal-A"
+        # Into: Signal x = ("signal-A", 50)
+        if node.type_name == "Signal" and isinstance(node.value, ProjectionExpr):
+            simplified = self._try_simplify_signal_projection(node.value)
+            if simplified is not None:
+                node.value = simplified
+
         # Check that the value expression matches the declared type
         value_type = self.get_expr_type(node.value)
 

@@ -157,7 +157,7 @@ def setup_logging(level: str) -> None:
 @click.option(
     "--log-level",
     type=click.Choice(["debug", "info", "warning", "error"], case_sensitive=False),
-    default="error",
+    default="warning",
     help="Set the logging level",
 )
 @click.option("--no-optimize", is_flag=True, help="Disable IR optimizations")

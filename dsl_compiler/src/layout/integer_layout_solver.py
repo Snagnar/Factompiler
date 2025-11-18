@@ -71,11 +71,8 @@ class IntegerLayoutEngine:
         for signal_id, source_id, sink_id in self.signal_graph.iter_source_sink_pairs():
             if source_id in self.entity_ids and sink_id in self.entity_ids:
                 self.connections.append((source_id, sink_id))
-            else:
-                self.diagnostics.warning(
-                    f"Signal '{signal_id}' connects unknown entities "
-                    f"'{source_id}' and/or '{sink_id}'"
-                )
+            # Silently skip connections involving non-materialized nodes (e.g., wire merges)
+            # These are virtual constructs that don't exist as physical entities
 
         # Remove duplicates
         self.connections = list(set(self.connections))

@@ -13,3 +13,4 @@ Signal remainder = b % 5;
 
 # Output with explicit type projection
 Signal output_val = sum | "signal-output";
+# Signal output_new_type = (a + b + c) | "copper-plate";

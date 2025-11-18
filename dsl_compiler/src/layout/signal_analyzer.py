@@ -422,9 +422,23 @@ class SignalAnalyzer:
                     category = "virtual"
                 break
 
+        # Handle unmapped implicit signals - allocate fresh Factorio signals
         if name is None and candidates:
-            name = candidates[0]
-            category = self._infer_category_from_name(name)
+            first_candidate = candidates[0]
+            # Check if this is an implicit signal (__v1, __v2, etc.)
+            if first_candidate and first_candidate.startswith("__v"):
+                # Allocate a fresh Factorio virtual signal
+                factorio_signal = self._allocate_factorio_virtual_signal()
+                # Register it in the signal type map
+                self.signal_type_map[first_candidate] = {
+                    "name": factorio_signal,
+                    "type": "virtual",
+                }
+                name = factorio_signal
+                category = "virtual"
+            else:
+                name = first_candidate
+                category = self._infer_category_from_name(name)
 
         if name is None:
             name = "signal-0"
@@ -492,3 +506,35 @@ class SignalAnalyzer:
         if name.startswith("signal-"):
             return "virtual"
         return "virtual"
+
+    def _allocate_factorio_virtual_signal(self) -> str:
+        """Allocate a fresh Factorio virtual signal (signal-A, signal-B, etc.)."""
+        # Track which signals are already allocated
+        if not hasattr(self, "_allocated_signals"):
+            self._allocated_signals = set()
+            # Pre-populate with signals already in the type map
+            for mapping in self.signal_type_map.values():
+                if isinstance(mapping, dict):
+                    self._allocated_signals.add(mapping.get("name"))
+                elif isinstance(mapping, str):
+                    self._allocated_signals.add(mapping)
+
+        # Allocate the next available signal-X
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        index = 0
+        while True:
+            # Generate signal name (signal-A, signal-B, ..., signal-Z, signal-AA, ...)
+            name = ""
+            temp = index
+            while True:
+                name = alphabet[temp % 26] + name
+                temp = temp // 26
+                if temp == 0:
+                    break
+                temp -= 1
+
+            signal_name = f"signal-{name}"
+            if signal_name not in self._allocated_signals:
+                self._allocated_signals.add(signal_name)
+                return signal_name
+            index += 1

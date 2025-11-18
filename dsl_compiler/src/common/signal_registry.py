@@ -49,11 +49,14 @@ class SignalTypeRegistry:
 
         Returns:
             The DSL signal key (e.g., "__v1")
+
+        Note: The implicit signal is NOT immediately mapped to a Factorio signal.
+        This allows the layout phase to determine the actual Factorio signal based
+        on whether the signal needs materialization.
         """
         self._implicit_counter += 1
         implicit_key = f"__v{self._implicit_counter}"
-        factorio_signal = self._virtual_signal_name(self._implicit_counter)
-        self.register(implicit_key, factorio_signal, "virtual")
+        # Don't register Factorio mapping yet - let layout phase decide
         return implicit_key
 
     def resolve(self, signal_key: str) -> Optional[Dict[str, str]]:

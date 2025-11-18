@@ -123,11 +123,15 @@ class ExpressionLowerer:
             left_type.signal_type.name if isinstance(left_type, SignalValue) else None
         )
 
+        # Determine output signal type for the operation
         if isinstance(result_type, SignalValue):
+            # Explicit signal type from semantic analysis (e.g., from projection)
             output_type = result_type.signal_type.name
-        elif isinstance(result_type, IntValue):
-            output_type = self.ir_builder.allocate_implicit_type()
+        elif isinstance(left_type, SignalValue):
+            # Use left operand's signal type for arithmetic (default channel)
+            output_type = left_type.signal_type.name
         else:
+            # Pure integer operation - allocate implicit signal
             output_type = self.ir_builder.allocate_implicit_type()
 
         left_const = ConstantFolder.extract_constant_int(expr.left, self.diagnostics)
@@ -282,6 +286,7 @@ class ExpressionLowerer:
     # ------------------------------------------------------------------
 
     def lower_signal_literal(self, expr: SignalLiteral) -> SignalRef:
+        # First check if there's an explicit signal type in the AST
         if expr.signal_type is not None:
             signal_name = expr.signal_type
             output_type = expr.signal_type
@@ -295,6 +300,22 @@ class ExpressionLowerer:
             ref.output_type = signal_name
             return ref
 
+        # No explicit type - check if semantic analysis assigned one
+        semantic_type = self.semantic.get_expr_type(expr)
+        if isinstance(semantic_type, SignalValue):
+            signal_name = semantic_type.signal_type.name
+            output_type = signal_name
+            self.parent.ensure_signal_registered(signal_name)
+            value_ref = self.lower_expr(expr.value)
+            if isinstance(value_ref, int):
+                ref = self.ir_builder.const(output_type, value_ref, expr)
+            else:
+                ref = self.ir_builder.const(output_type, 0, expr)
+            ref.signal_type = signal_name
+            ref.output_type = signal_name
+            return ref
+
+        # Fallback: allocate fresh implicit (shouldn't happen in well-typed code)
         signal_name = self.ir_builder.allocate_implicit_type()
         output_type = signal_name
         self.parent.ensure_signal_registered(signal_name)

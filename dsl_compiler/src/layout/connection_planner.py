@@ -352,13 +352,19 @@ class ConnectionPlanner:
 
         expanded: List[CircuitEdge] = []
         for edge in edges:
+            # Skip edges where the SINK is a wire_merge (those inputs are virtual)
+            if edge.sink_entity_id in wire_merge_junctions:
+                continue
+
+            # Check if SOURCE is a wire_merge junction
             source_id = edge.source_entity_id or ""
             merge_info = wire_merge_junctions.get(source_id)
             if not merge_info:
                 expanded.append(edge)
                 continue
 
-            for source_ref in merge_info.get("sources", []):
+            # Expand wire_merge source to its actual inputs
+            for source_ref in merge_info.get("inputs", []):
                 if not isinstance(source_ref, SignalRef):
                     continue
                 actual_source_id = source_ref.source_id
