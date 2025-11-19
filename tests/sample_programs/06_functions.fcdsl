@@ -30,7 +30,7 @@ Signal doubled = double_signal(input_val);
 
 Signal condition = 50 > 0;
 Signal computed = conditional_add(input_val, 5, condition);
-Nested function calls
+# Nested function calls
 Signal complex_result = conditional_add(
     double_signal(input_val),
     120,

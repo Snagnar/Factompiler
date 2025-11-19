@@ -121,6 +121,14 @@ class StatementLowerer:
                 signal_type = self.ir_builder.allocate_implicit_type()
 
             const_ref = self.ir_builder.const(signal_type, value_ref, stmt)
+
+            # Mark as user-declared constant
+            const_op = self.ir_builder.get_operation(const_ref.source_id)
+            if isinstance(const_op, IR_Const):
+                const_op.debug_metadata["user_declared"] = True
+                const_op.debug_metadata["declared_name"] = stmt.name
+                const_op.debug_label = stmt.name
+
             self.parent.signal_refs[stmt.name] = const_ref
             self.parent.annotate_signal_ref(stmt.name, const_ref, stmt)
 
@@ -180,6 +188,14 @@ class StatementLowerer:
                     signal_type = self.ir_builder.allocate_implicit_type()
 
                 const_ref = self.ir_builder.const(signal_type, value_ref, stmt)
+
+                # Mark as user-declared constant
+                const_op = self.ir_builder.get_operation(const_ref.source_id)
+                if isinstance(const_op, IR_Const):
+                    const_op.debug_metadata["user_declared"] = True
+                    const_op.debug_metadata["declared_name"] = stmt.target.name
+                    const_op.debug_label = stmt.target.name
+
                 self.parent.signal_refs[stmt.target.name] = const_ref
                 self.parent.annotate_signal_ref(stmt.target.name, const_ref, stmt)
                 return

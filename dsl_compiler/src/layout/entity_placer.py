@@ -185,6 +185,11 @@ class EntityPlacer:
                 )
                 debug_info["fold_count"] = len(folded_from)
 
+        # Check if this is a user-declared input constant
+        is_input = False
+        if hasattr(op, "debug_metadata") and op.debug_metadata.get("user_declared"):
+            is_input = True
+
         # Store placement in plan (NOT creating Draftsman entity yet!)
         placement = EntityPlacement(
             ir_node_id=op.node_id,
@@ -196,6 +201,7 @@ class EntityPlacer:
                 "value": op.value,
                 "footprint": (1, 2),
                 "debug_info": debug_info,
+                "is_input": is_input,  # Mark user-declared constants as inputs
             },
             role="literal",
         )
@@ -615,6 +621,7 @@ class EntityPlacer:
                     "signals": [],  # Empty constant combinator
                     "footprint": (1, 1),
                     "debug_info": debug_info,
+                    "is_output": True,  # Mark output anchors as outputs
                 },
                 role="output_anchor",
             )

@@ -56,7 +56,9 @@ class IntegerLayoutEngine:
         self.constraints = constraints or LayoutConstraints()
 
         # Extract entity data
-        self.entity_ids = sorted(entity_placements.keys())
+        # Preserve definition order (dict insertion order in Python 3.7+)
+        # This maintains source code order for left-to-right layout
+        self.entity_ids = list(entity_placements.keys())
         self.n_entities = len(self.entity_ids)
 
         # Build connectivity and extract entity properties
@@ -230,6 +232,9 @@ class IntegerLayoutEngine:
         # Add hard constraint: no overlaps
         self._add_no_overlap_constraint(model, positions)
 
+        # Add edge layout constraints (inputs north, outputs south)
+        self._add_edge_layout_constraints(model, positions)
+
         # Add soft constraint: wire span limit
         span_violations, wire_lengths = self._add_span_constraints(
             model, positions, strategy["max_span"]
@@ -327,6 +332,167 @@ class IntegerLayoutEngine:
             span_violations.append(is_violation)
 
         return span_violations, wire_lengths
+
+    def _add_edge_layout_constraints(
+        self, model: cp_model.CpModel, positions: Dict
+    ) -> None:
+        """Add constraints for north-south edge layout.
+
+        Strategy:
+        - All inputs share Y = Y_input_line (a variable)
+        - All outputs share Y = Y_output_line (a variable)
+        - All intermediates have Y strictly between these lines
+        - Horizontal ordering preserves definition order (no overlaps)
+        - Optimizer minimizes bounding box, naturally placing:
+          * Y_input_line at minimum feasible Y
+          * Y_output_line at maximum feasible Y
+
+        Args:
+            model: CP-SAT constraint model
+            positions: Dict mapping entity_id to (x, y) variables
+        """
+        # Categorize entities (skip user-fixed entities)
+        input_entities = []
+        output_entities = []
+        intermediate_entities = []
+
+        for entity_id in self.entity_ids:
+            # Skip entities with user-specified positions
+            if entity_id in self.fixed_positions:
+                continue
+
+            placement = self.entity_placements.get(entity_id)
+            if not placement:
+                continue
+
+            # Categorize by role
+            if placement.properties.get("is_input"):
+                input_entities.append(entity_id)
+            elif placement.properties.get("is_output"):
+                output_entities.append(entity_id)
+            else:
+                intermediate_entities.append(entity_id)
+
+        # If no inputs or outputs, no edge constraints needed
+        if not input_entities and not output_entities:
+            self.diagnostics.info(
+                "No edge layout constraints (no inputs/outputs marked)"
+            )
+            return
+
+        max_coord = self.constraints.max_coordinate
+
+        # ========================================================================
+        # Create shared Y-coordinate variables for input and output lines
+        # ========================================================================
+
+        Y_input_line = None
+        max_input_height = 0
+
+        if input_entities:
+            Y_input_line = model.NewIntVar(0, max_coord, "Y_input_line")
+            # Calculate maximum height among all inputs
+            max_input_height = max(
+                self.footprints.get(e, (1, 1))[1] for e in input_entities
+            )
+            self.diagnostics.info(
+                f"Edge layout: {len(input_entities)} inputs, max height {max_input_height}"
+            )
+
+        Y_output_line = None
+
+        if output_entities:
+            Y_output_line = model.NewIntVar(0, max_coord, "Y_output_line")
+            self.diagnostics.info(f"Edge layout: {len(output_entities)} outputs")
+
+        # ========================================================================
+        # Ensure sufficient vertical gap between input and output lines
+        # ========================================================================
+
+        if Y_input_line is not None and Y_output_line is not None:
+            # Calculate minimum gap needed:
+            # - max_input_height: space for inputs
+            # - at least 1: minimum gap
+            # - max_intermediate_height: space for intermediates (if any)
+            min_gap = max_input_height
+
+            if intermediate_entities:
+                max_intermediate_height = max(
+                    self.footprints.get(e, (1, 1))[1] for e in intermediate_entities
+                )
+                min_gap += max_intermediate_height
+            else:
+                min_gap += 1  # At least 1 tile gap even with no intermediates
+
+            # Constrain: Y_output_line ≥ Y_input_line + min_gap
+            model.Add(Y_output_line >= Y_input_line + min_gap)
+
+            self.diagnostics.info(
+                f"Edge layout: enforcing minimum gap of {min_gap} between input/output lines"
+            )
+
+        # ========================================================================
+        # Constrain all inputs to share Y_input_line
+        # ========================================================================
+
+        if input_entities and Y_input_line is not None:
+            for entity_id in input_entities:
+                _, y = positions[entity_id]
+                model.Add(y == Y_input_line)
+
+            # Constrain horizontal ordering: maintain definition order (left-to-right)
+            # Each input must start after the previous input ends (no overlap)
+            for i in range(len(input_entities) - 1):
+                curr_id = input_entities[i]
+                next_id = input_entities[i + 1]
+
+                curr_x, _ = positions[curr_id]
+                next_x, _ = positions[next_id]
+
+                curr_width = self.footprints.get(curr_id, (1, 1))[0]
+
+                # Next entity X must be at least curr_x + curr_width
+                # (no overlap, maintains left-to-right order)
+                model.Add(next_x >= curr_x + curr_width)
+
+        # ========================================================================
+        # Constrain all outputs to share Y_output_line
+        # ========================================================================
+
+        if output_entities and Y_output_line is not None:
+            for entity_id in output_entities:
+                _, y = positions[entity_id]
+                model.Add(y == Y_output_line)
+
+            # Constrain horizontal ordering: maintain definition order (left-to-right)
+            for i in range(len(output_entities) - 1):
+                curr_id = output_entities[i]
+                next_id = output_entities[i + 1]
+
+                curr_x, _ = positions[curr_id]
+                next_x, _ = positions[next_id]
+
+                curr_width = self.footprints.get(curr_id, (1, 1))[0]
+
+                model.Add(next_x >= curr_x + curr_width)
+
+        # ========================================================================
+        # Constrain intermediates to be strictly between input and output lines
+        # ========================================================================
+
+        for entity_id in intermediate_entities:
+            _, y = positions[entity_id]
+            height = self.footprints.get(entity_id, (1, 1))[1]
+
+            # Intermediate top must be below input bottom
+            if Y_input_line is not None:
+                # y ≥ Y_input_line + max_input_height
+                model.Add(y >= Y_input_line + max_input_height)
+
+            # Intermediate bottom must be above output top
+            if Y_output_line is not None:
+                # y + height ≤ Y_output_line
+                model.Add(y + height <= Y_output_line)
 
     def _create_objective(
         self,

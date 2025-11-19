@@ -133,7 +133,7 @@ class LayoutPlanner:
             entity_placements=self.layout_plan.entity_placements,
             diagnostics=self.diagnostics,
         )
-        optimized_positions = layout_engine.optimize(time_limit_seconds=5)
+        optimized_positions = layout_engine.optimize(time_limit_seconds=30)
 
         # Convert tile positions (integer grid) to center positions (may be half-integer)
         # The solver returns tile coordinates (top-left corner), but Factorio/Draftsman
@@ -154,78 +154,6 @@ class LayoutPlanner:
                 placement.position = (center_x, center_y)
 
         self.diagnostics.info("Entity positions optimized using integer layout engine.")
-
-    def _snap_and_resolve_overlaps(
-        self, positions: Dict[str, Tuple[float, float]]
-    ) -> Dict[str, Tuple[float, float]]:
-        """Snap positions to integer grid and resolve any overlaps.
-
-        Args:
-            positions: Dict mapping entity_id to (x, y) center positions in continuous space
-
-        Returns:
-            Dict mapping entity_id to (x, y) center positions on integer grid with no overlaps
-        """
-        # Step 1: Convert center positions to tile positions and snap to grid
-        # Tile position = top-left corner on integer grid
-        # Center position = center of entity (may be at half-tile for odd-sized entities)
-
-        tile_positions = {}  # entity_id -> (tile_x, tile_y)
-        center_positions = {}  # entity_id -> (center_x, center_y)
-
-        for entity_id, (center_x, center_y) in positions.items():
-            placement = self.layout_plan.entity_placements.get(entity_id)
-            if not placement:
-                continue
-
-            footprint = placement.properties.get("footprint", (1, 1))
-            width, height = footprint
-
-            # Convert center to tile position (top-left corner)
-            tile_x = center_x - width / 2.0
-            tile_y = center_y - height / 2.0
-
-            # Snap to integer grid
-            snapped_tile_x = round(tile_x)
-            snapped_tile_y = round(tile_y)
-
-            # Convert back to center position
-            snapped_center_x = snapped_tile_x + width / 2.0
-            snapped_center_y = snapped_tile_y + height / 2.0
-
-            tile_positions[entity_id] = (snapped_tile_x, snapped_tile_y)
-            center_positions[entity_id] = (snapped_center_x, snapped_center_y)
-
-        # Step 2: Detect overlaps using tile-based collision detection
-        overlaps = self._detect_overlaps(tile_positions)
-
-        if not overlaps:
-            self.diagnostics.info("No overlaps detected after grid snapping")
-            return center_positions
-
-        self.diagnostics.info(
-            f"Detected {len(overlaps)} overlapping entity pairs after snapping, resolving..."
-        )
-
-        # Step 3: Resolve overlaps by moving entities to nearby free positions
-        resolved_tile_positions = self._resolve_overlaps(tile_positions, overlaps)
-
-        # Step 4: Convert resolved tile positions back to center positions
-        final_center_positions = {}
-        for entity_id, (tile_x, tile_y) in resolved_tile_positions.items():
-            placement = self.layout_plan.entity_placements.get(entity_id)
-            if not placement:
-                continue
-
-            footprint = placement.properties.get("footprint", (1, 1))
-            width, height = footprint
-
-            center_x = tile_x + width / 2.0
-            center_y = tile_y + height / 2.0
-
-            final_center_positions[entity_id] = (center_x, center_y)
-
-        return final_center_positions
 
     def _detect_overlaps(
         self, tile_positions: Dict[str, Tuple[int, int]]
