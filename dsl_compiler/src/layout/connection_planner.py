@@ -319,13 +319,12 @@ class ConnectionPlanner:
             ] = color
 
         self._edge_color_map = edge_color_map
-        
+
         self._log_color_summary()
         self._log_unresolved_conflicts()
         self._populate_wire_connections()
         if preserved_connections:
             self.layout_plan.wire_connections.extend(preserved_connections)
-
 
         # Validate relay placement results
         self._validate_relay_coverage()
@@ -640,7 +639,7 @@ class ConnectionPlanner:
         green_from_feedback = 0
         green_from_map = 0
         edges_not_in_map = 0
-        
+
         for edge in self._circuit_edges:
             if not edge.source_entity_id or not edge.sink_entity_id:
                 continue
@@ -668,7 +667,7 @@ class ConnectionPlanner:
                     edges_not_in_map += 1
                 elif color == "green":
                     green_from_map += 1
-            
+
             if color == "green":
                 green_wire_count += 1
 
