@@ -246,6 +246,9 @@ class ConnectionPlanner:
         locked_colors: Optional[Dict[Tuple[str, str], str]] = None,
     ) -> None:
         """Compute all wire connections with color assignments."""
+        # ✅ Register existing power poles as available relays FIRST
+        self._register_power_poles_as_relays()
+
         # ✅ Add self-feedback for optimized arithmetic memories FIRST
         self._add_self_feedback_connections()
 
@@ -316,11 +319,13 @@ class ConnectionPlanner:
             ] = color
 
         self._edge_color_map = edge_color_map
+        
         self._log_color_summary()
         self._log_unresolved_conflicts()
         self._populate_wire_connections()
         if preserved_connections:
             self.layout_plan.wire_connections.extend(preserved_connections)
+
 
         # Validate relay placement results
         self._validate_relay_coverage()
@@ -390,6 +395,39 @@ class ConnectionPlanner:
                 )
 
         return expanded
+
+    def _register_power_poles_as_relays(self) -> None:
+        """Register existing power pole entities as available relays for circuit routing.
+
+        This allows the relay network to reuse power poles that were placed during
+        layout optimization, reducing the total number of poles needed.
+        """
+        from .power_planner import POWER_POLE_CONFIG
+
+        power_pole_count = 0
+
+        for entity_id, placement in self.layout_plan.entity_placements.items():
+            if not placement.properties.get("is_power_pole"):
+                continue
+
+            if placement.position is None:
+                continue
+
+            pole_type = placement.properties.get("pole_type", "medium")
+            config = POWER_POLE_CONFIG.get(pole_type.lower())
+            if not config:
+                continue
+
+            prototype = str(config["prototype"])
+
+            # Register this power pole with the relay network
+            self.relay_network.add_relay_node(placement.position, entity_id, prototype)
+            power_pole_count += 1
+
+        if power_pole_count > 0:
+            self.diagnostics.info(
+                f"Registered {power_pole_count} existing power poles as available relays"
+            )
 
     def _add_self_feedback_connections(self) -> None:
         """Add self-feedback connections for arithmetic feedback memories."""
@@ -480,7 +518,8 @@ class ConnectionPlanner:
                 "Two-color routing could not isolate signal "
                 f"'{resolved_signal}' across sinks [{sink_desc}]; falling back to single-channel wiring for involved entities ({source_desc})."
             )
-        self._edge_color_map = {}
+        # DON'T clear the entire map! Keep the successful colorings.
+        # self._edge_color_map = {}
 
     def _get_connection_side(self, entity_id: str, is_source: bool) -> Optional[str]:
         """Determine if entity needs 'input'/'output' side specified.
@@ -597,6 +636,11 @@ class ConnectionPlanner:
         return False
 
     def _populate_wire_connections(self) -> None:
+        green_wire_count = 0
+        green_from_feedback = 0
+        green_from_map = 0
+        edges_not_in_map = 0
+        
         for edge in self._circuit_edges:
             if not edge.source_entity_id or not edge.sink_entity_id:
                 continue
@@ -606,6 +650,7 @@ class ConnectionPlanner:
                 edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name
             ):
                 color = "green"
+                green_from_feedback += 1
                 self.diagnostics.info(
                     f"🟢 Assigned GREEN wire to feedback edge: {edge.source_entity_id} -> {edge.sink_entity_id}"
                 )
@@ -620,6 +665,12 @@ class ConnectionPlanner:
                 )
                 if color is None:
                     color = WIRE_COLORS[0]
+                    edges_not_in_map += 1
+                elif color == "green":
+                    green_from_map += 1
+            
+            if color == "green":
+                green_wire_count += 1
 
             # Determine connection sides for combinators
             source_side = self._get_connection_side(

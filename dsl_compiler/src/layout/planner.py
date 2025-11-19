@@ -11,7 +11,6 @@ from dsl_compiler.src.layout.integer_layout_solver import IntegerLayoutEngine
 
 from .connection_planner import ConnectionPlanner
 from .layout_plan import LayoutPlan
-from .power_planner import PowerPlanner
 from .signal_analyzer import (
     SignalAnalyzer,
     SignalUsageEntry,
@@ -58,9 +57,9 @@ class LayoutPlanner:
         1. Signal analysis & materialization
         2. Build signal graph
         3. Create entities (without positions)
-        4. Optimize positions using force-directed layout
-        5. Plan connections with relay routing
-        6. Plan power grid adaptively
+        4. Add power pole grid with fixed positions (if requested)
+        5. Optimize positions using integer layout (respecting fixed pole positions)
+        6. Plan connections with relay routing
         7. Set metadata
 
         Args:
@@ -77,16 +76,19 @@ class LayoutPlanner:
         # Phase 2: Create entities (no positions yet, signal graph built during placement)
         self._create_entities(ir_operations)
 
-        # Phase 3: Optimize positions using force-directed layout
+        # Phase 3: Add power pole grid BEFORE optimization (if requested)
+        # Power poles are given fixed positions in a grid pattern
+        self._add_power_pole_grid()
+
+        # Phase 4: Optimize positions using integer layout (respects fixed pole positions)
         self._optimize_positions()
 
-        # Phase 4: Infrastructure & connections
+        # Phase 5: Infrastructure & connections
         self._update_tile_grid()
         self._plan_connections()
         self._update_tile_grid()  # Again after relays added
-        self._plan_power_if_requested()
 
-        # Phase 5: Metadata
+        # Phase 6: Metadata
         self._set_metadata(blueprint_label, blueprint_description)
 
         return self.layout_plan
@@ -506,18 +508,26 @@ class LayoutPlanner:
             locked_colors=locked_colors,
         )
 
-    def _plan_power_if_requested(self) -> None:
-        """Plan power grid if power pole type is specified."""
+    def _add_power_pole_grid(self) -> None:
+        """Add power poles in a grid pattern with fixed positions.
+
+        This creates a regular grid of power poles that covers the estimated
+        blueprint area plus a safety margin. The poles have fixed positions
+        that are respected by the layout optimizer.
+        """
         if not self.power_pole_type:
             return
+
+        from .power_planner import PowerPlanner
 
         power_planner = PowerPlanner(
             self.tile_grid,
             self.layout_plan,
             self.diagnostics,
-            connection_planner=self.connection_planner,
+            connection_planner=None,
         )
-        power_planner.plan_power_grid(self.power_pole_type)
+
+        power_planner.add_power_pole_grid(self.power_pole_type)
 
     def _set_metadata(self, blueprint_label: str, blueprint_description: str) -> None:
         """Set blueprint metadata."""

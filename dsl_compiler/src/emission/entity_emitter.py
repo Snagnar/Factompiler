@@ -150,9 +150,6 @@ class PlanEntityEmitter:
         # if not hasattr(entity, "tags") or entity.tags is None:
         #     entity.tags = {}
         # entity.tags["description"] = description
-        self.diagnostics.info(
-            f"Set description tag for {placement.entity_type} '{placement.ir_node_id}'"
-        )
 
         # Log when description is successfully set (only in debug mode)
         if self.diagnostics.log_level == "debug":

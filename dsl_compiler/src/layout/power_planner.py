@@ -1,9 +1,10 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
+import math
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from .tile_grid import TileGrid
-from .layout_plan import LayoutPlan, PowerPolePlacement
+from .layout_plan import LayoutPlan, PowerPolePlacement, EntityPlacement
 
 """Power infrastructure planning for the layout module."""
 
@@ -196,3 +197,97 @@ class PowerPlanner:
             )
 
         return pole
+
+    # -------------------------------------------------------------------------
+    # Grid-based power pole placement
+    # -------------------------------------------------------------------------
+
+    def add_power_pole_grid(self, pole_type: str) -> None:
+        """Add power poles in a regular grid pattern with fixed positions.
+
+        Strategy:
+        1. Estimate the final blueprint bounding box based on entity count
+        2. Create a grid of power poles spaced by supply radius
+        3. Assign fixed positions to poles (layout optimizer won't move them)
+
+        Args:
+            pole_type: Type of power pole (small/medium/big/substation)
+        """
+        config = POWER_POLE_CONFIG.get(pole_type.lower())
+        if config is None:
+            self.diagnostics.warning(
+                f"Unknown power pole type '{pole_type}'; skipping power grid"
+            )
+            return
+
+        # Estimate blueprint area based on entity count
+        entity_count = len(self.layout_plan.entity_placements)
+        if entity_count == 0:
+            return
+
+        # Rough estimate: entities arranged in a roughly square layout
+        # Average entity footprint ~1.5 tiles, with spacing ~2 tiles between entities
+        avg_entity_area = 3.5 * 3.5  # Entity + spacing
+        total_area = entity_count * avg_entity_area
+
+        # Approximate dimensions (square-ish layout)
+        approx_side = math.sqrt(total_area)
+
+        # Add safety margin
+        safety_margin = 5.0
+        width = approx_side + 2 * safety_margin
+        height = approx_side + 2 * safety_margin
+
+        # Grid spacing based on supply radius (Factorio 2.0)
+        supply_radius = float(config["supply_radius"])
+        # Space poles generously to leave room for entities between them
+        # Use 2*radius to ensure coverage, plus extra space for entities
+        spacing = max(4.0, 2.0 * supply_radius)
+
+        prototype = str(config["prototype"])
+        footprint = tuple(int(v) for v in config.get("footprint", (1, 1)))
+
+        # Create grid of power poles
+        poles_added = 0
+        x = 0.0
+        while x < width:
+            y = 0.0
+            while y < height:
+                pole_id = f"power_pole_{poles_added + 1}"
+
+                # Convert to tile position (top-left corner)
+                tile_x = int(x)
+                tile_y = int(y)
+
+                # Convert to center position
+                center_x = tile_x + footprint[0] / 2.0
+                center_y = tile_y + footprint[1] / 2.0
+
+                placement = EntityPlacement(
+                    ir_node_id=pole_id,
+                    entity_type=prototype,
+                    position=(center_x, center_y),  # Fixed position
+                    properties={
+                        "footprint": footprint,
+                        "is_power_pole": True,
+                        "pole_type": pole_type,
+                        "fixed_position": True,  # Don't optimize this position
+                        "debug_info": {
+                            "variable": f"power_pole_{poles_added + 1}",
+                            "operation": "power",
+                            "details": "electricity supply",
+                        },
+                    },
+                    role="power_pole",
+                )
+
+                self.layout_plan.add_placement(placement)
+                poles_added += 1
+
+                y += spacing
+            x += spacing
+
+        self.diagnostics.info(
+            f"Added {poles_added} {pole_type} power poles in {int(width)}x{int(height)} grid "
+            f"(spacing: {spacing:.1f} tiles, coverage: {supply_radius:.1f} tiles)"
+        )

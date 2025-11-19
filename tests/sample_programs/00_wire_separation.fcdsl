@@ -1,0 +1,8 @@
+# Test 0: Wire separation behavior
+# Tests: Multiple connections to the same signal, wire separation
+
+Signal input1 = 50 | "signal-A";
+Signal input2 = 30 | "signal-A";
+Signal input3 = 20 | "signal-A";
+
+Signal total_A = input1 * input2 * input3;

@@ -84,14 +84,31 @@ class IntegerLayoutEngine:
         )
 
     def _identify_fixed_positions(self) -> None:
-        """Identify entities with user-specified fixed positions."""
+        """Identify entities with fixed positions (user-specified or grid-placed).
+
+        Fixed positions include:
+        - User-specified positions (user_specified_position=True)
+        - Grid-placed power poles (fixed_position=True)
+        """
         self.fixed_positions = {}
 
         for entity_id, placement in self.entity_placements.items():
             if placement.position is not None:
-                if placement.properties.get("user_specified_position"):
-                    x, y = placement.position
-                    self.fixed_positions[entity_id] = (int(x), int(y))
+                # Check if position is marked as fixed
+                is_fixed = placement.properties.get(
+                    "user_specified_position"
+                ) or placement.properties.get("fixed_position")
+
+                if is_fixed:
+                    # Convert center position to tile position (top-left corner)
+                    center_x, center_y = placement.position
+                    footprint = placement.properties.get("footprint", (1, 1))
+                    width, height = footprint
+
+                    tile_x = int(center_x - width / 2.0)
+                    tile_y = int(center_y - height / 2.0)
+
+                    self.fixed_positions[entity_id] = (tile_x, tile_y)
 
         self.diagnostics.info(f"Found {len(self.fixed_positions)} fixed positions")
 
@@ -100,7 +117,9 @@ class IntegerLayoutEngine:
         self.footprints = {}
 
         for entity_id in self.entity_ids:
-            footprint = self.entity_placements[entity_id].properties.get("footprint")
+            placement = self.entity_placements[entity_id]
+            footprint = placement.properties.get("footprint")
+
             if footprint:
                 width, height = footprint
                 self.footprints[entity_id] = (int(np.ceil(width)), int(np.ceil(height)))
