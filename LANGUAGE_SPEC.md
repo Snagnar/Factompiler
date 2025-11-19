@@ -149,6 +149,37 @@ From highest to lowest:
 7. **Logical AND** `&&`
 8. **Logical OR** `||`
 
+#### Type Precedence in Operations
+
+When combining operands of different types, the compiler follows these precedence rules:
+
+**Integer + Integer = Integer**
+```fcdsl
+int result = 5 + 3;  # Pure integer arithmetic
+```
+
+**Signal + Integer = Signal** (signal type takes precedence)
+```fcdsl
+Signal iron = ("iron-plate", 100);
+Signal more = iron + 50;  # Result: iron-plate signal with value 150
+# The integer constant is coerced to match the signal's type
+```
+
+**Signal + Signal = Signal** (left operand's type takes precedence)
+```fcdsl
+Signal iron = ("iron-plate", 100);
+Signal copper = ("copper-plate", 50);
+Signal mixed = iron + copper;  # Result: iron-plate signal with value 150
+# Warning: Mixed signal types in binary operation
+```
+
+**Type Precedence Rule:** When one operand is a signal with an explicit type and the other is an integer constant or a signal with a different type, the **existing signal type always takes precedence**. The compiler automatically coerces the other operand to match.
+
+To avoid type mismatch warnings, use explicit projection:
+```fcdsl
+Signal aligned = (copper | "iron-plate") + iron;  # Both iron-plate, no warning
+```
+
 ---
 
 ## Type System
@@ -245,6 +276,33 @@ Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 50);
 Signal flag = ("signal-A", 1);
 ```
+
+#### Syntactic Sugar for Type Annotations
+
+The DSL provides a convenient shorthand using the projection operator for type annotations:
+
+```fcdsl
+# Long form (explicit tuple)
+Signal iron = ("iron-plate", 100);
+
+# Short form (projection syntax sugar)
+Signal iron = 100 | "iron-plate";
+
+# Both are equivalent and compile to the same IR
+```
+
+This syntactic sugar is particularly useful when you need to add a type annotation to an existing value:
+
+```fcdsl
+# Adding type to a function parameter
+func process(value) {
+    Signal typed_value = value | "signal-S";  # Annotate with signal-S
+    Memory storage: "signal-S";
+    write(typed_value, storage);
+}
+```
+
+**Important:** The projection syntax `value | "type"` is semantically equivalent to `("type", value)` when used in signal declarations. Both create a signal with the specified type and value.
 
 #### Untyped Literals (Implicit Allocation)
 
