@@ -508,6 +508,108 @@ class LayoutPlanner:
             locked_colors=locked_colors,
         )
 
+        # Inject wire color information into combinator placements
+        self._inject_wire_colors_into_placements()
+
+    def _inject_wire_colors_into_placements(self) -> None:
+        """Store wire color information in combinator placement properties.
+
+        After wire connections are planned, we know which wire colors (red/green)
+        deliver each signal to each entity. Store this information in the placement
+        properties so the entity emitter can configure wire filters on combinators.
+
+        For combinators where both operands use the same signal name but from different
+        sources (e.g., both read signal-A but from different deciders), we use the
+        IR signal IDs to determine which source entity produces each operand, then
+        look up the wire color for that specific edge.
+        """
+        injected_count = 0
+        for placement in self.layout_plan.entity_placements.values():
+            if placement.entity_type not in (
+                "arithmetic-combinator",
+                "decider-combinator",
+            ):
+                continue
+
+            # Get the operand signals from placement properties
+            # These are RESOLVED signal names (e.g., "signal-A") not IR types (e.g., "__v1")
+            left_signal = placement.properties.get("left_operand")
+            right_signal = placement.properties.get("right_operand")
+
+            # Get the IR signal IDs for each operand to find their source entities
+            left_signal_id = placement.properties.get("left_operand_signal_id")
+            right_signal_id = placement.properties.get("right_operand_signal_id")
+
+            # Get wire colors for each operand based on its source entity
+            # Skip constants (integers) - they don't need wire filtering
+            if left_signal and not isinstance(left_signal, int) and left_signal_id:
+                # The signal ID might be a string representation like "signal-A@decider_3"
+                # Extract the source_id from it
+                if isinstance(left_signal_id, str) and "@" in left_signal_id:
+                    # Parse "signal_type@source_id" format
+                    source_entity = left_signal_id.split("@")[1]
+                elif hasattr(left_signal_id, "source_id"):
+                    # It's a SignalRef object
+                    source_entity = left_signal_id.source_id
+                else:
+                    # Try to find source via signal_graph
+                    source_entity = self.signal_graph.get_source(str(left_signal_id))
+
+                if source_entity:
+                    # Look up the wire color for this specific edge
+                    left_color = self.connection_planner.get_wire_color_for_edge(
+                        source_entity, placement.ir_node_id, left_signal
+                    )
+                    # Store as a set with only this color
+                    placement.properties["left_operand_wires"] = {left_color}
+                    self.diagnostics.info(
+                        f"Injected left_operand_wires={{'{left_color}'}} for {placement.ir_node_id} "
+                        f"signal={left_signal} from {source_entity}"
+                    )
+                    injected_count += 1
+                else:
+                    # Fallback: read from both wires if source not found
+                    placement.properties["left_operand_wires"] = {"red", "green"}
+                    self.diagnostics.warning(
+                        f"No source found for left operand signal {left_signal_id} of {placement.ir_node_id}"
+                    )
+
+            if right_signal and not isinstance(right_signal, int) and right_signal_id:
+                # The signal ID might be a string representation like "signal-A@decider_3"
+                # Extract the source_id from it
+                if isinstance(right_signal_id, str) and "@" in right_signal_id:
+                    # Parse "signal_type@source_id" format
+                    source_entity = right_signal_id.split("@")[1]
+                elif hasattr(right_signal_id, "source_id"):
+                    # It's a SignalRef object
+                    source_entity = right_signal_id.source_id
+                else:
+                    # Try to find source via signal_graph
+                    source_entity = self.signal_graph.get_source(str(right_signal_id))
+
+                if source_entity:
+                    # Look up the wire color for this specific edge
+                    right_color = self.connection_planner.get_wire_color_for_edge(
+                        source_entity, placement.ir_node_id, right_signal
+                    )
+                    # Store as a set with only this color
+                    placement.properties["right_operand_wires"] = {right_color}
+                    self.diagnostics.info(
+                        f"Injected right_operand_wires={{'{right_color}'}} for {placement.ir_node_id} "
+                        f"signal={right_signal} from {source_entity}"
+                    )
+                    injected_count += 1
+                else:
+                    # Fallback: read from both wires if source not found
+                    placement.properties["right_operand_wires"] = {"red", "green"}
+                    self.diagnostics.warning(
+                        f"No source found for right operand signal {right_signal_id} of {placement.ir_node_id}"
+                    )
+
+        self.diagnostics.info(
+            f"Wire color injection: {injected_count} operands configured"
+        )
+
     def _add_power_pole_grid(self) -> None:
         """Add power poles in a grid pattern with fixed positions.
 

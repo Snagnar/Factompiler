@@ -201,6 +201,10 @@ class PlanEntityEmitter:
         output_value = props.get("output_value", 1)
         copy_count = props.get("copy_count_from_input", False)
 
+        # Get wire color filters (default to both for backward compatibility)
+        left_operand_wires = props.get("left_operand_wires", {"red", "green"})
+        right_operand_wires = props.get("right_operand_wires", {"red", "green"})
+
         # Build condition
         condition_kwargs = {"comparator": operation}
         if isinstance(left_operand, int):
@@ -208,11 +212,13 @@ class PlanEntityEmitter:
             condition_kwargs["constant"] = left_operand
         else:
             condition_kwargs["first_signal"] = left_operand
+            condition_kwargs["first_signal_networks"] = left_operand_wires
 
         if isinstance(right_operand, int):
             condition_kwargs["constant"] = right_operand
         else:
             condition_kwargs["second_signal"] = right_operand
+            condition_kwargs["second_signal_networks"] = right_operand_wires
 
         entity.conditions = [DeciderCombinator.Condition(**condition_kwargs)]
 
@@ -235,6 +241,10 @@ class PlanEntityEmitter:
         right_operand = props.get("right_operand")
         output_signal = props.get("output_signal")
 
+        # Get wire color filters (default to both for backward compatibility)
+        left_operand_wires = props.get("left_operand_wires", {"red", "green"})
+        right_operand_wires = props.get("right_operand_wires", {"red", "green"})
+
         # Validate signal-each usage per Draftsman requirements
         if output_signal == "signal-each":
             # signal-each can only be output if at least one input is signal-each
@@ -246,6 +256,10 @@ class PlanEntityEmitter:
         entity.second_operand = right_operand
         entity.operation = operation
         entity.output_signal = output_signal
+
+        # Set wire color filters
+        entity.first_operand_wires = left_operand_wires
+        entity.second_operand_wires = right_operand_wires
 
     def _configure_constant(
         self, entity: ConstantCombinator, props: Dict[str, Any]

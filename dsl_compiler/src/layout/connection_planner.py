@@ -224,6 +224,10 @@ class ConnectionPlanner:
         # ✅ Initialize for memory feedback detection
         self._memory_modules: Dict[str, Any] = {}
 
+        # Track which wire colors deliver each signal to each entity
+        # Key: (source_entity_id, sink_entity_id, signal_name), Value: wire_color
+        self._edge_wire_colors: Dict[Tuple[str, str, str], str] = {}
+
         # Create relay network for shared infrastructure
         self.relay_network = RelayNetwork(
             self.tile_grid,
@@ -335,6 +339,22 @@ class ConnectionPlanner:
         """Lookup planned wire color for a specific connection."""
 
         return self._edge_color_map.get((source_id, sink_id, resolved_signal))
+
+    def get_wire_color_for_edge(
+        self, source_entity_id: str, sink_entity_id: str, signal_name: str
+    ) -> str:
+        """Get the wire color for a specific edge.
+
+        Args:
+            source_entity_id: The entity producing the signal
+            sink_entity_id: The entity consuming the signal
+            signal_name: The RESOLVED Factorio signal name (e.g., "signal-A")
+
+        Returns:
+            Wire color "red" or "green", defaults to "red" if not found
+        """
+        edge_key = (source_entity_id, sink_entity_id, signal_name)
+        return self._edge_wire_colors.get(edge_key, "red")
 
     def iter_circuit_edges(self) -> Sequence[CircuitEdge]:
         """Expose planned circuit edges."""
@@ -636,7 +656,6 @@ class ConnectionPlanner:
 
     def _populate_wire_connections(self) -> None:
         green_wire_count = 0
-        green_from_feedback = 0
         green_from_map = 0
         edges_not_in_map = 0
 
@@ -644,14 +663,14 @@ class ConnectionPlanner:
             if not edge.source_entity_id or not edge.sink_entity_id:
                 continue
 
-            # ✅ Check if this is a memory feedback edge - must use GREEN
+            # ✅ Check if this is a memory feedback edge - must use RED (not GREEN)
+            # Memory feedback edges use RED wire to match memory_builder.py implementation
             if self._is_memory_feedback_edge(
                 edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name
             ):
-                color = "green"
-                green_from_feedback += 1
+                color = "red"  # ✅ CORRECTED: Memory feedback uses RED
                 self.diagnostics.info(
-                    f"🟢 Assigned GREEN wire to feedback edge: {edge.source_entity_id} -> {edge.sink_entity_id}"
+                    f"🔴 Assigned RED wire to feedback edge: {edge.source_entity_id} -> {edge.sink_entity_id}"
                 )
             else:
                 # Use normally assigned color
@@ -670,6 +689,15 @@ class ConnectionPlanner:
 
             if color == "green":
                 green_wire_count += 1
+
+            # Track wire color for this specific edge
+            # Key: (source_entity_id, sink_entity_id, signal_name)
+            edge_key = (
+                edge.source_entity_id,
+                edge.sink_entity_id,
+                edge.resolved_signal_name,
+            )
+            self._edge_wire_colors[edge_key] = color
 
             # Determine connection sides for combinators
             source_side = self._get_connection_side(

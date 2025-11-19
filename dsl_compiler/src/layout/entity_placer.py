@@ -240,6 +240,8 @@ class EntityPlacer:
                 "operation": op.op,
                 "left_operand": left_operand,
                 "right_operand": right_operand,
+                "left_operand_signal_id": op.left,  # IR signal ID for wire color lookup
+                "right_operand_signal_id": op.right,  # IR signal ID for wire color lookup
                 "output_signal": output_signal,
                 "footprint": (1, 2),
                 "debug_info": self._build_debug_info(op),
@@ -249,6 +251,9 @@ class EntityPlacer:
         self.plan.add_placement(placement)
 
         # Track signals
+        self.signal_graph.set_source(op.node_id, op.node_id)
+        self._add_signal_sink(op.left, op.node_id)
+        self._add_signal_sink(op.right, op.node_id)
         self.signal_graph.set_source(op.node_id, op.node_id)
         self._add_signal_sink(op.left, op.node_id)
         self._add_signal_sink(op.right, op.node_id)
@@ -287,6 +292,8 @@ class EntityPlacer:
                 "operation": op.test_op,
                 "left_operand": left_operand,
                 "right_operand": right_operand,
+                "left_operand_signal_id": op.left,  # IR signal ID for wire color lookup
+                "right_operand_signal_id": op.right,  # IR signal ID for wire color lookup
                 "output_signal": output_signal,
                 "output_value": output_value,
                 "copy_count_from_input": copy_count_from_input,
