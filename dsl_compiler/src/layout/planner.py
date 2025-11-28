@@ -56,11 +56,14 @@ class LayoutPlanner:
         FLOW:
         1. Signal analysis & materialization
         2. Build signal graph
-        3. Create entities (without positions)
-        4. Add power pole grid with fixed positions (if requested)
-        5. Optimize positions using integer layout (respecting fixed pole positions)
-        6. Plan connections with relay routing
-        7. Set metadata
+        3. Add power pole grid BEFORE optimization (with estimated bounds)
+           - Poles get fixed_position=True so layout won't move them
+           - Combinators will be placed around them
+        4. Create entities (without positions)
+        5. Optimize positions using integer layout (respects fixed pole positions)
+        6. Trim power poles that don't cover any entities
+        7. Plan connections with relay routing
+        8. Set metadata
 
         Args:
             ir_operations: List of IR nodes representing the program
@@ -76,19 +79,22 @@ class LayoutPlanner:
         # Phase 2: Create entities (no positions yet, signal graph built during placement)
         self._create_entities(ir_operations)
 
-        # Phase 3: Add power pole grid BEFORE optimization (if requested)
-        # Power poles are given fixed positions in a grid pattern
+        # Phase 3: Add power pole grid BEFORE optimization
+        # Poles have fixed_position=True so layout optimizer will place combinators around them
         self._add_power_pole_grid()
 
-        # Phase 4: Optimize positions using integer layout (respects fixed pole positions)
+        # Phase 4: Optimize positions using integer layout
         self._optimize_positions()
 
-        # Phase 5: Infrastructure & connections
+        # Phase 5: Trim unnecessary power poles after we know actual entity positions
+        self._trim_power_poles()
+
+        # Phase 6: Infrastructure & connections
         self._update_tile_grid()
         self._plan_connections()
         self._update_tile_grid()  # Again after relays added
 
-        # Phase 6: Metadata
+        # Phase 7: Metadata
         self._set_metadata(blueprint_label, blueprint_description)
 
         return self.layout_plan
@@ -611,11 +617,11 @@ class LayoutPlanner:
         )
 
     def _add_power_pole_grid(self) -> None:
-        """Add power poles in a grid pattern with fixed positions.
+        """Add power poles in a grid pattern BEFORE layout optimization.
 
-        This creates a regular grid of power poles that covers the estimated
-        blueprint area plus a safety margin. The poles have fixed positions
-        that are respected by the layout optimizer.
+        This is called BEFORE layout optimization so that the layout engine
+        treats poles as fixed obstacles and places combinators around them.
+        After layout, we trim unused poles with _trim_power_poles().
         """
         if not self.power_pole_type:
             return
@@ -629,7 +635,81 @@ class LayoutPlanner:
             connection_planner=None,
         )
 
+        # Place poles with fixed positions - layout will place entities around them
         power_planner.add_power_pole_grid(self.power_pole_type)
+
+    def _trim_power_poles(self) -> None:
+        """Remove power poles that don't cover any entities.
+
+        This is called AFTER layout optimization when we know the actual
+        entity positions. Removes poles that are outside the entity bounds
+        or don't provide coverage to any entity.
+        """
+        if not self.power_pole_type:
+            return
+
+        from .power_planner import POWER_POLE_CONFIG
+
+        config = POWER_POLE_CONFIG.get(self.power_pole_type.lower())
+        if config is None:
+            return
+
+        supply_radius = float(config["supply_radius"])
+
+        # Get all non-pole entity positions
+        entity_positions = []
+        for placement in self.layout_plan.entity_placements.values():
+            if placement.position is None:
+                continue
+            if placement.properties.get("is_power_pole"):
+                continue
+            entity_positions.append(placement.position)
+
+        if not entity_positions:
+            return
+
+        # Find poles to remove (those that don't cover any entities)
+        poles_to_remove = []
+        for pole_id, placement in list(self.layout_plan.entity_placements.items()):
+            if not placement.properties.get("is_power_pole"):
+                continue
+
+            pole_pos = placement.position
+            if pole_pos is None:
+                continue
+
+            # Check if this pole covers any entity (using square/Chebyshev distance)
+            covers_any = False
+            for entity_pos in entity_positions:
+                # Chebyshev distance - coverage is SQUARE not circular
+                dx = abs(entity_pos[0] - pole_pos[0])
+                dy = abs(entity_pos[1] - pole_pos[1])
+                if dx <= supply_radius and dy <= supply_radius:
+                    covers_any = True
+                    break
+
+            if not covers_any:
+                poles_to_remove.append(pole_id)
+
+        # Remove unused poles
+        for pole_id in poles_to_remove:
+            del self.layout_plan.entity_placements[pole_id]
+            # Also remove from power_poles list
+            self.layout_plan.power_poles = [
+                p for p in self.layout_plan.power_poles if p.pole_id != pole_id
+            ]
+
+        if poles_to_remove:
+            remaining = len(
+                [
+                    p
+                    for p in self.layout_plan.entity_placements.values()
+                    if p.properties.get("is_power_pole")
+                ]
+            )
+            self.diagnostics.info(
+                f"Trimmed {len(poles_to_remove)} unused power poles, {remaining} remaining"
+            )
 
     def _set_metadata(self, blueprint_label: str, blueprint_description: str) -> None:
         """Set blueprint metadata."""

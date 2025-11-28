@@ -137,10 +137,17 @@ class BlueprintEmitter:
         layout_plan: LayoutPlan,
         entity_map: Dict[str, Entity],
     ) -> None:
-        if not layout_plan.power_poles:
-            return
+        """Materialize power grid and generate connections between poles.
 
+        Note: Power poles are now added as entity_placements, so they're already
+        created by the entity factory. This method just handles legacy power_poles
+        list and generates the copper wire connections.
+        """
+        # Handle any legacy power_poles entries (poles not in entity_placements)
         for pole in layout_plan.power_poles:
+            if pole.pole_id in entity_map:
+                continue  # Already created via entity_placements
+
             try:
                 entity = new_entity(pole.pole_type)
             except Exception as exc:  # pragma: no cover - draftsman errors
@@ -154,8 +161,10 @@ class BlueprintEmitter:
             self.blueprint.entities.append(entity, copy=False)
             entity_map[entity.id] = entity
 
+        # Generate power connections between poles
+        # Use only_axis=True to only connect grid-adjacent poles (same row or column)
         try:
-            self.blueprint.generate_power_connections()
+            self.blueprint.generate_power_connections(prefer_axis=True, only_axis=True)
         except Exception as exc:  # pragma: no cover - draftsman warnings
             self.diagnostics.warning(
                 f"Failed to auto-generate power connections: {exc}"

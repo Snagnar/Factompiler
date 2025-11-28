@@ -270,6 +270,20 @@ class ConnectionPlanner:
             base_edges, wire_merge_junctions, entities
         )
 
+        # Track which sink entities are wire merge output anchors
+        # Wire merge inputs should all be on the SAME wire color (not separated)
+        wire_merge_sinks = set()
+        if wire_merge_junctions:
+            for merge_id, merge_info in wire_merge_junctions.items():
+                # Find the output anchor for this wire merge
+                for edge in expanded_edges:
+                    if edge.source_entity_id in [
+                        ref.source_id
+                        for ref in merge_info.get("inputs", [])
+                        if hasattr(ref, "source_id")
+                    ]:
+                        wire_merge_sinks.add(edge.sink_entity_id)
+
         # Filter out internal feedback signal edges (they're already wired directly)
         filtered_edges = []
         for edge in expanded_edges:
@@ -291,7 +305,7 @@ class ConnectionPlanner:
         self._log_multi_source_conflicts(expanded_edges, entities)
 
         # ✅ FIX: Filter out memory feedback edges from wire coloring
-        # Memory feedback edges always use GREEN wire and should not participate
+        # Memory feedback edges always use RED wire and should not participate
         # in the bipartite graph coloring algorithm
         non_feedback_edges = [
             edge
@@ -307,13 +321,27 @@ class ConnectionPlanner:
                 f"({len(non_feedback_edges)} edges remaining)"
             )
 
-        coloring_result = plan_wire_colors(non_feedback_edges, locked_colors)
+        # ✅ FIX: Filter out wire merge edges from conflict-based coloring
+        # Wire merge inputs intentionally combine the same signal on the same wire
+        non_merge_edges = [
+            edge
+            for edge in non_feedback_edges
+            if edge.sink_entity_id not in wire_merge_sinks
+        ]
+
+        if len(non_feedback_edges) != len(non_merge_edges):
+            self.diagnostics.info(
+                f"Filtered {len(non_feedback_edges) - len(non_merge_edges)} wire merge edges from wire coloring "
+                f"({len(non_merge_edges)} edges remaining for conflict resolution)"
+            )
+
+        coloring_result = plan_wire_colors(non_merge_edges, locked_colors)
         self._node_color_assignments = coloring_result.assignments
         self._coloring_conflicts = coloring_result.conflicts
         self._coloring_success = coloring_result.is_bipartite
 
         edge_color_map: Dict[Tuple[str, str, str], str] = {}
-        for edge in non_feedback_edges:  # ✅ Only map non-feedback edges
+        for edge in non_merge_edges:
             if not edge.source_entity_id:
                 continue
             node_key = (edge.source_entity_id, edge.resolved_signal_name)
