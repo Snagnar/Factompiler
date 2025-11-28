@@ -3,12 +3,10 @@
 
 func delay_signal(signal, delay_ticks) {
     # Simple delay using memory - stores signal for delay_ticks
-    Memory delayed_value;
-    Memory tick_counter;
+    Memory delayed_value: "signal-0";
+    Memory tick_counter: "signal-0";
 
-    write(0, delayed_value, when=once);
-    write(0, tick_counter, when=once);
-    
+            
     Signal ticks = read(tick_counter);
     Signal should_update = (ticks % delay_ticks) == 0;
     
@@ -23,10 +21,9 @@ func delay_signal(signal, delay_ticks) {
 
 func accumulate_clamped(signal, min_val, max_val) {
     # Accumulate signal with min/max bounds
-    Memory accumulator;
+    Memory accumulator: "signal-0";
 
-    write(0, accumulator, when=once);
-    
+        
     Signal current = read(accumulator);
     Signal new_val = current + signal;
     
@@ -41,10 +38,9 @@ func accumulate_clamped(signal, min_val, max_val) {
 
 func rate_limiter(signal, max_change_per_tick) {
     # Limit rate of change in signal
-    Memory last_value;
+    Memory last_value: "signal-0";
 
-    write(0, last_value, when=once);
-    
+        
     Signal last = read(last_value);
     Signal change = signal - last;
     Signal abs_change = (change >= 0) * change + (change < 0) * (-change);

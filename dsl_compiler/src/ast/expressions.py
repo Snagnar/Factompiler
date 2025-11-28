@@ -66,13 +66,11 @@ class WriteExpr(Expr):
         *,
         line: int = 0,
         column: int = 0,
-        when_once: bool = False,
     ) -> None:
         super().__init__(line, column)
         self.value = value
         self.memory_name = memory_name
         self.when = when
-        self.when_once = when_once
 
 
 class ProjectionExpr(Expr):

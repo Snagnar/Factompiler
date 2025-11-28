@@ -121,9 +121,8 @@ Signal lamp_status = controlled_lamp.enable;
 Signal train_contents = train_station.train_contents;
 
 # Memory for state tracking
-Memory entity_counter;
+Memory entity_counter: "signal-0";
 
-write(0, entity_counter, when=once);
 write(read(entity_counter) + 1, entity_counter, when=1);
 Signal counter_out = read(entity_counter);
 

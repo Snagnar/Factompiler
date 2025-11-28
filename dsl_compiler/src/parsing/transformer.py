@@ -83,7 +83,7 @@ class DSLTransformer(Transformer):
         raise ValueError(f"Unexpected decl_stmt structure: {items}")
 
     def mem_decl(self, items) -> Statement:
-        """mem_decl: (Memory|mem) NAME [":" STRING] ["=" expr]"""
+        """mem_decl: (Memory|mem) NAME [":" STRING]"""
         if not items:
             raise ValueError("mem_decl requires a name")
 
@@ -92,7 +92,6 @@ class DSLTransformer(Transformer):
 
         name_token = None
         signal_type: Optional[str] = None
-        init_expr: Optional[Expr] = None
 
         for item in items:
             if isinstance(item, Token):
@@ -103,12 +102,6 @@ class DSLTransformer(Transformer):
             elif isinstance(item, str):
                 if item.startswith('"') and item.endswith('"'):
                     signal_type = item[1:-1]
-            elif isinstance(item, Expr):
-                init_expr = item
-            else:
-                resolved = self._unwrap_tree(item)
-                if isinstance(resolved, Expr):
-                    init_expr = resolved
 
         if name_token is None:
             raise ValueError("mem_decl missing memory name token")
@@ -116,7 +109,7 @@ class DSLTransformer(Transformer):
         name = (
             str(name_token.value) if hasattr(name_token, "value") else str(name_token)
         )
-        mem_node = MemDecl(name=name, signal_type=signal_type, init_expr=init_expr)
+        mem_node = MemDecl(name=name, signal_type=signal_type)
         self._set_position(mem_node, name_token)
         return mem_node
 
@@ -474,24 +467,13 @@ class DSLTransformer(Transformer):
                         memory_name = str(second_arg)
 
                     when_expr = None
-                    when_once = False
                     if len(items) > 3:
                         for extra in items[3:]:
-                            if isinstance(extra, Token) and extra.type == "ONCE_KW":
-                                when_once = True
-                                continue
-
                             candidate = self._unwrap_tree(extra)
 
                             if isinstance(candidate, Expr):
                                 when_expr = candidate
                                 break
-
-                            if isinstance(candidate, str) and candidate == "once":
-                                when_once = True
-
-                    if when_once:
-                        when_expr = None
 
                     if not isinstance(value_expr, Expr):
                         value_expr = self._unwrap_tree(value_expr)
@@ -500,7 +482,6 @@ class DSLTransformer(Transformer):
                         value=value_expr,
                         memory_name=memory_name,
                         when=when_expr,
-                        when_once=when_once,
                     )
                     return self._set_position(write_node, items[0])
                 error_node = WriteExpr(value=NumberLiteral(0), memory_name="__error")
@@ -518,7 +499,6 @@ class DSLTransformer(Transformer):
                     value_expr = self._unwrap_tree(first_arg)
                     memory_name = str(second_arg)
                     when_expr = None
-                    when_once = False
 
                     if len(items) > 3:
                         for extra in items[3:]:
@@ -528,17 +508,10 @@ class DSLTransformer(Transformer):
                                 when_expr = candidate
                                 break
 
-                            if isinstance(candidate, str) and candidate == "once":
-                                when_once = True
-
-                    if when_once:
-                        when_expr = None
-
                     return WriteExpr(
                         value=value_expr,
                         memory_name=memory_name,
                         when=when_expr,
-                        when_once=when_once,
                     )
 
         return items[0]

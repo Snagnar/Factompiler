@@ -207,12 +207,13 @@ class TestImplicitSignalAllocation:
     """Validate implicit signal allocation behavior."""
 
     def test_allocate_more_than_26_virtual_signals(self):
-        """Ensure implicit signal allocation produces unique base-26 names."""
+        """Ensure implicit signal allocation produces unique names."""
         builder = IRBuilder()
         names = [builder.allocate_implicit_type() for _ in range(60)]
 
+        # All allocated names should be unique
         assert len(names) == len(set(names))
-        # Access the signal names through the registry
-        assert builder.signal_registry.resolve_name(names[0]) == "signal-A"
-        assert builder.signal_registry.resolve_name(names[25]) == "signal-Z"
-        assert builder.signal_registry.resolve_name(names[26]) == "signal-AA"
+        # Implicit signals use __v prefix with sequential numbering
+        assert names[0] == "__v1"
+        assert names[1] == "__v2"
+        assert names[59] == "__v60"

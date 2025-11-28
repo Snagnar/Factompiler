@@ -10,23 +10,17 @@
 # =============================================================================
 
 # Store an item signal
-Memory iron_storage;
-Memory copper_storage;
+Memory iron_storage: "iron-plate";
+Memory copper_storage: "copper-plate";
 
 # Store a fluid signal
-Memory water_level;
+Memory water_level: "water";
 
 # Store a virtual signal for state
-Memory system_state;
+Memory system_state: "signal-S";
 
 # Store a counter
-Memory tick_counter;
-
-write(("iron-plate", 0), iron_storage, when=once);
-write(("copper-plate", 0), copper_storage, when=once);
-write(("water", 1000), water_level, when=once);
-write(("signal-S", 0), system_state, when=once);
-write(0, tick_counter, when=once);
+Memory tick_counter: "signal-0";
 
 # =============================================================================
 # CONDITIONAL WRITES - Write only when conditions are met
@@ -35,22 +29,20 @@ write(0, tick_counter, when=once);
 # Scenario 1: Write only if current value is zero (initialization check)
 # CORRECT PATTERN: Read current value, write new value if condition met, otherwise write current value back
 Signal current_iron = read(iron_storage);
-Signal iron_input = 50;
+Signal iron_input = 50 | "iron-plate";
 Signal should_write_iron = (current_iron == 0);  # 1 if true, 0 if false
-Signal iron_write_value = iron_input;
-write(iron_write_value, iron_storage, when=should_write_iron);  # Writes 50 if storage is 0, otherwise holds
+write(iron_input, iron_storage, when=should_write_iron);  # Writes 50 if storage is 0, otherwise holds
 
 # Scenario 2: Write only if input exceeds threshold
-Signal copper_input = 75;
+Signal copper_input = 75 | "copper-plate";
 Signal should_store_copper = copper_input > 100;  # Boolean: 1 if true, 0 if false
 Signal copper_current = read(copper_storage);
-Signal copper_write_value = copper_input;
-write(copper_write_value, copper_storage, when=should_store_copper);  # Writes input if > 100, otherwise holds
+write(copper_input, copper_storage, when=should_store_copper);  # Writes input if > 100, otherwise holds
 
 # Scenario 3: Conditional increment - add to counter only if condition met
 Signal current_count = read(tick_counter);
 Signal enable_counting = 1;  # This could be from any condition
-Signal new_count = current_count + enable_counting;
+Signal new_count = current_count + (enable_counting | "signal-0");
 write(new_count, tick_counter, when=enable_counting);  # Only writes when counting is enabled
 
 # =============================================================================
@@ -64,7 +56,7 @@ write(new_count, tick_counter, when=enable_counting);  # Only writes when counti
 Signal current_water = read(water_level);
 Signal water_is_low = current_water < 500;
 Signal pump_active = 1;  # Simulated
-Signal water_input = 200;
+Signal water_input = 200 | "water";
 Signal should_refill = water_is_low && pump_active;
 Signal water_refill_value = current_water + water_input;
 write(water_refill_value, water_level, when=should_refill);
@@ -88,33 +80,28 @@ Signal any_to_error = has_error;
 Signal complete_to_idle = (current_state == 2);
 
 Signal next_state = 
-    (idle_to_processing * 1) +           # Go to state 1
+    ((idle_to_processing * 1) +           # Go to state 1
     (processing_to_complete * 2) +        # Go to state 2
     (complete_to_idle * 0) +              # Go to state 0
     (any_to_error * 3) +                  # Go to state 3
-    (!(idle_to_processing || processing_to_complete || complete_to_idle || any_to_error)) * current_state;  # Stay in current state
+    (!(idle_to_processing || processing_to_complete || complete_to_idle || any_to_error)) * current_state) | "signal-S";  # Stay in current state
 
-write(next_state | "signal-S", system_state, when=1);
+write(next_state, system_state, when=1);
 
 # =============================================================================
 # STORING MULTIPLE VALUES - Using Different Memory Cells
 # =============================================================================
 
-Memory max_iron_seen;
-Memory min_copper_seen;
-
-write(("iron-plate", 0), max_iron_seen, when=once);
-write(("copper-plate", 999), min_copper_seen, when=once);
+Memory max_iron_seen: "iron-plate";
+Memory min_copper_seen: "copper-plate";
 
 Signal current_max = read(max_iron_seen);
 Signal should_update_max = iron_input > current_max;
-Signal new_max_iron = iron_input;
-write(new_max_iron, max_iron_seen, when=should_update_max);
+write(iron_input, max_iron_seen, when=should_update_max);
 
 Signal current_min = read(min_copper_seen);
 Signal should_update_min = copper_input < current_min;
-Signal new_min_copper = copper_input;
-write(new_min_copper, min_copper_seen, when=should_update_min);
+write(copper_input, min_copper_seen, when=should_update_min);
 
 # =============================================================================
 # CLEARING/RESETTING MEMORY
@@ -123,8 +110,8 @@ write(new_min_copper, min_copper_seen, when=should_update_min);
 Signal reset_signal = 0;  # Set to 1 to trigger reset
 
 # Write cleared values back when reset is triggered
-write(0, iron_storage, when=reset_signal);
-write(0, copper_storage, when=reset_signal);
+write(0 | "iron-plate", iron_storage, when=reset_signal);
+write(0 | "copper-plate", copper_storage, when=reset_signal);
 
 # =============================================================================
 # READING AND COMBINING MEMORY VALUES
@@ -143,8 +130,8 @@ Signal total_resources = (total_iron | "signal-R") + (total_copper | "signal-R")
 # =============================================================================
 
 Signal should_swap = 0;  # Condition to swap iron and copper storage
-Signal iron_after_swap = should_swap * read(copper_storage) + (!should_swap) * read(iron_storage);
-Signal copper_after_swap = should_swap * read(iron_storage) + (!should_swap) * read(copper_storage);
+Signal iron_after_swap = (should_swap * (read(copper_storage) | "iron-plate") + (!should_swap) * read(iron_storage));
+Signal copper_after_swap = (should_swap * (read(iron_storage) | "copper-plate") + (!should_swap) * read(copper_storage));
 
 write(iron_after_swap, iron_storage, when=should_swap);
 write(copper_after_swap, copper_storage, when=should_swap);

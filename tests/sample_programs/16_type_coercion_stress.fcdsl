@@ -51,9 +51,8 @@ Signal bundle_proj_mixed = ( (implicit1 + iron) | "iron-plate" ) + ((copper * im
 Signal final_proj = bundle_proj_mixed | "wood";        # project to unrelated type
 
 # Memory operations with type mixing
-Memory mixed_memory;
+Memory mixed_memory: "signal-0";
 
-write(implicit1 + iron, mixed_memory, when=once);
 write(copper + implicit2, mixed_memory, when=1);
 Signal memory_read = read(mixed_memory);
 

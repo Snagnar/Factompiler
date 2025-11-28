@@ -166,11 +166,9 @@ Signal emergency_stop = signal_0 == 0;
 # =============================================================================
 
 # Item counters
-Memory iron_consumed;
-Memory copper_consumed;
+Memory iron_consumed: "signal-0";
+Memory copper_consumed: "signal-0";
 
-write(0, iron_consumed, when=once);
-write(0, copper_consumed, when=once);
 
 Signal iron_increment = iron_plate > 0 && 1 || 0;
 write(read(iron_consumed) + iron_increment, iron_consumed, when=1);
@@ -178,16 +176,14 @@ Signal copper_increment = copper_plate > 0 && 1 || 0;
 write(read(copper_consumed) + copper_increment, copper_consumed, when=1);
 
 # Fluid tracking
-Memory water_used;
+Memory water_used: "signal-0";
 
-write(0, water_used, when=once);
 Signal water_amount = water > 0 && water || 0;
 write(read(water_used) + water_amount, water_used, when=1);
 
 # Virtual signal state
-Memory system_mode;
+Memory system_mode: "signal-0";
 
-write(1, system_mode, when=once);
 Signal mode_change = signal_A > 1000;
 Signal new_mode = mode_change && 2 || read(system_mode);
 write(new_mode, system_mode, when=1);

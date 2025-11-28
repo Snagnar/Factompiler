@@ -53,7 +53,7 @@ Each stage validates and optimizes the program before generating the final Facto
 
 ```fcdsl
 # Create a blinking lamp controlled by a counter
-Memory counter: "signal-A" = 0;
+Memory counter: "signal-A";
 write(read(counter) + 1, counter);
 
 Signal blink = (read(counter) % 10) < 5;
@@ -104,11 +104,6 @@ func return import as
 **Built-in Functions:**
 ```
 read write place
-```
-
-**Special Literals:**
-```
-once  # For one-shot memory initialization
 ```
 
 ### Literals
@@ -235,7 +230,6 @@ Stateful storage cells that persist values across game ticks using SR latch circ
 
 ```fcdsl
 Memory counter: "signal-A";             # Explicit type
-Memory buffer: "iron-plate" = 0;        # Explicit type with initialization
 Memory state;                           # Implicit type (inferred from first write)
 ```
 
@@ -415,7 +409,7 @@ This pattern creates a single combinator that outputs `signal-total` with value 
 int count = 42;
 Signal iron = ("iron-plate", 100);
 Entity lamp = place("small-lamp", 0, 0);
-Memory counter: "signal-A" = 0;
+Memory counter: "signal-A";
 ```
 
 All variables are **immutable** except memories (which are stateful by nature).
@@ -467,28 +461,8 @@ Memory in the DSL models **persistent state** using SR latch circuits or optimiz
 
 ```fcdsl
 Memory counter: "signal-A";              # Explicit type
-Memory buffer: "iron-plate" = 0;         # Explicit type with inline init
-Memory state;                            # Implicit type
+Memory state;                            # Implicit type (inferred from first write)
 ```
-
-#### Inline Initialization
-
-The cleanest way to initialize memory:
-
-```fcdsl
-Memory counter: "signal-A" = 0;
-```
-
-This compiles to a one-shot write that executes on the first tick.
-
-#### Legacy Initialization with `when=once`
-
-```fcdsl
-Memory counter: "signal-A";
-write(("signal-A", 0), counter, when=once);
-```
-
-This is equivalent to inline initialization but more verbose.
 
 ### Memory Operations
 
@@ -520,9 +494,6 @@ write(read(counter) + 1, counter);
 # Conditional write
 Signal should_update = input > threshold;
 write(new_value, buffer, when=should_update);
-
-# One-shot write (legacy syntax)
-write(("signal-A", 0), counter, when=once);
 ```
 
 #### Write Enable Semantics
@@ -532,7 +503,7 @@ The `when` parameter controls the `signal-W` write enable:
 - **When > 0**: Write occurs, value is latched
 - **When == 0**: Write blocked, previous value held
 
-If omitted, `when=1` (constant enable) is assumed.
+If omitted, `when=1` (always write) is used as the default.
 
 ### Memory Implementation Details
 
@@ -581,7 +552,7 @@ Control (signal-W) GREEN─┘          RED self-loop
 For **unconditional writes** that read the same memory:
 
 ```fcdsl
-Memory counter: "signal-A" = 0;
+Memory counter: "signal-A";
 write(read(counter) + 1, counter);  # Always-on counter
 ```
 
@@ -596,14 +567,14 @@ The compiler optimizes this to **arithmetic combinators with feedback loops** in
 
 **Single-Operation Pattern:**
 ```fcdsl
-Memory counter: "signal-A" = 0;
+Memory counter: "signal-A";
 write(read(counter) + 1, counter);
 ```
 Result: One arithmetic combinator with red self-feedback wire instead of two deciders.
 
 **Multi-Operation Chain Pattern:**
 ```fcdsl
-Memory pattern_gen: "signal-D" = 0;
+Memory pattern_gen: "signal-D";
 Signal step1 = read(pattern_gen) + 1;
 Signal step2 = step1 * 3;
 Signal step3 = step2 % 17;
@@ -805,7 +776,7 @@ Functions can declare local memory, but remember each call site gets its own cop
 
 ```fcdsl
 func counter() {
-    Memory count: "signal-C" = 0;
+    Memory count: "signal-C";
     write(read(count) + 1, count);
     return read(count);
 }
@@ -1022,11 +993,11 @@ As described earlier, unconditional memory writes with feedback are optimized to
 
 ```fcdsl
 # Single-operation: self-feedback on one combinator
-Memory counter: "signal-A" = 0;
+Memory counter: "signal-A";
 write(read(counter) + 1, counter);
 
 # Multi-operation: feedback wire from last to first combinator
-Memory pattern: "signal-B" = 0;
+Memory pattern: "signal-B";
 Signal s1 = read(pattern) + 1;
 Signal s2 = s1 * 3;
 Signal s3 = s2 % 17;
@@ -1068,7 +1039,7 @@ Signal mixed = iron + copper;  # Warning: Mixed types, left wins
 
 **DO:**
 ```fcdsl
-Memory counter: "signal-A" = 0;  # Inline init is cleanest
+Memory counter: "signal-A";  # Explicit type is best
 write(read(counter) + 1, counter);
 ```
 
@@ -1137,7 +1108,7 @@ Signal extracted = mixed | "copper-plate";  # Can't recover lost info
 ### Basic Counter
 
 ```fcdsl
-Memory counter: "signal-A" = 0;
+Memory counter: "signal-A";
 write(read(counter) + 1, counter);
 
 Signal output = read(counter) | "signal-output";
@@ -1146,7 +1117,7 @@ Signal output = read(counter) | "signal-output";
 ### Blinking Lamps
 
 ```fcdsl
-Memory tick: "signal-T" = 0;
+Memory tick: "signal-T";
 write(read(tick) + 1, tick);
 
 Signal pattern = read(tick) % 20;
@@ -1180,7 +1151,7 @@ assembler2.enable = shortage > 100;  # Second machine for high demand
 ### State Machine
 
 ```fcdsl
-Memory state: "signal-S" = 0;
+Memory state: "signal-S";
 
 Signal current_state = read(state);
 
@@ -1214,8 +1185,8 @@ Signal error = (current_state == 3) | "signal-error";
 
 ```fcdsl
 func smooth_filter(input, window_size) {
-    Memory sum: "signal-sum" = 0;
-    Memory count: "signal-count" = 0;
+    Memory sum: "signal-sum";
+    Memory count: "signal-count";
     
     Signal current_sum = read(sum);
     Signal current_count = read(count);
@@ -1420,7 +1391,7 @@ statement: decl_stmt ";"
 
 decl_stmt: type_name NAME "=" expr
 
-mem_decl: ("Memory" | "mem") NAME [":" STRING] ["=" expr]
+mem_decl: ("Memory" | "mem") NAME [":" STRING]
 
 expr: logic
 logic: comparison ( ("&&" | "||") comparison )*

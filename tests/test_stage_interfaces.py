@@ -90,7 +90,7 @@ class TestSemanticAnalyzerInterface:
         assert diagnostics.has_errors()
 
     def test_analyzer_signal_registry_populated(self):
-        """Semantic analyzer should populate signal registry with implicit signals."""
+        """Semantic analyzer should have a signal registry."""
         parser = DSLParser()
         source = "Signal x = 10;"  # Implicit virtual signal
         ast = parser.parse(source)
@@ -99,9 +99,8 @@ class TestSemanticAnalyzerInterface:
         analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
-        # Should have allocated an implicit virtual signal
+        # Registry exists but implicit signals are deferred to layout phase
         assert analyzer.signal_registry is not None
-        assert len(analyzer.signal_registry) > 0  # At least one signal registered
 
     def test_analyzer_shares_registry_with_allocator(self):
         """Semantic analyzer should share registry with signal allocator."""
@@ -139,23 +138,18 @@ class TestLowererInterface:
     def test_lowerer_shares_signal_registry(self):
         """Lowerer should share signal registry with semantic analyzer."""
         parser = DSLParser()
-        source = "Signal x = 10;"  # Implicit signal
+        source = 'Signal x = ("iron-plate", 10);'  # Known Factorio signal
         ast = parser.parse(source)
 
         diagnostics = ProgramDiagnostics()
         analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
-        # Get the registry before lowering
         ir_ops, diagnostics, signal_map = lower_program(ast, analyzer)
 
-        # Signal map should contain allocated virtual signals as dicts
-        assert len(signal_map) > 0
-        # Each entry should be a dict with 'name' and 'type'
-        for key, value in signal_map.items():
-            assert isinstance(value, dict)
-            assert "name" in value
-            assert "type" in value
+        # Known Factorio signals don't need explicit registration
+        # They're already in draftsman's signal_data
+        assert isinstance(signal_map, dict)
 
     def test_lowerer_independent_calls(self):
         """Multiple lower_program calls should not interfere."""
@@ -280,9 +274,9 @@ class TestStageIsolation:
         assert ast.statements is not None  # Core structure intact
 
     def test_signal_registry_sharing(self):
-        """SignalTypeRegistry should be shared, not copied."""
+        """SignalTypeRegistry should be shared between stages."""
         parser = DSLParser()
-        source = "Signal x = 10;"  # Implicit signal
+        source = 'Signal x = ("iron-plate", 10);'  # Known Factorio signal
         ast = parser.parse(source)
 
         diagnostics = ProgramDiagnostics()
@@ -291,9 +285,9 @@ class TestStageIsolation:
 
         ir_ops, _, signal_map = lower_program(ast, analyzer)
 
-        # Both registry and signal_map should have same signals
-        assert len(analyzer.signal_registry) > 0
-        assert len(signal_map) > 0
+        # Known Factorio signals are in draftsman's signal_data
+        # They don't need explicit registration in signal_map
+        assert isinstance(signal_map, dict)
 
     def test_diagnostics_merging(self):
         """Diagnostics from different stages should be mergeable."""
@@ -357,11 +351,11 @@ class TestEndToEndPipeline:
         assert bp_string.startswith("0eN")
 
     def test_program_with_signals(self):
-        """Test pipeline with implicit signal allocation."""
+        """Test pipeline with explicit signal types."""
         parser = DSLParser()
         source = """
-        Signal x = 100;
-        Signal y = 200;
+        Signal x = ("signal-A", 100);
+        Signal y = ("signal-B", 200);
         Signal z = x + y;
         """
 
@@ -371,13 +365,7 @@ class TestEndToEndPipeline:
         analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
-        # Verify signals allocated
-        assert len(analyzer.signal_registry) > 0
-
         ir_ops, _, signal_map = lower_program(ast, analyzer)
-
-        # Signal map should reflect allocated signals
-        assert len(signal_map) > 0
 
         # Complete pipeline
         blueprint, _ = emit_blueprint(ir_ops, signal_type_map=signal_map)

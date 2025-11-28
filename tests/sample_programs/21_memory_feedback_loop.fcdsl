@@ -7,7 +7,7 @@
 # - Redundant projection elimination on same-type casts
 # - Common subexpression elimination for repeated additions
 
-Memory counter: "signal-A" = 0;
+Memory counter: "signal-A";
 
 # Capture the freshly initialized state.
 Signal current_count = read(counter);

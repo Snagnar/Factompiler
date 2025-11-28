@@ -18,11 +18,8 @@ func process_mix(input_mix, multiplier) {
 
 # Function with memory that affects signal composition
 func stateful_mix_creator(base_value) {
-    Memory accumulator;
-    Memory type_selector;
-
-    write(0, accumulator, when=once);
-    write(0, type_selector, when=once);
+    Memory accumulator: "signal-0";
+    Memory type_selector: "signal-1";
 
     Signal current_accum = read(accumulator);
     Signal selector = read(type_selector);

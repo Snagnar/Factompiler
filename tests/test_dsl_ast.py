@@ -102,7 +102,6 @@ class TestStatementNodes:
         """Test MemDecl node with explicit signal type."""
         node = MemDecl("counter", signal_type="iron-plate")
         assert node.name == "counter"
-        assert node.init_expr is None
         assert node.signal_type == "iron-plate"
 
     def test_expr_statement(self):

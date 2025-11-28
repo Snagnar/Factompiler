@@ -7,7 +7,6 @@ import pytest
 from dsl_compiler.src.ir.nodes import (
     IR_Arith,
     IR_Const,
-    IR_MemCreate,
     IR_MemWrite,
     SignalRef,
 )
@@ -129,32 +128,3 @@ class TestLowerer:
 
         ariths = [op for op in ir_operations if isinstance(op, IR_Arith)]
         assert len(ariths) == 0
-
-    def test_memory_initialization_sugar(self, parser):
-        """Memory declarations with initializers should emit one-shot writes."""
-
-        code = 'Memory counter: "signal-A" = ("signal-A", 5);'
-
-        program = parser.parse(code)
-        diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
-        analyzer.visit(program)
-        assert not diagnostics.has_errors(), diagnostics.get_messages()
-
-        ir_operations, lower_diag, _ = lower_program(program, analyzer)
-        assert not lower_diag.has_errors(), lower_diag.get_messages()
-
-        mem_creates = [
-            op
-            for op in ir_operations
-            if isinstance(op, IR_MemCreate) and op.memory_id == "mem_counter"
-        ]
-        mem_writes = [
-            op
-            for op in ir_operations
-            if isinstance(op, IR_MemWrite) and op.memory_id == "mem_counter"
-        ]
-
-        assert len(mem_creates) == 1
-        assert len(mem_writes) == 1
-        assert mem_writes[0].is_one_shot is True

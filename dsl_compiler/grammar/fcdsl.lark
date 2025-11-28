@@ -14,7 +14,6 @@ READ_KW: "read"
 WRITE_KW: "write"
 WHEN_KW: "when"
 MEM_KW: "mem"
-ONCE_KW: "once"
 
 // Type keywords
 INT_KW: "int"
@@ -43,7 +42,7 @@ statement: decl_stmt ";"                    -> decl_stmt
 
 decl_stmt: type_name NAME "=" expr
 
-mem_decl: (MEMORY_KW | MEM_KW) NAME [":" STRING] ["=" expr]
+mem_decl: (MEMORY_KW | MEM_KW) NAME [":" STRING]
 
 type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW
 
@@ -106,7 +105,6 @@ primary: literal
        | "(" expr ")"
 
 write_when: expr
-          | ONCE_KW
 
 call_expr: NAME "(" [arglist] ")"
 method_call: NAME "." NAME "(" [arglist] ")"

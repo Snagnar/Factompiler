@@ -7,13 +7,10 @@ Entity status_lamp = place("small-lamp", 5, 0);
 Entity indicator_lamp = place("small-lamp", 10, 0);
 
 # Memory for state tracking
-Memory entity_state;
-Memory blink_counter;
-Memory last_lamp_status;
+Memory entity_state: "signal-0";
+Memory blink_counter: "signal-0";
+Memory last_lamp_status: "signal-0";
 
-write(0, entity_state, when=once);
-write(0, blink_counter, when=once);
-write(0, last_lamp_status, when=once);
 
 # Input controls
 Signal mode_selector = 100 % 3;  # 0, 1, or 2

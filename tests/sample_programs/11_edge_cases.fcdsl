@@ -22,11 +22,9 @@ Signal project_missing = (implicit1 + explicit1) | "non-existent-type";  # force
 Signal project_self = explicit1 | "signal-A";  # no-op
 
 # Memory edge cases  
-Memory uninitialized;
-Memory negative_init;
+Memory uninitialized: "signal-0";
+Memory negative_init: "signal-0";
 
-write(0, uninitialized, when=once);
-write(-10, negative_init, when=once);
 
 # Simulated empty aggregation using neutral element
 Signal empty_aggregate = 0 | "signal-each";

@@ -58,7 +58,6 @@ class TestSemanticAnalyzer:
 
         code = """
     Memory counter: "signal-A";
-    write(("signal-A", 0), counter, when=once);
         Signal value = 42;
         write(counter, value);
         """
@@ -79,7 +78,6 @@ class TestSemanticAnalyzer:
 
         code = """
     Memory counter: "signal-A";
-    write(("signal-A", 0), counter, when=once);
         Signal enable = 1;
         write(read(counter) + 1, counter, when=enable);
         """
@@ -156,9 +154,9 @@ class TestSemanticAnalyzer:
         allocations = [analyzer.allocate_implicit_type() for _ in range(60)]
         names = [info.name for info in allocations]
 
+        # All allocated names should be unique
         assert len(names) == len(set(names))
-        # Access signal names through the registry
-        assert analyzer.signal_registry.resolve_name(names[0]) == "signal-A"
-
-        assert analyzer.signal_registry.resolve_name(names[25]) == "signal-Z"
-        assert analyzer.signal_registry.resolve_name(names[26]) == "signal-AA"
+        # Implicit signals use __v prefix
+        assert names[0] == "__v1"
+        assert names[1] == "__v2"
+        assert names[59] == "__v60"

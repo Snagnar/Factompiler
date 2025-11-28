@@ -194,7 +194,6 @@ class IR_MemWrite(IREffect):
         self.memory_id = memory_id
         self.data_signal = data_signal
         self.write_enable = write_enable
-        self.is_one_shot: bool = False
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         return f"IR_MemWrite({self.memory_id} <- {self.data_signal} when {self.write_enable})"

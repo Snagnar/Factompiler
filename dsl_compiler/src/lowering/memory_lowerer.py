@@ -31,6 +31,10 @@ class MemoryLowerer:
     def diagnostics(self):
         return self.parent.diagnostics
 
+    def _error(self, message: str, node: Optional[ASTNode] = None) -> None:
+        """Add a lowering error diagnostic."""
+        self.diagnostics.error(message, stage="lowering", node=node)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -62,16 +66,6 @@ class MemoryLowerer:
         self.parent.memory_types[stmt.name] = signal_type
 
         self.ir_builder.memory_create(memory_id, signal_type, stmt)
-
-        if stmt.init_expr is not None:
-            init_value = self.parent.expr_lowerer.lower_expr(stmt.init_expr)
-            coerced_init = self._coerce_to_signal_type(init_value, signal_type, stmt)
-
-            once_enable = self._lower_once_enable(stmt)
-            write_op = self.ir_builder.memory_write(
-                memory_id, coerced_init, once_enable, stmt
-            )
-            write_op.is_one_shot = True
 
     def lower_read_expr(self, expr: ReadExpr) -> SignalRef:
         memory_name = expr.memory_name
@@ -117,11 +111,7 @@ class MemoryLowerer:
             data_ref, expected_signal_type, expr
         )
 
-        is_once = getattr(expr, "when_once", False)
-
-        if is_once:
-            write_enable = self._lower_once_enable(expr)
-        elif expr.when is not None:
+        if expr.when is not None:
             # Lower the condition expression
             write_enable = self.parent.expr_lowerer.lower_expr(expr.when)
 
@@ -155,12 +145,9 @@ class MemoryLowerer:
             self.parent.ensure_signal_registered("signal-W")
             write_enable = self.ir_builder.const("signal-W", 1, expr)
 
-        write_op = self.ir_builder.memory_write(
+        self.ir_builder.memory_write(
             memory_id, coerced_data_ref, write_enable, expr
         )
-
-        if is_once:
-            write_op.is_one_shot = True
 
         return coerced_data_ref
 
@@ -223,26 +210,3 @@ class MemoryLowerer:
             node,
         )
         return self.ir_builder.const(signal_type, 0, node)
-
-    def _lower_once_enable(self, node: ASTNode) -> SignalRef:
-        self.parent._once_counter += 1
-        flag_name = f"__once_flag_{self.parent._once_counter}"
-        flag_memory_id = f"mem_{flag_name}"
-
-        flag_signal_type = "signal-W"
-        self.parent.ensure_signal_registered(flag_signal_type)
-
-        self.ir_builder.memory_create(flag_memory_id, flag_signal_type, node)
-
-        flag_read = self.ir_builder.memory_read(flag_memory_id, flag_signal_type, node)
-        condition = self.ir_builder.decider(
-            "==", flag_read, 0, 1, flag_signal_type, node
-        )
-
-        one_const = self.ir_builder.const(flag_signal_type, 1, node)
-        flag_write = self.ir_builder.memory_write(
-            flag_memory_id, one_const, condition, node
-        )
-        flag_write.is_one_shot = True
-
-        return condition

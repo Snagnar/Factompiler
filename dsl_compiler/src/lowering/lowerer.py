@@ -70,7 +70,6 @@ class ASTLowerer:
         self.ir_builder.signal_registry = self.semantic.signal_registry
 
         # Hidden structures for compiler-generated helpers
-        self._once_counter = 0
         self.returned_entity_id: Optional[str] = None
 
         # Modular lowering helpers
@@ -181,10 +180,15 @@ class ASTLowerer:
         if not signal_type:
             return
 
+        # Don't register implicit signals (__v1, __v2, etc.) here - let the layout
+        # phase allocate real Factorio signals for them when needed
+        if signal_type.startswith("__v"):
+            return
+
         if signal_data is not None and signal_type in signal_data.raw:
             return
 
-        if signal_type in self.ir_builder.signal_type_map:
+        if self.ir_builder.signal_registry.resolve(signal_type) is not None:
             return
 
         category = (
@@ -195,10 +199,9 @@ class ASTLowerer:
         if not category:
             category = self._infer_signal_category(signal_type)
 
-        self.ir_builder.signal_type_map[signal_type] = {
-            "name": signal_type,
-            "type": category or "virtual",
-        }
+        self.ir_builder.signal_registry.register(
+            signal_type, signal_type, category or "virtual"
+        )
 
     # ------------------------------------------------------------------
     # Public API

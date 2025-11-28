@@ -89,24 +89,39 @@ class IntegerLayoutEngine:
         Fixed positions include:
         - User-specified positions (user_specified_position=True)
         - Grid-placed power poles (fixed_position=True)
+
+        COORDINATE SYSTEM NOTES:
+        - User-specified positions from place() calls are stored as TILE positions
+          (the top-left corner of the entity).
+        - Power poles (fixed_position=True) are stored as CENTER positions.
+
+        We normalize both to tile positions for the solver, which works on an
+        integer grid where positions represent top-left corners.
         """
         self.fixed_positions = {}
 
         for entity_id, placement in self.entity_placements.items():
             if placement.position is not None:
                 # Check if position is marked as fixed
-                is_fixed = placement.properties.get(
-                    "user_specified_position"
-                ) or placement.properties.get("fixed_position")
+                is_user_specified = placement.properties.get("user_specified_position")
+                is_fixed = placement.properties.get("fixed_position")
 
-                if is_fixed:
-                    # Convert center position to tile position (top-left corner)
-                    center_x, center_y = placement.position
+                if is_user_specified or is_fixed:
                     footprint = placement.properties.get("footprint", (1, 1))
                     width, height = footprint
 
-                    tile_x = int(center_x - width / 2.0)
-                    tile_y = int(center_y - height / 2.0)
+                    if is_user_specified:
+                        # User-specified positions are already tile positions
+                        tile_x, tile_y = (
+                            int(placement.position[0]),
+                            int(placement.position[1]),
+                        )
+                    else:
+                        # Power poles and other fixed entities store center positions
+                        # Convert: tile = center - size/2
+                        center_x, center_y = placement.position
+                        tile_x = int(round(center_x - width / 2.0))
+                        tile_y = int(round(center_y - height / 2.0))
 
                     self.fixed_positions[entity_id] = (tile_x, tile_y)
 

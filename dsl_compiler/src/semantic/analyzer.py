@@ -303,11 +303,7 @@ class SemanticAnalyzer(ASTVisitor):
         elif isinstance(expr, WriteExpr):
             value_type = self.get_expr_type(expr.value)
 
-            if getattr(expr, "when_once", False):
-                enable_type = SignalValue(
-                    signal_type=self.make_signal_type_info("signal-W", implicit=False)
-                )
-            elif expr.when is not None:
+            if expr.when is not None:
                 enable_type = self.get_expr_type(expr.when)
             else:
                 enable_type = SignalValue(
@@ -1062,35 +1058,6 @@ class SemanticAnalyzer(ASTVisitor):
             explicit=declared_type is not None,
         )
         self.memory_types[node.name] = mem_info
-
-        # Handle inline initialization hints
-        if node.init_expr is not None:
-            init_type = self.get_expr_type(node.init_expr)
-
-            if isinstance(init_type, SignalValue) and init_type.signal_type is not None:
-                init_signal_name = init_type.signal_type.name
-
-                if mem_info.signal_type is None:
-                    mem_info.signal_type = init_signal_name
-                    mem_info.signal_info = init_type.signal_type
-                    memory_type.signal_type = init_type.signal_type
-                    symbol.value_type.signal_type = init_type.signal_type
-                    node.signal_type = init_signal_name
-                    declared_type = init_signal_name
-                elif init_signal_name != mem_info.signal_type:
-                    self.diagnostics.warning(
-                        (
-                            f"Memory '{node.name}' initialization writes '{init_signal_name}'"
-                            f" but declaration expects '{mem_info.signal_type}'."
-                            " Project the initializer to the declared type or update the declaration."
-                        ),
-                        stage="semantic",
-                        node=node.init_expr,
-                    )
-            elif isinstance(init_type, IntValue) and mem_info.signal_type is None:
-                # Preserve implicit virtual channel for integer initializers until a
-                # concrete signal type is inferred by a later write.
-                pass
 
         self._register_signal_metadata(
             node.name,
