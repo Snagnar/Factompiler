@@ -1,0 +1,40 @@
+# Binary Clock
+
+
+Memory counter;
+
+write((read(counter) + 1) % 65536, counter);
+
+lamp0 = place("small-lamp", 0, 0);
+lamp1 = place("small-lamp", 1, 0);
+lamp2 = place("small-lamp", 2, 0);
+lamp3 = place("small-lamp", 3, 0);
+lamp4 = place("small-lamp", 4, 0);
+lamp5 = place("small-lamp", 5, 0);
+lamp6 = place("small-lamp", 6, 0);
+lamp7 = place("small-lamp", 7, 0);
+lamp8 = place("small-lamp", 8, 0);
+lamp9 = place("small-lamp", 9, 0);
+lamp10 = place("small-lamp", 10, 0);
+lamp11 = place("small-lamp", 11, 0);
+lamp12 = place("small-lamp", 12, 0);
+lamp13 = place("small-lamp", 13, 0);
+lamp14 = place("small-lamp", 14, 0);
+lamp15 = place("small-lamp", 15, 0);
+
+lamp0.enable = (read(counter) % 2) >= 1;
+lamp1.enable = (read(counter) % 4) >= 2;
+lamp2.enable = (read(counter) % 8) >= 4;
+lamp3.enable = (read(counter) % 16) >= 8;
+lamp4.enable = (read(counter) % 32) >= 16;
+lamp5.enable = (read(counter) % 64) >= 32;
+lamp6.enable = (read(counter) % 128) >= 64;
+lamp7.enable = (read(counter) % 256) >= 128;
+lamp8.enable = (read(counter) % 512) >= 256;
+lamp9.enable = (read(counter) % 1024) >= 512;
+lamp10.enable = (read(counter) % 2048) >= 1024;
+lamp11.enable = (read(counter) % 4096) >= 2048;
+lamp12.enable = (read(counter) % 8192) >= 4096;
+lamp13.enable = (read(counter) % 16384) >= 8192;
+lamp14.enable = (read(counter) % 32768) >= 16384;
+lamp15.enable = (read(counter) % 65536) >= 32768;
