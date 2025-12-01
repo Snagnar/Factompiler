@@ -254,7 +254,7 @@ class TestCompilerPipeline:
             with open(sample_path, "r") as f:
                 dsl_code = f.read()
 
-            program = self.parser.parse(dsl_code)
+            program = self.parser.parse(dsl_code, str(sample_path.resolve()))
             assert program is not None, f"Parser failed on {sample_path.name}"
             assert len(program.statements) > 0, (
                 f"No statements parsed from {sample_path.name}"
@@ -268,7 +268,7 @@ class TestCompilerPipeline:
             with open(sample_path, "r") as f:
                 dsl_code = f.read()
 
-            program = self.parser.parse(dsl_code)
+            program = self.parser.parse(dsl_code, str(sample_path.resolve()))
             diagnostics = ProgramDiagnostics()
             analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
             analyzer.visit(program)
@@ -285,7 +285,7 @@ class TestCompilerPipeline:
             with open(sample_path, "r") as f:
                 dsl_code = f.read()
 
-            program = self.parser.parse(dsl_code)
+            program = self.parser.parse(dsl_code, str(sample_path.resolve()))
             diagnostics = ProgramDiagnostics()
             analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
             analyzer.visit(program)
@@ -294,8 +294,8 @@ class TestCompilerPipeline:
                 program, analyzer
             )
 
-            assert not diagnostics.has_errors(), (
-                f"IR generation failed on {sample_path.name}: {diagnostics.get_messages()}"
+            assert not lowering_diags.has_errors(), (
+                f"IR generation failed on {sample_path.name}: {lowering_diags.get_messages()}"
             )
             assert len(ir_operations) > 0, (
                 f"No IR operations generated from {sample_path.name}"

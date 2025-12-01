@@ -100,7 +100,7 @@ Memory item_history: "signal-0";
 # Update production state based on conditions
 Signal state_change = item_count > read(item_history);
 write(state_change && 1 || 0, production_state, when=1);
-write(item_count, item_history, when=1);
+write(item_count | "signal-0", item_history, when=1);
 
 # =============================================================================
 # COMPLEX CONDITIONAL LOGIC
@@ -123,13 +123,13 @@ Signal normal_operation = factory_running && !critical_state;
 # =============================================================================
 
 Signal production_iron = item_count | "iron-plate";
-Signal production_copper = copper_count | "copper-status";
-Signal production_rate_signal = production_rate | "production-rate";
+Signal production_copper = copper_count | "signal-C";
+Signal production_rate_signal = production_rate | "signal-P";
 Signal production_status = production_iron + production_copper + production_rate_signal;
 
-Signal system_ok_status = normal_operation | "system-ok";
-Signal system_error = critical_state | "system-error";
-Signal system_low = resource_shortage | "resource-low";
+Signal system_ok_status = normal_operation | "signal-O";
+Signal system_error = critical_state | "signal-E";
+Signal system_low = resource_shortage | "signal-L";
 Signal system_status = system_ok_status + system_error + system_low;
 
 # =============================================================================

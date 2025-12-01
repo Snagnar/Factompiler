@@ -39,6 +39,7 @@ from dsl_compiler.src.common.diagnostics import (
 )
 from dsl_compiler.src.common.signal_registry import (
     SignalTypeRegistry,
+    is_valid_factorio_signal,
 )
 from dsl_compiler.src.common.source_location import (
     SourceLocation,
@@ -57,8 +58,6 @@ from .type_system import (
     SignalValue,
     ValueInfo,
 )
-
-from draftsman.data import signals as signal_data
 
 
 class SemanticAnalyzer(ASTVisitor):
@@ -232,24 +231,51 @@ class SemanticAnalyzer(ASTVisitor):
         )
 
     def is_valid_signal_type(self, signal_name: str) -> bool:
-        """Validate that a signal identifier appears valid for Factorio use."""
+        """Validate that a signal identifier is valid for Factorio use.
+
+        Returns True if the signal exists in Factorio's signal database,
+        or is a compiler-generated implicit signal.
+        """
         if not signal_name:
             return False
 
+        # Check if already registered in our type map
         if signal_name in self.signal_type_map:
             return True
 
-        if signal_data is not None:
-            if signal_name in signal_data.raw:
-                return True
-            if signal_name in signal_data.type_of:
-                return True
+        # Use the centralized validation function
+        is_valid, _ = is_valid_factorio_signal(signal_name)
+        return is_valid
 
-        if signal_name.startswith("signal-"):
+    def validate_signal_type_with_error(
+        self, signal_name: str, node: ASTNode, context: str = ""
+    ) -> bool:
+        """Validate a signal type and emit an error if invalid.
+
+        Args:
+            signal_name: The signal name to validate
+            node: The AST node for error reporting
+            context: Optional context string for the error message
+
+        Returns:
+            True if the signal is valid, False otherwise
+        """
+        if not signal_name:
+            return False
+
+        # Check if already registered in our type map
+        if signal_name in self.signal_type_map:
             return True
 
-        # Permissive fallback for item/fluid names when no database available
-        return True
+        is_valid, error_msg = is_valid_factorio_signal(signal_name)
+        if not is_valid:
+            context_str = f" {context}" if context else ""
+            self.diagnostics.error(
+                f"{error_msg}{context_str}",
+                stage="semantic",
+                node=node,
+            )
+        return is_valid
 
     def get_expr_type(self, expr: Expr) -> ValueInfo:
         """Get the inferred type of an expression."""
@@ -427,7 +453,15 @@ class SemanticAnalyzer(ASTVisitor):
                     f" but write provides '{write_signal_name}'."
                 )
 
-                if mem_info is not None and not mem_info.explicit:
+                # Implicit types (__v*) from function parameters are polymorphic -
+                # they take on the actual type passed at the call site, so we don't
+                # error when writing them to explicitly-typed memories
+                is_implicit_type = write_signal_name.startswith("__v")
+
+                if is_implicit_type:
+                    # Implicit types are polymorphic, allow without warning
+                    pass
+                elif mem_info is not None and not mem_info.explicit:
                     if self.strict_types:
                         self.diagnostics.error(message, stage="semantic", node=expr)
                     else:
@@ -450,6 +484,10 @@ class SemanticAnalyzer(ASTVisitor):
                 self._emit_reserved_signal_diagnostic(
                     expr.target_type, expr, "as a projection target"
                 )
+            # Validate that the target type is a valid Factorio signal
+            self.validate_signal_type_with_error(
+                expr.target_type, expr, "in projection"
+            )
             target_signal_type = SignalTypeInfo(name=expr.target_type)
             return SignalValue(signal_type=target_signal_type)
 
@@ -460,6 +498,10 @@ class SemanticAnalyzer(ASTVisitor):
                     self._emit_reserved_signal_diagnostic(
                         expr.signal_type, expr, "in signal literals"
                     )
+                # Validate that the signal type is a valid Factorio signal
+                self.validate_signal_type_with_error(
+                    expr.signal_type, expr, "in signal literal"
+                )
                 # Explicit type
                 signal_type = SignalTypeInfo(name=expr.signal_type)
                 return SignalValue(signal_type=signal_type, count_expr=expr.value)
@@ -582,31 +624,25 @@ class SemanticAnalyzer(ASTVisitor):
             return IntValue(), None
 
         # Signal + Int = Signal (int coerced to signal's type)
+        # No warning - this is a common and expected operation
         if isinstance(left_type, SignalValue) and isinstance(right_type, IntValue):
-            warning_msg = f"Mixed types in binary operation at line {node.line}:"
-            warning_msg += (
-                f"\n  Left operand:  '{left_type.signal_type.name}'"
-                f"\n  Right operand: integer"
-                f"\n  Result will keep signal '{left_type.signal_type.name}'"
-                f"\n\n  Fix: Project the integer using ('{left_type.signal_type.name}', value)"
-            )
-            return left_type, warning_msg
+            return left_type, None
 
         # Int + Signal = Signal (int coerced to signal's type)
+        # No warning - this is a common and expected operation
         if isinstance(left_type, IntValue) and isinstance(right_type, SignalValue):
-            warning_msg = f"Mixed types in binary operation at line {node.line}:"
-            warning_msg += (
-                f"\n  Left operand:  integer"
-                f"\n  Right operand: '{right_type.signal_type.name}'"
-                f"\n  Result will keep signal '{right_type.signal_type.name}'"
-                f"\n\n  Fix: Wrap the integer as ('{right_type.signal_type.name}', value)"
-            )
-            return right_type, warning_msg
+            return right_type, None
 
         # Signal + Signal
         if isinstance(left_type, SignalValue) and isinstance(right_type, SignalValue):
             # Same type - can wire-merge or compute
             if left_type.signal_type.name == right_type.signal_type.name:
+                return left_type, None
+
+            # Both virtual signals - no warning (virtual signals are interchangeable)
+            left_is_virtual = self._is_virtual_channel(left_type.signal_type)
+            right_is_virtual = self._is_virtual_channel(right_type.signal_type)
+            if left_is_virtual and right_is_virtual:
                 return left_type, None
 
             # Mixed types - left operand wins (with warning)
@@ -1022,13 +1058,11 @@ class SemanticAnalyzer(ASTVisitor):
             # concrete storage channel will be inferred from the first write().
             signal_info = self.allocate_implicit_type()
         else:
-            if not self.is_valid_signal_type(declared_type):
-                self.diagnostics.error(
-                    f"Invalid signal type '{declared_type}' for memory '{node.name}'",
-                    stage="semantic",
-                    node=node,
-                )
-            elif declared_type in self.RESERVED_SIGNAL_RULES:
+            # Validate the signal type exists in Factorio
+            self.validate_signal_type_with_error(
+                declared_type, node, f"for memory '{node.name}'"
+            )
+            if declared_type in self.RESERVED_SIGNAL_RULES:
                 self._emit_reserved_signal_diagnostic(
                     declared_type, node, "for memory storage"
                 )

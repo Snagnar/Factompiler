@@ -6,9 +6,43 @@ Example: {"__v1": {"name": "signal-A", "type": "virtual"}}
 This is the ONLY format used. All code must handle dict values.
 """
 
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Tuple
 
 from draftsman.data import signals as signal_data
+
+
+def is_valid_factorio_signal(signal_name: str) -> Tuple[bool, Optional[str]]:
+    """Check if a signal name exists in Factorio's signal database.
+
+    Args:
+        signal_name: The signal name to validate (e.g., "iron-plate", "signal-A")
+
+    Returns:
+        Tuple of (is_valid, error_message). If valid, error_message is None.
+    """
+    if not signal_name:
+        return False, "Signal name cannot be empty"
+
+    # Implicit compiler-generated signals are always valid (they get resolved later)
+    if signal_name.startswith("__v"):
+        return True, None
+
+    # Check against draftsman's signal database
+    if signal_data is not None:
+        # Check in raw signal data (includes items, fluids, virtual signals)
+        if signal_name in signal_data.raw:
+            return True, None
+        # Check in type_of mapping
+        if signal_name in signal_data.type_of:
+            return True, None
+
+    # If we get here, the signal is not in draftsman's database
+    # Provide a helpful error message
+    return False, (
+        f"Unknown signal '{signal_name}'. "
+        "Signal must be a valid Factorio item, fluid, or virtual signal name "
+        "(e.g., 'iron-plate', 'water', 'signal-A')."
+    )
 
 
 class SignalTypeRegistry:

@@ -12,4 +12,3 @@ write((read(counter3) + read(counter1)) % 10, counter3);
 
 Entity lamp1 = place("small-lamp", 0, 0);
 lamp1.enable = read(counter1) > 5;
-sdfsdfsdf

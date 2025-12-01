@@ -184,7 +184,7 @@ write(read(water_used) + water_amount, water_used, when=1);
 # Virtual signal state
 Memory system_mode: "signal-0";
 
-Signal mode_change = signal_A > 1000;
+Signal mode_change = (signal_A > 1000) | "signal-0";
 Signal new_mode = mode_change && 2 || read(system_mode);
 write(new_mode, system_mode, when=1);
 
@@ -194,12 +194,12 @@ write(new_mode, system_mode, when=1);
 
 Signal output_virtual = signal_A | "signal-Z";
 Signal output_item = iron_plate | "iron-plate";
-Signal output_fluid = water | "water-level";
-Signal output_recipe = iron_plate_recipe | "recipe-active";
-Signal output_entity = belt_entity | "entity-count";
+Signal output_fluid = water | "signal-F";
+Signal output_recipe = iron_plate_recipe | "signal-R";
+Signal output_entity = belt_entity | "signal-E";
 Signal comprehensive_output = output_virtual + output_item + output_fluid + output_recipe + output_entity;
 
 # Final status signals
 Signal status_value = material_shortage && 0 || 1;
-Signal overall_status = status_value | "system-ready";
-Signal production_efficiency = ((processed_total * 100) / resource_total) | "efficiency-percent";
+Signal overall_status = status_value | "signal-S";
+Signal production_efficiency = ((processed_total * 100) / resource_total) | "signal-P";

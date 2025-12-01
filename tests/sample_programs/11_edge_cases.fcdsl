@@ -18,7 +18,7 @@ Signal explicit1 = ("signal-A", 6);
 Signal mixed_chain = implicit1 + explicit1 + implicit2;
 
 # Projection edge cases without bundles
-Signal project_missing = (implicit1 + explicit1) | "non-existent-type";  # forces collapse
+Signal project_missing = (implicit1 + explicit1) | "signal-X";  # forces collapse
 Signal project_self = explicit1 | "signal-A";  # no-op
 
 # Memory edge cases  

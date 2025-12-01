@@ -53,7 +53,7 @@ Signal final_proj = bundle_proj_mixed | "wood";        # project to unrelated ty
 # Memory operations with type mixing
 Memory mixed_memory: "signal-0";
 
-write(copper + implicit2, mixed_memory, when=1);
+write((copper + implicit2) | "signal-0", mixed_memory, when=1);
 Signal memory_read = read(mixed_memory);
 
 # Function with type mixing

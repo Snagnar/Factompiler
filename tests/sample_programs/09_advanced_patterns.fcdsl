@@ -7,9 +7,9 @@ Memory down_counter: "signal-0";
 Memory event_count: "signal-0";
 
 
-Signal increment = ("signal-I", 0) > 0;
-Signal decrement = ("signal-D", 1) > 0;
-Signal reset = ("signal-R", 2) > 0;
+Signal increment = (("signal-I", 0) > 0) | "signal-0";
+Signal decrement = (("signal-D", 1) > 0) | "signal-0";
+Signal reset = (("signal-R", 2) > 0) | "signal-0";
 
 # Counter logic with bounds checking
 Signal up_val = read(up_counter);
