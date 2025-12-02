@@ -45,7 +45,6 @@ class DSLTransformer(Transformer):
 
     def __init__(self):
         super().__init__()
-        self.line_info = {}
 
     def _set_position(self, node: ASTNode, token_or_tree) -> ASTNode:
         """Set line/column position on AST node from Lark token/tree."""

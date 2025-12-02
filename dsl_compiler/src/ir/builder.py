@@ -13,8 +13,6 @@ from .nodes import (
     IR_Arith,
     IR_Const,
     IR_Decider,
-    IR_FuncCall,
-    IR_FuncDecl,
     IR_MemCreate,
     IR_MemRead,
     IR_MemWrite,
@@ -237,37 +235,6 @@ class IRBuilder:
         op = IR_PlaceEntity(entity_id, prototype, x, y, properties)
         self.add_operation(op)
 
-    def func_decl(
-        self,
-        func_name: str,
-        params: List[str],
-        body_operations: List[IRNode],
-        return_ref: Optional[str] = None,
-        source_ast: Optional[ASTNode] = None,
-    ) -> IR_FuncDecl:
-        """Create a function declaration."""
-
-        node_id = self.next_id("func")
-        op = IR_FuncDecl(
-            node_id, func_name, params, body_operations, return_ref, source_ast
-        )
-        self.add_operation(op)
-        return op
-
-    def func_call(
-        self,
-        func_name: str,
-        args: List[ValueRef],
-        result_ref: str,
-        source_ast: Optional[ASTNode] = None,
-    ) -> IR_FuncCall:
-        """Create a function call placeholder that will be inlined later."""
-
-        node_id = self.next_id("call")
-        op = IR_FuncCall(node_id, func_name, args, result_ref, source_ast)
-        self.add_operation(op)
-        return op
-
     def allocate_implicit_type(self) -> str:
         """Allocate a new implicit signal type name and record the mapping."""
         return self.signal_registry.allocate_implicit()
@@ -276,21 +243,6 @@ class IRBuilder:
         """Return a copy of the currently built IR operations."""
 
         return self.operations.copy()
-
-    def print_ir(self) -> None:  # pragma: no cover - debug helper
-        """Print the IR in a human-readable form for debugging."""
-
-        print("IR Operations:")
-        print("=" * 50)
-        for i, op in enumerate(self.operations):
-            print(f"{i:2d}: {op}")
-        print()
-
-        if self.signal_type_map:
-            print("Signal Type Mapping:")
-            print("=" * 30)
-            for implicit, factorio in self.signal_type_map.items():
-                print(f"  {implicit} -> {factorio}")
 
 
 __all__ = ["IRBuilder"]

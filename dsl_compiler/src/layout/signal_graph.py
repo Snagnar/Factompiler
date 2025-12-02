@@ -16,12 +16,6 @@ class SignalGraph:
         self._sources: Dict[str, List[str]] = defaultdict(list)  # ✅ Changed to List
         self._sinks: Dict[str, List[str]] = defaultdict(list)
 
-    def reset(self) -> None:
-        """Clear all tracked producers and consumers."""
-
-        self._sources.clear()
-        self._sinks.clear()
-
     def set_source(self, signal_id: str, entity_id: str) -> None:
         """Mark ``entity_id`` as a producer for ``signal_id``.
 
@@ -40,13 +34,6 @@ class SignalGraph:
         sources = self._sources.get(signal_id, [])
         return sources[0] if sources else None
 
-    def get_sources(self, signal_id: str) -> List[str]:
-        """Return all producer entity ids for ``signal_id``.
-
-        ✅ NEW: Added to support multiple sources per signal.
-        """
-        return list(self._sources.get(signal_id, []))
-
     def add_sink(self, signal_id: str, entity_id: str) -> None:
         """Register that ``entity_id`` consumes ``signal_id``."""
 
@@ -60,11 +47,6 @@ class SignalGraph:
         sinks = self._sinks.get(signal_id, [])
         if entity_id in sinks:
             sinks.remove(entity_id)
-
-    def has_sink(self, signal_id: str, entity_id: str) -> bool:
-        """Return True if ``entity_id`` already consumes ``signal_id``."""
-
-        return entity_id in self._sinks.get(signal_id, [])
 
     def iter_sinks(self, signal_id: str) -> List[str]:
         """Return a snapshot of sink ids for ``signal_id``."""

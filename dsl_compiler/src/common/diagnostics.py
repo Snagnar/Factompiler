@@ -134,12 +134,28 @@ class ProgramDiagnostics:
         return self._error_count > 0
 
     def error_count(self) -> int:
-        """Get the number of errors."""
+        """Return the number of errors recorded."""
         return self._error_count
 
     def warning_count(self) -> int:
-        """Get the number of warnings."""
+        """Return the number of warnings recorded."""
         return self._warning_count
+
+    def _format_diagnostic(self, diag: Diagnostic) -> str:
+        """Format a single diagnostic for display."""
+        # Format: SEVERITY [stage:file:line:col]: message
+        parts = [diag.severity.value.upper()]
+
+        location_parts = [diag.stage]
+        if diag.source_file:
+            location_parts.append(Path(diag.source_file).name)
+        if diag.line > 0:
+            location_parts.append(str(diag.line))
+            if diag.column > 0:
+                location_parts.append(str(diag.column))
+
+        location = ":".join(location_parts)
+        return f"{parts[0]} [{location}]: {diag.message}"
 
     def get_messages(
         self, min_severity: DiagnosticSeverity = DiagnosticSeverity.WARNING
@@ -159,25 +175,3 @@ class ProgramDiagnostics:
 
             messages.append(self._format_diagnostic(diag))
         return messages
-
-    def _format_diagnostic(self, diag: Diagnostic) -> str:
-        """Format a single diagnostic for display."""
-        # Format: SEVERITY [stage:file:line:col]: message
-        parts = [diag.severity.value.upper()]
-
-        location_parts = [diag.stage]
-        if diag.source_file:
-            location_parts.append(Path(diag.source_file).name)
-        if diag.line > 0:
-            location_parts.append(str(diag.line))
-            if diag.column > 0:
-                location_parts.append(str(diag.column))
-
-        location = ":".join(location_parts)
-        return f"{parts[0]} [{location}]: {diag.message}"
-
-    def merge(self, other: "ProgramDiagnostics") -> None:
-        """Merge diagnostics from another collector."""
-        self.diagnostics.extend(other.diagnostics)
-        self._error_count += other._error_count
-        self._warning_count += other._warning_count

@@ -25,15 +25,17 @@ def test_signal_registry():
     # Register a signal
     registry.register("iron-plate", "iron-plate", "item")
 
-    # Resolve it
-    assert registry.resolve_name("iron-plate") == "iron-plate"
-    assert registry.resolve_type("iron-plate") == "item"
+    # Resolve it (returns full mapping dict)
+    mapping = registry.resolve("iron-plate")
+    assert mapping is not None
+    assert mapping["name"] == "iron-plate"
+    assert mapping["type"] == "item"
 
     # Allocate implicit - returns key but doesn't immediately register
     implicit = registry.allocate_implicit()
     assert implicit == "__v1"
     # Implicit signals are NOT immediately mapped - deferred to layout phase
-    assert registry.resolve_name(implicit) is None
+    assert registry.resolve(implicit) is None
 
 
 def test_source_location():

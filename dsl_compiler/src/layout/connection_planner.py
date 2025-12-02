@@ -361,13 +361,6 @@ class ConnectionPlanner:
         # Validate relay placement results
         self._validate_relay_coverage()
 
-    def get_wire_color(
-        self, source_id: str, sink_id: str, resolved_signal: str
-    ) -> Optional[str]:
-        """Lookup planned wire color for a specific connection."""
-
-        return self._edge_color_map.get((source_id, sink_id, resolved_signal))
-
     def get_wire_color_for_edge(
         self, source_entity_id: str, sink_entity_id: str, signal_name: str
     ) -> str:
@@ -383,11 +376,6 @@ class ConnectionPlanner:
         """
         edge_key = (source_entity_id, sink_entity_id, signal_name)
         return self._edge_wire_colors.get(edge_key, "red")
-
-    def iter_circuit_edges(self) -> Sequence[CircuitEdge]:
-        """Expose planned circuit edges."""
-
-        return tuple(self._circuit_edges)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -863,15 +851,6 @@ class ConnectionPlanner:
     # ------------------------------------------------------------------
     # Convenience helpers for emitters
     # ------------------------------------------------------------------
-
-    def compute_wire_distance(self, source_id: str, sink_id: str) -> Optional[float]:
-        source = self.layout_plan.get_placement(source_id)
-        sink = self.layout_plan.get_placement(sink_id)
-        if not source or not sink:
-            return None
-        sx, sy = source.position
-        tx, ty = sink.position
-        return math.dist((sx, sy), (tx, ty))
 
     def edge_color_map(self) -> Dict[Tuple[str, str, str], str]:
         """Expose raw edge→color assignments."""

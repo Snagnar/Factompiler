@@ -9,7 +9,7 @@ using the factorio-draftsman library to generate blueprint JSON.
 from __future__ import annotations
 from dsl_compiler.src.layout.planner import LayoutPlanner
 
-from typing import Dict, List, Optional, Tuple, Any, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, Any
 
 from draftsman.blueprintable import Blueprint
 from draftsman.entity import (

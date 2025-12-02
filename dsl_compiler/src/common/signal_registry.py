@@ -104,43 +104,9 @@ class SignalTypeRegistry:
         """
         return self._type_map.get(signal_key)
 
-    def resolve_name(self, signal_key: str) -> Optional[str]:
-        """Get just the Factorio signal name.
-
-        Args:
-            signal_key: DSL signal identifier
-
-        Returns:
-            Factorio signal name or None
-        """
-        mapping = self.resolve(signal_key)
-        return mapping["name"] if mapping else None
-
-    def resolve_type(self, signal_key: str) -> Optional[str]:
-        """Get just the signal category.
-
-        Args:
-            signal_key: DSL signal identifier
-
-        Returns:
-            Signal category (virtual, item, fluid) or None
-        """
-        mapping = self.resolve(signal_key)
-        return mapping["type"] if mapping else None
-
     def get_all_mappings(self) -> Dict[str, Any]:
         """Get a copy of all signal type mappings."""
         return self._type_map.copy()
-
-    def _virtual_signal_name(self, index: int) -> str:
-        """Map an implicit index to a unique Factorio virtual signal name."""
-        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        index -= 1  # convert to zero-based
-        name = ""
-        while index >= 0:
-            name = alphabet[index % 26] + name
-            index = index // 26 - 1
-        return f"signal-{name}"
 
     def __len__(self) -> int:
         """Get the number of registered signal types."""

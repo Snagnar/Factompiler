@@ -52,13 +52,9 @@ class EntityPlacer:
             tile_grid, layout_plan, signal_analyzer, diagnostics
         )
 
-        self.next_entity_number = 1
         self._memory_modules: Dict[str, Dict[str, Any]] = {}
         self._wire_merge_junctions: Dict[str, Dict[str, Any]] = {}
         self._entity_property_signals: Dict[str, str] = {}
-        self._memory_read_sources: Dict[
-            str, str
-        ] = {}  # Track which memory each read came from
         self._ir_nodes: Dict[str, IRNode] = {}  # Track all IR nodes by ID for lookups
 
     def _build_debug_info(

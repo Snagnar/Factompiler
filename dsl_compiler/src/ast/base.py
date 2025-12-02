@@ -37,21 +37,6 @@ class ASTVisitor(ABC):
         pass
 
 
-class ASTTransformer(ASTVisitor):
-    """Base class for AST transformation visitors."""
-
-    def visit(self, node: ASTNode) -> ASTNode:  # type: ignore[override]
-        """Visit and transform a node."""
-        method_name = f"visit_{type(node).__name__}"
-        if hasattr(self, method_name):
-            return getattr(self, method_name)(node)
-        return self.generic_visit(node)
-
-    def generic_visit(self, node: ASTNode) -> ASTNode:  # type: ignore[override]
-        """Default transformer - returns node unchanged."""
-        return node
-
-
 def ast_to_dict(node: ASTNode) -> Any:
     """Convert AST node to dictionary representation for debugging."""
     if not isinstance(node, ASTNode):

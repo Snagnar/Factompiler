@@ -591,24 +591,6 @@ class ExpressionLowerer:
             return [value_ref]
         return None
 
-    def _extract_constant_value(self, value_ref: ValueRef) -> Optional[int]:
-        """Extract compile-time constant value from a ValueRef.
-
-        Returns:
-            Integer value if ref is a compile-time constant, None otherwise
-        """
-        # Direct integer literal
-        if isinstance(value_ref, int):
-            return value_ref
-
-        # SignalRef pointing to IR_Const
-        if isinstance(value_ref, SignalRef):
-            source_op = self.ir_builder.get_operation(value_ref.source_id)
-            if isinstance(source_op, IR_Const):
-                return source_op.value
-
-        return None
-
     def _try_fold_wire_merge(
         self, sources: List[SignalRef], output_type: str, source_ast: Optional[Any]
     ) -> Optional[SignalRef]:
@@ -674,58 +656,6 @@ class ExpressionLowerer:
         )
 
         return folded_ref
-
-    def _try_partial_fold_wire_merge(
-        self, sources: List[SignalRef], output_type: str, source_ast: Optional[Any]
-    ) -> tuple[List[SignalRef], int]:
-        """Fold constants in a wire merge and return non-constant sources + offset.
-
-        Will NOT fold user-declared constants.
-
-        Args:
-            sources: Mixed list of constant and non-constant SignalRefs
-            output_type: Signal type for the result
-            source_ast: Source AST node
-
-        Returns:
-            (filtered_sources, constant_offset) tuple
-        """
-        constant_sum = 0
-        non_const_sources = []
-        const_source_ids = []
-
-        for source_ref in sources:
-            if not isinstance(source_ref, SignalRef):
-                non_const_sources.append(source_ref)
-                continue
-
-            source_op = self.ir_builder.get_operation(source_ref.source_id)
-
-            # Only fold anonymous constants, not user-declared ones
-            if (
-                isinstance(source_op, IR_Const)
-                and source_ref.signal_type == output_type
-            ):
-                if source_op.debug_metadata.get("user_declared"):
-                    # Keep user-declared constants separate
-                    non_const_sources.append(source_ref)
-                    continue
-
-                constant_sum += source_op.value
-                const_source_ids.append(source_ref.source_id)
-                # Mark for suppression
-                source_op.debug_metadata["suppress_materialization"] = True
-            else:
-                non_const_sources.append(source_ref)
-
-        if const_source_ids:
-            self.diagnostics.info(
-                f"Partially folded {len(const_source_ids)} constants in wire merge "
-                f"(sum={constant_sum}, remaining non-const sources={len(non_const_sources)})",
-                source_ast,
-            )
-
-        return non_const_sources, constant_sum
 
     def _attempt_wire_merge(
         self,

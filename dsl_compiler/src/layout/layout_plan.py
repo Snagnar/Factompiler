@@ -40,18 +40,6 @@ class PowerPolePlacement:
 
 
 @dataclass
-class SignalMaterialization:
-    """Decision about whether/how to materialize a signal."""
-
-    signal_id: str
-    should_materialize: bool
-    resolved_signal_name: Optional[str] = None
-    resolved_signal_type: Optional[str] = None
-    is_inlinable_constant: bool = False
-    constant_value: Optional[int] = None
-
-
-@dataclass
 class LayoutPlan:
     """Complete physical layout plan for blueprint emission."""
 
@@ -63,14 +51,6 @@ class LayoutPlan:
 
     # Power infrastructure
     power_poles: List[PowerPolePlacement] = field(default_factory=list)
-
-    # Signal decisions
-    signal_materializations: Dict[str, SignalMaterialization] = field(
-        default_factory=dict
-    )
-
-    # Signal connectivity graph (source -> sinks)
-    signal_graph: Dict[str, List[str]] = field(default_factory=dict)
 
     # Metadata
     blueprint_label: str = "DSL Generated"

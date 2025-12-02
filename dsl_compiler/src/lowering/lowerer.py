@@ -81,10 +81,6 @@ class ASTLowerer:
         """Add a lowering error diagnostic."""
         self.diagnostics.error(message, stage="lowering", node=node)
 
-    def _warning(self, message: str, node: Optional[ASTNode] = None) -> None:
-        """Add a lowering warning diagnostic."""
-        self.diagnostics.warning(message, stage="lowering", node=node)
-
     # ------------------------------------------------------------------
     # Debug metadata helpers
     # ------------------------------------------------------------------

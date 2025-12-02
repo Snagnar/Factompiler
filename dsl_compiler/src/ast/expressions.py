@@ -124,22 +124,3 @@ class PropertyAccessExpr(Expr):
         super().__init__(line, column, raw_text=raw_text)
         self.object_name = object_name
         self.property_name = property_name
-
-
-class PlaceExpr(Expr):
-    """place(proto, x, y, [props]) - entity placement"""
-
-    def __init__(
-        self,
-        prototype: "Expr",
-        x: "Expr",
-        y: "Expr",
-        properties: Optional[Dict[str, Any]] = None,
-        line: int = 0,
-        column: int = 0,
-    ) -> None:
-        super().__init__(line, column)
-        self.prototype = prototype  # string or identifier
-        self.x = x
-        self.y = y
-        self.properties = properties

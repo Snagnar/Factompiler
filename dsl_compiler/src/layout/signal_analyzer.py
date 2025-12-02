@@ -28,14 +28,12 @@ class SignalUsageEntry:
     consumers: Set[str] = field(default_factory=set)
     export_targets: Set[str] = field(default_factory=set)
     output_entities: Set[str] = field(default_factory=set)
-    resolved_outputs: Dict[str, str] = field(default_factory=dict)
     source_ast: Optional[Any] = None
     literal_value: Optional[int] = None
     literal_declared_type: Optional[str] = None
     is_typed_literal: bool = False
     debug_label: Optional[str] = None
     debug_metadata: Dict[str, Any] = field(default_factory=dict)
-    export_anchor_id: Optional[str] = None
     should_materialize: bool = True
     resolved_signal_name: Optional[str] = None
     resolved_signal_type: Optional[str] = None
@@ -297,30 +295,6 @@ class SignalAnalyzer:
             return self.get_signal_name(operand)
 
         return self.get_signal_name(str(operand))
-
-    def get_operand_value(self, operand: Any):
-        """Get the value of an operand (for general use)."""
-        if isinstance(operand, int):
-            return operand
-
-        if isinstance(operand, SignalRef):
-            # Try to inline constant
-            inlined = self.inline_value(operand)
-            if inlined is not None:
-                return inlined
-            # Otherwise resolve to signal name
-            usage_entry = self.signal_usage.get(operand.source_id)
-            resolved = self.resolve_signal_name(operand.signal_type, usage_entry)
-            if resolved:
-                return resolved
-            if hasattr(operand, "signal_type"):
-                return self.get_signal_name(operand.signal_type)
-            return str(operand)
-
-        if isinstance(operand, str):
-            return self.get_signal_name(operand)
-
-        return str(operand)
 
     def _decide_materialization(self, entry: SignalUsageEntry) -> None:
         producer = entry.producer

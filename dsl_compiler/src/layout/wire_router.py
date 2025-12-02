@@ -23,15 +23,6 @@ class CircuitEdge:
 
 
 @dataclass
-class ConflictNode:
-    """A node in the conflict graph representing a source entity for a signal."""
-
-    node_key: Tuple[str, str]
-    edges: Set[str] = field(default_factory=set)
-    locked_color: Optional[str] = None
-
-
-@dataclass
 class ConflictEdge:
     """Edge between two conflict nodes that must not share a wire color."""
 
@@ -117,41 +108,6 @@ def collect_circuit_edges(
         )
 
     return edges
-
-
-def detect_multi_source_conflicts(edges: Sequence[CircuitEdge]) -> List[ConflictEdge]:
-    """Identify sinks that receive the same resolved signal from multiple sources."""
-
-    conflicts_by_pair: Dict[Tuple[str, str], ConflictEdge] = {}
-    sinks_by_name: Dict[Tuple[str, str], Set[str]] = defaultdict(set)
-
-    for edge in edges:
-        if edge.source_entity_id is None:
-            continue
-        key = (edge.sink_entity_id, edge.resolved_signal_name)
-        sinks_by_name[key].add(edge.source_entity_id)
-
-    for (sink_id, resolved_name), sources in sinks_by_name.items():
-        if len(sources) <= 1:
-            continue
-        sources_list = list(sources)
-        for idx in range(len(sources_list)):
-            for jdx in range(idx + 1, len(sources_list)):
-                pair = tuple(
-                    sorted(
-                        [
-                            (sources_list[idx], resolved_name),
-                            (sources_list[jdx], resolved_name),
-                        ]
-                    )
-                )
-                conflict = conflicts_by_pair.get(pair)
-                if not conflict:
-                    conflict = ConflictEdge(nodes=pair)  # type: ignore[arg-type]
-                    conflicts_by_pair[pair] = conflict
-                conflict.sinks.add(sink_id)
-
-    return list(conflicts_by_pair.values())
 
 
 def plan_wire_colors(

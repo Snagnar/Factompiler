@@ -315,9 +315,7 @@ class MemoryBuilder:
         signal_name = self.signal_analyzer.get_signal_name(module.signal_type)
 
         # Determine if this is a single-operation or multi-operation chain
-        first_consumer_id = self._find_first_memory_consumer(
-            op.memory_id, arith_node_id
-        )
+        first_consumer_id = self._find_first_memory_consumer(op.memory_id)
         is_single_operation = (
             first_consumer_id == arith_node_id or first_consumer_id is None
         )
@@ -410,14 +408,11 @@ class MemoryBuilder:
                 f"Registered feedback loop: {arith_node_id} -> {first_consumer_id}"
             )
 
-    def _find_first_memory_consumer(
-        self, memory_id: str, final_op_id: str
-    ) -> Optional[str]:
+    def _find_first_memory_consumer(self, memory_id: str) -> Optional[str]:
         """Find the first operation in the chain that reads from memory.
 
         Args:
             memory_id: Memory being optimized
-            final_op_id: Final operation in the chain
 
         Returns:
             Entity ID of first consumer, or None

@@ -230,23 +230,6 @@ class SemanticAnalyzer(ASTVisitor):
             name=type_name, is_implicit=implicit, is_virtual=is_virtual
         )
 
-    def is_valid_signal_type(self, signal_name: str) -> bool:
-        """Validate that a signal identifier is valid for Factorio use.
-
-        Returns True if the signal exists in Factorio's signal database,
-        or is a compiler-generated implicit signal.
-        """
-        if not signal_name:
-            return False
-
-        # Check if already registered in our type map
-        if signal_name in self.signal_type_map:
-            return True
-
-        # Use the centralized validation function
-        is_valid, _ = is_valid_factorio_signal(signal_name)
-        return is_valid
-
     def validate_signal_type_with_error(
         self, signal_name: str, node: ASTNode, context: str = ""
     ) -> bool:
@@ -859,22 +842,6 @@ class SemanticAnalyzer(ASTVisitor):
         }
         return type_names.get(type(value_type), "unknown")
 
-    def _function_returns_entity(self, function_name: str) -> bool:
-        """Check if a function returns an entity by examining its definition."""
-
-        func_symbol = self.current_scope.lookup(function_name)
-        if not func_symbol or func_symbol.symbol_type != SymbolType.FUNCTION:
-            return False
-
-        # If the function definition has return statements with place() calls
-        if hasattr(func_symbol, "function_def") and func_symbol.function_def:
-            for stmt in func_symbol.function_def.body:
-                if isinstance(stmt, ReturnStmt) and stmt.expr:
-                    if isinstance(stmt.expr, CallExpr) and stmt.expr.name == "place":
-                        return True
-
-        return False
-
     def _get_function_return_type(self, function_name: str) -> ValueInfo:
         """Determine the return type of a function by analyzing its return statements."""
 
@@ -938,15 +905,6 @@ class SemanticAnalyzer(ASTVisitor):
         """Check if a name refers to a parameter."""
         symbol = self.current_scope.lookup(name)
         return symbol and symbol.symbol_type == SymbolType.PARAMETER
-
-    def _binary_op_involves_parameters(self, expr) -> bool:
-        """Check if a binary operation involves function parameters."""
-
-        if isinstance(expr, BinaryOp):
-            return self._expression_involves_parameter(
-                expr.left
-            ) or self._expression_involves_parameter(expr.right)
-        return False
 
     def _infer_builtin_call_type(self, expr: CallExpr) -> Optional[ValueInfo]:
         """Return ValueInfo for built-in calls or None if not handled."""
@@ -1289,11 +1247,6 @@ class SemanticAnalyzer(ASTVisitor):
 
         for arg in node.args:
             self.get_expr_type(arg)
-
-    def visit_DictLiteral(self, node: DictLiteral) -> None:
-        """Analyze dictionary literal entries."""
-        for value in node.entries.values():
-            self.get_expr_type(value)
 
     def generic_visit(self, node: ASTNode) -> Any:
         """Default visitor - traverse children."""
