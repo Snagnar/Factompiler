@@ -15,10 +15,6 @@ class MemoryLowerer:
     def __init__(self, parent: Any) -> None:
         self.parent = parent
 
-    # ------------------------------------------------------------------
-    # Convenience properties
-    # ------------------------------------------------------------------
-
     @property
     def ir_builder(self):
         return self.parent.ir_builder
@@ -34,10 +30,6 @@ class MemoryLowerer:
     def _error(self, message: str, node: Optional[ASTNode] = None) -> None:
         """Add a lowering error diagnostic."""
         self.diagnostics.error(message, stage="lowering", node=node)
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def lower_mem_decl(self, stmt: MemDecl) -> None:
         memory_id = f"mem_{stmt.name}"
@@ -62,7 +54,6 @@ class MemoryLowerer:
 
         self.parent.ensure_signal_registered(signal_type)
 
-        # Track the memory's signal type for later lookups
         self.parent.memory_types[stmt.name] = signal_type
 
         self.ir_builder.memory_create(memory_id, signal_type, stmt)
@@ -77,10 +68,8 @@ class MemoryLowerer:
 
         memory_id = self.parent.memory_refs[memory_name]
 
-        # Get signal type from lowerer's tracking (handles function-local memories)
         signal_type = self._memory_signal_type(memory_name)
         if signal_type is None:
-            # Fall back to implicit type if not found
             signal_type = self.ir_builder.allocate_implicit_type()
 
         self.parent.ensure_signal_registered(signal_type)
@@ -112,10 +101,8 @@ class MemoryLowerer:
         )
 
         if expr.when is not None:
-            # Lower the condition expression
             write_enable = self.parent.expr_lowerer.lower_expr(expr.when)
 
-            # Check if write_enable is constant 1 (as integer or SignalRef to const)
             is_const_one = False
             if isinstance(write_enable, int) and write_enable == 1:
                 is_const_one = True
@@ -125,18 +112,13 @@ class MemoryLowerer:
                     is_const_one = True
 
             if not is_const_one:
-                # For non-constant conditions, ensure we output signal-W
                 if isinstance(write_enable, SignalRef):
-                    # Check if this came from a decider (comparison operation)
                     source_node = self.ir_builder.get_operation(write_enable.source_id)
                     if isinstance(source_node, IR_Decider):
-                        # Modify the decider to output signal-W = 1 directly
-                        # This eliminates the need for projection arithmetic combinator
                         self.parent.ensure_signal_registered("signal-W")
                         source_node.output_type = "signal-W"
                         write_enable.signal_type = "signal-W"
                     elif write_enable.signal_type != "signal-W":
-                        # Not a decider, use arithmetic projection for other signal types
                         self.parent.ensure_signal_registered("signal-W")
                         write_enable = self.ir_builder.arithmetic(
                             "+", write_enable, 0, "signal-W", expr
@@ -145,27 +127,18 @@ class MemoryLowerer:
             self.parent.ensure_signal_registered("signal-W")
             write_enable = self.ir_builder.const("signal-W", 1, expr)
 
-        self.ir_builder.memory_write(
-            memory_id, coerced_data_ref, write_enable, expr
-        )
+        self.ir_builder.memory_write(memory_id, coerced_data_ref, write_enable, expr)
 
         return coerced_data_ref
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
     def _memory_signal_type(self, memory_name: str) -> Optional[str]:
-        # First check lowerer's runtime tracking (handles function-local memories)
         if memory_name in self.parent.memory_types:
             return self.parent.memory_types[memory_name]
 
-        # Fall back to semantic analyzer's memory_types
         mem_info = getattr(self.semantic, "memory_types", {}).get(memory_name)
         if mem_info and getattr(mem_info, "signal_type", None):
             return mem_info.signal_type
 
-        # Last resort: symbol table lookup
         symbol = self.semantic.symbol_table.lookup(memory_name)
         if symbol and isinstance(symbol.value_type, SignalValue):
             signal_info = symbol.value_type.signal_type

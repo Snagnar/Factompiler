@@ -238,10 +238,6 @@ class ConnectionPlanner:
             self.diagnostics,
         )
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def plan_connections(
         self,
         signal_graph: Any,
@@ -376,10 +372,6 @@ class ConnectionPlanner:
         """
         edge_key = (source_entity_id, sink_entity_id, signal_name)
         return self._edge_wire_colors.get(edge_key, "red")
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     def _expand_merge_edges(
         self,
@@ -713,10 +705,6 @@ class ConnectionPlanner:
 
             self._route_connection_with_relays(edge, color, source_side, sink_side)
 
-    # ------------------------------------------------------------------
-    # Relay placement helpers
-    # ------------------------------------------------------------------
-
     def _route_connection_with_relays(
         self,
         edge: CircuitEdge,
@@ -837,10 +825,6 @@ class ConnectionPlanner:
 
         if relay_count > 0:
             self.diagnostics.info(f"Placed {relay_count} wire relay poles")
-
-    # ------------------------------------------------------------------
-    # Convenience helpers for emitters
-    # ------------------------------------------------------------------
 
     def edge_color_map(self) -> Dict[Tuple[str, str, str], str]:
         """Expose raw edge→color assignments."""

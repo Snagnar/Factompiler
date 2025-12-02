@@ -16,15 +16,12 @@ def _infer_signal_type(signal_name: str) -> str:
 
     Returns 'item', 'fluid', or 'virtual' based on what's found in Draftsman data.
     """
-    # Check if it's an item
     if items.raw and signal_name in items.raw:
         return "item"
 
-    # Check if it's a fluid
     if fluids.raw and signal_name in fluids.raw:
         return "fluid"
 
-    # Default to virtual for signals like signal-A, signal-B, etc.
     return "virtual"
 
 
@@ -46,14 +43,12 @@ def format_entity_description(debug_info: Optional[dict]) -> str:
 
     parts = []
 
-    # Build location string
     location_parts = []
     if debug_info.get("variable"):
         location_parts.append(debug_info["variable"])
 
     if debug_info.get("source_file"):
         file_name = debug_info["source_file"]
-        # Extract just filename if it's a path
         if "/" in file_name or "\\" in file_name:
             file_name = file_name.split("/")[-1].split("\\")[-1]
 
@@ -67,7 +62,6 @@ def format_entity_description(debug_info: Optional[dict]) -> str:
     if location_parts:
         parts.append(" ".join(location_parts))
 
-    # Build operation description
     op_parts = []
     if debug_info.get("operation"):
         op_parts.append(debug_info["operation"])
@@ -143,48 +137,17 @@ class PlanEntityEmitter:
             self._apply_property_writes(entity, property_writes, placement)
 
         # Set entity description from debug info
-        # Set entity description from debug info
         debug_info = placement.properties["debug_info"]
         description = format_entity_description(debug_info)
         entity.player_description = description
-        # if not hasattr(entity, "tags") or entity.tags is None:
-        #     entity.tags = {}
-        # entity.tags["description"] = description
 
-        # Log when description is successfully set (only in debug mode)
         if self.diagnostics.log_level == "debug":
             self.diagnostics.info(
                 f"Entity description: {description[:80]}{'...' if len(description) > 80 else ''}"
             )
-        # debug_info = placement.properties.get("debug_info")
-        #     description = format_entity_description(debug_info)
-        #                 if not hasattr(entity, "tags"):
-        #                     entity.tags = {}
-        #                 elif entity.tags is None:
-        #                     entity.tags = {}
-
-        #                 entity.tags["description"] = description
-        #                 description_set = True
-        #                 self.diagnostics.info(
-        #                     f"Set description tag for {placement.entity_type} '{placement.ir_node_id}'"
-        #                 )
-        #             except Exception as fallback_e:
-        #                 self.diagnostics.warning(
-        #                     f"Could not set description for {placement.entity_type} '{placement.ir_node_id}': "
-        #                     f"direct set failed ({e}), tags fallback also failed ({fallback_e})"
-        #                 )
-
-        #         # Log when description is successfully set (only in debug mode)
-        #         if description_set and self.diagnostics.log_level == "debug":
-        #             self.diagnostics.info(
-        #                 f"Entity description: {description[:80]}{'...' if len(description) > 80 else ''}"
-        #             )
 
         entity.id = placement.ir_node_id
 
-        # Set entity position from placement
-        # placement.position is already in CENTER coordinates (set by ClusterPacker)
-        # which matches draftsman's entity.position
         if placement.position is not None:
             entity.position = placement.position
 
@@ -205,7 +168,6 @@ class PlanEntityEmitter:
         left_operand_wires = props.get("left_operand_wires", {"red", "green"})
         right_operand_wires = props.get("right_operand_wires", {"red", "green"})
 
-        # Build condition
         condition_kwargs = {"comparator": operation}
         if isinstance(left_operand, int):
             condition_kwargs["first_signal"] = "signal-0"
@@ -222,7 +184,6 @@ class PlanEntityEmitter:
 
         entity.conditions = [DeciderCombinator.Condition(**condition_kwargs)]
 
-        # Build output
         output_kwargs = {
             "signal": output_signal,
             "copy_count_from_input": copy_count,
@@ -257,7 +218,6 @@ class PlanEntityEmitter:
         entity.operation = operation
         entity.output_signal = output_signal
 
-        # Set wire color filters
         entity.first_operand_wires = left_operand_wires
         entity.second_operand_wires = right_operand_wires
 
@@ -327,9 +287,7 @@ class PlanEntityEmitter:
                         }
                     continue
 
-                # Circuit enable condition
                 if prop_type == "signal":
-                    # Signal-controlled enable
                     signal_ref = prop_data["signal_ref"]
 
                     # Resolve signal name from the DSL signal identifier
@@ -346,10 +304,8 @@ class PlanEntityEmitter:
 
                     signal_dict = {"name": signal_name, "type": signal_category}
 
-                    # Check if entity supports circuit_enabled
                     if hasattr(entity, "circuit_enabled"):
                         entity.circuit_enabled = True
-                        # Set the circuit condition
                         if hasattr(entity, "set_circuit_condition"):
                             entity.set_circuit_condition(signal_dict, ">", 0)
                     else:
@@ -363,7 +319,6 @@ class PlanEntityEmitter:
                             "constant": 0,
                         }
                 elif prop_data["type"] == "constant":
-                    # Constant enable/disable
                     if hasattr(entity, "circuit_enabled"):
                         entity.circuit_enabled = bool(prop_data["value"])
                     else:
@@ -373,7 +328,6 @@ class PlanEntityEmitter:
                             prop_data["value"]
                         )
             else:
-                # Other properties - try direct assignment
                 try:
                     setattr(entity, prop_name, prop_data.get("value"))
                 except Exception:

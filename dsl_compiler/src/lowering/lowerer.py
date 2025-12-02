@@ -81,10 +81,6 @@ class ASTLowerer:
         """Add a lowering error diagnostic."""
         self.diagnostics.error(message, stage="lowering", node=node)
 
-    # ------------------------------------------------------------------
-    # Debug metadata helpers
-    # ------------------------------------------------------------------
-
     def annotate_signal_ref(self, name: str, ref: ValueRef, node: ASTNode) -> None:
         """Attach debug metadata for a lowered signal reference."""
 
@@ -198,10 +194,6 @@ class ASTLowerer:
         self.ir_builder.signal_registry.register(
             signal_type, signal_type, category or "virtual"
         )
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def lower_program(self, program: Program) -> List[IRNode]:
         for stmt in program.statements:

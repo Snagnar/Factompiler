@@ -61,10 +61,6 @@ class PowerPlanner:
         self.connection_planner = connection_planner
         self._planned: List[PlannedPowerPole] = []
 
-    # -------------------------------------------------------------------------
-    # Public API
-    # -------------------------------------------------------------------------
-
     def _compute_entity_bounds(
         self, exclude_power_poles: bool = True
     ) -> Optional[Tuple[float, float, float, float]]:
@@ -92,10 +88,6 @@ class PowerPlanner:
         ys = [p[1] for p in positions]
 
         return (min(xs), min(ys), max(xs), max(ys))
-
-    # -------------------------------------------------------------------------
-    # Pole placement helper
-    # -------------------------------------------------------------------------
 
     def _place_pole(
         self, position: Tuple[int, int], prototype: str, footprint: Tuple[int, int]

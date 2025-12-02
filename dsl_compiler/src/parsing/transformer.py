@@ -56,10 +56,6 @@ class DSLTransformer(Transformer):
             node.column = token_or_tree.column
         return node
 
-    # =========================================================================
-    # Top-level constructs
-    # =========================================================================
-
     def start(self, statements: List[Statement]) -> Program:
         """start: statement*"""
         return Program(statements=statements)
@@ -230,10 +226,6 @@ class DSLTransformer(Transformer):
         """param_list: NAME ("," NAME)*"""
         return [str(item) for item in items]
 
-    # =========================================================================
-    # L-Values
-    # =========================================================================
-
     def lvalue(self, items) -> LValue:
         """lvalue: NAME ("." NAME)?"""
         if len(items) == 1:
@@ -259,10 +251,6 @@ class DSLTransformer(Transformer):
             property_name=property_name,
             raw_text=raw_text,
         )
-
-    # =========================================================================
-    # Expressions (following precedence)
-    # =========================================================================
 
     def expr(self, items) -> Expr:
         """expr: logic"""
@@ -415,10 +403,6 @@ class DSLTransformer(Transformer):
                 return token.value[1:-1]
             return str(token)
         return str(token)
-
-    # =========================================================================
-    # Special constructs
-    # =========================================================================
 
     def primary(self, items) -> Expr:
         """Handle primary expressions that weren't caught by other rules."""

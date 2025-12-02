@@ -32,10 +32,6 @@ class StatementLowerer:
     def __init__(self, parent: Any) -> None:
         self.parent = parent
 
-    # ------------------------------------------------------------------
-    # Convenience properties
-    # ------------------------------------------------------------------
-
     @property
     def ir_builder(self):
         return self.parent.ir_builder
@@ -47,10 +43,6 @@ class StatementLowerer:
     @property
     def semantic(self):
         return self.parent.semantic
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def lower_statement(self, stmt: Statement) -> None:
         handlers = {
@@ -217,7 +209,6 @@ class StatementLowerer:
         return None
 
     def lower_func_decl(self, stmt: FuncDecl) -> None:
-        # Function declarations are inlined on demand, nothing to emit now.
         return None
 
     def lower_import_stmt(self, stmt: ImportStmt) -> None:

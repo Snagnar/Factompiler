@@ -33,21 +33,6 @@ EDGE_LAYOUT_NOTE = (
 )
 
 
-# =============================================================================
-# Debug Formatting
-# =============================================================================
-
-
-# =============================================================================
-# Entity Factory using draftsman's catalog
-# =============================================================================
-
-
-# =============================================================================
-# Memory Circuit Builder
-# =============================================================================
-
-
 class BlueprintEmitter:
     """Materialize a :class:`LayoutPlan` into a Factorio blueprint."""
 
@@ -89,10 +74,6 @@ class BlueprintEmitter:
         self._apply_blueprint_metadata(self.blueprint.description)
 
         return self.blueprint
-
-    # ------------------------------------------------------------------
-    # Connection materialisation
-    # ------------------------------------------------------------------
 
     def _materialize_connections(
         self,
@@ -161,7 +142,6 @@ class BlueprintEmitter:
             self.blueprint.entities.append(entity, copy=False)
             entity_map[entity.id] = entity
 
-        # Generate power connections between poles
         # Use only_axis=True to only connect grid-adjacent poles (same row or column)
         try:
             self.blueprint.generate_power_connections(prefer_axis=True, only_axis=True)
@@ -169,10 +149,6 @@ class BlueprintEmitter:
             self.diagnostics.warning(
                 f"Failed to auto-generate power connections: {exc}"
             )
-
-    # ------------------------------------------------------------------
-    # Metadata helpers
-    # ------------------------------------------------------------------
 
     def _ensure_signal_map_registered(self) -> None:
         if signal_data is None:
@@ -217,11 +193,6 @@ class BlueprintEmitter:
             self.blueprint.description = description + note
         else:
             self.blueprint.description = note
-
-
-# =============================================================================
-# Public API
-# =============================================================================
 
 
 def emit_blueprint(
