@@ -274,7 +274,7 @@ class ConnectionPlanner:
         # Wire merge inputs should all be on the SAME wire color (not separated)
         wire_merge_sinks = set()
         if wire_merge_junctions:
-            for merge_id, merge_info in wire_merge_junctions.items():
+            for _, merge_info in wire_merge_junctions.items():
                 # Find the output anchor for this wire merge
                 for edge in expanded_edges:
                     if edge.source_entity_id in [
@@ -671,10 +671,6 @@ class ConnectionPlanner:
         return False
 
     def _populate_wire_connections(self) -> None:
-        green_wire_count = 0
-        green_from_map = 0
-        edges_not_in_map = 0
-
         for edge in self._circuit_edges:
             if not edge.source_entity_id or not edge.sink_entity_id:
                 continue
@@ -699,12 +695,6 @@ class ConnectionPlanner:
                 )
                 if color is None:
                     color = WIRE_COLORS[0]
-                    edges_not_in_map += 1
-                elif color == "green":
-                    green_from_map += 1
-
-            if color == "green":
-                green_wire_count += 1
 
             # Track wire color for this specific edge
             # Key: (source_entity_id, sink_entity_id, signal_name)
