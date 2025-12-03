@@ -128,7 +128,7 @@ class LayoutPlanner:
             entity_placements=self.layout_plan.entity_placements,
             diagnostics=self.diagnostics,
         )
-        optimized_positions = layout_engine.optimize(time_limit_seconds=10)
+        optimized_positions = layout_engine.optimize(time_limit_seconds=30)
 
         for entity_id, (tile_x, tile_y) in optimized_positions.items():
             placement = self.layout_plan.entity_placements.get(entity_id)

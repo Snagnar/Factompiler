@@ -59,35 +59,33 @@ class EntityPlacer:
     def _build_debug_info(
         self, op: IRNode, role_override: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Extract debug information from an IR node and its usage entry.
-
-        Returns dict with keys: variable, operation, details, signal_type,
-        source_file, line, role
-        """
+        """Extract debug information from an IR node and its usage entry."""
         debug_info: Dict[str, Any] = {}
-
         usage = self.signal_usage.get(op.node_id)
 
-        if usage and usage.debug_label:
-            debug_info["variable"] = usage.debug_label
-        elif hasattr(op, "debug_label") and op.debug_label:
-            debug_info["variable"] = op.debug_label
+        # Variable name
+        debug_info["variable"] = (
+            (usage.debug_label if usage else None)
+            or getattr(op, "debug_label", None)
+            or op.node_id
+        )
 
-        source_ast = usage.source_ast if usage else None
-        if not source_ast and hasattr(op, "source_ast"):
-            source_ast = op.source_ast
-
+        # Source location
+        source_ast = (usage.source_ast if usage else None) or getattr(
+            op, "source_ast", None
+        )
         if source_ast:
             if hasattr(source_ast, "line") and source_ast.line > 0:
                 debug_info["line"] = source_ast.line
             if hasattr(source_ast, "source_file") and source_ast.source_file:
                 debug_info["source_file"] = source_ast.source_file
 
-        if usage and usage.resolved_signal_name:
-            debug_info["signal_type"] = usage.resolved_signal_name
-        elif hasattr(op, "output_type"):
-            debug_info["signal_type"] = op.output_type
+        # Signal type
+        debug_info["signal_type"] = (
+            usage.resolved_signal_name if usage else None
+        ) or getattr(op, "output_type", None)
 
+        # Check for user declaration
         if hasattr(op, "debug_metadata") and op.debug_metadata:
             if op.debug_metadata.get("user_declared"):
                 debug_info["user_declared"] = True
@@ -95,6 +93,7 @@ class EntityPlacer:
                 if declared_name:
                     debug_info["variable"] = declared_name
 
+        # Operation-specific info
         if isinstance(op, IR_Const):
             debug_info["operation"] = "const"
             details = f"value={op.value}"
@@ -114,7 +113,7 @@ class EntityPlacer:
         if role_override:
             debug_info["role"] = role_override
 
-        return debug_info
+        return {k: v for k, v in debug_info.items() if v is not None}
 
     def place_ir_operation(self, op: IRNode) -> None:
         """Place a single IR operation."""

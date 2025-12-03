@@ -12,33 +12,13 @@ from typing import Dict, List, Optional
 from dsl_compiler.src.ast.statements import (
     ASTNode,
     Statement,
-    DeclStmt,
-    AssignStmt,
-    ExprStmt,
-    ReturnStmt,
-    MemDecl,
-    FuncDecl,
-    ImportStmt,
     Program,
 )
-from dsl_compiler.src.ast.expressions import (
-    Expr,
-    IdentifierExpr,
-    BinaryOp,
-    UnaryOp,
-    SignalLiteral,
-    ReadExpr,
-    WriteExpr,
-    ProjectionExpr,
-    CallExpr,
-    PropertyAccessExpr,
-)
-from dsl_compiler.src.ast.literals import DictLiteral, PropertyAccess
 from dsl_compiler.src.ir.nodes import IRNode, ValueRef, SignalRef
 from dsl_compiler.src.ir.builder import IRBuilder
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
-from dsl_compiler.src.common.source_location import render_source_location
+from dsl_compiler.src.common.source_location import SourceLocation
 from draftsman.data import signals as signal_data
 
 from .expression_lowerer import ExpressionLowerer
@@ -77,13 +57,13 @@ class ASTLowerer:
         """Add a lowering error diagnostic."""
         self.diagnostics.error(message, stage="lowering", node=node)
 
-    def annotate_signal_ref(self, name: str, ref: ValueRef, node: ASTNode) -> None:
+    def annotate_signal_ref(self, name: str, ref: SignalRef, node: ASTNode) -> None:
         """Attach debug metadata for a lowered signal reference."""
 
         if not isinstance(ref, SignalRef):
             return
 
-        location = render_source_location(node, getattr(node, "source_file", None))
+        location = SourceLocation.render(node, getattr(node, "source_file", None))
         metadata = {"name": name}
         if location:
             metadata["location"] = location
@@ -197,83 +177,3 @@ class ASTLowerer:
 
     def lower_statement(self, stmt: Statement) -> None:
         self.stmt_lowerer.lower_statement(stmt)
-
-    def lower_decl_stmt(self, stmt: DeclStmt) -> None:
-        self.stmt_lowerer.lower_decl_stmt(stmt)
-
-    def lower_assign_stmt(self, stmt: AssignStmt) -> None:
-        self.stmt_lowerer.lower_assign_stmt(stmt)
-
-    def lower_mem_decl(self, stmt: MemDecl) -> None:
-        self.mem_lowerer.lower_mem_decl(stmt)
-
-    def lower_expr_stmt(self, stmt: ExprStmt) -> None:
-        self.stmt_lowerer.lower_expr_stmt(stmt)
-
-    def lower_return_stmt(self, stmt: ReturnStmt) -> Optional[ValueRef]:
-        return self.stmt_lowerer.lower_return_stmt(stmt)
-
-    def lower_func_decl(self, stmt: FuncDecl) -> None:
-        self.stmt_lowerer.lower_func_decl(stmt)
-
-    def lower_import_stmt(self, stmt: ImportStmt) -> None:
-        self.stmt_lowerer.lower_import_stmt(stmt)
-
-    def lower_expr(self, expr: Expr) -> ValueRef:
-        return self.expr_lowerer.lower_expr(expr)
-
-    def lower_identifier(self, expr: IdentifierExpr) -> ValueRef:
-        return self.expr_lowerer.lower_identifier(expr)
-
-    def lower_binary_op(self, expr: BinaryOp) -> ValueRef:
-        return self.expr_lowerer.lower_binary_op(expr)
-
-    def lower_comparison_op(
-        self,
-        expr: BinaryOp,
-        left_ref: ValueRef,
-        right_ref: ValueRef,
-        output_type: Optional[str] = None,
-    ) -> ValueRef:
-        return self.expr_lowerer.lower_comparison_op(
-            expr, left_ref, right_ref, output_type
-        )
-
-    def lower_unary_op(self, expr: UnaryOp) -> ValueRef:
-        return self.expr_lowerer.lower_unary_op(expr)
-
-    def lower_signal_literal(self, expr: SignalLiteral) -> SignalRef:
-        return self.expr_lowerer.lower_signal_literal(expr)
-
-    def lower_dict_literal(self, expr: DictLiteral) -> Dict[str, object]:
-        return self.expr_lowerer.lower_dict_literal(expr)
-
-    def lower_read_expr(self, expr: ReadExpr) -> SignalRef:
-        return self.mem_lowerer.lower_read_expr(expr)
-
-    def lower_write_expr(self, expr: WriteExpr) -> SignalRef:
-        return self.mem_lowerer.lower_write_expr(expr)
-
-    def lower_projection_expr(self, expr: ProjectionExpr) -> SignalRef:
-        return self.expr_lowerer.lower_projection_expr(expr)
-
-    def lower_call_expr(self, expr: CallExpr) -> ValueRef:
-        return self.expr_lowerer.lower_call_expr(expr)
-
-    def lower_place_call(self, expr: CallExpr) -> SignalRef:
-        return self.expr_lowerer.lower_place_call(expr)
-
-    def lower_place_call_with_tracking(self, expr: CallExpr) -> tuple[str, ValueRef]:
-        return self.expr_lowerer.lower_place_call_with_tracking(expr)
-
-    def lower_memory_call(self, expr: CallExpr) -> ValueRef:
-        return self.expr_lowerer.lower_memory_call(expr)
-
-    def lower_property_access(self, expr: PropertyAccess) -> ValueRef:
-        return self.expr_lowerer.lower_property_access(expr)
-
-    def lower_property_access_expr(self, expr: PropertyAccessExpr) -> ValueRef:
-        return self.expr_lowerer.lower_property_access_expr(expr)
-
-    def lower_function_call_inline(self, expr: CallExpr) -> ValueRef:
-        return self.expr_lowerer.lower_function_call_inline(expr)

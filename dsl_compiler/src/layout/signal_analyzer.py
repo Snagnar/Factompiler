@@ -48,6 +48,13 @@ class SignalAnalyzer:
         self.diagnostics = diagnostics
         self.signal_type_map = signal_type_map
         self.signal_usage: Dict[str, SignalUsageEntry] = {}
+        # Pre-populate allocated signals from existing mappings
+        self._allocated_signals: set = set()
+        for mapping in signal_type_map.values():
+            if isinstance(mapping, dict):
+                self._allocated_signals.add(mapping.get("name"))
+            elif isinstance(mapping, str):
+                self._allocated_signals.add(mapping)
 
     def analyze(self, ir_operations: List[IRNode]) -> Dict[str, SignalUsageEntry]:
         """Analyze IR operations to build a signal usage index."""
@@ -214,59 +221,14 @@ class SignalAnalyzer:
 
         if isinstance(operand, SignalRef):
             entry = self.signal_usage.get(operand.source_id)
-            resolved = self.resolve_signal_name(operand.signal_type, entry)
-            if resolved:
-                return resolved
+            return self.resolve_signal_name(operand.signal_type, entry)
 
         if hasattr(operand, "signal_type"):
-            operand_str = getattr(operand, "signal_type")
+            signal_type = getattr(operand, "signal_type")
         else:
-            operand_str = str(operand)
+            signal_type = str(operand).split("@")[0]
 
-        clean_name = operand_str.split("@")[0]
-
-        mapped_signal = self.signal_type_map.get(clean_name)
-        if mapped_signal is not None:
-            if isinstance(mapped_signal, dict):
-                signal_name = mapped_signal.get("name", clean_name)
-                signal_type = mapped_signal.get("type", "virtual")
-                if signal_name not in signal_data.raw:
-                    try:
-                        signal_data.add_signal(signal_name, signal_type)
-                    except Exception as exc:
-                        self.diagnostics.warning(
-                            f"Could not register custom signal '{signal_name}': {exc}"
-                        )
-                return signal_name
-            if mapped_signal not in signal_data.raw:
-                try:
-                    signal_data.add_signal(mapped_signal, "virtual")
-                except Exception as exc:
-                    self.diagnostics.warning(
-                        f"Could not register signal '{mapped_signal}' as virtual: {exc}"
-                    )
-            return str(mapped_signal)
-
-        if clean_name in signal_data.raw:
-            return clean_name
-
-        if clean_name.startswith("__v"):
-            try:
-                index = int(clean_name[3:])
-                letter = chr(ord("A") + (index - 1) % 26)
-                return f"signal-{letter}"
-            except ValueError:
-                pass
-
-        if clean_name not in signal_data.raw:
-            try:
-                signal_data.add_signal(clean_name, "virtual")
-            except Exception as exc:
-                self.diagnostics.warning(
-                    f"Could not register signal '{clean_name}' as virtual: {exc}"
-                )
-
-        return clean_name
+        return self._resolve_via_mapping(signal_type, None)
 
     def get_operand_for_combinator(self, operand: Any) -> Union[str, int]:
         """Resolve an operand for combinator use (inline constants or signal names)."""
@@ -433,6 +395,9 @@ class SignalAnalyzer:
         if entry and entry.resolved_signal_name:
             return entry.resolved_signal_name
 
+        if not signal_type:
+            return "signal-0"
+
         if signal_type in self.signal_type_map:
             mapped = self.signal_type_map[signal_type]
             if isinstance(mapped, dict):
@@ -440,19 +405,24 @@ class SignalAnalyzer:
             if isinstance(mapped, str):
                 return mapped
 
-        if signal_type and signal_type in signal_data.raw:
+        if signal_type in signal_data.raw:
             return signal_type
 
-        if signal_type and signal_type not in signal_data.raw:
-            try:
-                signal_data.add_signal(signal_type, "virtual")
-            except Exception as exc:
-                self.diagnostics.warning(
-                    f"Could not register signal '{signal_type}' as virtual: {exc}"
-                )
-            return signal_type
+        # Handle unmapped implicit signals
+        if signal_type.startswith("__v"):
+            factorio_signal = self._allocate_factorio_virtual_signal()
+            self.signal_type_map[signal_type] = {
+                "name": factorio_signal,
+                "type": "virtual",
+            }
+            return factorio_signal
 
-        return "signal-0"
+        # Register as virtual if not known
+        try:
+            signal_data.add_signal(signal_type, "virtual")
+        except ValueError:
+            pass  # Already registered
+        return signal_type
 
     def _infer_category_from_name(self, name: str) -> str:
         if name in signal_data.raw:
@@ -464,14 +434,6 @@ class SignalAnalyzer:
 
     def _allocate_factorio_virtual_signal(self) -> str:
         """Allocate a fresh Factorio virtual signal (signal-A, signal-B, etc.)."""
-        if not hasattr(self, "_allocated_signals"):
-            self._allocated_signals = set()
-            for mapping in self.signal_type_map.values():
-                if isinstance(mapping, dict):
-                    self._allocated_signals.add(mapping.get("name"))
-                elif isinstance(mapping, str):
-                    self._allocated_signals.add(mapping)
-
         alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         index = 0
         while True:

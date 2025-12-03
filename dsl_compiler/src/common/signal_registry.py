@@ -6,9 +6,19 @@ Example: {"__v1": {"name": "signal-A", "type": "virtual"}}
 This is the ONLY format used. All code must handle dict values.
 """
 
+from dataclasses import dataclass
 from typing import Dict, Optional, Any, Tuple
 
 from draftsman.data import signals as signal_data
+
+
+@dataclass
+class SignalTypeInfo:
+    """Information about a signal type."""
+
+    name: str  # e.g. "iron-plate", "signal-A", "__v1"
+    is_implicit: bool = False  # True for compiler-allocated virtual signals
+    is_virtual: bool = False  # True for Factorio virtual signals
 
 
 def is_valid_factorio_signal(signal_name: str) -> Tuple[bool, Optional[str]]:
@@ -68,8 +78,8 @@ class SignalTypeRegistry:
         if factorio_signal not in signal_data.raw:
             try:
                 signal_data.add_signal(factorio_signal, signal_type)
-            except Exception:
-                pass  # Already exists or invalid
+            except ValueError:
+                pass  # Signal already registered by another path
 
     def allocate_implicit(self) -> str:
         """Allocate a new implicit virtual signal type.
@@ -85,6 +95,11 @@ class SignalTypeRegistry:
         implicit_key = f"__v{self._implicit_counter}"
         return implicit_key
 
+    def allocate_implicit_type(self) -> SignalTypeInfo:
+        """Allocate and return a new implicit virtual signal type."""
+        implicit_name = self.allocate_implicit()
+        return SignalTypeInfo(name=implicit_name, is_implicit=True, is_virtual=True)
+
     def resolve(self, signal_key: str) -> Optional[Dict[str, str]]:
         """Get the Factorio signal information for a DSL signal key.
 
@@ -97,5 +112,9 @@ class SignalTypeRegistry:
         return self._type_map.get(signal_key)
 
     def get_all_mappings(self) -> Dict[str, Any]:
-        """Get a copy of all signal type mappings."""
-        return self._type_map.copy()
+        """Get the signal type mappings dictionary.
+
+        Note: This returns the actual internal dictionary, not a copy,
+        so that updates made by the layout planner are visible to the emitter.
+        """
+        return self._type_map

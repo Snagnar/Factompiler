@@ -67,53 +67,17 @@ class IRBuilder:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Attach debug metadata to the producing IR node backing a signal."""
-
         if not isinstance(signal, SignalRef):
             return
 
         op = self.get_operation(signal.source_id)
         if isinstance(op, IRValue):
             if label:
-                current = getattr(op, "debug_label", None)
-                if current in (None, label):
-                    op.debug_label = label
-                else:
-                    aliases = op.debug_metadata.setdefault("aliases", [])
-                    if label not in aliases:
-                        aliases.append(label)
+                op.debug_label = op.debug_label or label
             if source_ast and op.source_ast is None:
                 op.source_ast = source_ast
             if metadata:
-                for key, value in metadata.items():
-                    if value is None:
-                        continue
-
-                    if key == "name":
-                        existing_name = op.debug_metadata.get("name")
-                        if existing_name in (None, value):
-                            op.debug_metadata["name"] = value
-                        else:
-                            aliases = op.debug_metadata.setdefault("aliases", [])
-                            if value not in aliases:
-                                aliases.append(value)
-                        continue
-
-                    if key == "aliases":
-                        aliases = op.debug_metadata.setdefault("aliases", [])
-                        for alias in value:
-                            if (
-                                alias != op.debug_metadata.get("name")
-                                and alias not in aliases
-                            ):
-                                aliases.append(alias)
-                        continue
-
-                    if key == "location":
-                        op.debug_metadata.setdefault(key, value)
-                        continue
-
-                    if key not in op.debug_metadata:
-                        op.debug_metadata[key] = value
+                op.debug_metadata.update(metadata)
 
         if label:
             signal.debug_label = label

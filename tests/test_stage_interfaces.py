@@ -103,7 +103,7 @@ class TestSemanticAnalyzerInterface:
         assert analyzer.signal_registry is not None
 
     def test_analyzer_shares_registry_with_allocator(self):
-        """Semantic analyzer should share registry with signal allocator."""
+        """Semantic analyzer allocate_implicit_type should use internal registry."""
         parser = DSLParser()
         source = "Signal x = 5;"  # Will need implicit virtual signal
         ast = parser.parse(source)
@@ -112,8 +112,11 @@ class TestSemanticAnalyzerInterface:
         analyzer = SemanticAnalyzer(diagnostics)
         analyze_program(ast, analyzer=analyzer)
 
-        # Signal allocator should have used the same registry
-        assert analyzer.signal_allocator.signal_registry is analyzer.signal_registry
+        # Allocating an implicit type should use the internal registry
+        signal_info = analyzer.allocate_implicit_type()
+        assert signal_info.name.startswith("__v")
+        assert signal_info.is_implicit
+        assert signal_info.is_virtual
 
 
 class TestLowererInterface:

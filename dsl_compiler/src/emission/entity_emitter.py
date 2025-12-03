@@ -26,52 +26,45 @@ def _infer_signal_type(signal_name: str) -> str:
 
 
 def format_entity_description(debug_info: Optional[dict]) -> str:
-    """Format entity debug information into a human-readable description.
-
-    Format: "variable_name in file.fcdsl at line X (operation details)"
-    Or: "file.fcdsl:X (operation details)" if no variable name
-
-    Args:
-        debug_info: Dict with keys: variable, operation, details, signal_type,
-                    source_file, line, role
-
-    Returns:
-        Formatted description string
-    """
+    """Format entity debug information into a human-readable description."""
     if not debug_info:
         return ""
 
     parts = []
 
+    # Location part
+    var = debug_info.get("variable", "")
+    file_name = debug_info.get("source_file", "")
+    if "/" in file_name or "\\" in file_name:
+        file_name = file_name.split("/")[-1].split("\\")[-1]
+    line = debug_info.get("line")
+
     location_parts = []
-    if debug_info.get("variable"):
-        location_parts.append(debug_info["variable"])
-
-    if debug_info.get("source_file"):
-        file_name = debug_info["source_file"]
-        if "/" in file_name or "\\" in file_name:
-            file_name = file_name.split("/")[-1].split("\\")[-1]
-
-        if debug_info.get("line"):
-            location_parts.append(f"in {file_name} at line {debug_info['line']}")
-        else:
-            location_parts.append(f"in {file_name}")
-    elif debug_info.get("line"):
-        location_parts.append(f"at line {debug_info['line']}")
+    if var:
+        location_parts.append(var)
+    if file_name and line:
+        location_parts.append(f"in {file_name} at line {line}")
+    elif file_name:
+        location_parts.append(f"in {file_name}")
+    elif line:
+        location_parts.append(f"at line {line}")
 
     if location_parts:
         parts.append(" ".join(location_parts))
 
-    op_parts = []
-    if debug_info.get("operation"):
-        op_parts.append(debug_info["operation"])
-
-    if debug_info.get("details"):
-        op_parts.append(debug_info["details"])
-
-    if debug_info.get("signal_type"):
-        op_parts.append(f"type={debug_info['signal_type']}")
-
+    # Operation part
+    op_parts = list(
+        filter(
+            None,
+            [
+                debug_info.get("operation"),
+                debug_info.get("details"),
+                f"type={debug_info['signal_type']}"
+                if debug_info.get("signal_type")
+                else None,
+            ],
+        )
+    )
     if op_parts:
         parts.append(f"({', '.join(op_parts)})")
 
@@ -216,7 +209,6 @@ class PlanEntityEmitter:
     ) -> None:
         """Configure a constant combinator from placement properties."""
         signal_name = props.get("signal_name")
-        props.get("signal_type")
         value = props.get("value", 0)
 
         if signal_name:

@@ -19,9 +19,6 @@ class EntityDataHelper:
         Returns:
             (width, height) in tiles
         """
-        if entity_data is None:
-            return (1, 1)
-
         try:
             entity_info = entity_data.raw.get(prototype, {})
 

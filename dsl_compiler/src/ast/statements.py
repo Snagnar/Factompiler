@@ -17,13 +17,6 @@ class Program(ASTNode):
         self.statements = statements
 
 
-class TopDecl(ASTNode):
-    """Base class for top-level declarations."""
-
-    def __init__(self, line: int = 0, column: int = 0) -> None:
-        super().__init__(line, column)
-
-
 class Statement(ASTNode):
     """Base class for all statements."""
 
@@ -98,7 +91,7 @@ class ImportStmt(Statement):
         self.alias = alias
 
 
-class FuncDecl(TopDecl):
+class FuncDecl(Statement):
     """func name(params...) { statements... }"""
 
     def __init__(

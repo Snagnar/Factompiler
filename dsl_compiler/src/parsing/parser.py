@@ -57,11 +57,8 @@ class DSLParser:
 
         Raises:
             SyntaxError: If the source code has parse errors
-            RuntimeError: If parser is not initialized or unexpected error occurs
+            RuntimeError: If unexpected error occurs
         """
-        if self.parser is None:
-            raise RuntimeError("Parser not initialized")
-
         try:
             if filename != "<string>":
                 file_path = Path(filename)

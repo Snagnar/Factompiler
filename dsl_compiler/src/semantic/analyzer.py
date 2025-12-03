@@ -39,20 +39,19 @@ from dsl_compiler.src.common.diagnostics import (
 )
 from dsl_compiler.src.common.signal_registry import (
     SignalTypeRegistry,
+    SignalTypeInfo,
     is_valid_factorio_signal,
 )
 from dsl_compiler.src.common.source_location import (
     SourceLocation,
 )
 
-from .signal_allocator import SignalAllocator
 from .symbol_table import SymbolTable, Symbol, SymbolType, SemanticError
 from .type_system import (
     FunctionValue,
     IntValue,
     MemoryInfo,
     SignalDebugInfo,
-    SignalTypeInfo,
     SignalValue,
     ValueInfo,
 )
@@ -73,61 +72,15 @@ class SemanticAnalyzer(ASTVisitor):
         self.current_scope = self.symbol_table
 
         self.signal_registry = SignalTypeRegistry()
-        self.signal_allocator = SignalAllocator(self.signal_registry)
 
         self.signal_debug_info: Dict[str, SignalDebugInfo] = {}
         self.memory_types: Dict[str, MemoryInfo] = {}
         self.expr_types: Dict[int, ValueInfo] = {}
-        self.simple_sources: set[str] = set()
-        self.computed_values: set[str] = set()
 
     @property
     def signal_type_map(self) -> Dict[str, Any]:
         """Get signal type map from registry."""
         return self.signal_registry.get_all_mappings()
-
-    def mark_as_simple_source(self, name: str) -> None:
-        """Record that a symbol originates from a simple source."""
-
-        self.simple_sources.add(name)
-        self.computed_values.discard(name)
-
-    def mark_as_computed(self, name: str) -> None:
-        """Record that a symbol results from computation."""
-
-        self.computed_values.add(name)
-        self.simple_sources.discard(name)
-
-    def is_simple_source(self, name: str) -> bool:
-        """Return True when a symbol still qualifies as a simple source."""
-
-        return name in self.simple_sources and name not in self.computed_values
-
-    def _track_source_nature(self, target: str, value_expr: Expr) -> None:
-        """Update simple/computed tracking based on an assignment expression."""
-
-        if isinstance(value_expr, (SignalLiteral, NumberLiteral)):
-            self.mark_as_simple_source(target)
-            return
-
-        if isinstance(value_expr, PropertyAccessExpr):
-            self.mark_as_simple_source(target)
-            return
-
-        if isinstance(value_expr, IdentifierExpr):
-            if self.is_simple_source(value_expr.name):
-                self.mark_as_simple_source(target)
-            else:
-                self.mark_as_computed(target)
-            return
-
-        if isinstance(
-            value_expr, (BinaryOp, UnaryOp, CallExpr, ReadExpr, ProjectionExpr)
-        ):
-            self.mark_as_computed(target)
-            return
-
-        self.mark_as_computed(target)
 
     def _emit_reserved_signal_diagnostic(
         self, signal_name: str, node: ASTNode, context: str
@@ -154,7 +107,7 @@ class SemanticAnalyzer(ASTVisitor):
 
     def allocate_implicit_type(self) -> SignalTypeInfo:
         """Allocate a new implicit virtual signal type."""
-        return self.signal_allocator.allocate_implicit_type()
+        return self.signal_registry.allocate_implicit_type()
 
     def _resolve_physical_signal_name(self, signal_key: Optional[str]) -> Optional[str]:
         if not signal_key:
@@ -737,7 +690,6 @@ class SemanticAnalyzer(ASTVisitor):
             return
 
         self._register_signal_metadata(node.name, node, value_type, node.type_name)
-        self._track_source_nature(node.name, node.value)
 
     def _type_name_to_symbol_type(self, type_name: str) -> SymbolType:
         """Convert type name to symbol type."""
@@ -791,45 +743,6 @@ class SemanticAnalyzer(ASTVisitor):
     def _infer_parameter_type(self, param_name: str, func_def) -> ValueInfo:
         """Infer parameter type from usage within the function body."""
         return SignalValue(signal_type=self.allocate_implicit_type())
-
-    def _expression_uses_identifier(self, expr, identifier_name: str) -> bool:
-        """Check if an expression uses a specific identifier."""
-
-        if isinstance(expr, IdentifierExpr):
-            return expr.name == identifier_name
-        elif isinstance(expr, BinaryOp):
-            return self._expression_uses_identifier(
-                expr.left, identifier_name
-            ) or self._expression_uses_identifier(expr.right, identifier_name)
-        elif isinstance(expr, CallExpr):
-            return any(
-                self._expression_uses_identifier(arg, identifier_name)
-                for arg in expr.args
-            )
-        elif isinstance(expr, PropertyAccess):
-            return expr.object_name == identifier_name
-        return False
-
-    def _expression_involves_parameter(self, expr) -> bool:
-        """Check if an expression involves any function parameters."""
-
-        if isinstance(expr, IdentifierExpr):
-            symbol = self.current_scope.lookup(expr.name)
-            return symbol and symbol.symbol_type == SymbolType.PARAMETER
-        elif isinstance(expr, BinaryOp):
-            return self._expression_involves_parameter(
-                expr.left
-            ) or self._expression_involves_parameter(expr.right)
-        elif isinstance(expr, CallExpr):
-            return any(self._expression_involves_parameter(arg) for arg in expr.args)
-        elif isinstance(expr, PropertyAccess):
-            return self._expression_involves_parameter_name(expr.object_name)
-        return False
-
-    def _expression_involves_parameter_name(self, name: str) -> bool:
-        """Check if a name refers to a parameter."""
-        symbol = self.current_scope.lookup(name)
-        return symbol and symbol.symbol_type == SymbolType.PARAMETER
 
     def _infer_builtin_call_type(self, expr: CallExpr) -> Optional[ValueInfo]:
         """Return ValueInfo for built-in calls or None if not handled."""
@@ -1091,7 +1004,6 @@ class SemanticAnalyzer(ASTVisitor):
                 value_type,
                 target_symbol.symbol_type if target_symbol else None,
             )
-            self._track_source_nature(node.target.name, node.value)
 
     def visit_ImportStmt(self, node: ImportStmt) -> None:
         """Analyze import statement."""
