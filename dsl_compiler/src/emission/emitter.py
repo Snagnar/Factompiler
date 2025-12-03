@@ -6,9 +6,8 @@ using the factorio-draftsman library to generate blueprint JSON.
 """
 
 from __future__ import annotations
-from dsl_compiler.src.layout.planner import LayoutPlanner
 
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, Optional, Any
 
 from draftsman.blueprintable import Blueprint
 from draftsman.entity import (
@@ -17,15 +16,12 @@ from draftsman.entity import (
 from draftsman.classes.entity import Entity
 from draftsman.data import signals as signal_data
 
-
-from dsl_compiler.src.ir.builder import IRNode
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.layout.layout_plan import (
     LayoutPlan,
 )
 from .entity_emitter import PlanEntityEmitter
 
-MAX_CIRCUIT_WIRE_SPAN = 9.0
 EDGE_LAYOUT_NOTE = (
     "Edge layout: literal constants are placed along the north boundary; "
     "export anchors align along the south boundary."
@@ -147,9 +143,6 @@ class BlueprintEmitter:
             )
 
     def _ensure_signal_map_registered(self) -> None:
-        if signal_data is None:
-            return
-
         for entry in self.signal_type_map.values():
             if isinstance(entry, dict):
                 name = entry.get("name")
@@ -189,67 +182,3 @@ class BlueprintEmitter:
             self.blueprint.description = description + note
         else:
             self.blueprint.description = note
-
-
-def emit_blueprint(
-    ir_operations: List[IRNode],
-    label: str = "DSL Generated",
-    signal_type_map: Dict[str, str] = None,
-    *,
-    power_pole_type: Optional[str] = None,
-) -> Tuple[Blueprint, ProgramDiagnostics]:
-    """Convert IR operations to Factorio blueprint."""
-    signal_type_map = signal_type_map or {}
-
-    emitter_diagnostics = ProgramDiagnostics()
-    emitter = BlueprintEmitter(emitter_diagnostics, signal_type_map)
-
-    planner_diagnostics = ProgramDiagnostics()
-
-    planner = LayoutPlanner(
-        signal_type_map,
-        diagnostics=planner_diagnostics,
-        power_pole_type=power_pole_type,
-        max_wire_span=MAX_CIRCUIT_WIRE_SPAN,
-    )
-
-    layout_plan = planner.plan_layout(
-        ir_operations,
-        blueprint_label=label,
-        blueprint_description="",
-    )
-
-    combined_diagnostics = ProgramDiagnostics()
-    combined_diagnostics.diagnostics.extend(planner.diagnostics.diagnostics)
-
-    if planner.diagnostics.has_errors():
-        return Blueprint(), combined_diagnostics
-
-    blueprint = emitter.emit_from_plan(layout_plan)
-
-    combined_diagnostics.diagnostics.extend(emitter.diagnostics.diagnostics)
-
-    return blueprint, combined_diagnostics
-
-
-def emit_blueprint_string(
-    ir_operations: List[IRNode],
-    label: str = "DSL Generated",
-    signal_type_map: Dict[str, str] = None,
-    *,
-    power_pole_type: Optional[str] = None,
-) -> Tuple[str, ProgramDiagnostics]:
-    """Convert IR operations to Factorio blueprint string."""
-    blueprint, diagnostics = emit_blueprint(
-        ir_operations,
-        label,
-        signal_type_map,
-        power_pole_type=power_pole_type,
-    )
-
-    try:
-        blueprint_string = blueprint.to_string()
-        return blueprint_string, diagnostics
-    except Exception as e:
-        diagnostics.error(f"Blueprint string generation failed: {e}")
-        return "", diagnostics

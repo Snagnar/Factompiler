@@ -1,11 +1,31 @@
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Dict, List, Optional
 from dsl_compiler.src.ast.statements import ASTNode
-from dsl_compiler.src.common.symbol_types import SymbolType
-from .exceptions import SemanticError
 from .type_system import ValueInfo
 
 """Symbol table implementation for semantic analysis."""
+
+
+class SymbolType(Enum):
+    """Symbol types in the DSL."""
+
+    VARIABLE = "variable"
+    MEMORY = "memory"
+    FUNCTION = "function"
+    PARAMETER = "parameter"
+    ENTITY = "entity"
+    MODULE = "module"
+
+
+class SemanticError(Exception):
+    """Exception raised for semantic analysis errors."""
+
+    def __init__(self, message: str, node: Optional[ASTNode] = None) -> None:
+        self.message = message
+        self.node = node
+        location = f" at {node.line}:{node.column}" if node and node.line > 0 else ""
+        super().__init__(f"{message}{location}")
 
 
 @dataclass

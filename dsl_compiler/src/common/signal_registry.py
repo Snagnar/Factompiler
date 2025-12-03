@@ -27,11 +27,10 @@ def is_valid_factorio_signal(signal_name: str) -> Tuple[bool, Optional[str]]:
     if signal_name.startswith("__v"):
         return True, None
 
-    if signal_data is not None:
-        if signal_name in signal_data.raw:
-            return True, None
-        if signal_name in signal_data.type_of:
-            return True, None
+    if signal_name in signal_data.raw:
+        return True, None
+    if signal_name in signal_data.type_of:
+        return True, None
 
     return False, (
         f"Unknown signal '{signal_name}'. "
@@ -66,7 +65,7 @@ class SignalTypeRegistry:
         """
         self._type_map[signal_key] = {"name": factorio_signal, "type": signal_type}
 
-        if signal_data is not None and factorio_signal not in signal_data.raw:
+        if factorio_signal not in signal_data.raw:
             try:
                 signal_data.add_signal(factorio_signal, signal_type)
             except Exception:
@@ -100,7 +99,3 @@ class SignalTypeRegistry:
     def get_all_mappings(self) -> Dict[str, Any]:
         """Get a copy of all signal type mappings."""
         return self._type_map.copy()
-
-    def __len__(self) -> int:
-        """Get the number of registered signal types."""
-        return len(self._type_map)

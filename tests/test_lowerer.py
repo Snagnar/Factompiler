@@ -1,6 +1,7 @@
 """
 Tests for lowerer.py - IR lowering functionality.
 """
+
 import os
 
 import pytest
@@ -10,7 +11,7 @@ from dsl_compiler.src.ir.nodes import (
     IR_MemWrite,
     SignalRef,
 )
-from dsl_compiler.src.lowering.lowerer import lower_program
+from tests.test_helpers import lower_program
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics

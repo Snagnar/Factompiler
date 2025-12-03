@@ -15,7 +15,7 @@ from dsl_compiler.src.ir.builder import (
     IR_WireMerge,
     SignalRef,
 )
-from dsl_compiler.src.ir.nodes import IR_EntityPropWrite, IR_ConnectToWire
+from dsl_compiler.src.ir.nodes import IR_EntityPropWrite
 
 
 @dataclass
@@ -127,8 +127,6 @@ class SignalAnalyzer:
             elif isinstance(op, IR_EntityPropWrite):
                 record_consumer(op.value, op.node_id)
                 record_export(op.value, f"entity:{op.entity_id}.{op.property_name}")
-            elif isinstance(op, IR_ConnectToWire):
-                record_export(op.signal, f"wire:{op.channel}")
             elif isinstance(op, IR_WireMerge):
                 record_consumer(op.sources, op.node_id)
 
@@ -232,7 +230,7 @@ class SignalAnalyzer:
             if isinstance(mapped_signal, dict):
                 signal_name = mapped_signal.get("name", clean_name)
                 signal_type = mapped_signal.get("type", "virtual")
-                if signal_data is not None and signal_name not in signal_data.raw:
+                if signal_name not in signal_data.raw:
                     try:
                         signal_data.add_signal(signal_name, signal_type)
                     except Exception as exc:
@@ -240,7 +238,7 @@ class SignalAnalyzer:
                             f"Could not register custom signal '{signal_name}': {exc}"
                         )
                 return signal_name
-            if signal_data is not None and mapped_signal not in signal_data.raw:
+            if mapped_signal not in signal_data.raw:
                 try:
                     signal_data.add_signal(mapped_signal, "virtual")
                 except Exception as exc:
@@ -249,7 +247,7 @@ class SignalAnalyzer:
                     )
             return str(mapped_signal)
 
-        if signal_data is not None and clean_name in signal_data.raw:
+        if clean_name in signal_data.raw:
             return clean_name
 
         if clean_name.startswith("__v"):
@@ -260,7 +258,7 @@ class SignalAnalyzer:
             except ValueError:
                 pass
 
-        if signal_data is not None and clean_name not in signal_data.raw:
+        if clean_name not in signal_data.raw:
             try:
                 signal_data.add_signal(clean_name, "virtual")
             except Exception as exc:
@@ -379,7 +377,7 @@ class SignalAnalyzer:
                 category = self._infer_category_from_name(mapped)
                 break
 
-            if signal_data is not None and candidate in signal_data.raw:
+            if candidate in signal_data.raw:
                 name = candidate
                 category = signal_data.raw[candidate].get("type", "virtual")
                 if category == "virtual-signal":
@@ -408,7 +406,7 @@ class SignalAnalyzer:
         entry.resolved_signal_name = name
         entry.resolved_signal_type = category
 
-        if signal_data is not None and name:
+        if name:
             existing = signal_data.raw.get(name)
             target_type = category or "virtual"
             try:
@@ -442,14 +440,10 @@ class SignalAnalyzer:
             if isinstance(mapped, str):
                 return mapped
 
-        if signal_type and signal_data is not None and signal_type in signal_data.raw:
+        if signal_type and signal_type in signal_data.raw:
             return signal_type
 
-        if (
-            signal_type
-            and signal_data is not None
-            and signal_type not in signal_data.raw
-        ):
+        if signal_type and signal_type not in signal_data.raw:
             try:
                 signal_data.add_signal(signal_type, "virtual")
             except Exception as exc:
@@ -461,7 +455,7 @@ class SignalAnalyzer:
         return "signal-0"
 
     def _infer_category_from_name(self, name: str) -> str:
-        if signal_data is not None and name in signal_data.raw:
+        if name in signal_data.raw:
             proto_type = signal_data.raw[name].get("type", "virtual")
             return "virtual" if proto_type == "virtual-signal" else proto_type
         if name.startswith("signal-"):

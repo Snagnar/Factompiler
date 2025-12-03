@@ -233,14 +233,9 @@ class MemoryBuilder:
         return self._operation_depends_on_memory(final_node_id, op.memory_id)
 
     def _operation_depends_on_memory(
-        self, op_id: str, memory_id: str, visited: set = None, depth: int = 0
+        self, op_id: str, memory_id: str, visited: Optional[set] = None
     ) -> bool:
         """Check if an operation depends on a memory read (directly or transitively)."""
-        if (
-            depth > 50
-        ):  # Prevent infinite recursion (increased from 10 to support longer chains)
-            return False
-
         if visited is None:
             visited = set()
 
@@ -256,12 +251,12 @@ class MemoryBuilder:
         if isinstance(ir_node, IR_Arith):
             if isinstance(ir_node.left, SignalRef):
                 if self._operation_depends_on_memory(
-                    ir_node.left.source_id, memory_id, visited, depth + 1
+                    ir_node.left.source_id, memory_id, visited
                 ):
                     return True
             if isinstance(ir_node.right, SignalRef):
                 if self._operation_depends_on_memory(
-                    ir_node.right.source_id, memory_id, visited, depth + 1
+                    ir_node.right.source_id, memory_id, visited
                 ):
                     return True
 

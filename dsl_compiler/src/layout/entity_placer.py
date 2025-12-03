@@ -228,9 +228,6 @@ class EntityPlacer:
         self.signal_graph.set_source(op.node_id, op.node_id)
         self._add_signal_sink(op.left, op.node_id)
         self._add_signal_sink(op.right, op.node_id)
-        self.signal_graph.set_source(op.node_id, op.node_id)
-        self._add_signal_sink(op.left, op.node_id)
-        self._add_signal_sink(op.right, op.node_id)
 
     def _place_decider(self, op: IR_Decider) -> None:
         """Place decider combinator."""

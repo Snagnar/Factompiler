@@ -13,8 +13,7 @@ from draftsman.blueprintable import Blueprint
 
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
-from dsl_compiler.src.lowering.lowerer import lower_program
-from dsl_compiler.src.emission.emitter import emit_blueprint_string
+from tests.test_helpers import lower_program, emit_blueprint_string
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 sample_files = glob.glob("tests/sample_programs/*.fcdsl")

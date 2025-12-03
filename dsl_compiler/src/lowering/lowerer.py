@@ -121,33 +121,32 @@ class ASTLowerer:
         if not signal_type:
             return "virtual"
 
-        if signal_data is not None:
-            if signal_type in signal_data.type_of:
-                types = signal_data.type_of.get(signal_type, [])
-                if types:
-                    return types[0]
-            if signal_type in signal_data.raw:
-                info = signal_data.raw.get(signal_type, {})
-                prototype_type = info.get("type")
-                if prototype_type == "virtual-signal":
-                    return "virtual"
-                if prototype_type in {
-                    "item",
-                    "fluid",
-                    "recipe",
-                    "entity",
-                    "space-location",
-                    "asteroid-chunk",
-                    "quality",
-                    "virtual",
-                }:
-                    return prototype_type
+        if signal_type in signal_data.type_of:
+            types = signal_data.type_of.get(signal_type, [])
+            if types:
+                return types[0]
+        if signal_type in signal_data.raw:
+            info = signal_data.raw.get(signal_type, {})
+            prototype_type = info.get("type")
+            if prototype_type == "virtual-signal":
+                return "virtual"
+            if prototype_type in {
+                "item",
+                "fluid",
+                "recipe",
+                "entity",
+                "space-location",
+                "asteroid-chunk",
+                "quality",
+                "virtual",
+            }:
+                return prototype_type
 
         mapped = self.ir_builder.signal_type_map.get(signal_type)
         if isinstance(mapped, dict):
             return mapped.get("type", "virtual")
         if isinstance(mapped, str):
-            if signal_data is not None and mapped in signal_data.raw:
+            if mapped in signal_data.raw:
                 prototype_type = signal_data.raw[mapped].get("type", "virtual")
                 return (
                     "virtual" if prototype_type == "virtual-signal" else prototype_type
@@ -173,7 +172,7 @@ class ASTLowerer:
         if signal_type.startswith("__v"):
             return
 
-        if signal_data is not None and signal_type in signal_data.raw:
+        if signal_type in signal_data.raw:
             return
 
         if self.ir_builder.signal_registry.resolve(signal_type) is not None:
@@ -278,21 +277,3 @@ class ASTLowerer:
 
     def lower_function_call_inline(self, expr: CallExpr) -> ValueRef:
         return self.expr_lowerer.lower_function_call_inline(expr)
-
-
-def lower_program(
-    program: Program, semantic_analyzer: SemanticAnalyzer
-) -> tuple[List[IRNode], ProgramDiagnostics, Dict[str, str]]:
-    """Lower a semantic-analyzed program to IR.
-
-    Args:
-        program: The AST program node to lower
-        semantic_analyzer: Semantic analyzer containing type information and signal registry
-
-    Returns:
-        Tuple of (IR operations list, diagnostics, signal type map)
-    """
-    diagnostics = ProgramDiagnostics()
-    lowerer = ASTLowerer(semantic_analyzer, diagnostics)
-    ir_operations = lowerer.lower_program(program)
-    return ir_operations, lowerer.diagnostics, lowerer.ir_builder.signal_type_map

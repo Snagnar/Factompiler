@@ -32,7 +32,7 @@ from dsl_compiler.src.ir.builder import (
     ValueRef,
 )
 from dsl_compiler.src.ir.nodes import IR_EntityPropRead
-from dsl_compiler.src.common.symbol_types import SymbolType
+from dsl_compiler.src.semantic.symbol_table import SymbolType
 from dsl_compiler.src.semantic.type_system import IntValue, SignalValue, ValueInfo
 
 from .constant_folder import ConstantFolder

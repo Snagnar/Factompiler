@@ -237,81 +237,6 @@ class IR_EntityPropWrite(IREffect):
         )
 
 
-class IR_ConnectToWire(IREffect):
-    """Connect a signal to an output wire/channel."""
-
-    def __init__(self, signal: ValueRef, channel: str) -> None:
-        super().__init__(f"connect_{channel}")
-        self.signal = signal
-        self.channel = channel
-
-    def __str__(self) -> str:  # pragma: no cover - debug helper
-        return f"IR_ConnectToWire({self.signal} -> {self.channel})"
-
-
-class IR_Group(IRNode):
-    """Group of IR operations (for functions/modules)."""
-
-    def __init__(
-        self,
-        node_id: str,
-        operations: Optional[List[IRNode]] = None,
-        inputs: Optional[Dict[str, str]] = None,
-        outputs: Optional[Dict[str, str]] = None,
-        source_ast: Optional[ASTNode] = None,
-    ) -> None:
-        super().__init__(node_id, source_ast)
-        self.operations = operations or []
-        self.inputs = inputs or {}
-        self.outputs = outputs or {}
-
-    def __str__(self) -> str:  # pragma: no cover - debug helper
-        return f"IR_Group({self.node_id}: {len(self.operations)} operations)"
-
-
-class IR_FuncDecl(IRNode):
-    """Function declaration IR node."""
-
-    def __init__(
-        self,
-        node_id: str,
-        func_name: str,
-        params: List[str],
-        body_operations: List[IRNode],
-        return_ref: Optional[str] = None,
-        source_ast: Optional[ASTNode] = None,
-    ) -> None:
-        super().__init__(node_id, source_ast)
-        self.func_name = func_name
-        self.params = params
-        self.body_operations = body_operations
-        self.return_ref = return_ref
-
-    def __str__(self) -> str:  # pragma: no cover - debug helper
-        return f"IR_FuncDecl({self.func_name}, params={self.params})"
-
-
-class IR_FuncCall(IRNode):
-    """Function call IR node - will be inlined during emission."""
-
-    def __init__(
-        self,
-        node_id: str,
-        func_name: str,
-        args: List[ValueRef],
-        result_ref: str,
-        source_ast: Optional[ASTNode] = None,
-    ) -> None:
-        super().__init__(node_id, source_ast)
-        self.func_name = func_name
-        self.args = args
-        self.result_ref = result_ref
-
-    def __str__(self) -> str:  # pragma: no cover - debug helper
-        args = ", ".join(map(str, self.args))
-        return f"IR_FuncCall({self.func_name}({args}) -> {self.result_ref})"
-
-
 __all__ = [
     "SignalRef",
     "ValueRef",
@@ -328,8 +253,4 @@ __all__ = [
     "IR_MemWrite",
     "IR_PlaceEntity",
     "IR_EntityPropWrite",
-    "IR_ConnectToWire",
-    "IR_Group",
-    "IR_FuncDecl",
-    "IR_FuncCall",
 ]

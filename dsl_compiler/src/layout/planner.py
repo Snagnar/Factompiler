@@ -128,7 +128,7 @@ class LayoutPlanner:
             entity_placements=self.layout_plan.entity_placements,
             diagnostics=self.diagnostics,
         )
-        optimized_positions = layout_engine.optimize(time_limit_seconds=1)
+        optimized_positions = layout_engine.optimize(time_limit_seconds=10)
 
         for entity_id, (tile_x, tile_y) in optimized_positions.items():
             placement = self.layout_plan.entity_placements.get(entity_id)
@@ -171,17 +171,49 @@ class LayoutPlanner:
 
         self._inject_wire_colors_into_placements()
 
+    def _resolve_source_entity(self, signal_id: Any) -> Optional[str]:
+        """Resolve source entity ID from a signal ID."""
+        if isinstance(signal_id, str) and "@" in signal_id:
+            return signal_id.split("@")[1]
+        if hasattr(signal_id, "source_id"):
+            return signal_id.source_id
+        return self.signal_graph.get_source(str(signal_id))
+
+    def _inject_operand_wire_color(
+        self, placement: Any, operand_key: str, injected_count: int
+    ) -> int:
+        """Inject wire color for a single operand. Returns updated count."""
+        signal = placement.properties.get(f"{operand_key}_operand")
+        signal_id = placement.properties.get(f"{operand_key}_operand_signal_id")
+
+        if not signal or isinstance(signal, int) or not signal_id:
+            return injected_count
+
+        source_entity = self._resolve_source_entity(signal_id)
+
+        if source_entity:
+            color = self.connection_planner.get_wire_color_for_edge(
+                source_entity, placement.ir_node_id, signal
+            )
+            placement.properties[f"{operand_key}_operand_wires"] = {color}
+            self.diagnostics.info(
+                f"Injected {operand_key}_operand_wires={{'{color}'}} for {placement.ir_node_id} "
+                f"signal={signal} from {source_entity}"
+            )
+            return injected_count + 1
+        else:
+            placement.properties[f"{operand_key}_operand_wires"] = {"red", "green"}
+            self.diagnostics.warning(
+                f"No source found for {operand_key} operand signal {signal_id} of {placement.ir_node_id}"
+            )
+            return injected_count
+
     def _inject_wire_colors_into_placements(self) -> None:
         """Store wire color information in combinator placement properties.
 
         After wire connections are planned, we know which wire colors (red/green)
         deliver each signal to each entity. Store this information in the placement
         properties so the entity emitter can configure wire filters on combinators.
-
-        For combinators where both operands use the same signal name but from different
-        sources (e.g., both read signal-A but from different deciders), we use the
-        IR signal IDs to determine which source entity produces each operand, then
-        look up the wire color for that specific edge.
         """
         injected_count = 0
         for placement in self.layout_plan.entity_placements.values():
@@ -191,59 +223,12 @@ class LayoutPlanner:
             ):
                 continue
 
-            left_signal = placement.properties.get("left_operand")
-            right_signal = placement.properties.get("right_operand")
-
-            left_signal_id = placement.properties.get("left_operand_signal_id")
-            right_signal_id = placement.properties.get("right_operand_signal_id")
-
-            if left_signal and not isinstance(left_signal, int) and left_signal_id:
-                if isinstance(left_signal_id, str) and "@" in left_signal_id:
-                    source_entity = left_signal_id.split("@")[1]
-                elif hasattr(left_signal_id, "source_id"):
-                    source_entity = left_signal_id.source_id
-                else:
-                    source_entity = self.signal_graph.get_source(str(left_signal_id))
-
-                if source_entity:
-                    left_color = self.connection_planner.get_wire_color_for_edge(
-                        source_entity, placement.ir_node_id, left_signal
-                    )
-                    placement.properties["left_operand_wires"] = {left_color}
-                    self.diagnostics.info(
-                        f"Injected left_operand_wires={{'{left_color}'}} for {placement.ir_node_id} "
-                        f"signal={left_signal} from {source_entity}"
-                    )
-                    injected_count += 1
-                else:
-                    placement.properties["left_operand_wires"] = {"red", "green"}
-                    self.diagnostics.warning(
-                        f"No source found for left operand signal {left_signal_id} of {placement.ir_node_id}"
-                    )
-
-            if right_signal and not isinstance(right_signal, int) and right_signal_id:
-                if isinstance(right_signal_id, str) and "@" in right_signal_id:
-                    source_entity = right_signal_id.split("@")[1]
-                elif hasattr(right_signal_id, "source_id"):
-                    source_entity = right_signal_id.source_id
-                else:
-                    source_entity = self.signal_graph.get_source(str(right_signal_id))
-
-                if source_entity:
-                    right_color = self.connection_planner.get_wire_color_for_edge(
-                        source_entity, placement.ir_node_id, right_signal
-                    )
-                    placement.properties["right_operand_wires"] = {right_color}
-                    self.diagnostics.info(
-                        f"Injected right_operand_wires={{'{right_color}'}} for {placement.ir_node_id} "
-                        f"signal={right_signal} from {source_entity}"
-                    )
-                    injected_count += 1
-                else:
-                    placement.properties["right_operand_wires"] = {"red", "green"}
-                    self.diagnostics.warning(
-                        f"No source found for right operand signal {right_signal_id} of {placement.ir_node_id}"
-                    )
+            injected_count = self._inject_operand_wire_color(
+                placement, "left", injected_count
+            )
+            injected_count = self._inject_operand_wire_color(
+                placement, "right", injected_count
+            )
 
         self.diagnostics.info(
             f"Wire color injection: {injected_count} operands configured"

@@ -44,11 +44,9 @@ from dsl_compiler.src.common.signal_registry import (
 from dsl_compiler.src.common.source_location import (
     SourceLocation,
 )
-from dsl_compiler.src.common.symbol_types import SymbolType
 
-from .exceptions import SemanticError
 from .signal_allocator import SignalAllocator
-from .symbol_table import SymbolTable, Symbol
+from .symbol_table import SymbolTable, Symbol, SymbolType, SemanticError
 from .type_system import (
     FunctionValue,
     IntValue,

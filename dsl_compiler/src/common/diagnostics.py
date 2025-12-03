@@ -46,7 +46,6 @@ class ProgramDiagnostics:
         self.diagnostics: List[Diagnostic] = []
         self.log_level = log_level
         self.raise_errors = raise_errors
-        self.raise_errors = raise_errors
         self._error_count = 0
         self._warning_count = 0
         self.default_stage = "unknown"

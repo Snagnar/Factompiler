@@ -17,10 +17,8 @@ from dsl_compiler.src.ir.builder import (
 )
 from dsl_compiler.src.ir.nodes import (
     IREffect,
-    IR_ConnectToWire,
     IR_EntityPropRead,
     IR_EntityPropWrite,
-    IR_Group,
 )
 from dsl_compiler.src.ast.literals import NumberLiteral
 
@@ -130,24 +128,6 @@ class TestIREffectNodes:
         assert node.property_name == "enabled"
         assert node.value == value
 
-    def test_ir_connect_to_wire(self):
-        """Test IR_ConnectToWire node."""
-        signal = SignalRef("signal-A", "const_1")
-        node = IR_ConnectToWire(signal, "red")
-        assert node.signal == signal
-        assert node.channel == "red"
-
-
-class TestIRContainerNodes:
-    """Test IR container nodes."""
-
-    def test_ir_group(self):
-        """Test IR_Group node."""
-        children = [IR_Const("const_1", "signal-A"), IR_Const("const_2", "signal-B")]
-        node = IR_Group("group_1", children)
-        assert node.node_id == "group_1"
-        assert node.operations == children
-
 
 class TestIRHierarchy:
     """Test IR node inheritance and type relationships."""
@@ -179,7 +159,6 @@ class TestIRHierarchy:
             IR_MemWrite("mem", SignalRef("signal-A", "const_1"), 1),
             IR_PlaceEntity("entity_1", "small-lamp", 0, 0, {}),
             IR_EntityPropWrite("entity_1", "enabled", SignalRef("signal-A", "const_1")),
-            IR_ConnectToWire(SignalRef("signal-A", "const_1"), "red"),
         ]
 
         for effect in effects:
