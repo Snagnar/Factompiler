@@ -132,18 +132,14 @@ class SignalAnalyzer:
             elif isinstance(op, IR_WireMerge):
                 record_consumer(op.sources, op.node_id)
 
-        # Second pass: Mark output signals (top-level, no consumers)
         for signal_id, entry in usage.items():
             if isinstance(entry.producer, IRValue):
-                # Check if this is a named signal with no consumers
                 if entry.debug_label and entry.debug_label != signal_id:
                     if not entry.consumers:
-                        # This is an output signal
                         entry.debug_metadata["is_output"] = True
 
         self.signal_usage = usage
 
-        # Finalize materialization decisions and signal identity resolution
         self.finalize_materialization()
 
         return usage
@@ -280,11 +276,9 @@ class SignalAnalyzer:
             return operand
 
         if isinstance(operand, SignalRef):
-            # Try to inline constant
             inlined = self.inline_value(operand)
             if inlined is not None:
                 return inlined
-            # Otherwise resolve to signal name
             usage_entry = self.signal_usage.get(operand.source_id)
             resolved = self.resolve_signal_name(operand.signal_type, usage_entry)
             if resolved is not None:
@@ -301,7 +295,6 @@ class SignalAnalyzer:
 
         # Check suppression flag first (but respect user declarations)
         if entry.debug_metadata.get("suppress_materialization"):
-            # If user-declared, override suppression
             if producer and hasattr(producer, "debug_metadata"):
                 if producer.debug_metadata.get("user_declared"):
                     entry.should_materialize = True
@@ -311,7 +304,6 @@ class SignalAnalyzer:
 
         # Check producer's metadata for suppression
         if producer and hasattr(producer, "debug_metadata"):
-            # User-declared constants always materialize
             if producer.debug_metadata.get("user_declared"):
                 entry.should_materialize = True
                 return
@@ -326,12 +318,10 @@ class SignalAnalyzer:
             if hasattr(producer, "debug_metadata"):
                 is_user_declared = producer.debug_metadata.get("user_declared", False)
 
-            # User-declared constants always materialize
             if is_user_declared:
                 entry.should_materialize = True
                 return
 
-            # Check if this is marked as an output signal
             if entry.debug_metadata.get("is_output"):
                 entry.should_materialize = True
                 return
@@ -399,11 +389,8 @@ class SignalAnalyzer:
         # Handle unmapped implicit signals - allocate fresh Factorio signals
         if name is None and candidates:
             first_candidate = candidates[0]
-            # Check if this is an implicit signal (__v1, __v2, etc.)
             if first_candidate and first_candidate.startswith("__v"):
-                # Allocate a fresh Factorio virtual signal
                 factorio_signal = self._allocate_factorio_virtual_signal()
-                # Register it in the signal type map
                 self.signal_type_map[first_candidate] = {
                     "name": factorio_signal,
                     "type": "virtual",
@@ -483,21 +470,17 @@ class SignalAnalyzer:
 
     def _allocate_factorio_virtual_signal(self) -> str:
         """Allocate a fresh Factorio virtual signal (signal-A, signal-B, etc.)."""
-        # Track which signals are already allocated
         if not hasattr(self, "_allocated_signals"):
             self._allocated_signals = set()
-            # Pre-populate with signals already in the type map
             for mapping in self.signal_type_map.values():
                 if isinstance(mapping, dict):
                     self._allocated_signals.add(mapping.get("name"))
                 elif isinstance(mapping, str):
                     self._allocated_signals.add(mapping)
 
-        # Allocate the next available signal-X
         alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         index = 0
         while True:
-            # Generate signal name (signal-A, signal-B, ..., signal-Z, signal-AA, ...)
             name = ""
             temp = index
             while True:

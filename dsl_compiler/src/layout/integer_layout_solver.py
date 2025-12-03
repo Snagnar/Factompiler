@@ -55,13 +55,9 @@ class IntegerLayoutEngine:
         self.diagnostics = diagnostics
         self.constraints = constraints or LayoutConstraints()
 
-        # Extract entity data
-        # Preserve definition order (dict insertion order in Python 3.7+)
-        # This maintains source code order for left-to-right layout
         self.entity_ids = list(entity_placements.keys())
         self.n_entities = len(self.entity_ids)
 
-        # Build connectivity and extract entity properties
         self._build_connectivity()
         self._identify_fixed_positions()
         self._extract_footprints()
@@ -73,10 +69,7 @@ class IntegerLayoutEngine:
         for signal_id, source_id, sink_id in self.signal_graph.iter_source_sink_pairs():
             if source_id in self.entity_ids and sink_id in self.entity_ids:
                 self.connections.append((source_id, sink_id))
-            # Silently skip connections involving non-materialized nodes (e.g., wire merges)
-            # These are virtual constructs that don't exist as physical entities
 
-        # Remove duplicates
         self.connections = list(set(self.connections))
 
         self.diagnostics.info(
@@ -111,14 +104,12 @@ class IntegerLayoutEngine:
                     width, height = footprint
 
                     if is_user_specified:
-                        # User-specified positions are already tile positions
                         tile_x, tile_y = (
                             int(placement.position[0]),
                             int(placement.position[1]),
                         )
                     else:
                         # Power poles and other fixed entities store center positions
-                        # Convert: tile = center - size/2
                         center_x, center_y = placement.position
                         tile_x = int(round(center_x - width / 2.0))
                         tile_y = int(round(center_y - height / 2.0))
@@ -163,7 +154,6 @@ class IntegerLayoutEngine:
         if self.n_entities == 0:
             return {}
 
-        # Check if we need subgraph decomposition
         if self.n_entities > 500:
             self.diagnostics.info(
                 f"Large graph detected ({self.n_entities} entities), "
@@ -171,10 +161,8 @@ class IntegerLayoutEngine:
             )
             return self._optimize_with_decomposition(time_limit_seconds)
 
-        # Define progressive relaxation strategies
         strategies = self._get_relaxation_strategies()
 
-        # Try each strategy until acceptable solution found
         best_result = None
 
         for i, strategy in enumerate(strategies):
@@ -203,7 +191,6 @@ class IntegerLayoutEngine:
                     self._report_violations(result)
                     return result.positions
 
-        # Return best result found, if any
         if best_result and best_result.success:
             self.diagnostics.warning(
                 f"Best solution has {best_result.violations} violations "
@@ -212,7 +199,6 @@ class IntegerLayoutEngine:
             self._report_violations(best_result)
             return best_result.positions
 
-        # All strategies failed - provide detailed diagnostics
         self._diagnose_failure()
         return self._fallback_grid_layout()
 
@@ -260,7 +246,6 @@ class IntegerLayoutEngine:
         """Solve layout with a specific strategy."""
         model = cp_model.CpModel()
 
-        # Create position variables
         positions = self._create_position_variables(model, strategy["max_coord"])
 
         # Add hard constraint: no overlaps
@@ -274,7 +259,6 @@ class IntegerLayoutEngine:
             model, positions, strategy["max_span"]
         )
 
-        # Create objective function
         self._create_objective(
             model,
             span_violations,
@@ -284,14 +268,12 @@ class IntegerLayoutEngine:
             strategy["max_coord"],
         )
 
-        # Solve
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = float(time_limit)
         solver.parameters.log_search_progress = False
 
         status = solver.Solve(model)
 
-        # Extract and return result
         return self._extract_result(
             solver, status, positions, span_violations, wire_lengths, strategy["name"]
         )
@@ -347,7 +329,6 @@ class IntegerLayoutEngine:
             x1, y1 = positions[source]
             x2, y2 = positions[sink]
 
-            # Manhattan distance (easier for solver than Euclidean)
             dx = model.NewIntVar(0, max_span * 2, f"dx_{i}")
             dy = model.NewIntVar(0, max_span * 2, f"dy_{i}")
             model.AddAbsEquality(dx, x1 - x2)
@@ -358,7 +339,6 @@ class IntegerLayoutEngine:
 
             wire_lengths.append(distance)
 
-            # Create boolean violation indicator
             is_violation = model.NewBoolVar(f"viol_{i}")
             model.Add(distance > max_span).OnlyEnforceIf(is_violation)
             model.Add(distance <= max_span).OnlyEnforceIf(is_violation.Not())
@@ -391,7 +371,6 @@ class IntegerLayoutEngine:
         intermediate_entities = []
 
         for entity_id in self.entity_ids:
-            # Skip entities with user-specified positions
             if entity_id in self.fixed_positions:
                 continue
 
@@ -399,7 +378,6 @@ class IntegerLayoutEngine:
             if not placement:
                 continue
 
-            # Categorize by role
             if placement.properties.get("is_input"):
                 input_entities.append(entity_id)
             elif placement.properties.get("is_output"):
@@ -425,7 +403,6 @@ class IntegerLayoutEngine:
 
         if input_entities:
             Y_input_line = model.NewIntVar(0, max_coord, "Y_input_line")
-            # Calculate maximum height among all inputs
             max_input_height = max(
                 self.footprints.get(e, (1, 1))[1] for e in input_entities
             )
@@ -439,15 +416,8 @@ class IntegerLayoutEngine:
             Y_output_line = model.NewIntVar(0, max_coord, "Y_output_line")
             self.diagnostics.info(f"Edge layout: {len(output_entities)} outputs")
 
-        # ========================================================================
         # Ensure sufficient vertical gap between input and output lines
-        # ========================================================================
-
         if Y_input_line is not None and Y_output_line is not None:
-            # Calculate minimum gap needed:
-            # - max_input_height: space for inputs
-            # - at least 1: minimum gap
-            # - max_intermediate_height: space for intermediates (if any)
             min_gap = max_input_height
 
             if intermediate_entities:
@@ -458,24 +428,17 @@ class IntegerLayoutEngine:
             else:
                 min_gap += 1  # At least 1 tile gap even with no intermediates
 
-            # Constrain: Y_output_line ≥ Y_input_line + min_gap
             model.Add(Y_output_line >= Y_input_line + min_gap)
 
             self.diagnostics.info(
                 f"Edge layout: enforcing minimum gap of {min_gap} between input/output lines"
             )
 
-        # ========================================================================
-        # Constrain all inputs to share Y_input_line
-        # ========================================================================
-
         if input_entities and Y_input_line is not None:
             for entity_id in input_entities:
                 _, y = positions[entity_id]
                 model.Add(y == Y_input_line)
 
-            # Constrain horizontal ordering: maintain definition order (left-to-right)
-            # Each input must start after the previous input ends (no overlap)
             for i in range(len(input_entities) - 1):
                 curr_id = input_entities[i]
                 next_id = input_entities[i + 1]
@@ -485,20 +448,13 @@ class IntegerLayoutEngine:
 
                 curr_width = self.footprints.get(curr_id, (1, 1))[0]
 
-                # Next entity X must be at least curr_x + curr_width
-                # (no overlap, maintains left-to-right order)
                 model.Add(next_x >= curr_x + curr_width)
-
-        # ========================================================================
-        # Constrain all outputs to share Y_output_line
-        # ========================================================================
 
         if output_entities and Y_output_line is not None:
             for entity_id in output_entities:
                 _, y = positions[entity_id]
                 model.Add(y == Y_output_line)
 
-            # Constrain horizontal ordering: maintain definition order (left-to-right)
             for i in range(len(output_entities) - 1):
                 curr_id = output_entities[i]
                 next_id = output_entities[i + 1]
@@ -510,22 +466,14 @@ class IntegerLayoutEngine:
 
                 model.Add(next_x >= curr_x + curr_width)
 
-        # ========================================================================
-        # Constrain intermediates to be strictly between input and output lines
-        # ========================================================================
-
         for entity_id in intermediate_entities:
             _, y = positions[entity_id]
             height = self.footprints.get(entity_id, (1, 1))[1]
 
-            # Intermediate top must be below input bottom
             if Y_input_line is not None:
-                # y ≥ Y_input_line + max_input_height
                 model.Add(y >= Y_input_line + max_input_height)
 
-            # Intermediate bottom must be above output top
             if Y_output_line is not None:
-                # y + height ≤ Y_output_line
                 model.Add(y + height <= Y_output_line)
 
     def _create_objective(
@@ -538,13 +486,10 @@ class IntegerLayoutEngine:
         max_coord: int,
     ) -> None:
         """Create multi-objective optimization function with priorities."""
-        # Primary: minimize violations
         num_violations = sum(span_violations) if span_violations else 0
 
-        # Secondary: minimize wire length
         total_wire_length = sum(wire_lengths) if wire_lengths else 0
 
-        # Tertiary: minimize bounding box area (compact layout)
         all_x = [positions[e][0] for e in self.entity_ids]
         all_y = [positions[e][1] for e in self.entity_ids]
 
@@ -555,7 +500,6 @@ class IntegerLayoutEngine:
 
         bounding_perimeter = max_x + max_y
 
-        # Combined objective with weighted priorities
         objective = (
             violation_weight * num_violations
             + 100 * total_wire_length
@@ -622,7 +566,6 @@ class IntegerLayoutEngine:
             f"Layout has {len(violated_connections)} wire span violations:"
         )
 
-        # Report up to 10 violations
         for source, sink, distance in violated_connections[:10]:
             self.diagnostics.warning(
                 f"  {source} → {sink}: {distance} units "
@@ -638,7 +581,6 @@ class IntegerLayoutEngine:
         """Provide detailed diagnostic information about optimization failure."""
         self.diagnostics.error("Failed to find feasible layout with all strategies")
 
-        # Calculate statistics for diagnostics
         total_area_needed = sum(w * h for w, h in self.footprints.values())
         available_area = self.constraints.max_coordinate**2
 
@@ -693,7 +635,6 @@ class IntegerLayoutEngine:
                 f"({len(component)} entities)"
             )
 
-            # Filter connections for this component
             component_set = set(component)
             component_connections = [
                 (s, t)
@@ -701,14 +642,12 @@ class IntegerLayoutEngine:
                 if s in component_set and t in component_set
             ]
 
-            # Temporarily modify connections for sub-problem
             original_connections = self.connections
             original_entity_ids = self.entity_ids
 
             self.connections = component_connections
             self.entity_ids = component
 
-            # Solve sub-problem (without decomposition)
             strategies = self._get_relaxation_strategies()
             sub_positions = None
 
@@ -718,11 +657,9 @@ class IntegerLayoutEngine:
                     sub_positions = result.positions
                     break
 
-            # Restore original state
             self.connections = original_connections
             self.entity_ids = original_entity_ids
 
-            # Apply positions with offset
             if sub_positions:
                 max_x = max(x for x, y in sub_positions.values())
                 for entity_id, (x, y) in sub_positions.items():
@@ -732,7 +669,6 @@ class IntegerLayoutEngine:
                 self.diagnostics.warning(
                     f"Component {i + 1} optimization failed, using grid layout"
                 )
-                # Use grid layout for failed component
                 for j, entity_id in enumerate(component):
                     all_positions[entity_id] = (current_offset_x + j * 5, 0)
                 current_offset_x += len(component) * 5 + 10
@@ -764,7 +700,6 @@ class IntegerLayoutEngine:
 
                 components.append(component)
 
-        # Sort by size (largest first)
         components.sort(key=len, reverse=True)
 
         return components

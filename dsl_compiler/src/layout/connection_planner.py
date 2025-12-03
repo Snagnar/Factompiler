@@ -47,7 +47,6 @@ class RelayNetwork:
         self.max_span = max_span
         self.layout_plan = layout_plan
         self.diagnostics = diagnostics
-        # Map: pole_position → RelayNode
         self.relay_nodes: Dict[Tuple[int, int], RelayNode] = {}
         self._relay_counter = 0
 
@@ -69,7 +68,6 @@ class RelayNetwork:
         self, position: Tuple[float, float], max_distance: float
     ) -> Optional[RelayNode]:
         """Find existing relay pole near position, or None."""
-        # Simple linear search - for typical layouts this is fast enough
         for node in self.relay_nodes.values():
             dist = math.dist(position, node.position)
             if dist <= max_distance:
@@ -89,44 +87,30 @@ class RelayNetwork:
         """
         distance = math.dist(source_pos, sink_pos)
 
-        # Account for entity size and wire reach offset (same as in _validate_relay_coverage)
         span_limit = max(1.0, float(self.max_span) - 1.8)
 
-        # Direct connection if close enough
-        # Use 0.95 factor to account for entity footprints and placement imprecision
         if distance <= span_limit * 0.95:
             return []  # No relays needed
 
-        # Determine how many relay points needed
-        # Use very conservative 0.55x of span_limit as safe interval to account for:
-        # - Entity footprints (up to 1 tile each side)
-        # - Placement imprecision (relays might not land exactly on ideal spot)
-        # - Reserve failures requiring nearby placement
-        # - Entity center positions might not be tile-aligned
         safe_interval = span_limit * 0.8
         num_relays = max(1, int(math.ceil(distance / safe_interval)) - 1)
 
         path = []
 
         for i in range(1, num_relays + 1):
-            # Calculate ideal relay position
             ratio = i / (num_relays + 1)
             relay_x = source_pos[0] + (sink_pos[0] - source_pos[0]) * ratio
             relay_y = source_pos[1] + (sink_pos[1] - source_pos[1]) * ratio
             ideal_pos = (relay_x, relay_y)
 
-            # Try to find existing relay nearby, but only if it's very close (within 0.5 tiles)
             # This prevents accumulating distance errors when reusing relays
             relay_node = self.find_relay_near(ideal_pos, max_distance=0.7)
 
             if relay_node is None:
-                # Create new relay
                 tile_pos = (int(round(relay_x)), int(round(relay_y)))
-                # Try exact position first
                 if self.tile_grid.reserve_exact(tile_pos, footprint=(1, 1)):
                     reserved_pos = tile_pos
                 else:
-                    # Fall back to finding nearby positions
                     reserved_pos = None
                     for offset in [
                         (0, 1),
@@ -149,14 +133,11 @@ class RelayNetwork:
                     # ✅ FIX: Ensure reserved_pos is integer tile position
                     tile_x = int(round(reserved_pos[0]))
                     tile_y = int(round(reserved_pos[1]))
-                    # Convert tile to center position for draftsman
-                    # Power poles are 1x1, so center is at +0.5, +0.5
                     center_pos = (tile_x + 0.5, tile_y + 0.5)
                     relay_node = self.add_relay_node(
                         center_pos, relay_id, "medium-electric-pole"
                     )
 
-                    # Create entity placement for this relay
                     relay_placement = EntityPlacement(
                         ir_node_id=relay_id,
                         entity_type="medium-electric-pole",
@@ -174,10 +155,8 @@ class RelayNetwork:
                     self.layout_plan.add_placement(relay_placement)
 
             if relay_node:
-                # Simplified: just use the relay node without tracking signals
                 path.append((relay_node.entity_id, wire_color))
             else:
-                # Relay placement completely failed
                 self.diagnostics.warning(
                     f"Failed to place relay for {signal_name} at {ideal_pos} - no space available"
                 )
@@ -221,14 +200,10 @@ class ConnectionPlanner:
         self._coloring_success = True
         self._relay_counter = 0
 
-        # ✅ Initialize for memory feedback detection
         self._memory_modules: Dict[str, Any] = {}
 
-        # Track which wire colors deliver each signal to each entity
-        # Key: (source_entity_id, sink_entity_id, signal_name), Value: wire_color
         self._edge_wire_colors: Dict[Tuple[str, str, str], str] = {}
 
-        # Create relay network for shared infrastructure
         self.relay_network = RelayNetwork(
             self.tile_grid,
             None,  # No clusters
@@ -246,10 +221,8 @@ class ConnectionPlanner:
         locked_colors: Optional[Dict[Tuple[str, str], str]] = None,
     ) -> None:
         """Compute all wire connections with color assignments."""
-        # ✅ Register existing power poles as available relays FIRST
         self._register_power_poles_as_relays()
 
-        # ✅ Add self-feedback for optimized arithmetic memories FIRST
         self._add_self_feedback_connections()
 
         preserved_connections = list(self.layout_plan.wire_connections)
@@ -266,12 +239,9 @@ class ConnectionPlanner:
             base_edges, wire_merge_junctions, entities
         )
 
-        # Track which sink entities are wire merge output anchors
-        # Wire merge inputs should all be on the SAME wire color (not separated)
         wire_merge_sinks = set()
         if wire_merge_junctions:
             for _, merge_info in wire_merge_junctions.items():
-                # Find the output anchor for this wire merge
                 for edge in expanded_edges:
                     if edge.source_entity_id in [
                         ref.source_id
@@ -280,7 +250,6 @@ class ConnectionPlanner:
                     ]:
                         wire_merge_sinks.add(edge.sink_entity_id)
 
-        # Filter out internal feedback signal edges (they're already wired directly)
         filtered_edges = []
         for edge in expanded_edges:
             if self._is_internal_feedback_signal(edge.resolved_signal_name):
@@ -300,7 +269,6 @@ class ConnectionPlanner:
 
         self._log_multi_source_conflicts(expanded_edges, entities)
 
-        # ✅ FIX: Filter out memory feedback edges from wire coloring
         # Memory feedback edges always use RED wire and should not participate
         # in the bipartite graph coloring algorithm
         non_feedback_edges = [
@@ -317,7 +285,6 @@ class ConnectionPlanner:
                 f"({len(non_feedback_edges)} edges remaining)"
             )
 
-        # ✅ FIX: Filter out wire merge edges from conflict-based coloring
         # Wire merge inputs intentionally combine the same signal on the same wire
         non_merge_edges = [
             edge
@@ -354,7 +321,6 @@ class ConnectionPlanner:
         if preserved_connections:
             self.layout_plan.wire_connections.extend(preserved_connections)
 
-        # Validate relay placement results
         self._validate_relay_coverage()
 
     def get_wire_color_for_edge(
@@ -384,18 +350,15 @@ class ConnectionPlanner:
 
         expanded: List[CircuitEdge] = []
         for edge in edges:
-            # Skip edges where the SINK is a wire_merge (those inputs are virtual)
             if edge.sink_entity_id in wire_merge_junctions:
                 continue
 
-            # Check if SOURCE is a wire_merge junction
             source_id = edge.source_entity_id or ""
             merge_info = wire_merge_junctions.get(source_id)
             if not merge_info:
                 expanded.append(edge)
                 continue
 
-            # Expand wire_merge source to its actual inputs
             for source_ref in merge_info.get("inputs", []):
                 if not isinstance(source_ref, SignalRef):
                     continue
@@ -447,7 +410,6 @@ class ConnectionPlanner:
 
             prototype = str(config["prototype"])
 
-            # Register this power pole with the relay network
             self.relay_network.add_relay_node(placement.position, entity_id, prototype)
             power_pole_count += 1
 
@@ -464,7 +426,6 @@ class ConnectionPlanner:
                 if not feedback_signal:
                     continue
 
-                # Add red self-feedback wire
                 feedback_conn = WireConnection(
                     source_entity_id=entity_id,
                     sink_entity_id=entity_id,
@@ -545,8 +506,6 @@ class ConnectionPlanner:
                 "Two-color routing could not isolate signal "
                 f"'{resolved_signal}' across sinks [{sink_desc}]; falling back to single-channel wiring for involved entities ({source_desc})."
             )
-        # DON'T clear the entire map! Keep the successful colorings.
-        # self._edge_color_map = {}
 
     def _get_connection_side(self, entity_id: str, is_source: bool) -> Optional[str]:
         """Determine if entity needs 'input'/'output' side specified.
@@ -562,7 +521,6 @@ class ConnectionPlanner:
         if not placement:
             return None
 
-        # Combinators have distinct input/output sides
         combinator_types = {
             "arithmetic-combinator",
             "decider-combinator",
@@ -571,7 +529,6 @@ class ConnectionPlanner:
         if placement.entity_type in combinator_types:
             return "output" if is_source else "input"
 
-        # Other entities don't need sides specified
         return None
 
     def _is_memory_feedback_edge(
@@ -591,18 +548,13 @@ class ConnectionPlanner:
         if not self._memory_modules:
             return False
 
-        # First check: is this an internal feedback signal ID?
-        # (These should be filtered out already, but check to be safe)
         if self._is_internal_feedback_signal(signal_name):
             return True
 
-        # Second check: is this an actual signal between memory gates?
-        # (This handles the direct wire connections we created)
         for module in self._memory_modules.values():
             if not isinstance(module, MemoryModule):
                 continue
 
-            # Only check standard SR latches (not optimized memories)
             if module.optimization is not None:
                 continue
 
@@ -612,8 +564,6 @@ class ConnectionPlanner:
             write_id = module.write_gate.ir_node_id
             hold_id = module.hold_gate.ir_node_id
 
-            # Check for feedback edges using ACTUAL SIGNAL TYPE
-            # write_gate -> hold_gate carrying the memory signal
             if (
                 source_id == write_id
                 and sink_id == hold_id
@@ -621,7 +571,6 @@ class ConnectionPlanner:
             ):
                 return True
 
-            # hold_gate -> write_gate carrying the memory signal
             if (
                 source_id == hold_id
                 and sink_id == write_id
@@ -639,21 +588,17 @@ class ConnectionPlanner:
         """
         from .memory_builder import MemoryModule
 
-        # Check pattern: __feedback_*_w2h or __feedback_*_h2w
         if not signal_name.startswith("__feedback_"):
             return False
 
-        # Verify this matches a known memory module's feedback signals
         for module in self._memory_modules.values():
             if not isinstance(module, MemoryModule):
                 continue
 
             if hasattr(module, "_feedback_signal_ids"):
                 if signal_name in module._feedback_signal_ids:
-                    # Don't log - too verbose
                     return True
 
-        # If pattern matches but no module found, still filter it to be safe
         if signal_name.startswith("__feedback_"):
             self.diagnostics.warning(
                 f"Found feedback-like signal '{signal_name}' but no matching module"
@@ -667,8 +612,6 @@ class ConnectionPlanner:
             if not edge.source_entity_id or not edge.sink_entity_id:
                 continue
 
-            # ✅ Check if this is a memory feedback edge - must use RED (not GREEN)
-            # Memory feedback edges use RED wire to match memory_builder.py implementation
             if self._is_memory_feedback_edge(
                 edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name
             ):
@@ -677,7 +620,6 @@ class ConnectionPlanner:
                     f"🔴 Assigned RED wire to feedback edge: {edge.source_entity_id} -> {edge.sink_entity_id}"
                 )
             else:
-                # Use normally assigned color
                 color = self._edge_color_map.get(
                     (
                         edge.source_entity_id,
@@ -688,8 +630,6 @@ class ConnectionPlanner:
                 if color is None:
                     color = WIRE_COLORS[0]
 
-            # Track wire color for this specific edge
-            # Key: (source_entity_id, sink_entity_id, signal_name)
             edge_key = (
                 edge.source_entity_id,
                 edge.sink_entity_id,
@@ -697,7 +637,6 @@ class ConnectionPlanner:
             )
             self._edge_wire_colors[edge_key] = color
 
-            # Determine connection sides for combinators
             source_side = self._get_connection_side(
                 edge.source_entity_id, is_source=True
             )
@@ -727,13 +666,11 @@ class ConnectionPlanner:
             )
             return
 
-        # Get relay path (shared infrastructure)
         relay_path = self.relay_network.route_signal(
             source.position, sink.position, edge.resolved_signal_name, wire_color
         )
 
         if not relay_path:
-            # Direct connection
             self.layout_plan.add_wire_connection(
                 WireConnection(
                     source_entity_id=edge.source_entity_id,
@@ -745,7 +682,6 @@ class ConnectionPlanner:
                 )
             )
         else:
-            # Multi-hop through relays
             current_id = edge.source_entity_id
             current_side = source_side
 
@@ -763,7 +699,6 @@ class ConnectionPlanner:
                 current_id = relay_id
                 current_side = None
 
-            # Final hop to sink
             self.layout_plan.add_wire_connection(
                 WireConnection(
                     source_entity_id=current_id,
@@ -774,11 +709,6 @@ class ConnectionPlanner:
                     sink_side=sink_side,
                 )
             )
-
-    # ========================================================================
-    # DEPRECATED METHODS - Replaced by RelayNetwork class
-    # These methods have been replaced and should not be called anymore
-    # ========================================================================
 
     def _validate_relay_coverage(self) -> None:
         """Validate that all wire connections have adequate relay coverage.

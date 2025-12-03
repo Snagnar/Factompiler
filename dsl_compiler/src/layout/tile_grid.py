@@ -78,7 +78,6 @@ class TileGrid:
 
             footprint = placement.properties.get("footprint", (1, 1))
 
-            # Convert center position to tile position (top-left corner)
             tile_x = int(placement.position[0] - footprint[0] / 2.0)
             tile_y = int(placement.position[1] - footprint[1] / 2.0)
 

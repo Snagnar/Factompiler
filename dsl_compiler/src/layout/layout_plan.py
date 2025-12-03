@@ -15,7 +15,6 @@ class EntityPlacement:
     )
     properties: Dict[str, Any] = field(default_factory=dict)
     role: Optional[str] = None
-    # Note: position is initially None, set by force-directed optimization
 
 
 @dataclass
@@ -43,16 +42,12 @@ class PowerPolePlacement:
 class LayoutPlan:
     """Complete physical layout plan for blueprint emission."""
 
-    # Entity placements
     entity_placements: Dict[str, EntityPlacement] = field(default_factory=dict)
 
-    # Wire connections
     wire_connections: List[WireConnection] = field(default_factory=list)
 
-    # Power infrastructure
     power_poles: List[PowerPolePlacement] = field(default_factory=list)
 
-    # Metadata
     blueprint_label: str = "DSL Generated"
     blueprint_description: str = ""
 

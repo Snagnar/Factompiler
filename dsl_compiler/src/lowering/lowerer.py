@@ -57,7 +57,6 @@ class ASTLowerer:
         self.diagnostics = diagnostics
         self.diagnostics.default_stage = "lowering"
 
-        # Symbol tables for IR references
         self.signal_refs: Dict[str, SignalRef] = {}
         self.memory_refs: Dict[str, str] = {}
         self.memory_types: Dict[
@@ -66,13 +65,10 @@ class ASTLowerer:
         self.entity_refs: Dict[str, str] = {}
         self.param_values: Dict[str, ValueRef] = {}
 
-        # Share signal type registry with semantic analyzer
         self.ir_builder.signal_registry = self.semantic.signal_registry
 
-        # Hidden structures for compiler-generated helpers
         self.returned_entity_id: Optional[str] = None
 
-        # Modular lowering helpers
         self.mem_lowerer = MemoryLowerer(self)
         self.expr_lowerer = ExpressionLowerer(self)
         self.stmt_lowerer = StatementLowerer(self)

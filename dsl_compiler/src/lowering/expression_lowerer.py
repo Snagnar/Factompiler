@@ -110,14 +110,12 @@ class ExpressionLowerer:
         from dsl_compiler.src.semantic.type_system import SignalValue, SignalTypeInfo
 
         if isinstance(value_ref, SignalRef):
-            # Extract signal type from the ref
             signal_type_name = value_ref.signal_type
             if signal_type_name and signal_type_name != (
                 semantic_type.signal_type.name
                 if isinstance(semantic_type, SignalValue)
                 else None
             ):
-                # The actual signal type differs from semantic type (function parameter case)
                 return SignalValue(
                     signal_type=SignalTypeInfo(
                         name=signal_type_name, is_implicit=True, is_virtual=True
@@ -145,7 +143,6 @@ class ExpressionLowerer:
 
         # Recompute result type based on actual operand types if we're in a function
         if actual_left_type != left_type or actual_right_type != right_type:
-            # Recompute using the same logic as semantic analysis
             if isinstance(actual_left_type, SignalValue):
                 result_type = actual_left_type
                 left_signal_type = actual_left_type.signal_type.name
@@ -154,13 +151,10 @@ class ExpressionLowerer:
                 left_signal_type = actual_right_type.signal_type.name
 
         if isinstance(result_type, SignalValue):
-            # Explicit signal type from semantic analysis (e.g., from projection)
             output_type = result_type.signal_type.name
         elif isinstance(left_type, SignalValue):
-            # Use left operand's signal type for arithmetic (default channel)
             output_type = left_type.signal_type.name
         else:
-            # Pure integer operation - allocate implicit signal
             output_type = self.ir_builder.allocate_implicit_type()
 
         left_const = ConstantFolder.extract_constant_int(expr.left, self.diagnostics)
@@ -578,7 +572,6 @@ class ExpressionLowerer:
             if source_op.debug_metadata.get("user_declared"):
                 return None
 
-            # Verify signal types match
             if source_ref.signal_type != output_type:
                 return None
 
@@ -595,7 +588,6 @@ class ExpressionLowerer:
             folded_op.debug_metadata["fold_operation"] = "wire_merge_sum"
             folded_op.debug_label = f"folded_merge_{len(const_source_ids)}_consts"
 
-        # Mark original constants for suppression (avoid duplicate materialization)
         for source_id in const_source_ids:
             source_op = self.ir_builder.get_operation(source_id)
             if isinstance(source_op, IR_Const):
@@ -646,7 +638,6 @@ class ExpressionLowerer:
             output_type, combined_sources[0].signal_type
         )
 
-        # Try to fold if all sources are constants
         folded_ref = self._try_fold_wire_merge(combined_sources, output_type, expr)
         if folded_ref is not None:
             return folded_ref
@@ -673,7 +664,6 @@ class ExpressionLowerer:
                 reuse_ref = right_ref
 
         if merge_op_to_reuse is not None and reuse_ref is not None:
-            # Try to fold before reusing
             folded_ref = self._try_fold_wire_merge(combined_sources, output_type, expr)
             if folded_ref is not None:
                 return folded_ref
@@ -715,7 +705,6 @@ class ExpressionLowerer:
             )
             return "error_entity", dummy
 
-        # Extract arguments
         prototype = self._extract_place_prototype(expr)
         if prototype is None:
             dummy = self.ir_builder.const(

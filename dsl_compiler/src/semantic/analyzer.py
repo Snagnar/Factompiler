@@ -564,17 +564,12 @@ class SemanticAnalyzer(ASTVisitor):
 
         Returns: (result_type, warning_message)
         """
-        # Int + Int = Int
         if isinstance(left_type, IntValue) and isinstance(right_type, IntValue):
             return IntValue(), None
 
-        # Signal + Int = Signal (int coerced to signal's type)
-        # No warning - this is a common and expected operation
         if isinstance(left_type, SignalValue) and isinstance(right_type, IntValue):
             return left_type, None
 
-        # Int + Signal = Signal (int coerced to signal's type)
-        # No warning - this is a common and expected operation
         if isinstance(left_type, IntValue) and isinstance(right_type, SignalValue):
             return right_type, None
 
@@ -599,7 +594,6 @@ class SemanticAnalyzer(ASTVisitor):
             )
             return left_type, warning_msg
 
-        # Invalid operand types
         return IntValue(), f"Invalid operand types for {op}"
 
     def infer_binary_op_type(self, expr: BinaryOp) -> ValueInfo:
@@ -692,7 +686,6 @@ class SemanticAnalyzer(ASTVisitor):
         if isinstance(source, ProjectionExpr):
             inner_simplified = self._try_simplify_signal_projection(source)
             if inner_simplified is not None:
-                # Inner simplified successfully, now apply outer projection
                 return SignalLiteral(
                     value=inner_simplified.value,
                     signal_type=target_type,
@@ -706,7 +699,6 @@ class SemanticAnalyzer(ASTVisitor):
         # If user writes: Signal a = 5; Signal b = a | "type";
         # They expect 'a' to be materialized, not optimized away.
 
-        # Cannot simplify
         return None
 
     def visit_DeclStmt(self, node: DeclStmt) -> None:
@@ -800,7 +792,6 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _infer_parameter_type(self, param_name: str, func_def) -> ValueInfo:
         """Infer parameter type from usage within the function body."""
-        # With bundles removed, parameters default to signal types unless explicitly annotated
         return SignalValue(signal_type=self.allocate_implicit_type())
 
     def _expression_uses_identifier(self, expr, identifier_name: str) -> bool:
@@ -900,7 +891,6 @@ class SemanticAnalyzer(ASTVisitor):
                 node=(prototype if node.args else node),
             )
 
-        # Analyze coordinate expressions
         if len(node.args) >= 2:
             self.get_expr_type(node.args[1])
         if len(node.args) >= 3:

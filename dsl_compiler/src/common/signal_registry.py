@@ -27,17 +27,12 @@ def is_valid_factorio_signal(signal_name: str) -> Tuple[bool, Optional[str]]:
     if signal_name.startswith("__v"):
         return True, None
 
-    # Check against draftsman's signal database
     if signal_data is not None:
-        # Check in raw signal data (includes items, fluids, virtual signals)
         if signal_name in signal_data.raw:
             return True, None
-        # Check in type_of mapping
         if signal_name in signal_data.type_of:
             return True, None
 
-    # If we get here, the signal is not in draftsman's database
-    # Provide a helpful error message
     return False, (
         f"Unknown signal '{signal_name}'. "
         "Signal must be a valid Factorio item, fluid, or virtual signal name "
@@ -71,7 +66,6 @@ class SignalTypeRegistry:
         """
         self._type_map[signal_key] = {"name": factorio_signal, "type": signal_type}
 
-        # Register with draftsman if available
         if signal_data is not None and factorio_signal not in signal_data.raw:
             try:
                 signal_data.add_signal(factorio_signal, signal_type)
@@ -90,7 +84,6 @@ class SignalTypeRegistry:
         """
         self._implicit_counter += 1
         implicit_key = f"__v{self._implicit_counter}"
-        # Don't register Factorio mapping yet - let layout phase decide
         return implicit_key
 
     def resolve(self, signal_key: str) -> Optional[Dict[str, str]]:

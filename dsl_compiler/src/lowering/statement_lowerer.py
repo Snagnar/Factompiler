@@ -93,7 +93,6 @@ class StatementLowerer:
                 const_op.debug_metadata["declared_name"] = stmt.name
                 const_op.debug_label = stmt.name
 
-            # Check if this is a folded constant and propagate variable name
             if isinstance(const_op, IR_Const) and const_op.debug_metadata.get(
                 "folded_from"
             ):
@@ -114,7 +113,6 @@ class StatementLowerer:
 
             const_ref = self.ir_builder.const(signal_type, value_ref, stmt)
 
-            # Mark as user-declared constant
             const_op = self.ir_builder.get_operation(const_ref.source_id)
             if isinstance(const_op, IR_Const):
                 const_op.debug_metadata["user_declared"] = True
@@ -153,14 +151,12 @@ class StatementLowerer:
 
         if isinstance(stmt.target, Identifier):
             if isinstance(value_ref, SignalRef):
-                # Mark user-declared constants
                 const_op = self.ir_builder.get_operation(value_ref.source_id)
                 if isinstance(const_op, IR_Const):
                     const_op.debug_metadata["user_declared"] = True
                     const_op.debug_metadata["declared_name"] = stmt.target.name
                     const_op.debug_label = stmt.target.name
 
-                # Check if this is a folded constant and propagate variable name
                 if isinstance(const_op, IR_Const) and const_op.debug_metadata.get(
                     "folded_from"
                 ):
@@ -181,7 +177,6 @@ class StatementLowerer:
 
                 const_ref = self.ir_builder.const(signal_type, value_ref, stmt)
 
-                # Mark as user-declared constant
                 const_op = self.ir_builder.get_operation(const_ref.source_id)
                 if isinstance(const_op, IR_Const):
                     const_op.debug_metadata["user_declared"] = True

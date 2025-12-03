@@ -130,7 +130,6 @@ def plan_wire_colors(
         node_key = (edge.source_entity_id, edge.resolved_signal_name)
         graph.setdefault(node_key, set())
 
-    # Build conflict adjacency by grouping sink inputs that share the same signal name
     sink_groups: Dict[Tuple[str, str], List[Tuple[str, str]]] = defaultdict(list)
     for edge in edges:
         if not edge.source_entity_id:

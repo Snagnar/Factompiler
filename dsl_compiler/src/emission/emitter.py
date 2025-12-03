@@ -1,4 +1,3 @@
-# emit.py
 """
 Blueprint emission module for the Factorio Circuit DSL.
 
@@ -105,7 +104,6 @@ class BlueprintEmitter:
             if connection.sink_side:
                 kwargs["side_2"] = connection.sink_side
 
-            # Convert draftsman warnings to errors as user requested
             try:
                 self.blueprint.add_circuit_connection(**kwargs)
             except Exception as e:
@@ -124,7 +122,6 @@ class BlueprintEmitter:
         created by the entity factory. This method just handles legacy power_poles
         list and generates the copper wire connections.
         """
-        # Handle any legacy power_poles entries (poles not in entity_placements)
         for pole in layout_plan.power_poles:
             if pole.pole_id in entity_map:
                 continue  # Already created via entity_placements
@@ -142,7 +139,6 @@ class BlueprintEmitter:
             self.blueprint.entities.append(entity, copy=False)
             entity_map[entity.id] = entity
 
-        # Use only_axis=True to only connect grid-adjacent poles (same row or column)
         try:
             self.blueprint.generate_power_connections(prefer_axis=True, only_axis=True)
         except Exception as exc:  # pragma: no cover - draftsman warnings

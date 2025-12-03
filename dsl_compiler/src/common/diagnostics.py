@@ -111,7 +111,6 @@ class ProgramDiagnostics:
         node: Optional[Any],
     ) -> None:
         """Internal method to add a diagnostic."""
-        # Extract location from node if provided and location not specified
         if node is not None and line == 0:
             line = getattr(node, "line", 0)
             column = getattr(node, "column", 0)
@@ -143,7 +142,6 @@ class ProgramDiagnostics:
 
     def _format_diagnostic(self, diag: Diagnostic) -> str:
         """Format a single diagnostic for display."""
-        # Format: SEVERITY [stage:file:line:col]: message
         parts = [diag.severity.value.upper()]
 
         location_parts = [diag.stage]
@@ -163,7 +161,6 @@ class ProgramDiagnostics:
         """Get formatted messages at or above the specified severity level."""
         messages = []
         for diag in self.diagnostics:
-            # Filter by severity
             severity_order = [
                 DiagnosticSeverity.DEBUG,
                 DiagnosticSeverity.INFO,

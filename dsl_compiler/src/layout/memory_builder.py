@@ -29,21 +29,17 @@ class MemoryModule:
     memory_id: str
     signal_type: str
 
-    # Gate placements
     write_gate: Optional[EntityPlacement] = None
     hold_gate: Optional[EntityPlacement] = None
 
-    # Optimization info
     optimization: Optional[str] = None  # None, 'single_gate', 'arithmetic_feedback'
     output_node_id: Optional[str] = None  # For optimized memories
 
-    # Flags
     write_gate_unused: bool = False
     hold_gate_unused: bool = False
     _feedback_connected: bool = False
     _has_write: bool = False
 
-    # Internal feedback signal IDs for signal_graph (used for layout only)
     _feedback_signal_ids: List[str] = field(default_factory=list)
 
 
@@ -86,7 +82,6 @@ class MemoryBuilder:
         """
         signal_name = self.signal_analyzer.get_signal_name(op.signal_type)
 
-        # Create write gate (position will be set by force-directed layout)
         write_id = f"{op.memory_id}_write_gate"
         write_placement = EntityPlacement(
             ir_node_id=write_id,
@@ -105,7 +100,6 @@ class MemoryBuilder:
         )
         self.layout_plan.add_placement(write_placement)
 
-        # Create hold gate
         hold_id = f"{op.memory_id}_hold_gate"
         hold_placement = EntityPlacement(
             ir_node_id=hold_id,
@@ -124,7 +118,6 @@ class MemoryBuilder:
         )
         self.layout_plan.add_placement(hold_placement)
 
-        # Create module
         module = MemoryModule(
             memory_id=op.memory_id,
             signal_type=signal_name,
@@ -133,7 +126,6 @@ class MemoryBuilder:
         )
         self._modules[op.memory_id] = module
 
-        # Track signal source (memory output = hold gate)
         signal_graph.set_source(op.memory_id, hold_id)
 
         return module
@@ -145,16 +137,13 @@ class MemoryBuilder:
             self.diagnostics.warning(f"Read from undefined memory: {op.memory_id}")
             return
 
-        # Track read source
         self._read_sources[op.node_id] = op.memory_id
 
-        # Handle optimized memories
         if module.optimization == "arithmetic_feedback":
             if module.output_node_id:
                 signal_graph.set_source(op.node_id, module.output_node_id)
             return
 
-        # Standard SR latch - read from hold gate
         if module.hold_gate:
             signal_graph.set_source(op.node_id, module.hold_gate.ir_node_id)
 
@@ -171,7 +160,6 @@ class MemoryBuilder:
             self.diagnostics.warning(f"Write to undefined memory: {op.memory_id}")
             return
 
-        # Detect multiple writes (warn user)
         if module._has_write:
             self.diagnostics.warning(
                 f"Multiple writes to memory '{op.memory_id}' - "
@@ -179,16 +167,13 @@ class MemoryBuilder:
             )
         module._has_write = True
 
-        # Check for always-write pattern
         is_always_write = self._is_always_write(op)
 
         if is_always_write:
-            # Try arithmetic feedback optimization
             if self._can_use_arithmetic_feedback(op, module):
                 self._optimize_to_arithmetic_feedback(op, module, signal_graph)
                 return
 
-        # Standard conditional write (or always-write without arithmetic feedback)
         self._setup_standard_write(op, module, signal_graph)
 
     def cleanup_unused_gates(self, layout_plan: LayoutPlan, signal_graph: SignalGraph):
@@ -201,12 +186,10 @@ class MemoryBuilder:
             if module.hold_gate_unused and module.hold_gate:
                 to_remove.append(module.hold_gate.ir_node_id)
 
-        # Remove from placements
         for entity_id in to_remove:
             layout_plan.entity_placements.pop(entity_id, None)
             self.diagnostics.info(f"Removed unused gate: {entity_id}")
 
-        # Remove stale wire connections
         remaining = [
             conn
             for conn in layout_plan.wire_connections
@@ -215,14 +198,12 @@ class MemoryBuilder:
         ]
         layout_plan.wire_connections = remaining
 
-        # Clean up signal graph
         for signal_id in list(signal_graph._sinks.keys()):
             sinks = signal_graph._sinks[signal_id]
             for removed_id in to_remove:
                 if removed_id in sinks:
                     sinks.remove(removed_id)
 
-    # Private helper methods
     def _is_always_write(self, op: IR_MemWrite) -> bool:
         """Check if write enable is constant 1."""
         if isinstance(op.write_enable, int) and op.write_enable == 1:
@@ -241,7 +222,6 @@ class MemoryBuilder:
         Returns True if the write data comes from an arithmetic operation
         that (directly or indirectly) depends on reading from this same memory.
         """
-        # Check if data_signal is an arithmetic operation
         if not isinstance(op.data_signal, SignalRef):
             return False
 
@@ -250,7 +230,6 @@ class MemoryBuilder:
         if not isinstance(arith_node, IR_Arith):
             return False
 
-        # Check if this arithmetic operation (or its inputs) reads from the memory
         return self._operation_depends_on_memory(final_node_id, op.memory_id)
 
     def _operation_depends_on_memory(
@@ -269,15 +248,12 @@ class MemoryBuilder:
             return False
         visited.add(op_id)
 
-        # Check if this operation IS a memory read from our memory
         source_memory = self._read_sources.get(op_id)
         if source_memory == memory_id:
             return True
 
-        # Check if this is an arithmetic operation - get its inputs from IR node
         ir_node = self._ir_nodes.get(op_id)
         if isinstance(ir_node, IR_Arith):
-            # Check if either operand is a SignalRef that depends on memory
             if isinstance(ir_node.left, SignalRef):
                 if self._operation_depends_on_memory(
                     ir_node.left.source_id, memory_id, visited, depth + 1
@@ -299,7 +275,6 @@ class MemoryBuilder:
         For single-operation chains: Use self-feedback on one combinator
         For multi-operation chains: Wire a feedback loop between combinators
         """
-        # The arithmetic operation becomes the memory output
         arith_node_id = (
             op.data_signal.source_id if isinstance(op.data_signal, SignalRef) else None
         )
@@ -307,21 +282,18 @@ class MemoryBuilder:
         if not arith_node_id:
             return
 
-        # Get the final arithmetic placement
         final_placement = self.layout_plan.get_placement(arith_node_id)
         if not final_placement:
             return
 
         signal_name = self.signal_analyzer.get_signal_name(module.signal_type)
 
-        # Determine if this is a single-operation or multi-operation chain
         first_consumer_id = self._find_first_memory_consumer(op.memory_id)
         is_single_operation = (
             first_consumer_id == arith_node_id or first_consumer_id is None
         )
 
         if is_single_operation:
-            # Single operation: mark for self-feedback
             final_placement.properties["has_self_feedback"] = True
             final_placement.properties["feedback_signal"] = signal_name
 
@@ -336,20 +308,15 @@ class MemoryBuilder:
                 f"Optimized memory '{op.memory_id}' to single-combinator self-feedback"
             )
         else:
-            # Multi-operation chain: feedback loop will be wired via signal graph
             self.diagnostics.info(
                 f"Optimized memory '{op.memory_id}' to multi-combinator feedback loop"
             )
 
-        # Mark memory gates as unused
         module.optimization = "arithmetic_feedback"
         module.output_node_id = arith_node_id
         module.write_gate_unused = True
         module.hold_gate_unused = True
 
-        # Update signal graph: replace all memory-related sources with arithmetic combinator
-
-        # 1. Update the memory IR node itself
         if op.memory_id in signal_graph._sources:
             old_sources = signal_graph._sources[op.memory_id]
             self.diagnostics.info(
@@ -358,10 +325,8 @@ class MemoryBuilder:
             signal_graph._sources[op.memory_id] = []
         signal_graph.set_source(op.memory_id, arith_node_id)
 
-        # 2. Update all read operations from this memory
         for read_id, mem_id in self._read_sources.items():
             if mem_id == op.memory_id:
-                # This read is from the memory we're optimizing
                 if read_id in signal_graph._sources:
                     old_read_sources = signal_graph._sources[read_id]
                     self.diagnostics.info(
@@ -370,7 +335,6 @@ class MemoryBuilder:
                     signal_graph._sources[read_id] = []
                 signal_graph.set_source(read_id, arith_node_id)
 
-        # Remove stale signal graph references to unused gates
         if module.write_gate:
             for signal_id in list(signal_graph._sinks.keys()):
                 sinks = signal_graph._sinks[signal_id]
@@ -398,10 +362,6 @@ class MemoryBuilder:
 
         # For multi-operation chains: register feedback edge in signal graph
         if first_consumer_id and first_consumer_id != arith_node_id:
-            # The final arithmetic combinator produces a signal that feeds back to the first combinator
-            # We need to register:
-            # 1. The arithmetic combinator as the source of its output signal
-            # 2. The first consumer as a sink of that signal
             signal_graph.set_source(arith_node_id, arith_node_id)
             signal_graph.add_sink(arith_node_id, first_consumer_id)
             self.diagnostics.info(
@@ -417,22 +377,18 @@ class MemoryBuilder:
         Returns:
             Entity ID of first consumer, or None
         """
-        # Check all memory reads that were registered
         for read_node_id, source_memory_id in self._read_sources.items():
             if source_memory_id != memory_id:
                 continue
 
-            # Find operations that consume this read
             ir_node = self._ir_nodes.get(read_node_id)
             if not ir_node:
                 continue
 
-            # Check all IR nodes to see which ones reference this read
             for node_id, node in self._ir_nodes.items():
                 if not isinstance(node, IR_Arith):
                     continue
 
-                # Check if this arithmetic op uses the read
                 left_uses = (
                     isinstance(node.left, SignalRef)
                     and node.left.source_id == read_node_id
@@ -467,8 +423,6 @@ class MemoryBuilder:
         # STEP 1: Connect data signal to WRITE GATE ONLY
         # ===================================================================
         if isinstance(op.data_signal, SignalRef):
-            # Connect to write gate ONLY
-            # Hold gate should NOT receive data - only feedback and enable
             signal_graph.add_sink(
                 op.data_signal.source_id, module.write_gate.ir_node_id
             )
@@ -480,7 +434,6 @@ class MemoryBuilder:
         # STEP 2: Connect write enable (signal-W) to BOTH gates
         # ===================================================================
         if isinstance(op.write_enable, SignalRef):
-            # Connect to write gate
             signal_graph.add_sink(
                 op.write_enable.source_id, module.write_gate.ir_node_id
             )
@@ -501,8 +454,6 @@ class MemoryBuilder:
         # Write gate output → hold gate input (forward feedback, RED wire)
         # Hold gate output → hold gate input (self-loop, RED wire)
         # This topology prevents write_gate from seeing feedback (no accumulation)
-        # ✅ FIX: Use UNIQUE internal signal IDs for signal_graph (for layout proximity)
-        # but create DIRECT wire connections with actual signal (to avoid self-loops)
 
         # Create unique internal signal identifier to avoid signal_graph collisions
         # This ensures the gates are placed close together during layout optimization
@@ -561,7 +512,6 @@ class MemoryBuilder:
             "role": f"memory_{role}",
         }
 
-        # Add source location if available
         if hasattr(op, "source_ast") and op.source_ast:
             if hasattr(op.source_ast, "line"):
                 debug_info["line"] = op.source_ast.line

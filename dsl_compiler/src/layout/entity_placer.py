@@ -47,7 +47,6 @@ class EntityPlacer:
         self.diagnostics = diagnostics
         self.signal_graph = SignalGraph()
 
-        # Create memory builder
         self.memory_builder = MemoryBuilder(
             tile_grid, layout_plan, signal_analyzer, diagnostics
         )
@@ -67,16 +66,13 @@ class EntityPlacer:
         """
         debug_info: Dict[str, Any] = {}
 
-        # Get usage entry for this IR node (the producer)
         usage = self.signal_usage.get(op.node_id)
 
-        # Extract variable name
         if usage and usage.debug_label:
             debug_info["variable"] = usage.debug_label
         elif hasattr(op, "debug_label") and op.debug_label:
             debug_info["variable"] = op.debug_label
 
-        # Extract source location
         source_ast = usage.source_ast if usage else None
         if not source_ast and hasattr(op, "source_ast"):
             source_ast = op.source_ast
@@ -87,13 +83,11 @@ class EntityPlacer:
             if hasattr(source_ast, "source_file") and source_ast.source_file:
                 debug_info["source_file"] = source_ast.source_file
 
-        # Extract signal type
         if usage and usage.resolved_signal_name:
             debug_info["signal_type"] = usage.resolved_signal_name
         elif hasattr(op, "output_type"):
             debug_info["signal_type"] = op.output_type
 
-        # Add user-declared flag
         if hasattr(op, "debug_metadata") and op.debug_metadata:
             if op.debug_metadata.get("user_declared"):
                 debug_info["user_declared"] = True
@@ -101,7 +95,6 @@ class EntityPlacer:
                 if declared_name:
                     debug_info["variable"] = declared_name
 
-        # Add operation-specific details
         if isinstance(op, IR_Const):
             debug_info["operation"] = "const"
             details = f"value={op.value}"
@@ -118,7 +111,6 @@ class EntityPlacer:
             debug_info["operation"] = "memory"
             debug_info["details"] = "decl"
 
-        # Add role
         if role_override:
             debug_info["role"] = role_override
 
@@ -126,7 +118,6 @@ class EntityPlacer:
 
     def place_ir_operation(self, op: IRNode) -> None:
         """Place a single IR operation."""
-        # Track this IR node for later lookups and for memory builder
         self._ir_nodes[op.node_id] = op
         self.memory_builder.register_ir_node(op)
 
@@ -137,13 +128,10 @@ class EntityPlacer:
         elif isinstance(op, IR_Decider):
             self._place_decider(op)
         elif isinstance(op, IR_MemCreate):
-            # Delegate to memory builder
             self.memory_builder.create_memory(op, self.signal_graph)
         elif isinstance(op, IR_MemRead):
-            # Delegate to memory builder
             self.memory_builder.handle_read(op, self.signal_graph)
         elif isinstance(op, IR_MemWrite):
-            # Delegate to memory builder
             self.memory_builder.handle_write(op, self.signal_graph)
         elif isinstance(op, IR_PlaceEntity):
             self._place_user_entity(op)
@@ -162,17 +150,14 @@ class EntityPlacer:
         if not usage or not usage.should_materialize:
             return
 
-        # Determine signal name and type
         signal_name = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
         signal_type = self.signal_analyzer.resolve_signal_type(op.output_type, usage)
 
-        # Position will be set by force-directed layout
         pos = None
 
         # Build debug info
         debug_info = self._build_debug_info(op)
 
-        # Add fold information if this is a folded constant
         if hasattr(op, "debug_metadata") and op.debug_metadata:
             folded_from = op.debug_metadata.get("folded_from")
             if folded_from:
@@ -181,7 +166,6 @@ class EntityPlacer:
                 )
                 debug_info["fold_count"] = len(folded_from)
 
-        # Check if this is a user-declared input constant
         is_input = False
         if hasattr(op, "debug_metadata") and op.debug_metadata.get("user_declared"):
             is_input = True
@@ -203,12 +187,10 @@ class EntityPlacer:
         )
         self.plan.add_placement(placement)
 
-        # Track signal source
         self.signal_graph.set_source(op.node_id, op.node_id)
 
     def _place_arithmetic(self, op: IR_Arith) -> None:
         """Place arithmetic combinator."""
-        # Get dependency positions for smart placement
         left_pos = self._get_placement_position(op.left)
         right_pos = self._get_placement_position(op.right)
 
@@ -218,16 +200,13 @@ class EntityPlacer:
         if right_pos:
             deps.append(right_pos)
 
-        # Position will be set by force-directed layout
         pos = None
 
-        # Resolve operands and output
         usage = self.signal_usage.get(op.node_id)
         left_operand = self.signal_analyzer.get_operand_for_combinator(op.left)
         right_operand = self.signal_analyzer.get_operand_for_combinator(op.right)
         output_signal = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
 
-        # Store placement
         placement = EntityPlacement(
             ir_node_id=op.node_id,
             entity_type="arithmetic-combinator",
@@ -246,7 +225,6 @@ class EntityPlacer:
         )
         self.plan.add_placement(placement)
 
-        # Track signals
         self.signal_graph.set_source(op.node_id, op.node_id)
         self._add_signal_sink(op.left, op.node_id)
         self._add_signal_sink(op.right, op.node_id)
@@ -256,7 +234,6 @@ class EntityPlacer:
 
     def _place_decider(self, op: IR_Decider) -> None:
         """Place decider combinator."""
-        # Get dependency positions
         left_pos = self._get_placement_position(op.left)
         right_pos = self._get_placement_position(op.right)
         output_pos = self._get_placement_position(op.output_value)
@@ -266,20 +243,16 @@ class EntityPlacer:
             if p:
                 deps.append(p)
 
-        # Position will be set by force-directed layout
         pos = None
 
-        # Resolve operands
         usage = self.signal_usage.get(op.node_id)
         left_operand = self.signal_analyzer.get_operand_for_combinator(op.left)
         right_operand = self.signal_analyzer.get_operand_for_combinator(op.right)
         output_signal = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
         output_value = self.signal_analyzer.get_operand_for_combinator(op.output_value)
 
-        # Determine copy_count_from_input flag
         copy_count_from_input = not isinstance(op.output_value, int)
 
-        # Store placement
         placement = EntityPlacement(
             ir_node_id=op.node_id,
             entity_type="decider-combinator",
@@ -300,7 +273,6 @@ class EntityPlacer:
         )
         self.plan.add_placement(placement)
 
-        # Track signals
         self.signal_graph.set_source(op.node_id, op.node_id)
         self._add_signal_sink(op.left, op.node_id)
         self._add_signal_sink(op.right, op.node_id)
@@ -311,26 +283,18 @@ class EntityPlacer:
         """Place user-requested entity."""
         prototype = op.prototype
 
-        # Determine footprint dynamically from draftsman
         footprint = get_entity_footprint(prototype)
 
-        # Determine alignment requirement dynamically
         alignment = get_entity_alignment(prototype)
 
-        # Check if coordinates are constants (user-specified position)
         user_specified = isinstance(op.x, int) and isinstance(op.y, int)
 
-        # Determine position
         if user_specified:
-            # Explicit position provided - use it directly
-            # (force-directed layout will respect user-specified positions)
             desired = (int(op.x), int(op.y))
             pos = desired
         else:
-            # Position will be set by force-directed layout
             pos = None
 
-        # Store placement
         placement = EntityPlacement(
             ir_node_id=op.entity_id,
             entity_type=prototype,
@@ -343,11 +307,9 @@ class EntityPlacer:
             alignment  # Store alignment in properties if needed
         )
 
-        # Mark user-specified positions
         if user_specified:
             placement.properties["user_specified_position"] = True
 
-        # Add debug info for user-placed entities
         entity_debug = {
             "variable": op.entity_id,
             "operation": "place",
@@ -366,7 +328,6 @@ class EntityPlacer:
 
     def _place_entity_prop_write(self, op: IR_EntityPropWrite) -> None:
         """Handle entity property writes."""
-        # Get the entity placement
         placement = self.plan.get_placement(op.entity_id)
         if placement is None:
             self.diagnostics.warning(
@@ -374,7 +335,6 @@ class EntityPlacer:
             )
             return
 
-        # Store property writes for later application during entity creation
         if "property_writes" not in placement.properties:
             placement.properties["property_writes"] = {}
 
@@ -386,7 +346,6 @@ class EntityPlacer:
                     "type": "inline_comparison",
                     "comparison_data": inline_data,
                 }
-                # Mark the comparison decider for removal
                 inline_data["source_node_id_to_remove"] = op.value.source_id
 
                 # Preserve debug info from the inlined comparison
@@ -411,13 +370,10 @@ class EntityPlacer:
                 # The entity must read the signal being compared
                 ir_node = self._ir_nodes.get(op.value.source_id)
                 if isinstance(ir_node, IR_Decider):
-                    # Add dependency on the left operand (the signal being tested)
                     if isinstance(ir_node.left, SignalRef):
-                        # Remove the old edge from source to decider
                         self.signal_graph.remove_sink(
                             ir_node.left.source_id, op.value.source_id
                         )
-                        # Add new edge from source to entity
                         self._add_signal_sink(ir_node.left, op.entity_id)
                         self.diagnostics.info(
                             f"Inlined comparison into {op.entity_id}.{op.property_name}, "
@@ -430,22 +386,18 @@ class EntityPlacer:
 
                 return
 
-        # Resolve the value
         if isinstance(op.value, SignalRef):
-            # Property is controlled by a signal - track dependency
             self._add_signal_sink(op.value, op.entity_id)
             placement.properties["property_writes"][op.property_name] = {
                 "type": "signal",
                 "signal_ref": op.value,
             }
         elif isinstance(op.value, int):
-            # Constant value
             placement.properties["property_writes"][op.property_name] = {
                 "type": "constant",
                 "value": op.value,
             }
         else:
-            # Other value type
             placement.properties["property_writes"][op.property_name] = {
                 "type": "value",
                 "value": op.value,
@@ -465,11 +417,9 @@ class EntityPlacer:
         operation = props.get("operation")
         output_value = props.get("output_value")
 
-        # Check if it's a simple pattern
         if not (isinstance(right, int) and output_value == 1):
             return None
 
-        # Check if this comparison is ONLY used for this property (no other consumers)
         sinks = list(self.signal_graph.iter_sinks(signal_ref.source_id))
         if len(sinks) > 1:
             # Multiple consumers - can't inline
@@ -514,7 +464,6 @@ class EntityPlacer:
     def _add_signal_sink(self, value_ref: ValueRef, consumer_id: str) -> None:
         """Track signal consumption."""
         if isinstance(value_ref, SignalRef):
-            # Skip non-materialized constants - they're inlined and don't need wiring
             source_usage = self.signal_usage.get(value_ref.source_id)
             if source_usage and not source_usage.should_materialize:
                 return
@@ -523,13 +472,10 @@ class EntityPlacer:
 
     def cleanup_unused_entities(self) -> None:
         """Remove entities marked as unused during optimization."""
-        # Delegate memory cleanup to memory builder
         self.memory_builder.cleanup_unused_gates(self.plan, self.signal_graph)
 
-        # ✅ Copy memory modules from builder for later use in wiring
         self._memory_modules = self.memory_builder._modules
 
-        # Remove inlined comparisons
         entities_to_remove = []
         for entity_id, placement in list(self.plan.entity_placements.items()):
             for prop_writes in placement.properties.get("property_writes", {}).values():
@@ -585,15 +531,12 @@ class EntityPlacer:
             if not entry.debug_metadata.get("is_output"):
                 continue
 
-            # Get the producer node
             if not entry.producer:
                 continue
 
-            # Skip if producer is already a constant combinator
             if isinstance(entry.producer, IR_Const):
                 continue
 
-            # Create empty constant combinator as output anchor
             anchor_id = f"{signal_id}_output_anchor"
 
             # Build debug info for the anchor
@@ -604,7 +547,6 @@ class EntityPlacer:
                 "signal_type": entry.resolved_signal_name or entry.signal_type,
             }
 
-            # Add location info from metadata
             if "location" in entry.debug_metadata:
                 location = entry.debug_metadata["location"]
                 if ":" in location:
@@ -615,7 +557,6 @@ class EntityPlacer:
                     except ValueError:
                         pass
 
-            # Create the placement
             placement = EntityPlacement(
                 ir_node_id=anchor_id,
                 entity_type="constant-combinator",

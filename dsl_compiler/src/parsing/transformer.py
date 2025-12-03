@@ -311,9 +311,6 @@ class DSLTransformer(Transformer):
             index += 2
         return result
 
-    # =========================================================================
-    # Primary expressions
-    # =========================================================================
 
     def call_expr(self, items) -> CallExpr:
         """call_expr: NAME "(" [arglist] ")" """

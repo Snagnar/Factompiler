@@ -99,7 +99,6 @@ class PlanEntityEmitter:
         entity: Optional[Entity]
 
         if template is not None:
-            # Existing Draftsman entity provided by planner; clone to avoid mutation.
             entity = copy.deepcopy(template)
         else:
             try:
@@ -110,7 +109,6 @@ class PlanEntityEmitter:
                 )
                 return None
 
-            # Handle special entity types that need structured configuration
             if placement.entity_type == "decider-combinator":
                 self._configure_decider(entity, placement.properties)
             elif placement.entity_type == "arithmetic-combinator":
@@ -118,7 +116,6 @@ class PlanEntityEmitter:
             elif placement.entity_type == "constant-combinator":
                 self._configure_constant(entity, placement.properties)
             else:
-                # Generic property setting for other entity types
                 for key, value in placement.properties.items():
                     if key in {"entity_obj", "footprint", "property_writes"}:
                         continue
@@ -126,12 +123,10 @@ class PlanEntityEmitter:
                         try:
                             setattr(entity, key, value)
                         except Exception:
-                            # Preserve diagnostics for consistency with legacy emitter.
                             self.diagnostics.warning(
                                 f"Could not set property '{key}' on '{placement.entity_type}'."
                             )
 
-        # Apply property writes (e.g., entity.enable = signal)
         property_writes = placement.properties.get("property_writes", {})
         if property_writes:
             self._apply_property_writes(entity, property_writes, placement)
@@ -164,7 +159,6 @@ class PlanEntityEmitter:
         output_value = props.get("output_value", 1)
         copy_count = props.get("copy_count_from_input", False)
 
-        # Get wire color filters (default to both for backward compatibility)
         left_operand_wires = props.get("left_operand_wires", {"red", "green"})
         right_operand_wires = props.get("right_operand_wires", {"red", "green"})
 
@@ -202,15 +196,11 @@ class PlanEntityEmitter:
         right_operand = props.get("right_operand")
         output_signal = props.get("output_signal")
 
-        # Get wire color filters (default to both for backward compatibility)
         left_operand_wires = props.get("left_operand_wires", {"red", "green"})
         right_operand_wires = props.get("right_operand_wires", {"red", "green"})
 
-        # Validate signal-each usage per Draftsman requirements
         if output_signal == "signal-each":
-            # signal-each can only be output if at least one input is signal-each
             if left_operand != "signal-each" and right_operand != "signal-each":
-                # Fallback to signal-0 to avoid Draftsman warning
                 output_signal = "signal-0"
 
         entity.first_operand = left_operand
@@ -244,23 +234,18 @@ class PlanEntityEmitter:
             if prop_name == "enable":
                 prop_type = prop_data.get("type")
 
-                # ✅ Handle inline comparisons
                 if prop_type == "inline_comparison":
                     comp_data = prop_data.get("comparison_data", {})
                     left_signal = comp_data.get("left_signal")
                     comparator = comp_data.get("comparator")
                     right_constant = comp_data.get("right_constant")
 
-                    # Resolve signal dict - infer type from the signal name itself
                     if isinstance(left_signal, str):
-                        # Look up the signal type from game data, not from DSL signal types
                         signal_category = _infer_signal_type(left_signal)
                         signal_dict = {"name": left_signal, "type": signal_category}
                     else:
-                        # Shouldn't happen, but handle it
                         signal_dict = {"name": "signal-0", "type": "virtual"}
 
-                    # Apply circuit condition
                     if hasattr(entity, "circuit_enabled"):
                         entity.circuit_enabled = True
                         if hasattr(entity, "set_circuit_condition"):
@@ -268,7 +253,6 @@ class PlanEntityEmitter:
                                 signal_dict, comparator, right_constant
                             )
                         else:
-                            # Fallback to control_behavior dict
                             if not hasattr(entity, "control_behavior"):
                                 entity.control_behavior = {}
                             entity.control_behavior["circuit_condition"] = {
@@ -290,7 +274,6 @@ class PlanEntityEmitter:
                 if prop_type == "signal":
                     signal_ref = prop_data["signal_ref"]
 
-                    # Resolve signal name from the DSL signal identifier
                     signal_type_key = signal_ref.signal_type
                     signal_info = self.signal_type_map.get(signal_type_key)
 
@@ -298,7 +281,6 @@ class PlanEntityEmitter:
                         signal_name = signal_info.get("name", signal_type_key)
                         signal_category = signal_info.get("type", "virtual")
                     else:
-                        # Fallback for old string format or missing entry
                         signal_name = signal_info if signal_info else signal_type_key
                         signal_category = "virtual"
 
@@ -309,7 +291,6 @@ class PlanEntityEmitter:
                         if hasattr(entity, "set_circuit_condition"):
                             entity.set_circuit_condition(signal_dict, ">", 0)
                     else:
-                        # Fallback to control_behavior dict
                         if not hasattr(entity, "control_behavior"):
                             entity.control_behavior = {}
                         entity.control_behavior["circuit_enabled"] = True

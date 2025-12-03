@@ -73,28 +73,20 @@ class LayoutPlanner:
         Returns:
             LayoutPlan containing entity placements and wire connections
         """
-        # Phase 1: Analysis
         self._setup_signal_analysis(ir_operations)
 
-        # Phase 2: Create entities (no positions yet, signal graph built during placement)
         self._create_entities(ir_operations)
 
-        # Phase 3: Add power pole grid BEFORE optimization
-        # Poles have fixed_position=True so layout optimizer will place combinators around them
         self._add_power_pole_grid()
 
-        # Phase 4: Optimize positions using integer layout
         self._optimize_positions()
 
-        # Phase 5: Trim unnecessary power poles after we know actual entity positions
         self._trim_power_poles()
 
-        # Phase 6: Infrastructure & connections
         self._update_tile_grid()
         self._plan_connections()
         self._update_tile_grid()  # Again after relays added
 
-        # Phase 7: Metadata
         self._set_metadata(blueprint_label, blueprint_description)
 
         return self.layout_plan
@@ -103,7 +95,6 @@ class LayoutPlanner:
         """Initialize and run signal analysis with materialization."""
         self.signal_analyzer = SignalAnalyzer(self.diagnostics, self.signal_type_map)
         self.signal_usage = self.signal_analyzer.analyze(ir_operations)
-        # Note: analyze() now calls finalize_materialization() internally
 
     def _create_entities(self, ir_operations: list[IRNode]) -> None:
         """Create entity records without positions.
@@ -119,17 +110,13 @@ class LayoutPlanner:
             self.diagnostics,
         )
 
-        # Create all entities (positions will be None)
         for op in ir_operations:
             placer.place_ir_operation(op)
 
-        # Create output anchor combinators for signals with no consumers
         placer.create_output_anchors()
 
-        # Clean up optimized-away entities
         placer.cleanup_unused_entities()
 
-        # Store signal graph and metadata
         self.signal_graph = placer.signal_graph
         self._memory_modules = placer._memory_modules
         self._wire_merge_junctions = placer._wire_merge_junctions
@@ -143,19 +130,12 @@ class LayoutPlanner:
         )
         optimized_positions = layout_engine.optimize(time_limit_seconds=1)
 
-        # Convert tile positions (integer grid) to center positions (may be half-integer)
-        # The solver returns tile coordinates (top-left corner), but Factorio/Draftsman
-        # uses entity center positions.
         for entity_id, (tile_x, tile_y) in optimized_positions.items():
             placement = self.layout_plan.entity_placements.get(entity_id)
             if placement:
                 footprint = placement.properties.get("footprint", (1, 1))
                 width, height = footprint
 
-                # Convert tile position to center position
-                # For a 1x1 entity at tile (0,0): center is (0.5, 0.5)
-                # For a 1x2 entity at tile (0,0): center is (0.5, 1.0)
-                # For a 2x2 entity at tile (0,0): center is (1.0, 1.0)
                 center_x = tile_x + width / 2.0
                 center_y = tile_y + height / 2.0
 
@@ -178,7 +158,6 @@ class LayoutPlanner:
             power_pole_type=self.power_pole_type,
         )
 
-        # ✅ Pass memory modules for feedback edge detection
         self.connection_planner._memory_modules = self._memory_modules
 
         locked_colors = self._determine_locked_wire_colors()
@@ -190,7 +169,6 @@ class LayoutPlanner:
             locked_colors=locked_colors,
         )
 
-        # Inject wire color information into combinator placements
         self._inject_wire_colors_into_placements()
 
     def _inject_wire_colors_into_placements(self) -> None:
@@ -213,36 +191,24 @@ class LayoutPlanner:
             ):
                 continue
 
-            # Get the operand signals from placement properties
-            # These are RESOLVED signal names (e.g., "signal-A") not IR types (e.g., "__v1")
             left_signal = placement.properties.get("left_operand")
             right_signal = placement.properties.get("right_operand")
 
-            # Get the IR signal IDs for each operand to find their source entities
             left_signal_id = placement.properties.get("left_operand_signal_id")
             right_signal_id = placement.properties.get("right_operand_signal_id")
 
-            # Get wire colors for each operand based on its source entity
-            # Skip constants (integers) - they don't need wire filtering
             if left_signal and not isinstance(left_signal, int) and left_signal_id:
-                # The signal ID might be a string representation like "signal-A@decider_3"
-                # Extract the source_id from it
                 if isinstance(left_signal_id, str) and "@" in left_signal_id:
-                    # Parse "signal_type@source_id" format
                     source_entity = left_signal_id.split("@")[1]
                 elif hasattr(left_signal_id, "source_id"):
-                    # It's a SignalRef object
                     source_entity = left_signal_id.source_id
                 else:
-                    # Try to find source via signal_graph
                     source_entity = self.signal_graph.get_source(str(left_signal_id))
 
                 if source_entity:
-                    # Look up the wire color for this specific edge
                     left_color = self.connection_planner.get_wire_color_for_edge(
                         source_entity, placement.ir_node_id, left_signal
                     )
-                    # Store as a set with only this color
                     placement.properties["left_operand_wires"] = {left_color}
                     self.diagnostics.info(
                         f"Injected left_operand_wires={{'{left_color}'}} for {placement.ir_node_id} "
@@ -250,31 +216,23 @@ class LayoutPlanner:
                     )
                     injected_count += 1
                 else:
-                    # Fallback: read from both wires if source not found
                     placement.properties["left_operand_wires"] = {"red", "green"}
                     self.diagnostics.warning(
                         f"No source found for left operand signal {left_signal_id} of {placement.ir_node_id}"
                     )
 
             if right_signal and not isinstance(right_signal, int) and right_signal_id:
-                # The signal ID might be a string representation like "signal-A@decider_3"
-                # Extract the source_id from it
                 if isinstance(right_signal_id, str) and "@" in right_signal_id:
-                    # Parse "signal_type@source_id" format
                     source_entity = right_signal_id.split("@")[1]
                 elif hasattr(right_signal_id, "source_id"):
-                    # It's a SignalRef object
                     source_entity = right_signal_id.source_id
                 else:
-                    # Try to find source via signal_graph
                     source_entity = self.signal_graph.get_source(str(right_signal_id))
 
                 if source_entity:
-                    # Look up the wire color for this specific edge
                     right_color = self.connection_planner.get_wire_color_for_edge(
                         source_entity, placement.ir_node_id, right_signal
                     )
-                    # Store as a set with only this color
                     placement.properties["right_operand_wires"] = {right_color}
                     self.diagnostics.info(
                         f"Injected right_operand_wires={{'{right_color}'}} for {placement.ir_node_id} "
@@ -282,7 +240,6 @@ class LayoutPlanner:
                     )
                     injected_count += 1
                 else:
-                    # Fallback: read from both wires if source not found
                     placement.properties["right_operand_wires"] = {"red", "green"}
                     self.diagnostics.warning(
                         f"No source found for right operand signal {right_signal_id} of {placement.ir_node_id}"
@@ -332,7 +289,6 @@ class LayoutPlanner:
 
         supply_radius = float(config["supply_radius"])
 
-        # Get all non-pole entity positions
         entity_positions = []
         for placement in self.layout_plan.entity_placements.values():
             if placement.position is None:
@@ -344,7 +300,6 @@ class LayoutPlanner:
         if not entity_positions:
             return
 
-        # Find poles to remove (those that don't cover any entities)
         poles_to_remove = []
         for pole_id, placement in list(self.layout_plan.entity_placements.items()):
             if not placement.properties.get("is_power_pole"):
@@ -354,10 +309,8 @@ class LayoutPlanner:
             if pole_pos is None:
                 continue
 
-            # Check if this pole covers any entity (using square/Chebyshev distance)
             covers_any = False
             for entity_pos in entity_positions:
-                # Chebyshev distance - coverage is SQUARE not circular
                 dx = abs(entity_pos[0] - pole_pos[0])
                 dy = abs(entity_pos[1] - pole_pos[1])
                 if dx <= supply_radius and dy <= supply_radius:
@@ -367,10 +320,8 @@ class LayoutPlanner:
             if not covers_any:
                 poles_to_remove.append(pole_id)
 
-        # Remove unused poles
         for pole_id in poles_to_remove:
             del self.layout_plan.entity_placements[pole_id]
-            # Also remove from power_poles list
             self.layout_plan.power_poles = [
                 p for p in self.layout_plan.power_poles if p.pole_id != pole_id
             ]
@@ -405,14 +356,9 @@ class LayoutPlanner:
 
         locked = {}
 
-        # ===================================================================
-        # PART 1: Lock memory gate outputs
-        # ===================================================================
         for module in self._memory_modules.values():
             if isinstance(module, MemoryModule):
-                # Only for standard SR latches (not optimized memories)
                 if module.optimization is None:
-                    # Lock data/feedback channel to RED for both gates
                     if module.write_gate:
                         locked[(module.write_gate.ir_node_id, module.signal_type)] = (
                             "red"
@@ -422,28 +368,13 @@ class LayoutPlanner:
                             "red"
                         )
 
-        # ===================================================================
-        # PART 2: Lock signal-W (control signal) to GREEN globally
-        # ===================================================================
-        # signal-W is reserved for memory control and must use GREEN wire
-        # to separate from data signals that use RED
-
-        # Find all sources that output signal-W and lock them to GREEN
         for signal_id, source_ids, sink_ids in self.signal_graph.iter_edges():
-            # Check if this is signal-W (the memory control signal)
             usage = self.signal_usage.get(signal_id)
             resolved_name = usage.resolved_signal_name if usage else None
 
             if resolved_name == "signal-W" or signal_id == "signal-W":
-                # Lock all sources of signal-W to GREEN
                 for source_id in source_ids:
                     locked[(source_id, "signal-W")] = "green"
-
-        # ===================================================================
-        # PART 3: Lock data signals going TO memory gates to RED
-        # ===================================================================
-        # For each memory, find what signal is being written (the data signal)
-        # and lock its source to RED to match the feedback channel
 
         for module in self._memory_modules.values():
             if isinstance(module, MemoryModule):
@@ -451,32 +382,25 @@ class LayoutPlanner:
                     write_gate_id = module.write_gate.ir_node_id
                     data_signal = module.signal_type  # e.g., "signal-B"
 
-                    # Find sources that feed this data signal to the write gate
                     for (
                         signal_id,
                         source_ids,
                         sink_ids,
                     ) in self.signal_graph.iter_edges():
-                        # Check if this edge connects to write_gate with the data signal
                         if write_gate_id in sink_ids:
                             usage = self.signal_usage.get(signal_id)
                             resolved_name = (
                                 usage.resolved_signal_name if usage else None
                             )
 
-                            # If this is the data signal, lock its sources to RED
                             if resolved_name == data_signal or signal_id == data_signal:
                                 for source_id in source_ids:
-                                    # Don't re-lock the memory gates themselves
                                     if (
                                         source_id != write_gate_id
                                         and source_id != module.hold_gate.ir_node_id
                                     ):
                                         locked[(source_id, data_signal)] = "red"
 
-        # ===================================================================
-        # PART 4: Lock optimized arithmetic feedback (existing code)
-        # ===================================================================
         for entity_id, placement in self.layout_plan.entity_placements.items():
             if placement.properties.get("has_self_feedback"):
                 feedback_signal = placement.properties.get("feedback_signal")
