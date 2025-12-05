@@ -114,10 +114,13 @@ class PlanEntityEmitter:
                         continue
                     if hasattr(entity, key):
                         try:
-                            setattr(entity, key, value)
-                        except Exception:
+                            if isinstance(getattr(entity, key), bool):
+                                setattr(entity, key, bool(value))
+                            else:
+                                setattr(entity, key, value)
+                        except Exception as e:
                             self.diagnostics.warning(
-                                f"Could not set property '{key}' on '{placement.entity_type}'."
+                                f"Could not set property '{key}' on '{placement.entity_type}': {e}"
                             )
 
         property_writes = placement.properties.get("property_writes", {})
