@@ -1,0 +1,222 @@
+# ============================================================
+# HSV Color Cycling Lamp Array
+# ============================================================
+# Cycles through all hue values (0-359) with S=1, V=1
+# Outputs signal-red, signal-green, signal-blue to a 5x5 lamp grid
+# ============================================================
+
+# ============================================================
+# Configuration - Transition Speed
+# ============================================================
+# Higher value = slower color transitions
+# Value of 1 = change color every tick (60 changes/second)
+# Value of 6 = change color 10 times/second
+# Value of 60 = change color once per second
+Signal speed = ("signal-S", 6);
+
+# ============================================================
+# Tick Counter (controls transition timing)
+# ============================================================
+Memory tick_counter: "signal-T";
+Signal ticks = read(tick_counter);
+Signal next_tick = (ticks + 1) % speed;
+write(next_tick, tick_counter);
+Signal advance_hue = ticks == 0;
+
+# ============================================================
+# Hue Counter (0-359 degrees)
+# ============================================================
+Memory hue: "signal-H";
+Signal current_hue = read(hue);
+Signal next_hue = (current_hue + advance_hue) % 360;
+write(next_hue, hue);
+
+# ============================================================
+# HSV to RGB Conversion (with S=1, V=1 always)
+# ============================================================
+# When S=V=1, the conversion simplifies to 6 sectors:
+#   Sector 0 (H:0-59):   R=255, G=rising,  B=0
+#   Sector 1 (H:60-119): R=falling, G=255, B=0
+#   Sector 2 (H:120-179): R=0, G=255, B=rising
+#   Sector 3 (H:180-239): R=0, G=falling, B=255
+#   Sector 4 (H:240-299): R=rising, G=0, B=255
+#   Sector 5 (H:300-359): R=255, G=0, B=falling
+# ============================================================
+
+Signal h = current_hue;
+
+# Calculate sector (0-5) and position within sector
+Signal h_times_6 = h * 6;
+Signal sector = h_times_6 / 360;
+Signal fractional = h_times_6 % 360;
+
+# Calculate the varying component (0-255 range)
+Signal rising = (fractional * 255) / 360;
+Signal const_255 = ("signal-A", 255);
+Signal falling = const_255 - rising;
+
+# Sector detection signals (1 if in sector, 0 otherwise)
+Signal in_s0 = sector == 0;
+Signal in_s1 = sector == 1;
+Signal in_s2 = sector == 2;
+Signal in_s3 = sector == 3;
+Signal in_s4 = sector == 4;
+Signal in_s5 = sector == 5;
+
+# Calculate RGB values using conditional multiplication
+Signal red_val = (in_s0 * 255) 
+              + (in_s1 * falling) 
+              + (in_s4 * rising) 
+              + (in_s5 * 255);
+
+Signal green_val = (in_s0 * rising) 
+                 + (in_s1 * 255) 
+                 + (in_s2 * 255) 
+                 + (in_s3 * falling);
+
+Signal blue_val = (in_s2 * rising) 
+                + (in_s3 * 255) 
+                + (in_s4 * 255) 
+                + (in_s5 * falling);
+
+# ============================================================
+# Project to Factorio Color Signals
+# ============================================================
+Signal r = red_val | "signal-red";
+Signal g = green_val | "signal-green";
+Signal b = blue_val | "signal-blue";
+
+# ============================================================
+# Place 5x5 Lamp Grid (25 lamps with 2-tile spacing)
+# All lamps have use_colors enabled for RGB control
+# ============================================================
+
+# Row 0
+Entity lamp_00 = place("small-lamp", 0, 0, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_00.r = r;
+lamp_00.g = g;
+lamp_00.b = b;
+
+Entity lamp_01 = place("small-lamp", 1, 0, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_01.r = r;
+lamp_01.g = g;
+lamp_01.b = b;
+
+Entity lamp_02 = place("small-lamp", 2, 0, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_02.r = r;
+lamp_02.g = g;
+lamp_02.b = b;
+
+Entity lamp_03 = place("small-lamp", 3, 0, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_03.r = r;
+lamp_03.g = g;
+lamp_03.b = b;
+
+Entity lamp_04 = place("small-lamp", 4, 0, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_04.r = r;
+lamp_04.g = g;
+lamp_04.b = b;
+
+# Row 1
+Entity lamp_10 = place("small-lamp", 0, 1, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_10.r = r;
+lamp_10.g = g;
+lamp_10.b = b;
+
+Entity lamp_11 = place("small-lamp", 1, 1, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_11.r = r;
+lamp_11.g = g;
+lamp_11.b = b;
+
+Entity lamp_12 = place("small-lamp", 2, 1, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_12.r = r;
+lamp_12.g = g;
+lamp_12.b = b;
+
+Entity lamp_13 = place("small-lamp", 3, 1, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_13.r = r;
+lamp_13.g = g;
+lamp_13.b = b;
+
+Entity lamp_14 = place("small-lamp", 4, 1, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_14.r = r;
+lamp_14.g = g;
+lamp_14.b = b;
+
+# Row 2
+Entity lamp_20 = place("small-lamp", 0, 2, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_20.r = r;
+lamp_20.g = g;
+lamp_20.b = b;
+
+Entity lamp_21 = place("small-lamp", 1, 2, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_21.r = r;
+lamp_21.g = g;
+lamp_21.b = b;
+
+Entity lamp_22 = place("small-lamp", 2, 2, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_22.r = r;
+lamp_22.g = g;
+lamp_22.b = b;
+
+Entity lamp_23 = place("small-lamp", 3, 2, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_23.r = r;
+lamp_23.g = g;
+lamp_23.b = b;
+
+Entity lamp_24 = place("small-lamp", 4, 2, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_24.r = r;
+lamp_24.g = g;
+lamp_24.b = b;
+
+# Row 3
+Entity lamp_30 = place("small-lamp", 0, 3, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_30.r = r;
+lamp_30.g = g;
+lamp_30.b = b;
+
+Entity lamp_31 = place("small-lamp", 1, 3, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_31.r = r;
+lamp_31.g = g;
+lamp_31.b = b;
+
+Entity lamp_32 = place("small-lamp", 2, 3, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_32.r = r;
+lamp_32.g = g;
+lamp_32.b = b;
+
+Entity lamp_33 = place("small-lamp", 3, 3, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_33.r = r;
+lamp_33.g = g;
+lamp_33.b = b;
+
+Entity lamp_34 = place("small-lamp", 4, 3, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_34.r = r;
+lamp_34.g = g;
+lamp_34.b = b;
+
+# Row 4
+Entity lamp_40 = place("small-lamp", 0, 4, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_40.r = r;
+lamp_40.g = g;
+lamp_40.b = b;
+
+Entity lamp_41 = place("small-lamp", 1, 4, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_41.r = r;
+lamp_41.g = g;
+lamp_41.b = b;
+
+Entity lamp_42 = place("small-lamp", 2, 4, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_42.r = r;
+lamp_42.g = g;
+lamp_42.b = b;
+
+Entity lamp_43 = place("small-lamp", 3, 4, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_43.r = r;
+lamp_43.g = g;
+lamp_43.b = b;
+
+Entity lamp_44 = place("small-lamp", 4, 4, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp_44.r = r;
+lamp_44.g = g;
+lamp_44.b = b;
