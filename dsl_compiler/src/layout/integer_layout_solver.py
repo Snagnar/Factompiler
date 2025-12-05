@@ -5,6 +5,7 @@ import numpy as np
 from ortools.sat.python import cp_model
 
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.common.constants import CompilerConfig, DEFAULT_CONFIG
 from .layout_plan import EntityPlacement
 from .signal_graph import SignalGraph
 
@@ -14,7 +15,7 @@ class LayoutConstraints:
     """Constraints for layout optimization."""
 
     max_wire_span: float = 9.0
-    max_coordinate: int = 200
+    max_coordinate: int = 200  # Will be overridden by config if provided
 
 
 @dataclass
@@ -49,11 +50,18 @@ class IntegerLayoutEngine:
         entity_placements: Dict[str, EntityPlacement],
         diagnostics: ProgramDiagnostics,
         constraints: Optional[LayoutConstraints] = None,
+        config: CompilerConfig = DEFAULT_CONFIG,
     ):
         self.signal_graph = signal_graph
         self.entity_placements = entity_placements
         self.diagnostics = diagnostics
-        self.constraints = constraints or LayoutConstraints()
+        self.config = config
+        if constraints is not None:
+            self.constraints = constraints
+        else:
+            self.constraints = LayoutConstraints(
+                max_coordinate=config.max_layout_coordinate
+            )
 
         self.entity_ids = list(entity_placements.keys())
         self.n_entities = len(self.entity_ids)
@@ -183,7 +191,7 @@ class IntegerLayoutEngine:
                 if best_result is None or result.violations < best_result.violations:
                     best_result = result
 
-                if result.violations <= 5:
+                if result.violations <= self.config.acceptable_layout_violations:
                     self.diagnostics.warning(
                         f"Acceptable solution found with {result.violations} violations "
                         f"using strategy '{strategy['name']}'"

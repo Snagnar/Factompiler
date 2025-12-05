@@ -17,6 +17,7 @@ from draftsman.classes.entity import Entity
 from draftsman.data import signals as signal_data
 
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.common.constants import DEFAULT_CONFIG
 from dsl_compiler.src.layout.layout_plan import (
     LayoutPlan,
 )
@@ -47,7 +48,7 @@ class BlueprintEmitter:
         """Emit a blueprint from a completed layout plan."""
 
         self.blueprint = Blueprint()
-        self.blueprint.label = layout_plan.blueprint_label or "DSL Generated"
+        self.blueprint.label = layout_plan.blueprint_label or DEFAULT_CONFIG.default_blueprint_label
         self.blueprint.description = layout_plan.blueprint_description or ""
         self.blueprint.version = (2, 0)
 

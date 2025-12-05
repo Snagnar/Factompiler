@@ -5,6 +5,7 @@ from collections import Counter
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from dsl_compiler.src.ir.builder import SignalRef
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.common.constants import CompilerConfig, DEFAULT_CONFIG
 from .tile_grid import TileGrid
 from .layout_plan import LayoutPlan, WireConnection, EntityPlacement
 from .signal_analyzer import SignalUsageEntry
@@ -40,6 +41,7 @@ class RelayNetwork:
         max_span: float,
         layout_plan,
         diagnostics,
+        config: CompilerConfig = DEFAULT_CONFIG,
     ):
         self.tile_grid = tile_grid
         self.clusters = clusters
@@ -47,6 +49,7 @@ class RelayNetwork:
         self.max_span = max_span
         self.layout_plan = layout_plan
         self.diagnostics = diagnostics
+        self.config = config
         self.relay_nodes: Dict[Tuple[int, int], RelayNode] = {}
         self._relay_counter = 0
 
@@ -87,7 +90,7 @@ class RelayNetwork:
         """
         distance = math.dist(source_pos, sink_pos)
 
-        span_limit = max(1.0, float(self.max_span) - 1.8)
+        span_limit = max(1.0, float(self.max_span) - self.config.wire_span_safety_margin)
 
         if distance <= span_limit * 0.95:
             return []  # No relays needed
@@ -185,6 +188,7 @@ class ConnectionPlanner:
         tile_grid: TileGrid,
         max_wire_span: float = 9.0,
         power_pole_type: Optional[str] = None,
+        config: CompilerConfig = DEFAULT_CONFIG,
     ) -> None:
         self.layout_plan = layout_plan
         self.signal_usage = signal_usage
@@ -192,6 +196,7 @@ class ConnectionPlanner:
         self.max_wire_span = max_wire_span
         self.tile_grid = tile_grid
         self.power_pole_type = power_pole_type
+        self.config = config
 
         self._circuit_edges: List[CircuitEdge] = []
         self._node_color_assignments: Dict[Tuple[str, str], str] = {}
@@ -211,6 +216,7 @@ class ConnectionPlanner:
             self.max_wire_span,
             self.layout_plan,
             self.diagnostics,
+            self.config,
         )
 
     def plan_connections(
@@ -718,7 +724,7 @@ class ConnectionPlanner:
         max_span = (
             self.max_wire_span if self.max_wire_span and self.max_wire_span > 0 else 9.0
         )
-        span_limit = max(1.0, float(max_span) - 1.8)
+        span_limit = max(1.0, float(max_span) - self.config.wire_span_safety_margin)
         epsilon = 1e-6
 
         violation_count = 0

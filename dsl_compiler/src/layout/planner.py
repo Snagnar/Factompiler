@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 from dsl_compiler.src.ir.nodes import IRNode
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.common.constants import CompilerConfig, DEFAULT_CONFIG
 from dsl_compiler.src.layout.integer_layout_solver import IntegerLayoutEngine
 
 from .connection_planner import ConnectionPlanner
@@ -28,12 +29,14 @@ class LayoutPlanner:
         *,
         power_pole_type: Optional[str] = None,
         max_wire_span: float = 9.0,
+        config: CompilerConfig = DEFAULT_CONFIG,
     ) -> None:
         self.signal_type_map = signal_type_map
         self.diagnostics = diagnostics
         self.diagnostics.default_stage = "layout_planning"
         self.power_pole_type = power_pole_type
         self.max_wire_span = max_wire_span
+        self.config = config
 
         self.tile_grid = TileGrid()
         self.layout_plan = LayoutPlan()
@@ -127,8 +130,11 @@ class LayoutPlanner:
             signal_graph=self.signal_graph,
             entity_placements=self.layout_plan.entity_placements,
             diagnostics=self.diagnostics,
+            config=self.config,
         )
-        optimized_positions = layout_engine.optimize(time_limit_seconds=30)
+        optimized_positions = layout_engine.optimize(
+            time_limit_seconds=self.config.layout_solver_time_limit
+        )
 
         for entity_id, (tile_x, tile_y) in optimized_positions.items():
             placement = self.layout_plan.entity_placements.get(entity_id)
@@ -156,6 +162,7 @@ class LayoutPlanner:
             self.tile_grid,
             max_wire_span=self.max_wire_span,
             power_pole_type=self.power_pole_type,
+            config=self.config,
         )
 
         self.connection_planner._memory_modules = self._memory_modules

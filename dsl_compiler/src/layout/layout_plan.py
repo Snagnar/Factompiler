@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Any
 
+from dsl_compiler.src.common.constants import DEFAULT_CONFIG
+
 """Data structures for physical layout planning."""
 
 
@@ -48,8 +50,8 @@ class LayoutPlan:
 
     power_poles: List[PowerPolePlacement] = field(default_factory=list)
 
-    blueprint_label: str = "DSL Generated"
-    blueprint_description: str = ""
+    blueprint_label: str = field(default_factory=lambda: DEFAULT_CONFIG.default_blueprint_label)
+    blueprint_description: str = field(default_factory=lambda: DEFAULT_CONFIG.default_blueprint_description)
 
     def get_placement(self, ir_node_id: str) -> Optional[EntityPlacement]:
         """Get placement for an IR node."""

@@ -24,6 +24,7 @@ from dsl_compiler.src.layout.planner import LayoutPlanner
 from dsl_compiler.src.emission.emitter import BlueprintEmitter
 from dsl_compiler.src.ir.optimizer import CSEOptimizer
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.common.constants import CompilerConfig, DEFAULT_CONFIG
 
 
 def validate_power_poles(ctx, param, value):
@@ -46,6 +47,7 @@ def compile_dsl_file(
     log_level: str = "error",
     power_pole_type: str | None = None,
     use_json: bool = False,
+    config: CompilerConfig = DEFAULT_CONFIG,
 ) -> tuple[bool, str, list]:
     """
     Compile a DSL file to blueprint string.
@@ -58,6 +60,7 @@ def compile_dsl_file(
         log_level: Logging verbosity level
         power_pole_type: Type of power poles to add (or None for no power poles)
         use_json: If True, return JSON dict instead of compressed blueprint string
+        config: Compiler configuration settings
 
     Returns:
         (success: bool, result: str, diagnostics: list)
@@ -105,12 +108,13 @@ def compile_dsl_file(
         lowerer.ir_builder.signal_type_map,
         diagnostics=diagnostics,
         power_pole_type=power_pole_type,
+        config=config,
     )
 
     layout_plan = planner.plan_layout(
         ir_operations,
-        blueprint_label=f"{program_name} Blueprint",
-        blueprint_description="",
+        blueprint_label=f"{program_name} Blueprint" if program_name else config.default_blueprint_label,
+        blueprint_description=config.default_blueprint_description,
     )
 
     if planner.diagnostics.has_errors():
@@ -167,10 +171,10 @@ def setup_logging(level: str) -> None:
 @click.option(
     "--power-poles",
     is_flag=False,
-    flag_value="medium",
+    flag_value=DEFAULT_CONFIG.default_power_pole_type,
     default=None,
     callback=validate_power_poles,
-    help="Add power poles (small/medium/big/substation, defaults to medium if no value)",
+    help=f"Add power poles (small/medium/big/substation, defaults to {DEFAULT_CONFIG.default_power_pole_type} if no value)",
 )
 @click.option(
     "--json",
