@@ -137,7 +137,8 @@ def plan_wire_colors(
         node_key = (edge.source_entity_id, edge.resolved_signal_name)
         sink_groups[(edge.sink_entity_id, edge.resolved_signal_name)].append(node_key)
 
-    for (sink_id, resolved_name), nodes in sink_groups.items():
+    # Sort for deterministic iteration order
+    for (sink_id, resolved_name), nodes in sorted(sink_groups.items()):
         unique_nodes = list(dict.fromkeys(nodes))
         if len(unique_nodes) <= 1:
             continue
@@ -160,7 +161,8 @@ def plan_wire_colors(
 
     pending_nodes = set(graph.keys()) | set(locked.keys())
 
-    for start_node in pending_nodes:
+    # Sort for deterministic iteration order
+    for start_node in sorted(pending_nodes):
         if start_node in assignments:
             continue
 
@@ -191,7 +193,8 @@ def plan_wire_colors(
                 WIRE_COLORS[1] if desired_color == WIRE_COLORS[0] else WIRE_COLORS[0]
             )
 
-            for neighbor in neighbors:
+            # Sort neighbors for deterministic iteration order
+            for neighbor in sorted(neighbors):
                 neighbor_locked = locked.get(neighbor)
                 neighbor_desired = neighbor_locked or opposite_color
 

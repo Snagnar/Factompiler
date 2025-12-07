@@ -1,0 +1,24 @@
+# Binary Clock
+
+
+Memory counter;
+
+write((read(counter) + 1) % 256, counter);
+
+lamp0 = place("small-lamp", 0, 0);
+lamp1 = place("small-lamp", 1, 0);
+lamp2 = place("small-lamp", 2, 0);
+lamp3 = place("small-lamp", 3, 0);
+lamp4 = place("small-lamp", 4, 0);
+lamp5 = place("small-lamp", 5, 0);
+lamp6 = place("small-lamp", 6, 0);
+lamp7 = place("small-lamp", 7, 0);
+
+lamp0.enable = (read(counter) % 2) >= 1;
+lamp1.enable = (read(counter) % 4) >= 2;
+lamp2.enable = (read(counter) % 8) >= 4;
+lamp3.enable = (read(counter) % 16) >= 8;
+lamp4.enable = (read(counter) % 32) >= 16;
+lamp5.enable = (read(counter) % 64) >= 32;
+lamp6.enable = (read(counter) % 128) >= 64;
+lamp7.enable = (read(counter) % 256) >= 128;

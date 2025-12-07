@@ -56,7 +56,7 @@ def compile_dsl_file(
         input_path: Path to the .fcdsl source file
         strict_types: Enable strict type checking
         program_name: Name for the blueprint (default: derived from filename)
-        optimize: Enable IR optimizations
+        optimize: Enable IR optimizations and MST wire optimization
         log_level: Logging verbosity level
         power_pole_type: Type of power poles to add (or None for no power poles)
         use_json: If True, return JSON dict instead of compressed blueprint string
@@ -109,11 +109,14 @@ def compile_dsl_file(
         diagnostics=diagnostics,
         power_pole_type=power_pole_type,
         config=config,
+        use_mst_optimization=optimize,
     )
 
     layout_plan = planner.plan_layout(
         ir_operations,
-        blueprint_label=f"{program_name} Blueprint" if program_name else config.default_blueprint_label,
+        blueprint_label=f"{program_name} Blueprint"
+        if program_name
+        else config.default_blueprint_label,
         blueprint_description=config.default_blueprint_description,
     )
 

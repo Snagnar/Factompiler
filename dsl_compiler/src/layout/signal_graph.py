@@ -63,7 +63,9 @@ class SignalGraph:
 
         ✅ FIX: Now yields ALL sources for each signal (list instead of single value).
         """
-        for signal_id, sinks in self._sinks.items():
+        # Sort for deterministic iteration order
+        for signal_id in sorted(self._sinks.keys()):
+            sinks = self._sinks[signal_id]
             yield signal_id, self._sources.get(signal_id, []), list(sinks)
 
     def iter_source_sink_pairs(self):
@@ -72,7 +74,9 @@ class SignalGraph:
         ✅ FIX: Now iterates over ALL sources per signal, creating edges for each
         (source, sink) combination. This is necessary for memory feedback loops.
         """
-        for signal_id, sinks in self._sinks.items():
+        # Sort for deterministic iteration order
+        for signal_id in sorted(self._sinks.keys()):
+            sinks = self._sinks[signal_id]
             sources = self._sources.get(signal_id, [])
             for source in sources:  # ✅ Iterate over ALL sources
                 for sink in sinks:

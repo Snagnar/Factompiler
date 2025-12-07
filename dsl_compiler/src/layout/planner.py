@@ -30,6 +30,7 @@ class LayoutPlanner:
         power_pole_type: Optional[str] = None,
         max_wire_span: float = 9.0,
         config: CompilerConfig = DEFAULT_CONFIG,
+        use_mst_optimization: bool = True,
     ) -> None:
         self.signal_type_map = signal_type_map
         self.diagnostics = diagnostics
@@ -37,6 +38,7 @@ class LayoutPlanner:
         self.power_pole_type = power_pole_type
         self.max_wire_span = max_wire_span
         self.config = config
+        self.use_mst_optimization = use_mst_optimization
 
         self.tile_grid = TileGrid()
         self.layout_plan = LayoutPlan()
@@ -163,6 +165,7 @@ class LayoutPlanner:
             max_wire_span=self.max_wire_span,
             power_pole_type=self.power_pole_type,
             config=self.config,
+            use_mst_optimization=self.use_mst_optimization,
         )
 
         self.connection_planner._memory_modules = self._memory_modules
@@ -203,10 +206,6 @@ class LayoutPlanner:
                 source_entity, placement.ir_node_id, signal
             )
             placement.properties[f"{operand_key}_operand_wires"] = {color}
-            self.diagnostics.info(
-                f"Injected {operand_key}_operand_wires={{'{color}'}} for {placement.ir_node_id} "
-                f"signal={signal} from {source_entity}"
-            )
             return injected_count + 1
         else:
             placement.properties[f"{operand_key}_operand_wires"] = {"red", "green"}

@@ -83,14 +83,19 @@ class RelayNetwork:
         sink_pos: Tuple[float, float],
         signal_name: str,
         wire_color: str,
-    ) -> List[Tuple[str, str]]:  # Returns list of (entity_id, wire_color) along path
+    ) -> Optional[
+        List[Tuple[str, str]]
+    ]:  # Returns list of (entity_id, wire_color) or None on failure
         """
         Find or create relay path from source to sink.
         Returns list of (entity_id, wire_color) pairs representing the routing path.
+        Returns empty list if no relays needed, None if routing failed.
         """
         distance = math.dist(source_pos, sink_pos)
 
-        span_limit = max(1.0, float(self.max_span) - self.config.wire_span_safety_margin)
+        span_limit = max(
+            1.0, float(self.max_span) - self.config.wire_span_safety_margin
+        )
 
         if distance <= span_limit * 0.95:
             return []  # No relays needed
@@ -115,20 +120,24 @@ class RelayNetwork:
                     reserved_pos = tile_pos
                 else:
                     reserved_pos = None
-                    for offset in [
-                        (0, 1),
-                        (1, 0),
-                        (0, -1),
-                        (-1, 0),
-                        (1, 1),
-                        (-1, 1),
-                        (1, -1),
-                        (-1, -1),
-                    ]:
-                        nearby_pos = (tile_pos[0] + offset[0], tile_pos[1] + offset[1])
-                        if self.tile_grid.reserve_exact(nearby_pos, footprint=(1, 1)):
-                            reserved_pos = nearby_pos
+                    # Search in expanding rings up to 5 tiles away
+                    # Prioritize positions closer to the ideal position
+                    for radius in range(1, 6):
+                        if reserved_pos:
                             break
+                        for dx in range(-radius, radius + 1):
+                            if reserved_pos:
+                                break
+                            for dy in range(-radius, radius + 1):
+                                # Only check tiles at the current radius (ring edges)
+                                if abs(dx) != radius and abs(dy) != radius:
+                                    continue
+                                nearby_pos = (tile_pos[0] + dx, tile_pos[1] + dy)
+                                if self.tile_grid.reserve_exact(
+                                    nearby_pos, footprint=(1, 1)
+                                ):
+                                    reserved_pos = nearby_pos
+                                    break
 
                 if reserved_pos:
                     self._relay_counter += 1
@@ -163,8 +172,72 @@ class RelayNetwork:
                 self.diagnostics.warning(
                     f"Failed to place relay for {signal_name} at {ideal_pos} - no space available"
                 )
+                return None  # Return None to signal failure - incomplete relay chain is broken
 
         return path
+
+    def can_route_signal(
+        self,
+        source_pos: Tuple[float, float],
+        sink_pos: Tuple[float, float],
+    ) -> bool:
+        """Check if a signal can be routed between two positions.
+
+        Returns True if:
+        - The distance is within wire span limit (no relays needed), or
+        - All necessary relay positions have available space
+
+        This is a dry-run check that doesn't create any relays.
+        """
+        distance = math.dist(source_pos, sink_pos)
+
+        span_limit = max(
+            1.0, float(self.max_span) - self.config.wire_span_safety_margin
+        )
+
+        if distance <= span_limit * 0.95:
+            return True  # No relays needed
+
+        safe_interval = span_limit * 0.8
+        num_relays = max(1, int(math.ceil(distance / safe_interval)) - 1)
+
+        for i in range(1, num_relays + 1):
+            ratio = i / (num_relays + 1)
+            relay_x = source_pos[0] + (sink_pos[0] - source_pos[0]) * ratio
+            relay_y = source_pos[1] + (sink_pos[1] - source_pos[1]) * ratio
+            ideal_pos = (relay_x, relay_y)
+
+            # Check if there's an existing relay nearby
+            relay_node = self.find_relay_near(ideal_pos, max_distance=0.7)
+            if relay_node is not None:
+                continue  # Can reuse existing relay
+
+            # Check if we could place a new relay
+            tile_pos = (int(round(relay_x)), int(round(relay_y)))
+            if self.tile_grid.is_available(tile_pos, footprint=(1, 1)):
+                continue  # Can place new relay here
+
+            # Check offset positions
+            found_space = False
+            for offset in [
+                (0, 1),
+                (1, 0),
+                (0, -1),
+                (-1, 0),
+                (1, 1),
+                (-1, 1),
+                (1, -1),
+                (-1, -1),
+            ]:
+                nearby_pos = (tile_pos[0] + offset[0], tile_pos[1] + offset[1])
+                if self.tile_grid.is_available(nearby_pos, footprint=(1, 1)):
+                    found_space = True
+                    break
+
+            if not found_space:
+                return False  # Can't place relay at this position
+
+        return True
 
 
 class ConnectionPlanner:
@@ -189,6 +262,7 @@ class ConnectionPlanner:
         max_wire_span: float = 9.0,
         power_pole_type: Optional[str] = None,
         config: CompilerConfig = DEFAULT_CONFIG,
+        use_mst_optimization: bool = True,
     ) -> None:
         self.layout_plan = layout_plan
         self.signal_usage = signal_usage
@@ -196,6 +270,7 @@ class ConnectionPlanner:
         self.max_wire_span = max_wire_span
         self.tile_grid = tile_grid
         self.power_pole_type = power_pole_type
+        self.use_mst_optimization = use_mst_optimization
         self.config = config
 
         self._circuit_edges: List[CircuitEdge] = []
@@ -614,17 +689,25 @@ class ConnectionPlanner:
         return False
 
     def _populate_wire_connections(self) -> None:
+        """Create wire connections, using MST optimization for safe star patterns.
+
+        Uses per-source analysis: for each source entity, we check if its fanout
+        to multiple sinks can be optimized with MST. Bidirectional edges (feedback
+        loops) are always routed directly.
+        """
+
+        # Step 1: Group edges by (signal_name, wire_color)
+        signal_groups: Dict[Tuple[str, str], List[Tuple[CircuitEdge, str]]] = {}
+
         for edge in self._circuit_edges:
             if not edge.source_entity_id or not edge.sink_entity_id:
                 continue
 
+            # Determine wire color
             if self._is_memory_feedback_edge(
                 edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name
             ):
-                color = "red"  # ✅ CORRECTED: Memory feedback uses RED
-                self.diagnostics.info(
-                    f"🔴 Assigned RED wire to feedback edge: {edge.source_entity_id} -> {edge.sink_entity_id}"
-                )
+                color = "red"
             else:
                 color = self._edge_color_map.get(
                     (
@@ -636,19 +719,347 @@ class ConnectionPlanner:
                 if color is None:
                     color = WIRE_COLORS[0]
 
-            edge_key = (
-                edge.source_entity_id,
-                edge.sink_entity_id,
-                edge.resolved_signal_name,
-            )
-            self._edge_wire_colors[edge_key] = color
+            group_key = (edge.resolved_signal_name, color)
+            if group_key not in signal_groups:
+                signal_groups[group_key] = []
+            signal_groups[group_key].append((edge, color))
 
-            source_side = self._get_connection_side(
-                edge.source_entity_id, is_source=True
-            )
-            sink_side = self._get_connection_side(edge.sink_entity_id, is_source=False)
+        # Step 2: Process each signal group with per-source analysis
+        mst_star_count = 0
+        direct_routed_count = 0
 
-            self._route_connection_with_relays(edge, color, source_side, sink_side)
+        # Sort for deterministic iteration order
+        for (signal_name, wire_color), edge_color_pairs in sorted(
+            signal_groups.items()
+        ):
+            edges = [pair[0] for pair in edge_color_pairs]
+
+            # Debug: log signal group processing
+            if "arith_15" in str([e.source_entity_id for e in edges]):
+                self.diagnostics.info(
+                    f"Processing signal group ({signal_name}, {wire_color}) with {len(edges)} edges, "
+                    f"sources: {set(e.source_entity_id for e in edges)}"
+                )
+
+            # Find all bidirectional pairs in this signal group
+            bidirectional_pairs = self._find_bidirectional_pairs(edges)
+
+            # Group edges by source
+            by_source: Dict[str, List[CircuitEdge]] = {}
+            for edge in edges:
+                if edge.source_entity_id not in by_source:
+                    by_source[edge.source_entity_id] = []
+                by_source[edge.source_entity_id].append(edge)
+
+            # Process each source's fanout independently
+            # Sort for deterministic iteration order
+            for source_id, source_edges in sorted(by_source.items()):
+                sink_ids = [e.sink_entity_id for e in source_edges]
+
+                # Separate sinks into bidirectional (with this source) and safe
+                bidir_sinks = set()
+                for sink in sink_ids:
+                    if (source_id, sink) in bidirectional_pairs:
+                        bidir_sinks.add(sink)
+
+                safe_sinks = [s for s in sink_ids if s not in bidir_sinks]
+
+                # Apply MST to safe sinks if we have 2+ of them AND MST is enabled
+                mst_succeeded = False
+                if self.use_mst_optimization and len(safe_sinks) >= 2:
+                    self.diagnostics.info(
+                        f"Applying MST optimization for source '{source_id}' "
+                        f"to {len(safe_sinks)} safe sinks for signal '{signal_name}'"
+                    )
+                    mst_succeeded = self._apply_mst_to_source_fanout(
+                        source_id, safe_sinks, signal_name, wire_color
+                    )
+                    if mst_succeeded:
+                        mst_star_count += 1
+                    else:
+                        self.diagnostics.info(
+                            f"MST routing failed for '{signal_name}', falling back to direct routing"
+                        )
+
+                if not mst_succeeded:
+                    # Route safe sinks directly (MST disabled, failed, or 0/1 sink)
+                    for sink in safe_sinks:
+                        edge = next(e for e in source_edges if e.sink_entity_id == sink)
+                        self._route_edge_directly(edge, wire_color)
+                        direct_routed_count += 1
+
+                # Always route bidirectional sinks directly
+                # Sort for deterministic iteration order
+                for sink in sorted(bidir_sinks):
+                    edge = next(e for e in source_edges if e.sink_entity_id == sink)
+                    self._route_edge_directly(edge, wire_color)
+                    direct_routed_count += 1
+
+        if mst_star_count > 0:
+            self.diagnostics.info(
+                f"MST optimization: {mst_star_count} source fanouts optimized, "
+                f"{direct_routed_count} direct edges"
+            )
+
+    def _find_bidirectional_pairs(self, edges: List[CircuitEdge]) -> set:
+        """Find all bidirectional edge pairs (A→B and B→A both exist).
+
+        Returns:
+            Set of (source, sink) tuples that are part of bidirectional pairs.
+            Both directions are included: if A↔B, returns {(A,B), (B,A)}.
+        """
+        pairs = set()
+        edge_set = {(e.source_entity_id, e.sink_entity_id) for e in edges}
+
+        for edge in edges:
+            reverse = (edge.sink_entity_id, edge.source_entity_id)
+            if reverse in edge_set:
+                pairs.add((edge.source_entity_id, edge.sink_entity_id))
+                pairs.add(reverse)
+
+        return pairs
+
+    def _route_edge_directly(self, edge: CircuitEdge, wire_color: str) -> None:
+        """Route a single edge directly (no MST optimization)."""
+        edge_key = (
+            edge.source_entity_id,
+            edge.sink_entity_id,
+            edge.resolved_signal_name,
+        )
+        self._edge_wire_colors[edge_key] = wire_color
+
+        source_side = self._get_connection_side(edge.source_entity_id, is_source=True)
+        sink_side = self._get_connection_side(edge.sink_entity_id, is_source=False)
+
+        self._route_connection_with_relays(edge, wire_color, source_side, sink_side)
+
+    def _apply_mst_to_source_fanout(
+        self, source_id: str, sink_ids: List[str], signal_name: str, wire_color: str
+    ) -> bool:
+        """Apply MST optimization to a source's fanout to multiple sinks.
+
+        Args:
+            source_id: The source entity ID
+            sink_ids: List of sink entity IDs (must be >= 2)
+            signal_name: The signal being routed
+            wire_color: The wire color to use
+
+        Returns:
+            True if all MST edges were routed successfully, False if any failed.
+        """
+        # Build MST over source + all sinks
+        # Use sorted to ensure deterministic order
+        all_entities = [source_id] + sorted(set(sink_ids))
+        mst_edges = self._build_minimum_spanning_tree(all_entities)
+
+        # Verify source is connected in MST
+        source_in_mst = any(source_id in edge for edge in mst_edges)
+        if not source_in_mst and mst_edges:
+            self.diagnostics.warning(
+                f"MST bug: source '{source_id}' not connected in MST edges: {mst_edges}"
+            )
+            return False
+
+        # Pre-validate ALL MST edges are short enough to NOT need relays
+        # If any edge needs relays, skip MST entirely to avoid relay conflicts
+        # between different signal groups
+        span_limit = self.relay_network.max_span - self.config.wire_span_safety_margin
+        for ent_a, ent_b in mst_edges:
+            placement_a = self.layout_plan.get_placement(ent_a)
+            placement_b = self.layout_plan.get_placement(ent_b)
+
+            if not placement_a or not placement_b:
+                self.diagnostics.info(
+                    f"MST pre-check failed for {signal_name}: missing placement for {ent_a} or {ent_b}"
+                )
+                return False
+
+            if not placement_a.position or not placement_b.position:
+                self.diagnostics.info(
+                    f"MST pre-check failed for {signal_name}: missing position for {ent_a} or {ent_b}"
+                )
+                return False
+
+            distance = math.dist(placement_a.position, placement_b.position)
+            if distance > span_limit * 0.95:
+                # This edge would need relays - skip MST to avoid relay conflicts
+                self.diagnostics.info(
+                    f"MST skipped for {signal_name}: edge {ent_a} ↔ {ent_b} "
+                    f"distance {distance:.1f} exceeds span limit {span_limit:.1f}"
+                )
+                return False
+
+        self.diagnostics.info(
+            f"MST for {signal_name}: source={source_id} → {len(sink_ids)} sinks "
+            f"({len(sink_ids)} edges → {len(mst_edges)} MST edges)"
+        )
+
+        all_succeeded = True
+        for ent_a, ent_b in mst_edges:
+            # Determine sides: source uses OUTPUT, sinks use INPUT
+            side_a = self._get_connection_side(ent_a, is_source=(ent_a == source_id))
+            side_b = self._get_connection_side(ent_b, is_source=(ent_b == source_id))
+
+            # Store wire color for both directions (MST edges are undirected)
+            self._edge_wire_colors[(ent_a, ent_b, signal_name)] = wire_color
+            self._edge_wire_colors[(ent_b, ent_a, signal_name)] = wire_color
+
+            # Route the connection
+            if not self._route_mst_edge(
+                ent_a, ent_b, signal_name, wire_color, side_a, side_b
+            ):
+                all_succeeded = False
+
+        return all_succeeded
+
+    def _build_minimum_spanning_tree(
+        self, entity_ids: List[str]
+    ) -> List[Tuple[str, str]]:
+        """Build minimum spanning tree over entities using Prim's algorithm.
+
+        Args:
+            entity_ids: List of entity IDs to connect
+
+        Returns:
+            List of (entity_a, entity_b) edges forming the MST
+        """
+        if len(entity_ids) <= 1:
+            return []
+
+        # Collect positions for entities that have valid placements
+        positions: Dict[str, Tuple[float, float]] = {}
+        for entity_id in entity_ids:
+            placement = self.layout_plan.get_placement(entity_id)
+            if placement and placement.position:
+                positions[entity_id] = placement.position
+
+        valid_entities = [e for e in entity_ids if e in positions]
+        if len(valid_entities) <= 1:
+            return []
+
+        # Prim's algorithm: greedily grow MST from first entity (should be source)
+        in_tree = {valid_entities[0]}
+        mst_edges: List[Tuple[str, str]] = []
+
+        while len(in_tree) < len(valid_entities):
+            best_edge: Optional[Tuple[str, str]] = None
+            best_distance = float("inf")
+
+            # Find shortest edge from tree to non-tree vertex
+            # Sort in_tree for deterministic iteration order
+            for tree_entity in sorted(in_tree):
+                tree_pos = positions[tree_entity]
+                for candidate in valid_entities:
+                    if candidate in in_tree:
+                        continue
+                    distance = math.dist(tree_pos, positions[candidate])
+                    # Use tuple comparison for tie-breaking to ensure determinism
+                    if distance < best_distance or (
+                        distance == best_distance
+                        and (tree_entity, candidate) < (best_edge or ("", ""))
+                    ):
+                        best_distance = distance
+                        best_edge = (tree_entity, candidate)
+
+            if best_edge is None:
+                break
+
+            mst_edges.append(best_edge)
+            in_tree.add(best_edge[1])
+
+        return mst_edges
+
+    def _route_mst_edge(
+        self,
+        entity_a: str,
+        entity_b: str,
+        signal_name: str,
+        wire_color: str,
+        side_a: Optional[str],
+        side_b: Optional[str],
+    ) -> bool:
+        """Create wire connection for MST edge, with relay poles if needed.
+
+        Returns:
+            True if routing succeeded, False if it failed.
+        """
+
+        placement_a = self.layout_plan.get_placement(entity_a)
+        placement_b = self.layout_plan.get_placement(entity_b)
+
+        if not placement_a or not placement_b:
+            self.diagnostics.warning(
+                f"Skipped MST edge for '{signal_name}': missing placement "
+                f"({entity_a} or {entity_b})"
+            )
+            return False
+
+        if not placement_a.position or not placement_b.position:
+            self.diagnostics.warning(
+                f"Skipped MST edge for '{signal_name}': missing position "
+                f"({entity_a} or {entity_b})"
+            )
+            return False
+
+        # Use relay network for long edges
+        relay_path = self.relay_network.route_signal(
+            placement_a.position, placement_b.position, signal_name, wire_color
+        )
+
+        if relay_path is None:
+            # Relay routing failed - connection cannot be established
+            # This is a critical error - the circuit will be broken without this connection
+            self.diagnostics.error(
+                f"MST edge for '{signal_name}' cannot be routed: "
+                f"relay placement failed between {entity_a} and {entity_b}. "
+                f"The layout may be too spread out for the available wire span."
+            )
+            return False
+
+        if len(relay_path) == 0:
+            # Direct connection - no relays needed
+            self.layout_plan.add_wire_connection(
+                WireConnection(
+                    source_entity_id=entity_a,
+                    sink_entity_id=entity_b,
+                    signal_name=signal_name,
+                    wire_color=wire_color,
+                    source_side=side_a,
+                    sink_side=side_b,
+                )
+            )
+        else:
+            # Chain through relay poles
+            current_id = entity_a
+            current_side = side_a
+
+            for relay_id, relay_color in relay_path:
+                self.layout_plan.add_wire_connection(
+                    WireConnection(
+                        source_entity_id=current_id,
+                        sink_entity_id=relay_id,
+                        signal_name=signal_name,
+                        wire_color=relay_color,
+                        source_side=current_side,
+                        sink_side=None,
+                    )
+                )
+                current_id = relay_id
+                current_side = None
+
+            # Final connection to entity_b
+            self.layout_plan.add_wire_connection(
+                WireConnection(
+                    source_entity_id=current_id,
+                    sink_entity_id=entity_b,
+                    signal_name=signal_name,
+                    wire_color=relay_path[-1][1],
+                    source_side=None,
+                    sink_side=side_b,
+                )
+            )
+
+        return True
 
     def _route_connection_with_relays(
         self,
@@ -676,7 +1087,17 @@ class ConnectionPlanner:
             source.position, sink.position, edge.resolved_signal_name, wire_color
         )
 
-        if not relay_path:
+        if relay_path is None:
+            # Relay routing failed - connection cannot be established
+            # This is a critical error - the circuit will be broken without this connection
+            self.diagnostics.error(
+                f"Connection for '{edge.resolved_signal_name}' cannot be routed: "
+                f"relay placement failed between {edge.source_entity_id} and {edge.sink_entity_id}. "
+                f"The layout may be too spread out for the available wire span."
+            )
+            return
+
+        if len(relay_path) == 0:
             self.layout_plan.add_wire_connection(
                 WireConnection(
                     source_entity_id=edge.source_entity_id,
