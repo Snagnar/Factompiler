@@ -1,7 +1,7 @@
 # Factorio Circuit DSL Language Specification
 
-**Version 2.1**  
-**Date: November 15, 2025**
+**Version 2.2**  
+**Date: December 8, 2025**
 
 This document provides a complete specification of the Factorio Circuit DSL (Domain Specific Language) as currently implemented. The DSL compiles to Factorio 2.0 blueprint strings that can be imported into the game.
 
@@ -62,9 +62,9 @@ Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = blink;
 ```
 
-Compile this program:
+Save this program to `hello_lamp.fcdsl` and compile it with:
 ```bash
-python compile.py hello_lamp.fcdsl -o hello_lamp.blueprint
+python compile.py hello_lamp.fcdsl
 ```
 
 Import the resulting blueprint string into Factorio and watch your lamp blink!
@@ -93,8 +93,15 @@ Identifiers start with a letter or underscore and can contain letters, digits, u
 
 **Type Keywords:**
 ```
-int Signal SignalType Entity Memory mem
+int Signal SignalType Entity Memory
 ```
+
+**Memory Declaration Keywords:**
+```
+Memory mem
+```
+
+Both `Memory` and `mem` can be used to declare memory cells. They are interchangeable.
 
 **Statement Keywords:**
 ```
@@ -271,6 +278,18 @@ Signal copper = ("copper-plate", 50);
 Signal flag = ("signal-A", 1);
 ```
 
+**Type Literal Syntax:**
+
+The type name in signal literals can be either a quoted string or an unquoted identifier:
+
+```fcdsl
+# Both forms are equivalent:
+Signal a = ("signal-A", 100);  # Quoted string
+Signal b = (signal-A, 100);    # Unquoted identifier (hyphens allowed)
+```
+
+Unquoted identifiers are useful for signal names that are valid identifiers (letters, digits, underscores, and hyphens).
+
 #### Syntactic Sugar for Type Annotations
 
 The DSL provides a convenient shorthand using the projection operator for type annotations:
@@ -446,10 +465,11 @@ func double(x) {
 
 ```fcdsl
 import "stdlib/memory_utils.fcdsl";
-import "modules/production.fcdsl" as prod;
 ```
 
 Imports use **C-style preprocessing**: the imported file's content is inlined before parsing. Circular imports are detected and skipped.
+
+**Note:** The `import "file" as alias` syntax is recognized by the grammar but aliases are not currently utilized since files are textually inlined. All functions from imported files become available in the global namespace.
 
 ---
 
@@ -682,6 +702,23 @@ Instead of creating a separate decider combinator, the compiler configures the l
 lamp.enable = condition;  # Turn on/off
 ```
 
+**Color Control:**
+
+Lamps can display colored light using RGB signals. First, enable color mode in the placement properties:
+
+```fcdsl
+Entity lamp = place("small-lamp", 0, 0, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp.r = red_signal;    # Red component (0-255)
+lamp.g = green_signal;  # Green component (0-255)
+lamp.b = blue_signal;   # Blue component (0-255)
+```
+
+**Lamp Properties:**
+- `use_colors`: Enable RGB color mode (1 = on, 0 = off)
+- `always_on`: Lamp stays on regardless of circuit condition (1 = on, 0 = off)
+- `color_mode`: Use custom color mode (1 = on, 0 = off)
+- `r`, `g`, `b`: Circuit-controlled color components (0-255 each)
+
 #### Train Stops
 ```fcdsl
 train_stop.manual_mode = 1;        # Enable/disable trains
@@ -770,6 +807,25 @@ func compute(input) {
 }
 ```
 
+### Returning Entities from Functions
+
+Functions can return entities placed within them. This is useful for creating entity factory functions:
+
+```fcdsl
+func place_colored_lamp(x, y, red, green, blue) {
+    Entity lamp = place("small-lamp", x, y, {use_colors: 1, always_on: 1, color_mode: 1});
+    lamp.r = red;
+    lamp.g = green;
+    lamp.b = blue;
+    return lamp;
+}
+
+# Use the factory function
+Entity my_lamp = place_colored_lamp(0, 0, 255, 0, 0);  # Red lamp
+```
+
+When a function returns an entity, the caller can assign it to an `Entity` variable and continue to access its properties.
+
 ### Memory in Functions
 
 Functions can declare local memory, but remember each call site gets its own copy:
@@ -797,12 +853,27 @@ Signal delayed = delay_signal(input, 10);
 ```
 
 **How It Works:**
-1. Parser reads import statement
-2. Finds the file relative to current file's directory
+1. Preprocessor reads import statement
+2. Finds the file relative to current file's directory (or in `FACTORIO_IMPORT_PATH`)
 3. Inlines the entire file's content
 4. Continues parsing
 
-**Circular Import Protection:** If a file is imported twice, the second import is skipped with a comment.
+**Circular Import Protection:** If a file is imported twice, the second import is skipped with a comment marker.
+
+**Import Path Resolution:**
+
+The compiler searches for imported files in the following order:
+1. Relative to the current file's directory
+2. Directories in the `FACTORIO_IMPORT_PATH` environment variable (semicolon-separated)
+
+**File Extension:**
+
+If the import path doesn't have a `.fcdsl` extension, it is automatically appended:
+
+```fcdsl
+import "stdlib/memory_utils";        # Becomes stdlib/memory_utils.fcdsl
+import "stdlib/memory_utils.fcdsl";  # Already has extension
+```
 
 ---
 
@@ -862,6 +933,8 @@ This mapping is exported in debug metadata for troubleshooting.
 Factorio recognizes several signal categories:
 
 **Virtual Signals:** `signal-A`, `signal-B`, ..., `signal-Z`, `signal-0`, ..., `signal-9`, `signal-everything`, `signal-anything`, `signal-each`
+
+**Color Signals:** `signal-red`, `signal-green`, `signal-blue`, `signal-yellow`, `signal-magenta`, `signal-cyan`, `signal-white`, `signal-grey`, `signal-black`, `signal-pink`
 
 **Item Signals:** `iron-plate`, `copper-plate`, `electronic-circuit`, etc.
 
@@ -1386,12 +1459,20 @@ start: statement*
 statement: decl_stmt ";"
          | assign_stmt ";"
          | expr_stmt ";"
+         | return_stmt ";"
+         | import_stmt ";"
          | mem_decl ";"
          | func_decl
 
 decl_stmt: type_name NAME "=" expr
 
 mem_decl: ("Memory" | "mem") NAME [":" STRING]
+
+func_decl: "func" NAME "(" [param_list] ")" "{" statement* "}"
+
+import_stmt: "import" STRING ["as" NAME]
+
+return_stmt: "return" expr
 
 expr: logic
 logic: comparison ( ("&&" | "||") comparison )*
@@ -1400,6 +1481,16 @@ projection: add ( "|" type_literal )*
 add: mul ( ("+" | "-") mul )*
 mul: unary ( ("*" | "/" | "%") unary )*
 unary: UNARY_OP unary | primary
+
+primary: literal
+       | signal_literal
+       | read "(" NAME ")"
+       | write "(" expr "," NAME ["," "when" "=" expr] ")"
+       | dict_literal
+       | call_expr
+       | method_call
+       | lvalue
+       | "(" expr ")"
 ```
 
 ---
@@ -1432,7 +1523,7 @@ foundry.enable = quality > 0;
 
 ## Conclusion
 
-This specification describes the complete, implemented language as of version 2.0. All examples compile successfully and generate working Factorio blueprints.
+This specification describes the complete, implemented language as of version 2.2. All examples compile successfully and generate working Factorio blueprints.
 
 For additional examples, see `tests/sample_programs/` in the repository. For library functions, see `tests/sample_programs/stdlib/`.
 
