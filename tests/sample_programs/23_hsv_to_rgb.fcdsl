@@ -1,15 +1,23 @@
 # ============================================================
 # HSV Color Cycling Lamp Array
 # ============================================================
-# Cycles through all hue values (0-359) with S=1, V=1
-# Outputs signal-red, signal-green, signal-blue to a 5x5 lamp grid
 # ============================================================
+# Helper function to place a colored lamp
+# ============================================================
+func place_colored_lamp(x, y, red, green, blue) {
+    Entity lamp = place("small-lamp", x, y, {use_colors: 1, always_on: 1, color_mode: 1});
+    lamp.r = red;
+    lamp.g = green;
+    lamp.b = blue;
+    return lamp;
+}
 
 Signal step_size = 1;  # Change this value to adjust speed (1=fastest, higher=slower)
 
 Memory hue: "signal-H";
 # 1530 = 6 * 255 to cover full HSV cycle in finer steps
 write((read(hue) + step_size) % 1530, hue);
+
 # ============================================================
 # HSV to RGB Conversion (with S=1, V=1 always)
 # ============================================================
@@ -64,136 +72,41 @@ Signal g = green_val | "signal-green";
 Signal b = blue_val | "signal-blue";
 
 # ============================================================
-# Place 5x5 Lamp Grid (25 lamps with 2-tile spacing)
+# Place 5x5 Lamp Grid (25 lamps)
 # All lamps have use_colors enabled for RGB control
 # ============================================================
 
 # Row 0
-Entity lamp_00 = place("small-lamp", 0, 0, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_00.r = r;
-lamp_00.g = g;
-lamp_00.b = b;
-
-Entity lamp_01 = place("small-lamp", 1, 0, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_01.r = r;
-lamp_01.g = g;
-lamp_01.b = b;
-
-Entity lamp_02 = place("small-lamp", 2, 0, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_02.r = r;
-lamp_02.g = g;
-lamp_02.b = b;
-
-Entity lamp_03 = place("small-lamp", 3, 0, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_03.r = r;
-lamp_03.g = g;
-lamp_03.b = b;
-
-Entity lamp_04 = place("small-lamp", 4, 0, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_04.r = r;
-lamp_04.g = g;
-lamp_04.b = b;
+Entity lamp_00 = place_colored_lamp(0, 0, r, g, b);
+Entity lamp_01 = place_colored_lamp(1, 0, r, g, b);
+Entity lamp_02 = place_colored_lamp(2, 0, r, g, b);
+Entity lamp_03 = place_colored_lamp(3, 0, r, g, b);
+Entity lamp_04 = place_colored_lamp(4, 0, r, g, b);
 
 # Row 1
-Entity lamp_10 = place("small-lamp", 0, 1, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_10.r = r;
-lamp_10.g = g;
-lamp_10.b = b;
-
-Entity lamp_11 = place("small-lamp", 1, 1, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_11.r = r;
-lamp_11.g = g;
-lamp_11.b = b;
-
-Entity lamp_12 = place("small-lamp", 2, 1, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_12.r = r;
-lamp_12.g = g;
-lamp_12.b = b;
-
-Entity lamp_13 = place("small-lamp", 3, 1, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_13.r = r;
-lamp_13.g = g;
-lamp_13.b = b;
-
-Entity lamp_14 = place("small-lamp", 4, 1, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_14.r = r;
-lamp_14.g = g;
-lamp_14.b = b;
+Entity lamp_10 = place_colored_lamp(0, 1, r, g, b);
+Entity lamp_11 = place_colored_lamp(1, 1, r, g, b);
+Entity lamp_12 = place_colored_lamp(2, 1, r, g, b);
+Entity lamp_13 = place_colored_lamp(3, 1, r, g, b);
+Entity lamp_14 = place_colored_lamp(4, 1, r, g, b);
 
 # Row 2
-Entity lamp_20 = place("small-lamp", 0, 2, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_20.r = r;
-lamp_20.g = g;
-lamp_20.b = b;
-
-Entity lamp_21 = place("small-lamp", 1, 2, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_21.r = r;
-lamp_21.g = g;
-lamp_21.b = b;
-
-Entity lamp_22 = place("small-lamp", 2, 2, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_22.r = r;
-lamp_22.g = g;
-lamp_22.b = b;
-
-Entity lamp_23 = place("small-lamp", 3, 2, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_23.r = r;
-lamp_23.g = g;
-lamp_23.b = b;
-
-Entity lamp_24 = place("small-lamp", 4, 2, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_24.r = r;
-lamp_24.g = g;
-lamp_24.b = b;
+Entity lamp_20 = place_colored_lamp(0, 2, r, g, b);
+Entity lamp_21 = place_colored_lamp(1, 2, r, g, b);
+Entity lamp_22 = place_colored_lamp(2, 2, r, g, b);
+Entity lamp_23 = place_colored_lamp(3, 2, r, g, b);
+Entity lamp_24 = place_colored_lamp(4, 2, r, g, b);
 
 # Row 3
-Entity lamp_30 = place("small-lamp", 0, 3, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_30.r = r;
-lamp_30.g = g;
-lamp_30.b = b;
-
-Entity lamp_31 = place("small-lamp", 1, 3, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_31.r = r;
-lamp_31.g = g;
-lamp_31.b = b;
-
-Entity lamp_32 = place("small-lamp", 2, 3, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_32.r = r;
-lamp_32.g = g;
-lamp_32.b = b;
-
-Entity lamp_33 = place("small-lamp", 3, 3, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_33.r = r;
-lamp_33.g = g;
-lamp_33.b = b;
-
-Entity lamp_34 = place("small-lamp", 4, 3, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_34.r = r;
-lamp_34.g = g;
-lamp_34.b = b;
+Entity lamp_30 = place_colored_lamp(0, 3, r, g, b);
+Entity lamp_31 = place_colored_lamp(1, 3, r, g, b);
+Entity lamp_32 = place_colored_lamp(2, 3, r, g, b);
+Entity lamp_33 = place_colored_lamp(3, 3, r, g, b);
+Entity lamp_34 = place_colored_lamp(4, 3, r, g, b);
 
 # Row 4
-Entity lamp_40 = place("small-lamp", 0, 4, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_40.r = r;
-lamp_40.g = g;
-lamp_40.b = b;
-
-Entity lamp_41 = place("small-lamp", 1, 4, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_41.r = r;
-lamp_41.g = g;
-lamp_41.b = b;
-
-Entity lamp_42 = place("small-lamp", 2, 4, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_42.r = r;
-lamp_42.g = g;
-lamp_42.b = b;
-
-Entity lamp_43 = place("small-lamp", 3, 4, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_43.r = r;
-lamp_43.g = g;
-lamp_43.b = b;
-
-Entity lamp_44 = place("small-lamp", 4, 4, {use_colors: 1, always_on: 1, color_mode: 1});
-lamp_44.r = r;
-lamp_44.g = g;
-lamp_44.b = b;
+Entity lamp_40 = place_colored_lamp(0, 4, r, g, b);
+Entity lamp_41 = place_colored_lamp(1, 4, r, g, b);
+Entity lamp_42 = place_colored_lamp(2, 4, r, g, b);
+Entity lamp_43 = place_colored_lamp(3, 4, r, g, b);
+Entity lamp_44 = place_colored_lamp(4, 4, r, g, b);

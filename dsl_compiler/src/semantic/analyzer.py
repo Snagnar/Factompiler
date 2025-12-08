@@ -391,6 +391,11 @@ class SemanticAnalyzer(ASTVisitor):
             return operand_type
 
         elif isinstance(expr, ProjectionExpr):
+            # Recursively analyze the source expression to ensure all sub-expressions
+            # (including identifiers) are resolved and cached in the current scope.
+            # This is essential for function parameters to be found during lowering.
+            self.get_expr_type(expr.expr)
+
             if expr.target_type in self.RESERVED_SIGNAL_RULES:
                 self._emit_reserved_signal_diagnostic(
                     expr.target_type, expr, "as a projection target"
@@ -402,6 +407,10 @@ class SemanticAnalyzer(ASTVisitor):
             return SignalValue(signal_type=target_signal_type)
 
         elif isinstance(expr, SignalLiteral):
+            # Recursively analyze the value expression to ensure all sub-expressions
+            # are resolved and cached in the current scope.
+            self.get_expr_type(expr.value)
+
             if expr.signal_type:
                 if expr.signal_type in self.RESERVED_SIGNAL_RULES:
                     self._emit_reserved_signal_diagnostic(
