@@ -74,7 +74,10 @@ class MemoryLowerer:
 
         self.parent.ensure_signal_registered(signal_type)
 
-        return self.ir_builder.memory_read(memory_id, signal_type, expr)
+        ref = self.ir_builder.memory_read(memory_id, signal_type, expr)
+        # Attach expression context to memory read
+        self.parent.expr_lowerer._attach_expr_context(ref.source_id, expr)
+        return ref
 
     def lower_write_expr(self, expr: WriteExpr) -> SignalRef:
         memory_name = expr.memory_name
@@ -86,7 +89,11 @@ class MemoryLowerer:
             )
 
         memory_id = self.parent.memory_refs[memory_name]
+
+        # Push context for memory write so intermediates know their purpose
+        self.parent.push_expr_context(f"write({memory_name})", expr)
         data_ref = self.parent.expr_lowerer.lower_expr(expr.value)
+        self.parent.pop_expr_context()
 
         expected_signal_type = self._memory_signal_type(memory_name)
         if expected_signal_type is None:
@@ -101,7 +108,10 @@ class MemoryLowerer:
         )
 
         if expr.when is not None:
+            # Push context for the when condition
+            self.parent.push_expr_context(f"write({memory_name}).when", expr)
             write_enable = self.parent.expr_lowerer.lower_expr(expr.when)
+            self.parent.pop_expr_context()
 
             is_const_one = False
             if isinstance(write_enable, int) and write_enable == 1:

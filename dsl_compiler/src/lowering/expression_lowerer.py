@@ -56,6 +56,24 @@ class ExpressionLowerer:
     def diagnostics(self):
         return self.parent.diagnostics
 
+    def _attach_expr_context(self, node_id: str, expr: Optional[Expr] = None) -> None:
+        """Attach current expression context to an IR node for debug info."""
+        ctx = self.parent.get_expr_context()
+        if not ctx:
+            return
+
+        op = self.ir_builder.get_operation(node_id)
+        if not op:
+            return
+
+        # Attach context info to the IR node's debug_metadata
+        if ctx.target_name:
+            op.debug_metadata["expr_context_target"] = ctx.target_name
+        if ctx.target_line:
+            op.debug_metadata["expr_context_line"] = ctx.target_line
+        if ctx.source_file:
+            op.debug_metadata["expr_context_file"] = ctx.source_file
+
     def lower_expr(self, expr: Expr) -> ValueRef:
         """Lower an expression to IR, returning a ValueRef."""
 
@@ -93,6 +111,8 @@ class ExpressionLowerer:
         if name in self.parent.param_values:
             return self.parent.param_values[name]
         if name in self.parent.signal_refs:
+            # Track that this name was actually referenced (used as input)
+            self.parent.referenced_signal_names.add(name)
             return self.parent.signal_refs[name]
 
         self._error(f"Undefined identifier: {name}", expr)
@@ -167,8 +187,9 @@ class ExpressionLowerer:
             if folded is not None:
                 if isinstance(result_type, SignalValue):
                     self.parent.ensure_signal_registered(output_type, left_signal_type)
-                    return self.ir_builder.const(output_type, folded, expr)
-                return folded
+                result = self.ir_builder.const(output_type, folded, expr)
+                self._attach_expr_context(result.source_id, expr)
+                return result
 
         merge_candidate = self._attempt_wire_merge(
             expr, left_ref, right_ref, result_type
@@ -179,9 +200,11 @@ class ExpressionLowerer:
         self.parent.ensure_signal_registered(output_type, left_signal_type)
 
         if expr.op in ["+", "-", "*", "/", "%"]:
-            return self.ir_builder.arithmetic(
+            result = self.ir_builder.arithmetic(
                 expr.op, left_ref, right_ref, output_type, expr
             )
+            self._attach_expr_context(result.source_id, expr)
+            return result
         if expr.op in ["==", "!=", "<", "<=", ">", ">=", "&&", "||"]:
             return self.lower_comparison_op(expr, left_ref, right_ref, output_type)
 
@@ -203,18 +226,25 @@ class ExpressionLowerer:
                 output_type = self.ir_builder.allocate_implicit_type()
 
         if expr.op in ["==", "!=", "<", "<=", ">", ">="]:
-            return self.ir_builder.decider(
+            result = self.ir_builder.decider(
                 expr.op, left_ref, right_ref, 1, output_type, expr
             )
+            self._attach_expr_context(result.source_id, expr)
+            return result
         if expr.op == "&&":
-            return self.ir_builder.arithmetic(
+            result = self.ir_builder.arithmetic(
                 "*", left_ref, right_ref, output_type, expr
             )
+            self._attach_expr_context(result.source_id, expr)
+            return result
         if expr.op == "||":
             sum_ref = self.ir_builder.arithmetic(
                 "+", left_ref, right_ref, output_type, expr
             )
-            return self.ir_builder.decider(">", sum_ref, 0, 1, output_type, expr)
+            self._attach_expr_context(sum_ref.source_id, expr)
+            result = self.ir_builder.decider(">", sum_ref, 0, 1, output_type, expr)
+            self._attach_expr_context(result.source_id, expr)
+            return result
 
         self._error(f"Unknown binary operator: {expr.op}", expr)
         return self.ir_builder.const(output_type, 0, expr)
@@ -246,11 +276,15 @@ class ExpressionLowerer:
             return operand_ref
         if expr.op == "-":
             neg_one = self.ir_builder.const(output_type, -1, expr)
-            return self.ir_builder.arithmetic(
+            result = self.ir_builder.arithmetic(
                 "*", operand_ref, neg_one, output_type, expr
             )
+            self._attach_expr_context(result.source_id, expr)
+            return result
         if expr.op == "!":
-            return self.ir_builder.decider("==", operand_ref, 0, 1, output_type, expr)
+            result = self.ir_builder.decider("==", operand_ref, 0, 1, output_type, expr)
+            self._attach_expr_context(result.source_id, expr)
+            return result
 
         self._error(f"Unknown unary operator: {expr.op}", expr)
         return operand_ref
@@ -281,6 +315,7 @@ class ExpressionLowerer:
             target_type, getattr(source_ref, "signal_type", None)
         )
         result_ref = self.ir_builder.arithmetic("+", source_ref, 0, target_type, expr)
+        self._attach_expr_context(result_ref.source_id, expr)
 
         # Propagate user_declared flag through projections
         source_op = self.ir_builder.get_operation(source_ref.source_id)
@@ -311,8 +346,10 @@ class ExpressionLowerer:
             value_ref = self.lower_expr(expr.value)
             if isinstance(value_ref, int):
                 ref = self.ir_builder.const(output_type, value_ref, expr)
+                self._attach_expr_context(ref.source_id, expr)
             else:
                 ref = self.ir_builder.const(output_type, 0, expr)
+                self._attach_expr_context(ref.source_id, expr)
             ref.signal_type = signal_name
             ref.output_type = signal_name
             return ref
@@ -325,8 +362,10 @@ class ExpressionLowerer:
             value_ref = self.lower_expr(expr.value)
             if isinstance(value_ref, int):
                 ref = self.ir_builder.const(output_type, value_ref, expr)
+                self._attach_expr_context(ref.source_id, expr)
             else:
                 ref = self.ir_builder.const(output_type, 0, expr)
+                self._attach_expr_context(ref.source_id, expr)
             ref.signal_type = signal_name
             ref.output_type = signal_name
             return ref

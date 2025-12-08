@@ -54,7 +54,9 @@ class BlueprintEmitter:
 
         entity_map: Dict[str, Entity] = {}
 
-        for placement in layout_plan.entity_placements.values():
+        # Sort placements by ID for deterministic entity ordering
+        for ir_node_id in sorted(layout_plan.entity_placements.keys()):
+            placement = layout_plan.entity_placements[ir_node_id]
             entity = self.entity_factory.create_entity(placement)
             if entity is None:
                 self.diagnostics.error(

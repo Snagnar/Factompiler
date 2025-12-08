@@ -26,49 +26,92 @@ def _infer_signal_type(signal_name: str) -> str:
 
 
 def format_entity_description(debug_info: Optional[dict]) -> str:
-    """Format entity debug information into a human-readable description."""
+    """Format entity debug information into a human-readable description.
+
+    Generates user-friendly descriptions that always include line numbers
+    when available, and provide context about what computation the entity
+    is part of.
+    """
     if not debug_info:
         return ""
 
     parts = []
 
-    # Location part
+    # Extract key information
     var = debug_info.get("variable", "")
+    expr_context = debug_info.get("expr_context")  # What variable this computes
     file_name = debug_info.get("source_file", "")
     if "/" in file_name or "\\" in file_name:
         file_name = file_name.split("/")[-1].split("\\")[-1]
     line = debug_info.get("line")
+    operation = debug_info.get("operation")
+    details = debug_info.get("details")
+    signal_type = debug_info.get("signal_type")
+    role = debug_info.get("role")
 
-    location_parts = []
-    if var:
-        location_parts.append(var)
-    if file_name and line:
-        location_parts.append(f"in {file_name} at line {line}")
-    elif file_name:
-        location_parts.append(f"in {file_name}")
-    elif line:
-        location_parts.append(f"at line {line}")
-
-    if location_parts:
-        parts.append(" ".join(location_parts))
-
-    # Operation part
-    op_parts = list(
-        filter(
-            None,
-            [
-                debug_info.get("operation"),
-                debug_info.get("details"),
-                f"type={debug_info['signal_type']}"
-                if debug_info.get("signal_type")
-                else None,
-            ],
-        )
+    # Build primary identifier
+    # For intermediates, show context: "computing <target_var>"
+    # For final results, show the variable name
+    is_intermediate = var and var.startswith(
+        ("arith_", "decider_", "const_", "wire_merge_")
     )
-    if op_parts:
-        parts.append(f"({', '.join(op_parts)})")
 
-    return " ".join(parts)
+    if is_intermediate and expr_context:
+        # This is an intermediate computation for a named variable
+        primary_name = f"computing {expr_context}"
+    elif var:
+        primary_name = var
+    else:
+        primary_name = "entity"
+
+    # Build location string - ALWAYS include line if available
+    location_str = ""
+    if line:
+        if file_name:
+            location_str = f"[{file_name}:{line}]"
+        else:
+            location_str = f"[line {line}]"
+    elif file_name:
+        location_str = f"[{file_name}]"
+
+    # Build operation description
+    op_desc = ""
+    if operation == "arith" and details:
+        # Extract operation from details like "op=+"
+        op_match = details.replace("op=", "")
+        op_desc = f"({op_match})"
+    elif operation == "decider" and details:
+        # Extract condition from details like "cond=>"
+        cond_match = details.replace("cond=", "")
+        op_desc = f"({cond_match})"
+    elif operation == "const" and details:
+        op_desc = f"({details})"
+    elif operation == "memory" and details:
+        op_desc = f"({operation}: {details})"
+    elif operation == "output":
+        op_desc = "(output anchor)"
+    elif role:
+        op_desc = f"({role})"
+    elif operation:
+        op_desc = f"({operation})"
+
+    # Combine parts - prioritize readability
+    # Format: "[file:line] name (operation) -> signal_type"
+    result_parts = []
+
+    # Always lead with location for easy identification
+    if location_str:
+        result_parts.append(location_str)
+
+    result_parts.append(primary_name)
+
+    if op_desc:
+        result_parts.append(op_desc)
+
+    if signal_type:
+        result_parts.append(f"-> {signal_type}")
+
+    return " ".join(result_parts)
 
 
 class PlanEntityEmitter:
@@ -128,14 +171,9 @@ class PlanEntityEmitter:
             self._apply_property_writes(entity, property_writes, placement)
 
         # Set entity description from debug info
-        debug_info = placement.properties["debug_info"]
+        debug_info = placement.properties.get("debug_info", {})
         description = format_entity_description(debug_info)
         entity.player_description = description
-
-        if self.diagnostics.log_level == "debug":
-            self.diagnostics.info(
-                f"Entity description: {description[:80]}{'...' if len(description) > 80 else ''}"
-            )
 
         entity.id = placement.ir_node_id
 

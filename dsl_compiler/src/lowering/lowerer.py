@@ -7,7 +7,8 @@ AST nodes into IR operations following the compiler specification.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
+from dataclasses import dataclass
 
 from dsl_compiler.src.ast.statements import (
     ASTNode,
@@ -24,6 +25,15 @@ from draftsman.data import signals as signal_data
 from .expression_lowerer import ExpressionLowerer
 from .memory_lowerer import MemoryLowerer
 from .statement_lowerer import StatementLowerer
+
+
+@dataclass
+class ExpressionContext:
+    """Context for tracking expression lowering for debug info."""
+
+    target_name: Optional[str] = None  # Variable being assigned to
+    target_line: Optional[int] = None  # Line number of assignment
+    source_file: Optional[str] = None  # Source file name
 
 
 class ASTLowerer:
@@ -44,6 +54,11 @@ class ASTLowerer:
         ] = {}  # Track memory signal types during lowering
         self.entity_refs: Dict[str, str] = {}
         self.param_values: Dict[str, ValueRef] = {}
+        # Track which signal names are actually referenced (not just declared)
+        self.referenced_signal_names: Set[str] = set()
+
+        # Expression context stack for tracking assignment context during lowering
+        self._expr_context_stack: List[ExpressionContext] = []
 
         self.ir_builder.signal_registry = self.semantic.signal_registry
 
@@ -52,6 +67,31 @@ class ASTLowerer:
         self.mem_lowerer = MemoryLowerer(self)
         self.expr_lowerer = ExpressionLowerer(self)
         self.stmt_lowerer = StatementLowerer(self)
+
+    def push_expr_context(
+        self, target_name: Optional[str], node: Optional[ASTNode] = None
+    ) -> None:
+        """Push expression context for tracking what variable is being computed."""
+        line = getattr(node, "line", None) if node else None
+        source_file = getattr(node, "source_file", None) if node else None
+        ctx = ExpressionContext(
+            target_name=target_name,
+            target_line=line,
+            source_file=source_file,
+        )
+        self._expr_context_stack.append(ctx)
+
+    def pop_expr_context(self) -> Optional[ExpressionContext]:
+        """Pop expression context after lowering expression."""
+        if self._expr_context_stack:
+            return self._expr_context_stack.pop()
+        return None
+
+    def get_expr_context(self) -> Optional[ExpressionContext]:
+        """Get current expression context without removing it."""
+        if self._expr_context_stack:
+            return self._expr_context_stack[-1]
+        return None
 
     def _error(self, message: str, node: Optional[ASTNode] = None) -> None:
         """Add a lowering error diagnostic."""

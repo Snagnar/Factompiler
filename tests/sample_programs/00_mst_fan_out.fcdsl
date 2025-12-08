@@ -1,0 +1,17 @@
+# Test 0: MST fan-out behavior
+# Tests: Multiple connections from one signal to many entities using MST routing
+
+Signal a = 5;
+
+Signal result = a * 5;
+
+Signal out_0 = result;
+Signal out_1 = result;
+Signal out_2 = result;
+Signal out_3 = result;
+Signal out_4 = result;
+Signal out_5 = result;
+Signal out_6 = result;
+Signal out_7 = result;
+Signal out_8 = result;
+Signal out_9 = result;

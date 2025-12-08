@@ -5,32 +5,11 @@
 # Outputs signal-red, signal-green, signal-blue to a 5x5 lamp grid
 # ============================================================
 
-# ============================================================
-# Configuration - Transition Speed
-# ============================================================
-# Higher value = slower color transitions
-# Value of 1 = change color every tick (60 changes/second)
-# Value of 6 = change color 10 times/second
-# Value of 60 = change color once per second
-Signal speed = ("signal-S", 6);
+Signal step_size = 1;  # Change this value to adjust speed (1=fastest, higher=slower)
 
-# ============================================================
-# Tick Counter (controls transition timing)
-# ============================================================
-Memory tick_counter: "signal-T";
-Signal ticks = read(tick_counter);
-Signal next_tick = (ticks + 1) % speed;
-write(next_tick, tick_counter);
-Signal advance_hue = ticks == 0;
-
-# ============================================================
-# Hue Counter (0-359 degrees)
-# ============================================================
 Memory hue: "signal-H";
-Signal current_hue = read(hue);
-Signal next_hue = (current_hue + advance_hue) % 360;
-write(next_hue, hue);
-
+# 1530 = 6 * 255 to cover full HSV cycle in finer steps
+write((read(hue) + step_size) % 1530, hue);
 # ============================================================
 # HSV to RGB Conversion (with S=1, V=1 always)
 # ============================================================
@@ -43,19 +22,17 @@ write(next_hue, hue);
 #   Sector 5 (H:300-359): R=255, G=0, B=falling
 # ============================================================
 
-Signal h = current_hue;
+Signal h = read(hue);
 
-# Calculate sector (0-5) and position within sector
-Signal h_times_6 = h * 6;
-Signal sector = h_times_6 / 360;
-Signal fractional = h_times_6 % 360;
+# Calculate sector (0-5) and position within sector (0-254)
+Signal sector = h / 255;
+Signal position = h % 255;
 
-# Calculate the varying component (0-255 range)
-Signal rising = (fractional * 255) / 360;
-Signal const_255 = ("signal-A", 255);
-Signal falling = const_255 - rising;
+# Rising goes 0→254, falling goes 255→1
+Signal rising = position;
+Signal falling = 255 - position;
 
-# Sector detection signals (1 if in sector, 0 otherwise)
+# Sector detection signals
 Signal in_s0 = sector == 0;
 Signal in_s1 = sector == 1;
 Signal in_s2 = sector == 2;
@@ -63,7 +40,7 @@ Signal in_s3 = sector == 3;
 Signal in_s4 = sector == 4;
 Signal in_s5 = sector == 5;
 
-# Calculate RGB values using conditional multiplication
+# Calculate RGB values
 Signal red_val = (in_s0 * 255) 
               + (in_s1 * falling) 
               + (in_s4 * rising) 

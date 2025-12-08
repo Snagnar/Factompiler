@@ -37,16 +37,26 @@ class SignalUsageEntry:
     should_materialize: bool = True
     resolved_signal_name: Optional[str] = None
     resolved_signal_type: Optional[str] = None
+    # Track all variable names that alias to this signal (for output detection)
+    alias_names: Set[str] = field(default_factory=set)
+    # Track which aliases are output-only (not consumed by other code)
+    output_aliases: Set[str] = field(default_factory=set)
 
 
 class SignalAnalyzer:
     """Analyzes IR to determine signal usage patterns, materialization decisions, and signal name resolution."""
 
     def __init__(
-        self, diagnostics: ProgramDiagnostics, signal_type_map: Dict[str, Any]
+        self,
+        diagnostics: ProgramDiagnostics,
+        signal_type_map: Dict[str, Any],
+        signal_refs: Optional[Dict[str, SignalRef]] = None,
+        referenced_signal_names: Optional[Set[str]] = None,
     ):
         self.diagnostics = diagnostics
         self.signal_type_map = signal_type_map
+        self.signal_refs = signal_refs or {}
+        self.referenced_signal_names = referenced_signal_names or set()
         self.signal_usage: Dict[str, SignalUsageEntry] = {}
         # Pre-populate allocated signals from existing mappings
         self._allocated_signals: set = set()
@@ -60,6 +70,23 @@ class SignalAnalyzer:
         """Analyze IR operations to build a signal usage index."""
 
         usage: Dict[str, SignalUsageEntry] = {}
+
+        # Build a map from node_id to operation for quick lookup
+        op_by_id: Dict[str, IRNode] = {op.node_id: op for op in ir_operations}
+
+        # Build alias map: source_id -> set of variable names that reference it
+        # Skip entries whose producer has suppress_materialization (e.g., entity placeholders)
+        source_to_names: Dict[str, Set[str]] = {}
+        for name, ref in self.signal_refs.items():
+            if isinstance(ref, SignalRef):
+                # Check if this source has suppress_materialization
+                producer = op_by_id.get(ref.source_id)
+                if producer and hasattr(producer, "debug_metadata"):
+                    if producer.debug_metadata.get("suppress_materialization"):
+                        continue  # Skip entity placeholders
+                if ref.source_id not in source_to_names:
+                    source_to_names[ref.source_id] = set()
+                source_to_names[ref.source_id].add(name)
 
         def ensure_entry(
             signal_id: str, signal_type: Optional[str] = None
@@ -137,11 +164,28 @@ class SignalAnalyzer:
             elif isinstance(op, IR_WireMerge):
                 record_consumer(op.sources, op.node_id)
 
+        # Populate alias information and detect output aliases
+        # An alias is an "output alias" if it was declared but never referenced
+        # (i.e., never used as input to any operation)
+        for signal_id, entry in usage.items():
+            if signal_id in source_to_names:
+                entry.alias_names = source_to_names[signal_id]
+                # Find aliases that are NOT referenced (output-only aliases)
+                for alias_name in entry.alias_names:
+                    if alias_name not in self.referenced_signal_names:
+                        entry.output_aliases.add(alias_name)
+
         for signal_id, entry in usage.items():
             if isinstance(entry.producer, IRValue):
+                # Mark as output if:
+                # 1. Original behavior: has debug_label, no consumers
+                # 2. New behavior: has output-only aliases
                 if entry.debug_label and entry.debug_label != signal_id:
                     if not entry.consumers:
                         entry.debug_metadata["is_output"] = True
+                if entry.output_aliases:
+                    entry.debug_metadata["is_output"] = True
+                    entry.debug_metadata["output_aliases"] = list(entry.output_aliases)
 
         self.signal_usage = usage
 

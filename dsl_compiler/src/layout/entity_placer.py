@@ -63,22 +63,50 @@ class EntityPlacer:
         debug_info: Dict[str, Any] = {}
         usage = self.signal_usage.get(op.node_id)
 
-        # Variable name
+        # Variable name - prefer debug_label which is the actual variable name
         debug_info["variable"] = (
             (usage.debug_label if usage else None)
             or getattr(op, "debug_label", None)
             or op.node_id
         )
 
-        # Source location
+        # Source location - try multiple sources
         source_ast = (usage.source_ast if usage else None) or getattr(
             op, "source_ast", None
         )
+
+        # Get line from source_ast first
+        line = None
+        source_file = None
         if source_ast:
-            if hasattr(source_ast, "line") and source_ast.line > 0:
-                debug_info["line"] = source_ast.line
+            if hasattr(source_ast, "line") and source_ast.line and source_ast.line > 0:
+                line = source_ast.line
             if hasattr(source_ast, "source_file") and source_ast.source_file:
-                debug_info["source_file"] = source_ast.source_file
+                source_file = source_ast.source_file
+
+        # Extract expression context from debug_metadata
+        expr_context_target = None
+        expr_context_line = None
+        expr_context_file = None
+        if hasattr(op, "debug_metadata") and op.debug_metadata:
+            expr_context_target = op.debug_metadata.get("expr_context_target")
+            expr_context_line = op.debug_metadata.get("expr_context_line")
+            expr_context_file = op.debug_metadata.get("expr_context_file")
+
+        # Use expression context line if we don't have a line from source_ast
+        if not line and expr_context_line:
+            line = expr_context_line
+        if not source_file and expr_context_file:
+            source_file = expr_context_file
+
+        # Store expression context target for intermediate computations
+        if expr_context_target:
+            debug_info["expr_context"] = expr_context_target
+
+        if line:
+            debug_info["line"] = line
+        if source_file:
+            debug_info["source_file"] = source_file
 
         # Signal type
         debug_info["signal_type"] = (
@@ -313,10 +341,12 @@ class EntityPlacer:
             "role": "user_entity",
         }
         if hasattr(op, "source_ast") and op.source_ast:
-            if hasattr(op.source_ast, "line"):
-                entity_debug["line"] = op.source_ast.line
-            if hasattr(op.source_ast, "source_file"):
-                entity_debug["source_file"] = op.source_ast.source_file
+            line = getattr(op.source_ast, "line", None)
+            if line and line > 0:
+                entity_debug["line"] = line
+            source_file = getattr(op.source_ast, "source_file", None)
+            if source_file:
+                entity_debug["source_file"] = source_file
 
         placement.properties["debug_info"] = entity_debug
 
@@ -521,6 +551,9 @@ class EntityPlacer:
         For each signal marked as is_output (which already implies it has a
         variable name and no consumers), create an empty constant combinator
         as an anchor point for viewing output values.
+
+        If a signal has output_aliases (variable names that alias to it but are
+        not consumed), create one anchor for each alias.
         """
         for signal_id, entry in self.signal_usage.items():
             # is_output already checks: has debug_label, no consumers, named signal
@@ -530,47 +563,66 @@ class EntityPlacer:
             if not entry.producer:
                 continue
 
+            # Get output aliases if any
+            output_aliases = entry.output_aliases
+
+            # For IR_Const producers: only create anchors for aliases, not the original
+            # The original constant combinator already exists and serves as output
             if isinstance(entry.producer, IR_Const):
-                continue
+                if not output_aliases:
+                    # No aliases - the constant combinator itself is the output
+                    continue
+                # Remove the ORIGINAL declared name from aliases (it's already materialized)
+                # Use declared_name from debug_metadata which is preserved as the original
+                original_name = entry.debug_metadata.get("declared_name")
+                if original_name:
+                    output_aliases = output_aliases - {original_name}
+                if not output_aliases:
+                    continue
 
-            anchor_id = f"{signal_id}_output_anchor"
+            # For non-const producers: use output_aliases if any, otherwise use debug_label
+            if not output_aliases:
+                output_aliases = {entry.debug_label} if entry.debug_label else set()
 
-            # Build debug info for the anchor
-            debug_info = {
-                "variable": entry.debug_label,
-                "operation": "output",
-                "details": "anchor",
-                "signal_type": entry.resolved_signal_name or entry.signal_type,
-            }
+            for alias_name in output_aliases:
+                anchor_id = f"{signal_id}_{alias_name}_output_anchor"
 
-            if "location" in entry.debug_metadata:
-                location = entry.debug_metadata["location"]
-                if ":" in location:
-                    file_part, line_part = location.rsplit(":", 1)
-                    debug_info["source_file"] = file_part
-                    try:
-                        debug_info["line"] = int(line_part)
-                    except ValueError:
-                        pass
+                # Build debug info for the anchor
+                debug_info = {
+                    "variable": alias_name,
+                    "operation": "output",
+                    "details": "anchor",
+                    "signal_type": entry.resolved_signal_name or entry.signal_type,
+                }
 
-            placement = EntityPlacement(
-                ir_node_id=anchor_id,
-                entity_type="constant-combinator",
-                position=None,  # Will be set by layout optimizer
-                properties={
-                    "signals": [],  # Empty constant combinator
-                    "footprint": (1, 1),
-                    "debug_info": debug_info,
-                    "is_output": True,  # Mark output anchors as outputs
-                },
-                role="output_anchor",
-            )
-            self.plan.add_placement(placement)
+                if "location" in entry.debug_metadata:
+                    location = entry.debug_metadata["location"]
+                    if ":" in location:
+                        file_part, line_part = location.rsplit(":", 1)
+                        debug_info["source_file"] = file_part
+                        try:
+                            debug_info["line"] = int(line_part)
+                        except ValueError:
+                            pass
 
-            # Wire the producer's output to this anchor
-            # The anchor acts as a sink for the signal
-            self.signal_graph.add_sink(signal_id, anchor_id)
+                placement = EntityPlacement(
+                    ir_node_id=anchor_id,
+                    entity_type="constant-combinator",
+                    position=None,  # Will be set by layout optimizer
+                    properties={
+                        "signals": [],  # Empty constant combinator
+                        "footprint": (1, 1),
+                        "debug_info": debug_info,
+                        "is_output": True,  # Mark output anchors as outputs
+                    },
+                    role="output_anchor",
+                )
+                self.plan.add_placement(placement)
 
-            self.diagnostics.info(
-                f"Created output anchor '{anchor_id}' for signal '{entry.debug_label}'"
-            )
+                # Wire the producer's output to this anchor
+                # The anchor acts as a sink for the signal
+                self.signal_graph.add_sink(signal_id, anchor_id)
+
+                self.diagnostics.info(
+                    f"Created output anchor '{anchor_id}' for signal '{alias_name}'"
+                )

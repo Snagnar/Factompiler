@@ -27,12 +27,16 @@ class LayoutPlanner:
         signal_type_map: Dict[str, str],
         diagnostics: ProgramDiagnostics,
         *,
+        signal_refs: Optional[Dict[str, Any]] = None,
+        referenced_signal_names: Optional[set] = None,
         power_pole_type: Optional[str] = None,
         max_wire_span: float = 9.0,
         config: CompilerConfig = DEFAULT_CONFIG,
         use_mst_optimization: bool = True,
     ) -> None:
         self.signal_type_map = signal_type_map
+        self.signal_refs = signal_refs or {}
+        self.referenced_signal_names = referenced_signal_names or set()
         self.diagnostics = diagnostics
         self.diagnostics.default_stage = "layout_planning"
         self.power_pole_type = power_pole_type
@@ -98,7 +102,12 @@ class LayoutPlanner:
 
     def _setup_signal_analysis(self, ir_operations: list[IRNode]) -> None:
         """Initialize and run signal analysis with materialization."""
-        self.signal_analyzer = SignalAnalyzer(self.diagnostics, self.signal_type_map)
+        self.signal_analyzer = SignalAnalyzer(
+            self.diagnostics,
+            self.signal_type_map,
+            self.signal_refs,
+            self.referenced_signal_names,
+        )
         self.signal_usage = self.signal_analyzer.analyze(ir_operations)
 
     def _create_entities(self, ir_operations: list[IRNode]) -> None:
@@ -182,12 +191,38 @@ class LayoutPlanner:
         self._inject_wire_colors_into_placements()
 
     def _resolve_source_entity(self, signal_id: Any) -> Optional[str]:
-        """Resolve source entity ID from a signal ID."""
+        """Resolve source entity ID from a signal ID.
+
+        When memory operations are optimized, mem_read nodes may be replaced
+        with arithmetic combinators. The signal graph is updated to reflect this,
+        so we should always check if the resolved entity actually exists and
+        fall back to the signal graph if not.
+        """
+        candidate = None
+        signal_key = None
+
+        # First, try to extract entity ID and signal key from the signal reference
         if isinstance(signal_id, str) and "@" in signal_id:
-            return signal_id.split("@")[1]
-        if hasattr(signal_id, "source_id"):
-            return signal_id.source_id
-        return self.signal_graph.get_source(str(signal_id))
+            parts = signal_id.split("@")
+            candidate = parts[1]
+            signal_key = candidate  # The signal graph uses the source_id as key
+        elif hasattr(signal_id, "source_id"):
+            candidate = signal_id.source_id
+            signal_key = candidate  # The signal graph uses the source_id as key
+
+        # Check if the candidate entity actually exists in the layout plan
+        if candidate and candidate in self.layout_plan.entity_placements:
+            return candidate
+
+        # Candidate doesn't exist (might be an optimized-away mem_read),
+        # fall back to signal graph for the current source
+        if signal_key:
+            graph_source = self.signal_graph.get_source(signal_key)
+            if graph_source and graph_source in self.layout_plan.entity_placements:
+                return graph_source
+
+        # Last resort: return whatever we have
+        return candidate
 
     def _inject_operand_wire_color(
         self, placement: Any, operand_key: str, injected_count: int

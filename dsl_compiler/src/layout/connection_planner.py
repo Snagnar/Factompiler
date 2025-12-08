@@ -894,6 +894,15 @@ class ConnectionPlanner:
             f"({len(sink_ids)} edges → {len(mst_edges)} MST edges)"
         )
 
+        # IMPORTANT: Also register the original logical edges (source → each sink)
+        # so that get_wire_color_for_edge() can find them for operand wire injection.
+        # The MST edges are physical routing paths, but operand lookup needs
+        # the logical source→sink edges.
+        for sink_id in sink_ids:
+            self._edge_wire_colors[(source_id, sink_id, signal_name)] = wire_color
+            # Also register reverse for bidirectional lookups
+            self._edge_wire_colors[(sink_id, source_id, signal_name)] = wire_color
+
         all_succeeded = True
         for ent_a, ent_b in mst_edges:
             # Determine sides: source uses OUTPUT, sinks use INPUT

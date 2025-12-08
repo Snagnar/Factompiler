@@ -197,6 +197,7 @@ class IRBuilder:
         """Emit an entity placement."""
 
         op = IR_PlaceEntity(entity_id, prototype, x, y, properties)
+        op.source_ast = source_ast  # Attach source AST for line number tracking
         self.add_operation(op)
 
     def allocate_implicit_type(self) -> str:

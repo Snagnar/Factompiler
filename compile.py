@@ -107,6 +107,8 @@ def compile_dsl_file(
     planner = LayoutPlanner(
         lowerer.ir_builder.signal_type_map,
         diagnostics=diagnostics,
+        signal_refs=lowerer.signal_refs,
+        referenced_signal_names=lowerer.referenced_signal_names,
         power_pole_type=power_pole_type,
         config=config,
         use_mst_optimization=optimize,

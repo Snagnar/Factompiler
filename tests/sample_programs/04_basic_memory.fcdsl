@@ -2,8 +2,9 @@
 # Tests: Memory declaration, read(), write(), memory persistence
 
 Memory counter: "signal-A";
+Signal step_size = 1;
 
-write((read(counter) + 1) % 10, counter, when=1);
+write((read(counter) + step_size) % 10, counter, when=1);
 
 Signal pulse = read(counter) == 0;
 

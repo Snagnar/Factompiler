@@ -63,9 +63,11 @@ class StatementLowerer:
 
     def lower_decl_stmt(self, stmt: DeclStmt) -> None:
         if isinstance(stmt.value, CallExpr) and stmt.value.name == "place":
+            self.parent.push_expr_context(stmt.name, stmt)
             entity_id, value_ref = (
                 self.parent.expr_lowerer.lower_place_call_with_tracking(stmt.value)
             )
+            self.parent.pop_expr_context()
             self.parent.entity_refs[stmt.name] = entity_id
             self.parent.signal_refs[stmt.name] = value_ref
             self.parent.annotate_signal_ref(stmt.name, value_ref, stmt)
@@ -73,7 +75,9 @@ class StatementLowerer:
 
         if isinstance(stmt.value, CallExpr):
             self.parent.returned_entity_id = None
+            self.parent.push_expr_context(stmt.name, stmt)
             value_ref = self.parent.expr_lowerer.lower_expr(stmt.value)
+            self.parent.pop_expr_context()
 
             if self.parent.returned_entity_id is not None:
                 self.parent.entity_refs[stmt.name] = self.parent.returned_entity_id
@@ -83,14 +87,18 @@ class StatementLowerer:
             self.parent.annotate_signal_ref(stmt.name, value_ref, stmt)
             return
 
+        self.parent.push_expr_context(stmt.name, stmt)
         value_ref = self.parent.expr_lowerer.lower_expr(stmt.value)
+        self.parent.pop_expr_context()
 
         if isinstance(value_ref, SignalRef):
             # Mark user-declared constants to prevent inappropriate suppression
             const_op = self.ir_builder.get_operation(value_ref.source_id)
             if isinstance(const_op, IR_Const):
                 const_op.debug_metadata["user_declared"] = True
-                const_op.debug_metadata["declared_name"] = stmt.name
+                # Only set declared_name if not already set (preserve original)
+                if "declared_name" not in const_op.debug_metadata:
+                    const_op.debug_metadata["declared_name"] = stmt.name
                 const_op.debug_label = stmt.name
 
             if isinstance(const_op, IR_Const) and const_op.debug_metadata.get(
@@ -123,11 +131,21 @@ class StatementLowerer:
             self.parent.annotate_signal_ref(stmt.name, const_ref, stmt)
 
     def lower_assign_stmt(self, stmt: AssignStmt) -> None:
+        # Determine target name for expression context
+        if isinstance(stmt.target, Identifier):
+            target_name = stmt.target.name
+        elif isinstance(stmt.target, PropertyAccess):
+            target_name = f"{stmt.target.object_name}.{stmt.target.property_name}"
+        else:
+            target_name = None
+
         if isinstance(stmt.target, Identifier):
             if isinstance(stmt.value, CallExpr) and stmt.value.name == "place":
+                self.parent.push_expr_context(target_name, stmt)
                 entity_id, value_ref = (
                     self.parent.expr_lowerer.lower_place_call_with_tracking(stmt.value)
                 )
+                self.parent.pop_expr_context()
                 self.parent.entity_refs[stmt.target.name] = entity_id
                 self.parent.signal_refs[stmt.target.name] = value_ref
                 self.parent.annotate_signal_ref(stmt.target.name, value_ref, stmt)
@@ -135,7 +153,9 @@ class StatementLowerer:
 
             if isinstance(stmt.value, CallExpr):
                 self.parent.returned_entity_id = None
+                self.parent.push_expr_context(target_name, stmt)
                 value_ref = self.parent.expr_lowerer.lower_expr(stmt.value)
+                self.parent.pop_expr_context()
 
                 if self.parent.returned_entity_id is not None:
                     self.parent.entity_refs[stmt.target.name] = (
@@ -147,14 +167,18 @@ class StatementLowerer:
                 self.parent.annotate_signal_ref(stmt.target.name, value_ref, stmt)
                 return
 
+        self.parent.push_expr_context(target_name, stmt)
         value_ref = self.parent.expr_lowerer.lower_expr(stmt.value)
+        self.parent.pop_expr_context()
 
         if isinstance(stmt.target, Identifier):
             if isinstance(value_ref, SignalRef):
                 const_op = self.ir_builder.get_operation(value_ref.source_id)
                 if isinstance(const_op, IR_Const):
                     const_op.debug_metadata["user_declared"] = True
-                    const_op.debug_metadata["declared_name"] = stmt.target.name
+                    # Only set declared_name if not already set (preserve original)
+                    if "declared_name" not in const_op.debug_metadata:
+                        const_op.debug_metadata["declared_name"] = stmt.target.name
                     const_op.debug_label = stmt.target.name
 
                 if isinstance(const_op, IR_Const) and const_op.debug_metadata.get(

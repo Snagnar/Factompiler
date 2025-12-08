@@ -63,7 +63,9 @@ class IntegerLayoutEngine:
                 max_coordinate=config.max_layout_coordinate
             )
 
-        self.entity_ids = list(entity_placements.keys())
+        self.entity_ids = sorted(
+            entity_placements.keys()
+        )  # Sort for deterministic order
         self.n_entities = len(self.entity_ids)
 
         self._build_connectivity()
@@ -78,7 +80,8 @@ class IntegerLayoutEngine:
             if source_id in self.entity_ids and sink_id in self.entity_ids:
                 self.connections.append((source_id, sink_id))
 
-        self.connections = list(set(self.connections))
+        # Deduplicate and sort for deterministic iteration order
+        self.connections = sorted(set(self.connections))
 
         self.diagnostics.info(
             f"Built connectivity: {len(self.connections)} unique connections"

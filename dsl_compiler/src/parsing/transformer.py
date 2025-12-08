@@ -124,9 +124,11 @@ class DSLTransformer(Transformer):
             return item.children
         if isinstance(item, Token):
             if item.type == "STRING":
-                return StringLiteral(value=item.value[1:-1], raw_text=item.value)
+                result = StringLiteral(value=item.value[1:-1], raw_text=item.value)
+                return self._set_position(result, item)
             if item.type == "NUMBER":
-                return NumberLiteral(value=int(item.value), raw_text=item.value)
+                result = NumberLiteral(value=int(item.value), raw_text=item.value)
+                return self._set_position(result, item)
             return item.value
         return item
 
@@ -140,7 +142,13 @@ class DSLTransformer(Transformer):
         if len(items) >= 2:
             target = items[0]
             value = self._unwrap_tree(items[1])
-            return AssignStmt(target=target, value=value)
+            stmt = AssignStmt(target=target, value=value)
+            # Set position from target (first element)
+            if hasattr(target, "line") and target.line > 0:
+                stmt.line = target.line
+                stmt.column = getattr(target, "column", 0)
+                stmt.source_file = getattr(target, "source_file", None)
+            return stmt
         raise ValueError(f"Could not parse assign_stmt from items: {items}")
 
     def expr_stmt(self, items) -> ExprStmt:
@@ -236,7 +244,9 @@ class DSLTransformer(Transformer):
             else:
                 name = str(token)
                 raw_text = name
-            return Identifier(name=name, raw_text=raw_text)
+            result = Identifier(name=name, raw_text=raw_text)
+            self._set_position(result, token)
+            return result
 
         obj_token, prop_token = items[0], items[1]
         object_name = (
@@ -246,11 +256,13 @@ class DSLTransformer(Transformer):
             prop_token.value if isinstance(prop_token, Token) else str(prop_token)
         )
         raw_text = f"{object_name}.{property_name}"
-        return PropertyAccess(
+        result = PropertyAccess(
             object_name=object_name,
             property_name=property_name,
             raw_text=raw_text,
         )
+        self._set_position(result, obj_token)
+        return result
 
     def expr(self, items) -> Expr:
         """expr: logic"""
@@ -300,17 +312,28 @@ class DSLTransformer(Transformer):
         if len(items) == 1:
             return items[0]
         if len(items) == 3:
-            return BinaryOp(op=str(items[1]), left=items[0], right=items[2])
+            node = BinaryOp(op=str(items[1]), left=items[0], right=items[2])
+            # Set position from first operand if it has position info
+            if hasattr(items[0], "line") and items[0].line > 0:
+                node.line = items[0].line
+                node.column = getattr(items[0], "column", 0)
+                node.source_file = getattr(items[0], "source_file", None)
+            return node
 
         result = items[0]
         index = 1
         while index + 1 < len(items):
             op = str(items[index])
             right = items[index + 1]
-            result = BinaryOp(op=op, left=result, right=right)
+            node = BinaryOp(op=op, left=result, right=right)
+            # Set position from left operand (first in chain)
+            if hasattr(result, "line") and result.line > 0:
+                node.line = result.line
+                node.column = getattr(result, "column", 0)
+                node.source_file = getattr(result, "source_file", None)
+            result = node
             index += 2
         return result
-
 
     def call_expr(self, items) -> CallExpr:
         """call_expr: NAME "(" [arglist] ")" """
