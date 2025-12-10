@@ -558,15 +558,6 @@ The SR latch uses a **unidirectional forward feedback + self-loop** topology:
 - **Hold Phase** (signal-W == 0): Hold gate outputs its stored value, which feeds back to itself (self-loop), maintaining the value
 - **Key Design**: Write gate never receives feedback, preventing value accumulation
 
-**Wire Diagram:**
-```
-Data Signal ──RED──> Write Gate ──RED──> Hold Gate ──RED──> Output
-                         ↑                    |              
-Control (signal-W) GREEN─┘          RED self-loop
-                         |                    |
-                    GREEN└────────────────────┘
-```
-
 #### Arithmetic Feedback Optimization
 
 For **unconditional writes** that read the same memory:
@@ -841,42 +832,6 @@ Signal count1 = counter();  # Separate memory instance
 Signal count2 = counter();  # Another separate instance
 ```
 
-### Module System
-
-Import statements use **C-style preprocessing**:
-
-```fcdsl
-import "stdlib/memory_utils.fcdsl";
-
-# Functions from memory_utils.fcdsl are now available
-Signal delayed = delay_signal(input, 10);
-```
-
-**How It Works:**
-1. Preprocessor reads import statement
-2. Finds the file relative to current file's directory (or in `FACTORIO_IMPORT_PATH`)
-3. Inlines the entire file's content
-4. Continues parsing
-
-**Circular Import Protection:** If a file is imported twice, the second import is skipped with a comment marker.
-
-**Import Path Resolution:**
-
-The compiler searches for imported files in the following order:
-1. Relative to the current file's directory
-2. Directories in the `FACTORIO_IMPORT_PATH` environment variable (semicolon-separated)
-
-**File Extension:**
-
-If the import path doesn't have a `.fcdsl` extension, it is automatically appended:
-
-```fcdsl
-import "stdlib/memory_utils";        # Becomes stdlib/memory_utils.fcdsl
-import "stdlib/memory_utils.fcdsl";  # Already has extension
-```
-
----
-
 ## Compilation Model
 
 ### Compilation Stages
@@ -963,38 +918,20 @@ This separation prevents signal summation at combinator inputs. For example, if 
 ```fcdsl
 Signal a = ("signal-A", 10);
 Signal b = ("signal-A", 20);
-Signal c = a + b;  # c sees 30
+Signal c = a * b;
 ```
 
-If both `a` and `b` feed into the same combinator on the same wire color, they'd merge. The compiler detects this and assigns different colors (red for `a`, green for `b`) to keep them separate.
-
-#### Combinator Types
-
-**Arithmetic Combinator:**
-```
-left_operand OPERATION right_operand → output_signal
-```
-
-**Decider Combinator:**
-```
-if (left_operand COMPARISON right_operand)
-then output_signal = output_value
-```
-
-**Constant Combinator:**
-```
-output_signal = constant_value
-```
+If both `a` and `b` feed into the same combinator on the same wire color, they'd merge and just add up. The compiler detects this and assigns different colors (red for `a`, green for `b`) to keep them separate so that the multiplication can be executed correctly.
 
 ### Edge Layout Conventions
 
 The compiler uses spatial conventions for blueprint organization:
 
 **North Edge (Y < 0):** Constant combinators for literals  
-**South Edge (Y > 0):** Export anchors for dangling outputs  
+**South Edge (Y > 0):** Export anchors for dangling outputs (`Signal` that is explicitly defined but not consumed, used for e.g. outputs)<br>
 **Center (Y ≈ 0):** Logic combinators (arithmetic, deciders, memory)
 
-This creates visually organized blueprints where inputs are at the top and outputs at the bottom.
+This creates visually organized blueprints where inputs are at the top and outputs are at the bottom.
 
 ### Wire Routing and Relays
 
@@ -1299,20 +1236,6 @@ Signal mixed = iron + copper;
 Signal aligned = (copper | "iron-plate") + iron;  # Both iron-plate
 ```
 
-#### Integer Coercion Warnings
-
-```fcdsl
-Signal iron = ("iron-plate", 100);
-Signal more = iron + 50;
-# Warning: Mixed types in binary operation: signal 'iron-plate' + integer
-# Integer will be coerced to signal type.
-```
-
-**Fix:**
-```fcdsl
-Signal more = iron + ("iron-plate", 50);  # Explicit signal literal
-```
-
 #### Unknown Signal Warnings
 
 ```fcdsl
@@ -1445,86 +1368,5 @@ python compile.py input.fcdsl --json
 
 Outputs raw blueprint JSON instead of base64-encoded blueprint string.
 
----
 
-## Appendix: Grammar Reference
-
-See `dsl_compiler/grammar/fcdsl.lark` for the complete LALR grammar specification.
-
-**Key Grammar Rules:**
-
-```lark
-start: statement*
-
-statement: decl_stmt ";"
-         | assign_stmt ";"
-         | expr_stmt ";"
-         | return_stmt ";"
-         | import_stmt ";"
-         | mem_decl ";"
-         | func_decl
-
-decl_stmt: type_name NAME "=" expr
-
-mem_decl: ("Memory" | "mem") NAME [":" STRING]
-
-func_decl: "func" NAME "(" [param_list] ")" "{" statement* "}"
-
-import_stmt: "import" STRING ["as" NAME]
-
-return_stmt: "return" expr
-
-expr: logic
-logic: comparison ( ("&&" | "||") comparison )*
-comparison: projection ( COMP_OP projection )*
-projection: add ( "|" type_literal )*
-add: mul ( ("+" | "-") mul )*
-mul: unary ( ("*" | "/" | "%") unary )*
-unary: UNARY_OP unary | primary
-
-primary: literal
-       | signal_literal
-       | read "(" NAME ")"
-       | write "(" expr "," NAME ["," "when" "=" expr] ")"
-       | dict_literal
-       | call_expr
-       | method_call
-       | lvalue
-       | "(" expr ")"
-```
-
----
-
-## Appendix: Factorio 2.0 Features
-
-The DSL supports Factorio 2.0 and Space Age content:
-
-**New Signal Types:**
-- Quality signals: `quality-normal`, `quality-uncommon`, etc.
-- Space location signals
-- Asteroid chunk signals
-
-**New Entities:**
-- Space platforms
-- Agricultural towers
-- Foundries
-- Electromagnetic plants
-- Cryogenic plants
-
-**Example:**
-
-```fcdsl
-Signal quality = ("quality-uncommon", 1);
-Entity foundry = place("foundry", 0, 0);
-foundry.enable = quality > 0;
-```
-
----
-
-## Conclusion
-
-This specification describes the complete, implemented language as of version 2.2. All examples compile successfully and generate working Factorio blueprints.
-
-For additional examples, see `tests/sample_programs/` in the repository. For library functions, see `tests/sample_programs/stdlib/`.
-
-**Happy circuit building!**
+**Happy building!**
