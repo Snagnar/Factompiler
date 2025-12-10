@@ -81,38 +81,6 @@ Import the resulting blueprint string into Factorio and watch your lamp blink!
 Signal x = 5;  // End-of-line comments
 ```
 
-### Identifiers
-
-```
-NAME: /[A-Za-z_][A-Za-z0-9_-]*/
-```
-
-Identifiers start with a letter or underscore and can contain letters, digits, underscores, and hyphens.
-
-### Keywords
-
-**Type Keywords:**
-```
-int Signal SignalType Entity Memory
-```
-
-**Memory Declaration Keywords:**
-```
-Memory mem
-```
-
-Both `Memory` and `mem` can be used to declare memory cells. They are interchangeable.
-
-**Statement Keywords:**
-```
-func return import as
-```
-
-**Built-in Functions:**
-```
-read write place
-```
-
 ### Literals
 
 **Integers:**
@@ -280,15 +248,12 @@ Signal flag = ("signal-A", 1);
 
 **Type Literal Syntax:**
 
-The type name in signal literals can be either a quoted string or an unquoted identifier:
+The type name in signal literals is a string:
 
 ```fcdsl
 # Both forms are equivalent:
-Signal a = ("signal-A", 100);  # Quoted string
-Signal b = (signal-A, 100);    # Unquoted identifier (hyphens allowed)
+Signal a = ("signal-A", 100);
 ```
-
-Unquoted identifiers are useful for signal names that are valid identifiers (letters, digits, underscores, and hyphens).
 
 #### Syntactic Sugar for Type Annotations
 

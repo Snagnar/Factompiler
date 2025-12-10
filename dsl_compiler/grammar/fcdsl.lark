@@ -13,7 +13,6 @@
 READ_KW: "read"
 WRITE_KW: "write"
 WHEN_KW: "when"
-MEM_KW: "mem"
 
 // Type keywords
 INT_KW: "int"
@@ -22,7 +21,7 @@ SIGNALTYPE_KW: "SignalType"
 ENTITY_KW: "Entity"
 MEMORY_KW: "Memory"
 
-NAME: /[A-Za-z_][A-Za-z0-9_-]*/   // allow hyphens in names for type-like identifiers
+NAME: /[A-Za-z_][A-Za-z0-9_]*/
 
 // ---------------------------------
 // Entry point
@@ -42,7 +41,7 @@ statement: decl_stmt ";"                    -> decl_stmt
 
 decl_stmt: type_name NAME "=" expr
 
-mem_decl: (MEMORY_KW | MEM_KW) NAME [":" STRING]
+mem_decl: MEMORY_KW NAME [":" STRING]
 
 type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW
 
