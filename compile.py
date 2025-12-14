@@ -22,7 +22,7 @@ from dsl_compiler.src.semantic.analyzer import (
 from dsl_compiler.src.lowering.lowerer import ASTLowerer
 from dsl_compiler.src.layout.planner import LayoutPlanner
 from dsl_compiler.src.emission.emitter import BlueprintEmitter
-from dsl_compiler.src.ir.optimizer import CSEOptimizer
+from dsl_compiler.src.ir.optimizer import CSEOptimizer, ConstantPropagationOptimizer
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.common.constants import CompilerConfig, DEFAULT_CONFIG
 
@@ -101,6 +101,9 @@ def compile_dsl_file(
 
     # Optimize
     if optimize:
+        # First: constant propagation and folding
+        ir_operations = ConstantPropagationOptimizer().optimize(ir_operations)
+        # Second: common subexpression elimination
         ir_operations = CSEOptimizer().optimize(ir_operations)
 
     # Layout planning

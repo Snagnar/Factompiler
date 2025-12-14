@@ -123,15 +123,27 @@ class IRBuilder:
         output_value: Union[ValueRef, int],
         output_type: str,
         source_ast: Optional[ASTNode] = None,
+        copy_count_from_input: bool = False,
     ) -> SignalRef:
-        """Create a decider combinator operation."""
+        """Create a decider combinator operation.
 
+        Args:
+            test_op: Comparison operator (==, !=, <, <=, >, >=)
+            left: Left operand of comparison
+            right: Right operand of comparison
+            output_value: Value to output when condition is true (signal or constant)
+            output_type: Signal type for output
+            source_ast: Source AST node for debugging
+            copy_count_from_input: If True and output_value is a signal,
+                                   copy the signal's count from input rather than outputting a constant
+        """
         node_id = self.next_id("decider")
         decider_op = IR_Decider(node_id, output_type, source_ast)
         decider_op.test_op = test_op
         decider_op.left = left
         decider_op.right = right
         decider_op.output_value = output_value
+        decider_op.copy_count_from_input = copy_count_from_input
         self.add_operation(decider_op)
         return SignalRef(output_type, node_id, source_ast=source_ast)
 

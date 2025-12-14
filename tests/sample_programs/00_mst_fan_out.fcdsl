@@ -3,7 +3,7 @@
 
 Signal a = 5;
 
-Signal result = a * 5;
+Signal result = a * a;
 
 Signal out_0 = result;
 Signal out_1 = result;

@@ -7,4 +7,4 @@ Signal input3 = 20 | "signal-A";
 
 Signal total_A = input1 + input2 + input3;
 
-Signal output = (input1 == 50) && (input2 == 20);
+# Signal output = (input1 == 50) && (input2 == 20);

@@ -275,7 +275,8 @@ class EntityPlacer:
         output_signal = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
         output_value = self.signal_analyzer.get_operand_for_combinator(op.output_value)
 
-        copy_count_from_input = not isinstance(op.output_value, int)
+        # Use the copy_count_from_input field from the IR node
+        copy_count_from_input = op.copy_count_from_input
 
         placement = EntityPlacement(
             ir_node_id=op.node_id,

@@ -285,6 +285,10 @@ class LayoutPlanner:
         if not self.power_pole_type:
             return
 
+        # Update tile grid with user-specified positions BEFORE placing poles
+        # This prevents poles from overlapping with user-placed entities
+        self._update_tile_grid()
+
         from .power_planner import PowerPlanner
 
         power_planner = PowerPlanner(

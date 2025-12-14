@@ -15,7 +15,7 @@ class LayoutConstraints:
     """Constraints for layout optimization."""
 
     max_wire_span: float = 9.0
-    max_coordinate: int = 200  # Will be overridden by config if provided
+    max_coordinate: int = 500  # Will be overridden by config if provided
 
 
 @dataclass
@@ -67,6 +67,12 @@ class IntegerLayoutEngine:
             entity_placements.keys()
         )  # Sort for deterministic order
         self.n_entities = len(self.entity_ids)
+
+        # Identify power pole entities (for excluding from bounding box)
+        self._power_pole_ids = set()
+        for entity_id, placement in entity_placements.items():
+            if placement.properties.get("is_power_pole"):
+                self._power_pole_ids.add(entity_id)
 
         self._build_connectivity()
         self._identify_fixed_positions()
@@ -201,6 +207,15 @@ class IntegerLayoutEngine:
                     )
                     self._report_violations(result)
                     return result.positions
+                else:
+                    self.diagnostics.info(
+                        f"Strategy '{strategy['name']}' produced "
+                        f"{result.violations} violations, continuing"
+                    )
+            else:
+                self.diagnostics.info(
+                    f"Strategy '{strategy['name']}' failed to find feasible solution: {result}"
+                )
 
         if best_result and best_result.success:
             self.diagnostics.warning(
@@ -496,20 +511,34 @@ class IntegerLayoutEngine:
         violation_weight: int,
         max_coord: int,
     ) -> None:
-        """Create multi-objective optimization function with priorities."""
+        """Create multi-objective optimization function with priorities.
+
+        The bounding box is computed excluding power poles, since they are
+        infrastructure and should not affect the compactness goal for the
+        actual circuit entities.
+        """
         num_violations = sum(span_violations) if span_violations else 0
 
         total_wire_length = sum(wire_lengths) if wire_lengths else 0
 
-        all_x = [positions[e][0] for e in self.entity_ids]
-        all_y = [positions[e][1] for e in self.entity_ids]
+        # Exclude power poles from bounding box calculation
+        non_pole_entities = [
+            e for e in self.entity_ids if e not in self._power_pole_ids
+        ]
 
-        max_x = model.NewIntVar(0, max_coord, "max_x")
-        max_y = model.NewIntVar(0, max_coord, "max_y")
-        model.AddMaxEquality(max_x, all_x)
-        model.AddMaxEquality(max_y, all_y)
+        if non_pole_entities:
+            non_pole_x = [positions[e][0] for e in non_pole_entities]
+            non_pole_y = [positions[e][1] for e in non_pole_entities]
 
-        bounding_perimeter = max_x + max_y
+            max_x = model.NewIntVar(0, max_coord, "max_x")
+            max_y = model.NewIntVar(0, max_coord, "max_y")
+            model.AddMaxEquality(max_x, non_pole_x)
+            model.AddMaxEquality(max_y, non_pole_y)
+
+            bounding_perimeter = max_x + max_y
+        else:
+            # Fallback if all entities are power poles (unlikely)
+            bounding_perimeter = 0
 
         objective = (
             violation_weight * num_violations
@@ -592,16 +621,28 @@ class IntegerLayoutEngine:
         """Provide detailed diagnostic information about optimization failure."""
         self.diagnostics.error("Failed to find feasible layout with all strategies")
 
-        total_area_needed = sum(w * h for w, h in self.footprints.values())
+        # Calculate areas excluding power poles for more accurate diagnostics
+        non_pole_footprints = {
+            k: v for k, v in self.footprints.items() if k not in self._power_pole_ids
+        }
+        total_entity_area = sum(w * h for w, h in non_pole_footprints.values())
+        total_pole_area = sum(
+            w * h for k, (w, h) in self.footprints.items() if k in self._power_pole_ids
+        )
+        total_area_needed = total_entity_area + total_pole_area
         available_area = self.constraints.max_coordinate**2
 
         self.diagnostics.error(
             f"Diagnostic information:\n"
-            f"  Entities: {self.n_entities}\n"
+            f"  Total entities: {self.n_entities}\n"
+            f"    - Circuit entities: {len(non_pole_footprints)}\n"
+            f"    - Power poles: {len(self._power_pole_ids)}\n"
             f"  Connections: {len(self.connections)}\n"
             f"  Fixed positions: {len(self.fixed_positions)}\n"
-            f"  Total entity area: {total_area_needed}\n"
-            f"  Available area: {available_area}\n"
+            f"  Entity area (circuit only): {total_entity_area}\n"
+            f"  Power pole area: {total_pole_area}\n"
+            f"  Total area needed: {total_area_needed}\n"
+            f"  Available area: {available_area} ({self.constraints.max_coordinate}x{self.constraints.max_coordinate})\n"
             f"  Area utilization: {100 * total_area_needed / available_area:.1f}%"
         )
 
@@ -612,9 +653,15 @@ class IntegerLayoutEngine:
             )
 
         if len(self.fixed_positions) > self.n_entities * 0.3:
+            fixed_poles = len(
+                [p for p in self.fixed_positions if p in self._power_pole_ids]
+            )
+            fixed_other = len(self.fixed_positions) - fixed_poles
             self.diagnostics.error(
                 f"  → Many fixed positions ({len(self.fixed_positions)}/{self.n_entities})\n"
-                "     Solution: Reduce fixed position constraints"
+                f"     - Fixed power poles: {fixed_poles}\n"
+                f"     - Fixed circuit entities: {fixed_other}\n"
+                "     Solution: Reduce fixed position constraints or power pole grid density"
             )
 
         if self.connections:

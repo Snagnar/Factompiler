@@ -1,8 +1,8 @@
 from __future__ import annotations
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections import Counter
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from dsl_compiler.src.ir.builder import SignalRef
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.common.constants import CompilerConfig, DEFAULT_CONFIG
@@ -23,11 +23,39 @@ from .wire_router import (
 
 @dataclass
 class RelayNode:
-    """A relay pole for routing circuit signals."""
+    """A relay pole for routing circuit signals.
+
+    Tracks which circuit networks are using each wire color to prevent signal mixing.
+    In Factorio, all entities connected by the same color wire form a circuit network.
+    If two signals from DIFFERENT networks share a relay on the same color, they mix.
+
+    We track network IDs (not signal names) because:
+    - Signals going to the SAME sink are on the SAME network (safe to share relay)
+    - Signals going to DIFFERENT sinks are on DIFFERENT networks (must not share relay)
+    """
 
     position: Tuple[float, float]
     entity_id: str
     pole_type: str
+    networks_red: Set[int] = field(default_factory=set)  # Network IDs on red wire
+    networks_green: Set[int] = field(default_factory=set)  # Network IDs on green wire
+
+    def can_route_network(self, network_id: int, wire_color: str) -> bool:
+        """Check if this relay can route the given network on the given color.
+
+        Returns True if:
+        - No networks are currently using this color (can start fresh), OR
+        - The same network is already on this color (can extend/reuse)
+        """
+        networks = self.networks_red if wire_color == "red" else self.networks_green
+        return len(networks) == 0 or network_id in networks
+
+    def add_network(self, network_id: int, wire_color: str) -> None:
+        """Mark a network as using this relay on the given color."""
+        if wire_color == "red":
+            self.networks_red.add(network_id)
+        else:
+            self.networks_green.add(network_id)
 
 
 class RelayNetwork:
@@ -42,6 +70,7 @@ class RelayNetwork:
         layout_plan,
         diagnostics,
         config: CompilerConfig = DEFAULT_CONFIG,
+        relay_search_radius: float = 5.0,
     ):
         self.tile_grid = tile_grid
         self.clusters = clusters
@@ -50,6 +79,7 @@ class RelayNetwork:
         self.layout_plan = layout_plan
         self.diagnostics = diagnostics
         self.config = config
+        self.relay_search_radius = relay_search_radius
         self.relay_nodes: Dict[Tuple[int, int], RelayNode] = {}
         self._relay_counter = 0
 
@@ -57,7 +87,9 @@ class RelayNetwork:
         self, position: Tuple[float, float], entity_id: str, pole_type: str
     ) -> RelayNode:
         """Add a pole to the relay network."""
-        tile_pos = (int(round(position[0])), int(round(position[1])))
+        # Use floor to get consistent tile positions
+        # (center positions like 31.5 should map to tile 31, not round to 32)
+        tile_pos = (int(math.floor(position[0])), int(math.floor(position[1])))
 
         if tile_pos in self.relay_nodes:
             return self.relay_nodes[tile_pos]
@@ -70,12 +102,15 @@ class RelayNetwork:
     def find_relay_near(
         self, position: Tuple[float, float], max_distance: float
     ) -> Optional[RelayNode]:
-        """Find existing relay pole near position, or None."""
+        """Find the closest existing relay pole within max_distance, or None."""
+        best_node = None
+        best_dist = float("inf")
         for node in self.relay_nodes.values():
             dist = math.dist(position, node.position)
-            if dist <= max_distance:
-                return node
-        return None
+            if dist <= max_distance and dist < best_dist:
+                best_node = node
+                best_dist = dist
+        return best_node
 
     def route_signal(
         self,
@@ -83,6 +118,7 @@ class RelayNetwork:
         sink_pos: Tuple[float, float],
         signal_name: str,
         wire_color: str,
+        network_id: int = 0,
     ) -> Optional[
         List[Tuple[str, str]]
     ]:  # Returns list of (entity_id, wire_color) or None on failure
@@ -90,6 +126,19 @@ class RelayNetwork:
         Find or create relay path from source to sink.
         Returns list of (entity_id, wire_color) pairs representing the routing path.
         Returns empty list if no relays needed, None if routing failed.
+
+        Uses a two-phase approach:
+        1. Try to find a path through existing relays using A*
+        2. If no path exists, plan relay positions along the source-sink line
+           and create them sequentially, ensuring each is reachable from the previous
+
+        Args:
+            source_pos: Position of source entity
+            sink_pos: Position of sink entity
+            signal_name: Name of the signal being routed (for logging)
+            wire_color: Color of the wire ("red" or "green")
+            network_id: ID of the circuit network this signal belongs to.
+                        Signals with the same network_id can share relays.
         """
         distance = math.dist(source_pos, sink_pos)
 
@@ -100,81 +149,336 @@ class RelayNetwork:
         if distance <= span_limit * 0.95:
             return []  # No relays needed
 
-        safe_interval = span_limit * 0.8
-        num_relays = max(1, int(math.ceil(distance / safe_interval)) - 1)
+        # Phase 1: Try to find a path through existing relays
+        existing_path = self._find_path_through_existing_relays(
+            source_pos, sink_pos, span_limit, wire_color, network_id
+        )
+        if existing_path is not None:
+            # Found complete path! Register the network usage on each relay
+            for relay_id, relay_color in existing_path:
+                node = self._get_relay_node_by_id(relay_id)
+                if node:
+                    node.add_network(network_id, relay_color)
+                    self.diagnostics.info(
+                        f"Relay {relay_id} at {node.position} now carries network {network_id} ({signal_name}) on {relay_color}"
+                    )
+            return existing_path
 
-        path = []
+        # Phase 2: Plan and create relays along the source-sink line
+        return self._plan_and_create_relay_path(
+            source_pos, sink_pos, span_limit, signal_name, wire_color, network_id
+        )
 
-        for i in range(1, num_relays + 1):
-            ratio = i / (num_relays + 1)
-            relay_x = source_pos[0] + (sink_pos[0] - source_pos[0]) * ratio
-            relay_y = source_pos[1] + (sink_pos[1] - source_pos[1]) * ratio
-            ideal_pos = (relay_x, relay_y)
+    def _find_path_through_existing_relays(
+        self,
+        source_pos: Tuple[float, float],
+        sink_pos: Tuple[float, float],
+        span_limit: float,
+        wire_color: str,
+        network_id: int,
+    ) -> Optional[List[Tuple[str, str]]]:
+        """Try to find a path through existing relays using A*.
 
-            # This prevents accumulating distance errors when reusing relays
-            relay_node = self.find_relay_near(ideal_pos, max_distance=0.7)
+        Returns:
+            List of (relay_id, wire_color) if path found, None otherwise.
+        """
+        import heapq
+
+        # Build graph of all reachable nodes from source
+        nodes: Dict[str, Tuple[float, float]] = {}
+        nodes["__source__"] = source_pos
+        nodes["__sink__"] = sink_pos
+        for node in self.relay_nodes.values():
+            # Only consider relays that can route this network
+            if node.can_route_network(network_id, wire_color):
+                nodes[node.entity_id] = node.position
+
+        # A* search from source
+        open_set = [(0.0, 0.0, "__source__", [])]  # (f_score, g_score, node_id, path)
+        visited = set()
+
+        while open_set:
+            f, g, current, path = heapq.heappop(open_set)
+
+            if current in visited:
+                continue
+            visited.add(current)
+
+            current_pos = nodes[current]
+
+            # Check if we can reach sink directly
+            if math.dist(current_pos, sink_pos) <= span_limit * 0.95:
+                return [(relay_id, wire_color) for relay_id in path]
+
+            # Explore neighbors
+            for node_id, node_pos in nodes.items():
+                if node_id == "__source__" or node_id in visited:
+                    continue
+
+                dist = math.dist(current_pos, node_pos)
+                if dist > span_limit * 0.95:
+                    continue  # Too far
+
+                new_g = g + dist
+                new_h = math.dist(node_pos, sink_pos)
+                new_f = new_g + new_h
+
+                if node_id == "__sink__":
+                    return [(relay_id, wire_color) for relay_id in path]
+                else:
+                    new_path = path + [node_id]
+                    heapq.heappush(open_set, (new_f, new_g, node_id, new_path))
+
+        return None  # No path found through existing relays
+
+    def _plan_and_create_relay_path(
+        self,
+        source_pos: Tuple[float, float],
+        sink_pos: Tuple[float, float],
+        span_limit: float,
+        signal_name: str,
+        wire_color: str,
+        network_id: int,
+    ) -> Optional[List[Tuple[str, str]]]:
+        """Plan relay positions along source-sink line and create them.
+
+        Uses a greedy approach: starting from source, place relays at regular
+        intervals along the line to sink, adjusting positions when blocked.
+        Each relay must be reachable from the previous point.
+        """
+        distance = math.dist(source_pos, sink_pos)
+
+        # Calculate step size - use 80% of span for safety margin
+        step_size = span_limit * 0.8
+
+        # Calculate number of relays needed
+        num_relays = max(1, int(math.ceil(distance / step_size)) - 1)
+
+        path: List[Tuple[str, str]] = []
+        current_pos = source_pos
+
+        for i in range(
+            num_relays + 5
+        ):  # +5 for safety margin if relays get placed off-path
+            # Calculate remaining distance and direction FROM CURRENT POSITION
+            remaining_dist = math.dist(current_pos, sink_pos)
+            if remaining_dist <= span_limit * 0.95:
+                break  # Can already reach sink, no more relays needed
+
+            # Recalculate direction vector from current position to sink
+            # This is crucial when relays get placed off the ideal path
+            dir_x = (sink_pos[0] - current_pos[0]) / remaining_dist
+            dir_y = (sink_pos[1] - current_pos[1]) / remaining_dist
+
+            # Calculate ideal position along the line
+            actual_step = min(step_size, remaining_dist * 0.6)  # Don't overshoot
+            ideal_x = current_pos[0] + dir_x * actual_step
+            ideal_y = current_pos[1] + dir_y * actual_step
+            ideal_pos = (ideal_x, ideal_y)
+
+            # Try to find or create a relay near this position
+            relay_node = self._find_or_create_relay_near(
+                ideal_pos,
+                current_pos,
+                sink_pos,
+                span_limit,
+                signal_name,
+                wire_color,
+                network_id,
+            )
 
             if relay_node is None:
-                tile_pos = (int(round(relay_x)), int(round(relay_y)))
-                if self.tile_grid.reserve_exact(tile_pos, footprint=(1, 1)):
-                    reserved_pos = tile_pos
-                else:
-                    reserved_pos = None
-                    # Search in expanding rings up to 5 tiles away
-                    # Prioritize positions closer to the ideal position
-                    for radius in range(1, 6):
-                        if reserved_pos:
-                            break
-                        for dx in range(-radius, radius + 1):
-                            if reserved_pos:
-                                break
-                            for dy in range(-radius, radius + 1):
-                                # Only check tiles at the current radius (ring edges)
-                                if abs(dx) != radius and abs(dy) != radius:
-                                    continue
-                                nearby_pos = (tile_pos[0] + dx, tile_pos[1] + dy)
-                                if self.tile_grid.reserve_exact(
-                                    nearby_pos, footprint=(1, 1)
-                                ):
-                                    reserved_pos = nearby_pos
-                                    break
-
-                if reserved_pos:
-                    self._relay_counter += 1
-                    relay_id = f"__relay_{self._relay_counter}"
-                    # ✅ FIX: Ensure reserved_pos is integer tile position
-                    tile_x = int(round(reserved_pos[0]))
-                    tile_y = int(round(reserved_pos[1]))
-                    center_pos = (tile_x + 0.5, tile_y + 0.5)
-                    relay_node = self.add_relay_node(
-                        center_pos, relay_id, "medium-electric-pole"
-                    )
-
-                    relay_placement = EntityPlacement(
-                        ir_node_id=relay_id,
-                        entity_type="medium-electric-pole",
-                        position=center_pos,
-                        properties={
-                            "debug_info": {
-                                "variable": f"relay_{self._relay_counter}",
-                                "operation": "infrastructure",
-                                "details": "wire_relay",
-                                "role": "relay",
-                            }
-                        },
-                        role="wire_relay",
-                    )
-                    self.layout_plan.add_placement(relay_placement)
-
-            if relay_node:
-                path.append((relay_node.entity_id, wire_color))
-            else:
                 self.diagnostics.warning(
-                    f"Failed to place relay for {signal_name} at {ideal_pos} - no space available"
+                    f"Failed to create relay {i + 1} for {signal_name} "
+                    f"at ideal position {ideal_pos}"
                 )
-                return None  # Return None to signal failure - incomplete relay chain is broken
+                return None
+
+            # Verify the relay is reachable from current position
+            relay_dist = math.dist(current_pos, relay_node.position)
+            if relay_dist > span_limit * 0.95:
+                self.diagnostics.warning(
+                    f"Relay {relay_node.entity_id} at {relay_node.position} is too far "
+                    f"({relay_dist:.1f}) from current position {current_pos}"
+                )
+                return None
+
+            # Add relay to path and update current position
+            relay_node.add_network(network_id, wire_color)
+            path.append((relay_node.entity_id, wire_color))
+            self.diagnostics.info(
+                f"Relay {relay_node.entity_id} at {relay_node.position} now carries "
+                f"network {network_id} ({signal_name}) on {wire_color}"
+            )
+            current_pos = relay_node.position
+
+        # Verify we can reach sink from the last relay
+        final_dist = math.dist(current_pos, sink_pos)
+        if final_dist > span_limit * 0.95:
+            self.diagnostics.warning(
+                f"Cannot reach sink from last relay, distance {final_dist:.1f} > {span_limit * 0.95:.1f}"
+            )
+            return None
 
         return path
+
+    def _find_or_create_relay_near(
+        self,
+        ideal_pos: Tuple[float, float],
+        source_pos: Tuple[float, float],
+        sink_pos: Tuple[float, float],
+        span_limit: float,
+        signal_name: str,
+        wire_color: str,
+        network_id: int,
+    ) -> Optional[RelayNode]:
+        """Find an existing relay or create a new one near the ideal position.
+
+        When searching for positions, prioritizes positions that:
+        1. Are reachable from source_pos (within span_limit)
+        2. Are closer to sink_pos (makes progress toward destination)
+
+        Args:
+            ideal_pos: The ideal position for the relay
+            source_pos: The current position we're routing from
+            sink_pos: The final destination
+            span_limit: Maximum wire span
+            signal_name: For logging
+            wire_color: Wire color for network isolation
+            network_id: Network ID for isolation checking
+        """
+        # First, check if there's an existing relay we can reuse near the ideal position
+        for node in self.relay_nodes.values():
+            node_dist_to_ideal = math.dist(node.position, ideal_pos)
+            node_dist_to_source = math.dist(node.position, source_pos)
+
+            # Check if this relay is usable:
+            # - Within span limit from source
+            # - Within 3 tiles of ideal position
+            # - Can route this network
+            if (
+                node_dist_to_source <= span_limit * 0.95
+                and node_dist_to_ideal <= 3.0
+                and node.can_route_network(network_id, wire_color)
+            ):
+                return node
+
+        # Need to create a new relay - find the best available position
+        return self._create_relay_directed(
+            ideal_pos, source_pos, sink_pos, span_limit, signal_name
+        )
+
+    def _create_relay_directed(
+        self,
+        ideal_pos: Tuple[float, float],
+        source_pos: Tuple[float, float],
+        sink_pos: Tuple[float, float],
+        span_limit: float,
+        signal_name: str,
+    ) -> Optional[RelayNode]:
+        """Create a new relay, prioritizing positions toward the sink.
+
+        Unlike the previous ring search, this method scores candidate positions
+        based on:
+        1. Distance from ideal position (closer is better)
+        2. Progress toward sink (closer to sink is better)
+        3. Reachability from source (must be within span_limit)
+        """
+        tile_pos = (int(round(ideal_pos[0])), int(round(ideal_pos[1])))
+
+        # First try the exact ideal position
+        if self.tile_grid.reserve_exact(tile_pos, footprint=(1, 1)):
+            return self._finalize_relay_creation(tile_pos, signal_name, ideal_pos)
+
+        # Collect all candidate positions within search radius
+        candidates: List[Tuple[float, Tuple[int, int]]] = []  # (score, position)
+        search_radius = 6  # tiles
+
+        for dx in range(-search_radius, search_radius + 1):
+            for dy in range(-search_radius, search_radius + 1):
+                if dx == 0 and dy == 0:
+                    continue  # Already tried ideal position
+
+                candidate_pos = (tile_pos[0] + dx, tile_pos[1] + dy)
+
+                # Skip if not available
+                if not self.tile_grid.is_available(candidate_pos, footprint=(1, 1)):
+                    continue
+
+                # Calculate center position
+                center = (candidate_pos[0] + 0.5, candidate_pos[1] + 0.5)
+
+                # Check if reachable from source
+                dist_to_source = math.dist(center, source_pos)
+                if dist_to_source > span_limit * 0.95:
+                    continue  # Too far from source
+
+                # Score: prefer positions that are
+                # 1. Close to ideal position (weight: 1)
+                # 2. Closer to sink (weight: 2 - progress is more important)
+                dist_to_ideal = math.dist(center, ideal_pos)
+                dist_to_sink = math.dist(center, sink_pos)
+
+                # Lower score is better
+                score = dist_to_ideal + 2.0 * dist_to_sink
+                candidates.append((score, candidate_pos))
+
+        if not candidates:
+            return None
+
+        # Sort by score and try to reserve the best positions
+        candidates.sort(key=lambda x: x[0])
+
+        for score, candidate_pos in candidates:
+            if self.tile_grid.reserve_exact(candidate_pos, footprint=(1, 1)):
+                return self._finalize_relay_creation(
+                    candidate_pos, signal_name, ideal_pos
+                )
+
+        return None
+
+    def _finalize_relay_creation(
+        self,
+        tile_pos: Tuple[int, int],
+        signal_name: str,
+        ideal_pos: Tuple[float, float],
+    ) -> RelayNode:
+        """Finalize relay creation with entity placement."""
+        self._relay_counter += 1
+        relay_id = f"__relay_{self._relay_counter}"
+        center_pos = (tile_pos[0] + 0.5, tile_pos[1] + 0.5)
+
+        self.diagnostics.info(
+            f"Creating NEW relay {relay_id} at {center_pos} for {signal_name} "
+            f"(ideal was {ideal_pos})"
+        )
+
+        relay_node = self.add_relay_node(center_pos, relay_id, "medium-electric-pole")
+
+        relay_placement = EntityPlacement(
+            ir_node_id=relay_id,
+            entity_type="medium-electric-pole",
+            position=center_pos,
+            properties={
+                "debug_info": {
+                    "variable": f"relay_{self._relay_counter}",
+                    "operation": "infrastructure",
+                    "details": "wire_relay",
+                    "role": "relay",
+                }
+            },
+            role="wire_relay",
+        )
+        self.layout_plan.add_placement(relay_placement)
+
+        return relay_node
+
+    def _get_relay_node_by_id(self, relay_id: str) -> Optional[RelayNode]:
+        """Get a relay node by its entity ID."""
+        for node in self.relay_nodes.values():
+            if node.entity_id == relay_id:
+                return node
+        return None
 
     def can_route_signal(
         self,
@@ -284,6 +588,15 @@ class ConnectionPlanner:
 
         self._edge_wire_colors: Dict[Tuple[str, str, str], str] = {}
 
+        # Network IDs for relay isolation - computed from edge connectivity
+        # Edges in the same network can share relays on the same wire color
+        self._edge_network_ids: Dict[Tuple[str, str, str], int] = {}
+
+        # Calculate relay search radius based on power pole grid spacing
+        # For a grid with spacing S, the max distance from any point to nearest
+        # grid point is S/2 * sqrt(2) ≈ 0.707 * S. Use S/2 * 1.5 for safety margin.
+        self._relay_search_radius = self._compute_relay_search_radius()
+
         self.relay_network = RelayNetwork(
             self.tile_grid,
             None,  # No clusters
@@ -292,7 +605,123 @@ class ConnectionPlanner:
             self.layout_plan,
             self.diagnostics,
             self.config,
+            relay_search_radius=self._relay_search_radius,
         )
+
+    def _compute_relay_search_radius(self) -> float:
+        """Calculate optimal search radius for finding existing relays.
+
+        Based on power pole grid spacing: for a grid with spacing S,
+        the maximum distance from any point to the nearest grid point
+        is S/2 * sqrt(2) ≈ 0.707 * S. We use S/2 * 1.5 for safety margin.
+        """
+        from .power_planner import POWER_POLE_CONFIG
+
+        if self.power_pole_type:
+            config = POWER_POLE_CONFIG.get(self.power_pole_type.lower())
+            if config:
+                supply_radius = float(config["supply_radius"])
+                grid_spacing = 2.0 * supply_radius
+                # S/2 * 1.5 gives good coverage with safety margin
+                return grid_spacing * 0.75
+
+        # Default: use a generous radius when no power poles
+        return 3.0
+
+    def _compute_network_ids(self, edges: Sequence[CircuitEdge]) -> None:
+        """Compute network IDs for relay isolation.
+
+        Network isolation is based on SIGNAL SOURCES, not entity connectivity.
+        Two edges can share a relay on the same wire color ONLY if they
+        originate from the SAME source entity. This prevents signal mixing
+        between different producers.
+
+        The key insight: in Factorio, wires of the same color connected to
+        the same entity form a single network where all signals get merged.
+        So if signal-A from source1 and signal-B from source2 share a relay,
+        both signals will appear at both destinations - causing flickering.
+        """
+        # Group edges by (source_entity, wire_color)
+        # Each unique (source, color) pair gets its own network ID
+        # This ensures signals from different sources never share relays
+
+        next_network_id = 1
+        source_color_to_network: Dict[Tuple[str, str], int] = {}
+
+        for edge in edges:
+            if not edge.source_entity_id:
+                continue
+
+            edge_key = (
+                edge.source_entity_id,
+                edge.sink_entity_id,
+                edge.resolved_signal_name,
+            )
+            color = self._edge_color_map.get(edge_key, "red")
+
+            # Create network ID based on (source, color) pair
+            source_color_key = (edge.source_entity_id, color)
+            if source_color_key not in source_color_to_network:
+                source_color_to_network[source_color_key] = next_network_id
+                next_network_id += 1
+
+            network_id = source_color_to_network[source_color_key]
+            self._edge_network_ids[edge_key] = network_id
+
+        num_networks = len(source_color_to_network)
+        self.diagnostics.info(
+            f"Computed network IDs: {num_networks} isolated source networks"
+        )
+
+    def _find_network_components(
+        self, edges: List[Tuple[str, str, str]], offset: int = 0
+    ) -> Dict[Tuple[str, str, str], int]:
+        """Find connected components among edges based on shared endpoints.
+
+        Returns a mapping from edge key to network ID.
+        """
+        from collections import defaultdict
+
+        if not edges:
+            return {}
+
+        # Build adjacency list: entity -> list of edges
+        entity_edges: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
+        for edge in edges:
+            source, sink, signal = edge
+            entity_edges[source].append(edge)
+            entity_edges[sink].append(edge)
+
+        # Find connected components using BFS
+        edge_to_network: Dict[Tuple[str, str, str], int] = {}
+        visited_edges: Set[Tuple[str, str, str]] = set()
+        network_id = offset
+
+        for start_edge in edges:
+            if start_edge in visited_edges:
+                continue
+
+            # BFS from this edge
+            queue = [start_edge]
+            while queue:
+                edge = queue.pop(0)
+                if edge in visited_edges:
+                    continue
+                visited_edges.add(edge)
+                edge_to_network[edge] = network_id
+
+                source, sink, _ = edge
+                # Find all edges connected through source or sink
+                for connected_edge in entity_edges[source]:
+                    if connected_edge not in visited_edges:
+                        queue.append(connected_edge)
+                for connected_edge in entity_edges[sink]:
+                    if connected_edge not in visited_edges:
+                        queue.append(connected_edge)
+
+            network_id += 1
+
+        return edge_to_network
 
     def plan_connections(
         self,
@@ -396,6 +825,10 @@ class ConnectionPlanner:
 
         self._edge_color_map = edge_color_map
 
+        # Compute network IDs for relay isolation
+        # Edges in the same connected component (per wire color) can share relays
+        self._compute_network_ids(non_merge_edges)
+
         self._log_color_summary()
         self._log_unresolved_conflicts()
         self._populate_wire_connections()
@@ -419,6 +852,22 @@ class ConnectionPlanner:
         """
         edge_key = (source_entity_id, sink_entity_id, signal_name)
         return self._edge_wire_colors.get(edge_key, "red")
+
+    def get_network_id_for_edge(
+        self, source_entity_id: str, sink_entity_id: str, signal_name: str
+    ) -> int:
+        """Get the network ID for a specific edge.
+
+        Args:
+            source_entity_id: The entity producing the signal
+            sink_entity_id: The entity consuming the signal
+            signal_name: The RESOLVED Factorio signal name (e.g., "signal-A")
+
+        Returns:
+            Network ID (0 if not found, which allows sharing with any network)
+        """
+        edge_key = (source_entity_id, sink_entity_id, signal_name)
+        return self._edge_network_ids.get(edge_key, 0)
 
     def _expand_merge_edges(
         self,
@@ -492,6 +941,9 @@ class ConnectionPlanner:
             prototype = str(config["prototype"])
 
             self.relay_network.add_relay_node(placement.position, entity_id, prototype)
+            self.diagnostics.info(
+                f"Registered power pole {entity_id} at {placement.position} as relay"
+            )
             power_pole_count += 1
 
         if power_pole_count > 0:
@@ -913,9 +1365,14 @@ class ConnectionPlanner:
             self._edge_wire_colors[(ent_a, ent_b, signal_name)] = wire_color
             self._edge_wire_colors[(ent_b, ent_a, signal_name)] = wire_color
 
+            # Get network ID from the first original edge (all share the same network)
+            network_id = self.get_network_id_for_edge(
+                source_id, sink_ids[0], signal_name
+            )
+
             # Route the connection
             if not self._route_mst_edge(
-                ent_a, ent_b, signal_name, wire_color, side_a, side_b
+                ent_a, ent_b, signal_name, wire_color, side_a, side_b, network_id
             ):
                 all_succeeded = False
 
@@ -986,6 +1443,7 @@ class ConnectionPlanner:
         wire_color: str,
         side_a: Optional[str],
         side_b: Optional[str],
+        network_id: int = 0,
     ) -> bool:
         """Create wire connection for MST edge, with relay poles if needed.
 
@@ -1012,7 +1470,11 @@ class ConnectionPlanner:
 
         # Use relay network for long edges
         relay_path = self.relay_network.route_signal(
-            placement_a.position, placement_b.position, signal_name, wire_color
+            placement_a.position,
+            placement_b.position,
+            signal_name,
+            wire_color,
+            network_id,
         )
 
         if relay_path is None:
@@ -1092,8 +1554,17 @@ class ConnectionPlanner:
             )
             return
 
+        # Get network ID for this edge
+        network_id = self.get_network_id_for_edge(
+            edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name
+        )
+
         relay_path = self.relay_network.route_signal(
-            source.position, sink.position, edge.resolved_signal_name, wire_color
+            source.position,
+            sink.position,
+            edge.resolved_signal_name,
+            wire_color,
+            network_id,
         )
 
         if relay_path is None:

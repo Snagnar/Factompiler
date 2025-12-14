@@ -12,6 +12,7 @@ from dsl_compiler.src.ast.expressions import (
     BinaryOp,
     CallExpr,
     IdentifierExpr,
+    OutputSpecExpr,
     ProjectionExpr,
     PropertyAccessExpr,
     ReadExpr,
@@ -31,11 +32,19 @@ from dsl_compiler.src.ir.builder import (
     SignalRef,
     ValueRef,
 )
-from dsl_compiler.src.ir.nodes import IR_EntityPropRead
+from dsl_compiler.src.ir.nodes import IR_EntityPropRead, IR_Decider, IR_Arith, IR_Const
 from dsl_compiler.src.semantic.symbol_table import SymbolType
 from dsl_compiler.src.semantic.type_system import IntValue, SignalValue, ValueInfo
 
 from .constant_folder import ConstantFolder
+
+# Operator category sets
+ARITHMETIC_OPS = {"+", "-", "*", "/", "%"}
+POWER_OP = "**"
+SHIFT_OPS = {"<<", ">>"}
+BITWISE_OPS = {"AND", "OR", "XOR"}
+COMPARISON_OPS = {"==", "!=", "<", "<=", ">", ">="}
+LOGICAL_OPS = {"&&", "||"}
 
 
 class ExpressionLowerer:
@@ -92,6 +101,7 @@ class ExpressionLowerer:
             PropertyAccessExpr: self.lower_property_access_expr,
             SignalLiteral: self.lower_signal_literal,
             DictLiteral: self.lower_dict_literal,
+            OutputSpecExpr: self.lower_output_spec_expr,
         }
 
         if type(expr) in handlers:
@@ -145,6 +155,7 @@ class ExpressionLowerer:
         return semantic_type
 
     def lower_binary_op(self, expr: BinaryOp) -> ValueRef:
+        """Lower binary operation to IR."""
         left_type = self.semantic.get_expr_type(expr.left)
         right_type = self.semantic.get_expr_type(expr.right)
         result_type = self.semantic.get_expr_type(expr)
@@ -153,6 +164,27 @@ class ExpressionLowerer:
             left_type.signal_type.name if isinstance(left_type, SignalValue) else None
         )
 
+        # Try constant folding FIRST, before lowering sub-expressions.
+        # This prevents creating unnecessary IR nodes for intermediate constants.
+        left_const = ConstantFolder.extract_constant_int(expr.left, self.diagnostics)
+        right_const = ConstantFolder.extract_constant_int(expr.right, self.diagnostics)
+
+        if left_const is not None and right_const is not None:
+            folded = self._fold_binary_constant(expr.op, left_const, right_const, expr)
+            if folded is not None:
+                if isinstance(result_type, SignalValue):
+                    output_type = result_type.signal_type.name
+                elif isinstance(left_type, SignalValue):
+                    output_type = left_type.signal_type.name
+                else:
+                    output_type = self.ir_builder.allocate_implicit_type()
+                if isinstance(result_type, SignalValue):
+                    self.parent.ensure_signal_registered(output_type, left_signal_type)
+                result = self.ir_builder.const(output_type, folded, expr)
+                self._attach_expr_context(result.source_id, expr)
+                return result
+
+        # Not a constant expression, lower sub-expressions to IR
         left_ref = self.lower_expr(expr.left)
         right_ref = self.lower_expr(expr.right)
 
@@ -177,77 +209,410 @@ class ExpressionLowerer:
         else:
             output_type = self.ir_builder.allocate_implicit_type()
 
-        left_const = ConstantFolder.extract_constant_int(expr.left, self.diagnostics)
-        right_const = ConstantFolder.extract_constant_int(expr.right, self.diagnostics)
-
-        if left_const is not None and right_const is not None:
-            folded = ConstantFolder.fold_binary_operation(
-                expr.op, left_const, right_const, expr, self.diagnostics
+        # Route to appropriate handler based on operator category
+        if expr.op in ARITHMETIC_OPS:
+            return self._lower_arithmetic_op(
+                expr, left_ref, right_ref, output_type, result_type, left_signal_type
             )
-            if folded is not None:
-                if isinstance(result_type, SignalValue):
-                    self.parent.ensure_signal_registered(output_type, left_signal_type)
-                result = self.ir_builder.const(output_type, folded, expr)
-                self._attach_expr_context(result.source_id, expr)
-                return result
 
-        merge_candidate = self._attempt_wire_merge(
-            expr, left_ref, right_ref, result_type
-        )
-        if merge_candidate is not None:
-            return merge_candidate
-
-        self.parent.ensure_signal_registered(output_type, left_signal_type)
-
-        if expr.op in ["+", "-", "*", "/", "%"]:
-            result = self.ir_builder.arithmetic(
-                expr.op, left_ref, right_ref, output_type, expr
+        if expr.op == POWER_OP:
+            return self._lower_power_op(
+                expr, left_ref, right_ref, output_type, left_signal_type
             )
-            self._attach_expr_context(result.source_id, expr)
-            return result
-        if expr.op in ["==", "!=", "<", "<=", ">", ">=", "&&", "||"]:
-            return self.lower_comparison_op(expr, left_ref, right_ref, output_type)
+
+        if expr.op in SHIFT_OPS:
+            return self._lower_shift_op(
+                expr, left_ref, right_ref, output_type, left_signal_type
+            )
+
+        if expr.op in BITWISE_OPS:
+            return self._lower_bitwise_op(
+                expr, left_ref, right_ref, output_type, left_signal_type
+            )
+
+        if expr.op in COMPARISON_OPS:
+            return self._lower_comparison_op(
+                expr, left_ref, right_ref, output_type, left_signal_type
+            )
+
+        if expr.op in LOGICAL_OPS:
+            return self._lower_logical_op(
+                expr, left_ref, right_ref, output_type, left_signal_type
+            )
 
         self._error(f"Unknown binary operator: {expr.op}", expr)
         return self.ir_builder.const(output_type, 0, expr)
 
-    def lower_comparison_op(
+    def _lower_arithmetic_op(
         self,
         expr: BinaryOp,
         left_ref: ValueRef,
         right_ref: ValueRef,
-        output_type: Optional[str] = None,
-    ) -> ValueRef:
-        if not output_type:
-            result_type = self.semantic.get_expr_type(expr)
-            if isinstance(result_type, SignalValue):
-                output_type = result_type.signal_type.name
-            else:
-                output_type = self.ir_builder.allocate_implicit_type()
-
-        if expr.op in ["==", "!=", "<", "<=", ">", ">="]:
-            result = self.ir_builder.decider(
-                expr.op, left_ref, right_ref, 1, output_type, expr
+        output_type: str,
+        result_type: ValueInfo,
+        left_signal_type: Optional[str],
+    ) -> SignalRef:
+        """Lower standard arithmetic operations (+, -, *, /, %)."""
+        # Try wire merge optimization for addition
+        if expr.op == "+":
+            merge_candidate = self._attempt_wire_merge(
+                expr, left_ref, right_ref, result_type
             )
-            self._attach_expr_context(result.source_id, expr)
-            return result
+            if merge_candidate is not None:
+                return merge_candidate
+
+        self.parent.ensure_signal_registered(output_type, left_signal_type)
+        result = self.ir_builder.arithmetic(
+            expr.op, left_ref, right_ref, output_type, expr
+        )
+        self._attach_expr_context(result.source_id, expr)
+        return result
+
+    def _lower_power_op(
+        self,
+        expr: BinaryOp,
+        left_ref: ValueRef,
+        right_ref: ValueRef,
+        output_type: str,
+        left_signal_type: Optional[str],
+    ) -> SignalRef:
+        """Lower power operation (**)."""
+        self.parent.ensure_signal_registered(output_type, left_signal_type)
+        # Factorio uses "^" for power
+        result = self.ir_builder.arithmetic("^", left_ref, right_ref, output_type, expr)
+        self._attach_expr_context(result.source_id, expr)
+        return result
+
+    def _lower_shift_op(
+        self,
+        expr: BinaryOp,
+        left_ref: ValueRef,
+        right_ref: ValueRef,
+        output_type: str,
+        left_signal_type: Optional[str],
+    ) -> SignalRef:
+        """Lower bit shift operations (<<, >>)."""
+        self.parent.ensure_signal_registered(output_type, left_signal_type)
+        result = self.ir_builder.arithmetic(
+            expr.op, left_ref, right_ref, output_type, expr
+        )
+        self._attach_expr_context(result.source_id, expr)
+        return result
+
+    def _lower_bitwise_op(
+        self,
+        expr: BinaryOp,
+        left_ref: ValueRef,
+        right_ref: ValueRef,
+        output_type: str,
+        left_signal_type: Optional[str],
+    ) -> SignalRef:
+        """Lower bitwise operations (AND, OR, XOR)."""
+        self.parent.ensure_signal_registered(output_type, left_signal_type)
+        result = self.ir_builder.arithmetic(
+            expr.op, left_ref, right_ref, output_type, expr
+        )
+        self._attach_expr_context(result.source_id, expr)
+        return result
+
+    def _lower_comparison_op(
+        self,
+        expr: BinaryOp,
+        left_ref: ValueRef,
+        right_ref: ValueRef,
+        output_type: str,
+        left_signal_type: Optional[str],
+    ) -> SignalRef:
+        """Lower comparison operations to decider combinator with constant output 1."""
+        self.parent.ensure_signal_registered(output_type, left_signal_type)
+        result = self.ir_builder.decider(
+            expr.op, left_ref, right_ref, 1, output_type, expr
+        )
+        self._attach_expr_context(result.source_id, expr)
+        return result
+
+    def _lower_logical_op(
+        self,
+        expr: BinaryOp,
+        left_ref: ValueRef,
+        right_ref: ValueRef,
+        output_type: str,
+        left_signal_type: Optional[str],
+    ) -> SignalRef:
+        """Lower logical operations (&&, ||) with correct semantics.
+
+        Optimizes for boolean inputs (from comparisons) but handles
+        arbitrary integer values correctly.
+        """
+        self.parent.ensure_signal_registered(output_type, left_signal_type)
+
         if expr.op == "&&":
+            return self._lower_logical_and(expr, left_ref, right_ref, output_type)
+        else:  # ||
+            return self._lower_logical_or(expr, left_ref, right_ref, output_type)
+
+    def _lower_logical_and(
+        self, expr: BinaryOp, left_ref: ValueRef, right_ref: ValueRef, output_type: str
+    ) -> SignalRef:
+        """Lower logical AND with optimization for boolean inputs.
+
+        Correct semantics: result is 1 if both operands are non-zero, 0 otherwise.
+
+        Optimization: If both inputs are known boolean (0/1), use multiplication.
+        Otherwise: (left != 0) * (right != 0)
+        """
+        left_is_bool = self._is_boolean_producer(left_ref)
+        right_is_bool = self._is_boolean_producer(right_ref)
+
+        if left_is_bool and right_is_bool:
+            # Optimization: multiply for 0/1 values (1 combinator)
             result = self.ir_builder.arithmetic(
                 "*", left_ref, right_ref, output_type, expr
             )
             self._attach_expr_context(result.source_id, expr)
             return result
-        if expr.op == "||":
+
+        # Correct implementation: (left != 0) * (right != 0) (3 combinators)
+        # Materialize integer literals only when needed - deciders need wired signals
+        if isinstance(left_ref, int):
+            left_ref = self.ir_builder.const(output_type, left_ref, expr)
+            # Force materialization - deciders can't compare inline integers
+            self.ir_builder.annotate_signal(
+                left_ref, metadata={"name": f"__literal_{left_ref}"}
+            )
+
+        left_bool = self.ir_builder.decider("!=", left_ref, 0, 1, output_type, expr)
+        self._attach_expr_context(left_bool.source_id, expr)
+
+        if isinstance(right_ref, int):
+            right_ref = self.ir_builder.const(output_type, right_ref, expr)
+            # Force materialization - deciders can't compare inline integers
+            self.ir_builder.annotate_signal(
+                right_ref, metadata={"name": f"__literal_{right_ref}"}
+            )
+
+        right_bool = self.ir_builder.decider("!=", right_ref, 0, 1, output_type, expr)
+        self._attach_expr_context(right_bool.source_id, expr)
+
+        result = self.ir_builder.arithmetic(
+            "*", left_bool, right_bool, output_type, expr
+        )
+        self._attach_expr_context(result.source_id, expr)
+        return result
+
+    def _lower_logical_or(
+        self, expr: BinaryOp, left_ref: ValueRef, right_ref: ValueRef, output_type: str
+    ) -> SignalRef:
+        """Lower logical OR with optimization for boolean inputs.
+
+        Correct semantics: result is 1 if either operand is non-zero, 0 otherwise.
+
+        Optimization: If both inputs are known boolean (0/1), use (a + b) > 0.
+        Otherwise: ((left != 0) + (right != 0)) > 0
+        """
+        left_is_bool = self._is_boolean_producer(left_ref)
+        right_is_bool = self._is_boolean_producer(right_ref)
+
+        if left_is_bool and right_is_bool:
+            # Optimization: (a + b) > 0 works for 0/1 values (2 combinators)
             sum_ref = self.ir_builder.arithmetic(
                 "+", left_ref, right_ref, output_type, expr
             )
             self._attach_expr_context(sum_ref.source_id, expr)
+
             result = self.ir_builder.decider(">", sum_ref, 0, 1, output_type, expr)
             self._attach_expr_context(result.source_id, expr)
             return result
 
-        self._error(f"Unknown binary operator: {expr.op}", expr)
-        return self.ir_builder.const(output_type, 0, expr)
+        # Correct implementation: ((left != 0) + (right != 0)) > 0 (4 combinators)
+        # Materialize integer literals only when needed - deciders need wired signals
+        if isinstance(left_ref, int):
+            left_ref = self.ir_builder.const(output_type, left_ref, expr)
+            # Force materialization - deciders can't compare inline integers
+            self.ir_builder.annotate_signal(
+                left_ref, metadata={"name": f"__literal_{left_ref}"}
+            )
+
+        left_bool = self.ir_builder.decider("!=", left_ref, 0, 1, output_type, expr)
+        self._attach_expr_context(left_bool.source_id, expr)
+
+        if isinstance(right_ref, int):
+            right_ref = self.ir_builder.const(output_type, right_ref, expr)
+            # Force materialization - deciders can't compare inline integers
+            self.ir_builder.annotate_signal(
+                right_ref, metadata={"name": f"__literal_{right_ref}"}
+            )
+
+        right_bool = self.ir_builder.decider("!=", right_ref, 0, 1, output_type, expr)
+        self._attach_expr_context(right_bool.source_id, expr)
+
+        sum_ref = self.ir_builder.arithmetic(
+            "+", left_bool, right_bool, output_type, expr
+        )
+        self._attach_expr_context(sum_ref.source_id, expr)
+
+        result = self.ir_builder.decider(">", sum_ref, 0, 1, output_type, expr)
+        self._attach_expr_context(result.source_id, expr)
+        return result
+
+    def _is_boolean_producer(self, ref: ValueRef) -> bool:
+        """Check if a ValueRef is guaranteed to produce 0 or 1.
+
+        Returns True for:
+        - Integer constants 0 or 1
+        - Decider combinators with constant output (comparisons)
+        - Constants with value 0 or 1 (e.g., folded comparisons)
+        - Arithmetic: multiplication of two boolean producers
+        - Arithmetic: identity projection (x + 0) where x is boolean
+        """
+        if isinstance(ref, int):
+            return ref in (0, 1)
+
+        if isinstance(ref, SignalRef):
+            op = self.ir_builder.get_operation(ref.source_id)
+
+            # Deciders with constant integer output produce booleans
+            if isinstance(op, IR_Decider):
+                if isinstance(op.output_value, int):
+                    return True
+
+            # Constants with 0 or 1 value
+            if isinstance(op, IR_Const):
+                return op.value in (0, 1)
+
+            # Arithmetic operations that preserve boolean status
+            if isinstance(op, IR_Arith):
+                # Multiplication of booleans produces boolean
+                if op.op == "*":
+                    return self._is_boolean_producer(
+                        op.left
+                    ) and self._is_boolean_producer(op.right)
+                # Identity projection (x + 0) preserves boolean status
+                if op.op == "+" and op.right == 0:
+                    return self._is_boolean_producer(op.left)
+
+        return False
+
+    def _fold_binary_constant(
+        self, op: str, left: int, right: int, node: Expr
+    ) -> Optional[int]:
+        """Fold binary operation on constants at compile time.
+
+        Delegates to ConstantFolder for the actual folding logic.
+        """
+        return ConstantFolder.fold_binary_operation(
+            op, left, right, node, self.diagnostics
+        )
+
+    def lower_output_spec_expr(self, expr: OutputSpecExpr) -> SignalRef:
+        """Lower output specifier expression to decider with copy-count-from-input.
+
+        (condition) : output_value
+
+        The condition must be a comparison. When true, outputs the output_value
+        instead of constant 1.
+        """
+        # Validate that condition is a comparison
+        if (
+            not isinstance(expr.condition, BinaryOp)
+            or expr.condition.op not in COMPARISON_OPS
+        ):
+            self._error(
+                "Output specifier (:) requires a comparison expression. "
+                f"Got operator: {getattr(expr.condition, 'op', 'non-binary')}",
+                expr,
+            )
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
+
+        comparison = expr.condition
+
+        # Try constant folding the entire output spec expression
+        # If both comparison operands are constants, we can evaluate at compile time
+        left_const = ConstantFolder.extract_constant_int(
+            comparison.left, self.diagnostics
+        )
+        right_const = ConstantFolder.extract_constant_int(
+            comparison.right, self.diagnostics
+        )
+        output_const = ConstantFolder.extract_constant_int(
+            expr.output_value, self.diagnostics
+        )
+
+        if left_const is not None and right_const is not None:
+            # Evaluate comparison at compile time
+            cmp_result = ConstantFolder.fold_binary_operation(
+                comparison.op, left_const, right_const, expr, self.diagnostics
+            )
+            if cmp_result is not None:
+                # If comparison is true, output the output_value; otherwise 0
+                if cmp_result != 0:
+                    # Condition is true - output the value
+                    if output_const is not None:
+                        # Both comparison and output are constants
+                        output_type = self.ir_builder.allocate_implicit_type()
+                        self.parent.ensure_signal_registered(output_type)
+                        return self.ir_builder.const(output_type, output_const, expr)
+                    else:
+                        # Comparison is constant-true, but output is a signal
+                        # Just return the output value (condition is always true)
+                        return self.lower_expr(expr.output_value)
+                else:
+                    # Condition is false - output 0
+                    output_type = self.ir_builder.allocate_implicit_type()
+                    self.parent.ensure_signal_registered(output_type)
+                    return self.ir_builder.const(output_type, 0, expr)
+
+        # Lower the comparison operands
+        left_ref = self.lower_expr(comparison.left)
+        right_ref = self.lower_expr(comparison.right)
+
+        # Lower the output value
+        output_value_ref = self.lower_expr(expr.output_value)
+
+        # Determine output signal type from the output_value
+        result_type = self.semantic.get_expr_type(expr)
+        if isinstance(result_type, SignalValue):
+            output_type = result_type.signal_type.name
+        elif isinstance(output_value_ref, SignalRef):
+            output_type = output_value_ref.signal_type
+        else:
+            # Integer constant - use comparison left operand's type
+            left_type = self.semantic.get_expr_type(comparison.left)
+            if isinstance(left_type, SignalValue):
+                output_type = left_type.signal_type.name
+            else:
+                output_type = self.ir_builder.allocate_implicit_type()
+
+        self.parent.ensure_signal_registered(output_type)
+
+        # Determine if we're copying from input or outputting a constant
+        if isinstance(output_value_ref, int):
+            # Constant output value
+            result = self.ir_builder.decider(
+                comparison.op,
+                left_ref,
+                right_ref,
+                output_value_ref,  # Integer constant
+                output_type,
+                expr,
+                copy_count_from_input=False,
+            )
+        else:
+            # Signal output - use copy_count_from_input
+            result = self.ir_builder.decider(
+                comparison.op,
+                left_ref,
+                right_ref,
+                output_value_ref,  # SignalRef
+                output_type,
+                expr,
+                copy_count_from_input=True,
+            )
+
+        self._attach_expr_context(result.source_id, expr)
+        return result
 
     def lower_unary_op(self, expr: UnaryOp) -> ValueRef:
         operand_type = self.semantic.get_expr_type(expr.expr)
@@ -724,14 +1089,62 @@ class ExpressionLowerer:
         )
         return merge_ref
 
+    def _try_extract_const_value(self, value_ref: ValueRef) -> Optional[int]:
+        """Try to extract a constant integer value from a ValueRef.
+
+        This recursively resolves IR operations if they involve only constants.
+        Used for extracting compile-time constant coordinates.
+
+        Returns:
+            int if the value is a compile-time constant, None otherwise
+        """
+        # Direct integer
+        if isinstance(value_ref, int):
+            return value_ref
+
+        # Not a SignalRef - can't extract
+        if not isinstance(value_ref, SignalRef):
+            return None
+
+        op = self.ir_builder.get_operation(value_ref.source_id)
+        if op is None:
+            return None
+
+        # Constant combinator - return its value
+        if isinstance(op, IR_Const):
+            return op.value
+
+        # Arithmetic operation - check if operands are constants
+        if isinstance(op, IR_Arith):
+            left_val = self._try_extract_const_value(op.left)
+            right_val = self._try_extract_const_value(op.right)
+
+            if left_val is not None and right_val is not None:
+                # Both operands are constants - fold the operation
+                return ConstantFolder.fold_binary_operation(
+                    op.op, left_val, right_val, op.source_ast, self.diagnostics
+                )
+
+        # Not a constant value
+        return None
+
     def _extract_coordinate(self, coord_expr: Expr) -> Union[int, ValueRef]:
-        if isinstance(coord_expr, SignalLiteral) and isinstance(
-            coord_expr.value, NumberLiteral
-        ):
-            return coord_expr.value.value
-        if isinstance(coord_expr, NumberLiteral):
-            return coord_expr.value
-        return self.lower_expr(coord_expr)
+        """Extract coordinate from place() call, resolving compile-time constants.
+
+        Returns:
+        - int: Fixed position (compile-time constant)
+        - ValueRef: Dynamic position (optimized by layout engine)
+        """
+        # Lower the expression normally (this handles constant folding)
+        value_ref = self.lower_expr(coord_expr)
+
+        # Try to extract a constant value (handles variables and const expressions)
+        const_value = self._try_extract_const_value(value_ref)
+        if const_value is not None:
+            return const_value
+
+        # Dynamic expression - return as-is for layout optimization
+        return value_ref
 
     def _lower_place_core(self, expr: CallExpr) -> tuple[str, SignalRef]:
         """Lower place() builtin into IR operations."""

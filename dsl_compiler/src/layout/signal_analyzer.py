@@ -3,6 +3,11 @@ from typing import Any, Dict, List, Optional, Set, Union
 from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
 from dsl_compiler.src.ast.expressions import SignalLiteral
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.common.signals import (
+    AVAILABLE_VIRTUAL_SIGNALS,
+    RESERVED_SIGNALS,
+    WILDCARD_SIGNALS,
+)
 from dsl_compiler.src.ir.builder import (
     IRNode,
     IRValue,
@@ -59,12 +64,17 @@ class SignalAnalyzer:
         self.referenced_signal_names = referenced_signal_names or set()
         self.signal_usage: Dict[str, SignalUsageEntry] = {}
         # Pre-populate allocated signals from existing mappings
-        self._allocated_signals: set = set()
+        self._allocated_signals: Set[str] = set()
         for mapping in signal_type_map.values():
             if isinstance(mapping, dict):
                 self._allocated_signals.add(mapping.get("name"))
             elif isinstance(mapping, str):
                 self._allocated_signals.add(mapping)
+
+        # Build pool of available virtual signals for allocation
+        self._available_signal_pool = self._build_available_signal_pool()
+        self._signal_pool_index = 0
+        self._warned_signal_reuse = False
 
     def analyze(self, ir_operations: List[IRNode]) -> Dict[str, SignalUsageEntry]:
         """Analyze IR operations to build a signal usage index."""
@@ -476,22 +486,55 @@ class SignalAnalyzer:
             return "virtual"
         return "virtual"
 
-    def _allocate_factorio_virtual_signal(self) -> str:
-        """Allocate a fresh Factorio virtual signal (signal-A, signal-B, etc.)."""
-        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        index = 0
-        while True:
-            name = ""
-            temp = index
-            while True:
-                name = alphabet[temp % 26] + name
-                temp = temp // 26
-                if temp == 0:
-                    break
-                temp -= 1
+    def _build_available_signal_pool(self) -> List[str]:
+        """
+        Build pool of signals available for implicit allocation.
 
-            signal_name = f"signal-{name}"
-            if signal_name not in self._allocated_signals:
-                self._allocated_signals.add(signal_name)
-                return signal_name
-            index += 1
+        Excludes:
+        - Signals already used in signal_type_map
+        - Signals explicitly referenced by user code
+        - Reserved compiler signals
+        - Wildcard signals
+        """
+        excluded: Set[str] = set()
+
+        # Add reserved and wildcard signals
+        excluded.update(RESERVED_SIGNALS)
+        excluded.update(WILDCARD_SIGNALS)
+
+        # Add signals already allocated or mapped
+        excluded.update(self._allocated_signals)
+
+        # Add user-referenced signals (from program source)
+        excluded.update(self.referenced_signal_names)
+
+        # Build the pool excluding used signals
+        return [s for s in AVAILABLE_VIRTUAL_SIGNALS if s not in excluded]
+
+    def _allocate_factorio_virtual_signal(self) -> str:
+        """
+        Allocate a fresh Factorio virtual signal from the available pool.
+
+        Uses signals in priority order (letters, digits, colors, then symbols).
+        When exhausted, warns once and starts reusing from the beginning.
+        """
+        if not self._available_signal_pool:
+            # No signals available at all - fall back to signal-0
+            self.diagnostics.warning(
+                "No virtual signals available for allocation. Using signal-0."
+            )
+            return "signal-0"
+
+        if self._signal_pool_index >= len(self._available_signal_pool):
+            if not self._warned_signal_reuse:
+                self.diagnostics.warning(
+                    f"Exhausted all {len(self._available_signal_pool)} available virtual signals. "
+                    "Some internal signals will be reused - this may cause signal collisions."
+                )
+                self._warned_signal_reuse = True
+            self._signal_pool_index = 0
+
+        signal_name = self._available_signal_pool[self._signal_pool_index]
+        self._signal_pool_index += 1
+        self._allocated_signals.add(signal_name)
+        return signal_name

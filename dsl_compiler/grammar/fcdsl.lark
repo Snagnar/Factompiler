@@ -1,13 +1,19 @@
 // fcdsl.lark
 // Factorio Circuit DSL grammar (Lark format)
-// - Use with Lark (LALR). Keeps operator precedence explicit.
-// - '|' projection binds looser than + and * but tighter than comparisons.
+// Version 2.0 - Extended operator support
 
 %import common.ESCAPED_STRING   -> STRING
-%import common.SIGNED_NUMBER    -> NUMBER
 %import common.WS_INLINE
 %ignore WS_INLINE
 %ignore /#[^\n]*/               // line comments start with #
+
+// Number literals supporting multiple bases
+NUMBER: HEX_NUMBER | OCT_NUMBER | BIN_NUMBER | DEC_NUMBER
+
+HEX_NUMBER: /0[xX][0-9a-fA-F]+/
+OCT_NUMBER: /0[oO][0-7]+/
+BIN_NUMBER: /0[bB][01]+/
+DEC_NUMBER: /[+-]?[0-9]+/
 
 // Keywords for special forms (must come before NAME to take precedence)
 READ_KW: "read"
@@ -20,6 +26,22 @@ SIGNAL_KW: "Signal"
 SIGNALTYPE_KW: "SignalType" 
 ENTITY_KW: "Entity"
 MEMORY_KW: "Memory"
+
+// Operator Tokens
+// Note: Lark automatically handles longest-match, but we define multi-char operators first for clarity
+POWER_OP: "**"
+SHIFT_OP.2: "<<" | ">>"
+LOGIC_AND: "&&" | "and"
+LOGIC_OR: "||" | "or"
+COMP_OP: "==" | "!=" | "<=" | ">=" | "<" | ">"
+BITWISE_AND: "AND"
+BITWISE_XOR: "XOR"
+BITWISE_OR: "OR"
+MUL_OP: "*" | "/" | "%"
+ADD_OP: "+" | "-"
+OUTPUT_SPEC: ":"
+PROJ_OP: "|"
+UNARY_OP: "+" | "-" | "!"
 
 NAME: /[A-Za-z_][A-Za-z0-9_]*/
 
@@ -64,33 +86,42 @@ param_list: NAME ("," NAME)*
 
 // ---------------------------------
 // Expressions with precedence
-// Precedence (tightest -> loosest):
-//  primary -> unary -> mul -> add -> projection (|) -> comparison -> logic
+// Precedence from LOWEST (loosest) to HIGHEST (tightest):
+//  logic_or -> logic_and -> output_spec -> comparison -> projection -> 
+//  bitwise_or -> bitwise_xor -> bitwise_and -> shift -> add -> mul -> power -> unary -> primary
 // ---------------------------------
-expr: logic
+expr: logic_or
 
-logic: comparison ( LOGIC_OP comparison )*
+logic_or: logic_and ( LOGIC_OR logic_and )*
+
+logic_and: output_spec ( LOGIC_AND output_spec )*
+
+// Output specifier for decider copy-count-from-input
+output_spec: comparison [ OUTPUT_SPEC output_value ]
+
+output_value: primary
 
 comparison: projection ( COMP_OP projection )*
 
-LOGIC_OP: "&&" | "||"
-COMP_OP: "==" | "!=" | "<=" | ">=" | "<" | ">"
+projection: bitwise_or ( PROJ_OP type_literal )*
 
-projection: add ( PROJ_OP type_literal )*        // projection binds looser than +; allow multiple chained projections (rare)
+bitwise_or: bitwise_xor ( BITWISE_OR bitwise_xor )*
 
-PROJ_OP: "|"
+bitwise_xor: bitwise_and ( BITWISE_XOR bitwise_and )*
+
+bitwise_and: shift ( BITWISE_AND shift )*
+
+shift: add ( SHIFT_OP add )*
 
 add: mul ( ADD_OP mul )*
 
-mul: unary ( MUL_OP unary )*
+mul: power ( MUL_OP power )*
 
-ADD_OP: "+" | "-"
-MUL_OP: "*" | "/" | "%"
+// Power is RIGHT-ASSOCIATIVE: 2**3**4 = 2**(3**4)
+power: unary ( POWER_OP power )?
 
 unary: UNARY_OP unary
      | primary
-
-UNARY_OP: "+" | "-" | "!"
 
 // primary expressions (constructors, calls, memory ops, property access)
 primary: literal

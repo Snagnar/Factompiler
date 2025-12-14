@@ -179,14 +179,46 @@ class PowerPlanner:
         if entity_count == 0:
             return
 
+        # Calculate bounds from entity count estimate
         avg_entity_area = 3.5 * 3.5  # Entity + spacing
         total_area = entity_count * avg_entity_area
-
         approx_side = math.sqrt(total_area)
-
         safety_margin = 5.0
-        width = approx_side + 2 * safety_margin
-        height = approx_side + 2 * safety_margin
+        estimated_width = approx_side + 2 * safety_margin
+        estimated_height = approx_side + 2 * safety_margin
+
+        # Also consider user-specified entity positions to ensure full coverage
+        user_min_x, user_min_y = 0.0, 0.0
+        user_max_x, user_max_y = 0.0, 0.0
+        has_user_positions = False
+
+        for placement in self.layout_plan.entity_placements.values():
+            if placement.position is not None:
+                is_user = placement.properties.get("user_specified_position")
+                if is_user:
+                    has_user_positions = True
+                    footprint_w, footprint_h = placement.properties.get(
+                        "footprint", (1, 1)
+                    )
+                    px, py = placement.position
+                    user_min_x = min(user_min_x, px)
+                    user_min_y = min(user_min_y, py)
+                    user_max_x = max(user_max_x, px + footprint_w)
+                    user_max_y = max(user_max_y, py + footprint_h)
+
+        # Use the larger of estimated bounds and actual user bounds
+        if has_user_positions:
+            # Extend bounds to cover all user-specified positions plus margin
+            width = max(estimated_width, user_max_x - user_min_x + 2 * safety_margin)
+            height = max(estimated_height, user_max_y - user_min_y + 2 * safety_margin)
+            # Adjust start offset to cover negative positions if any
+            start_x_offset = min(0.0, user_min_x) - safety_margin
+            start_y_offset = min(0.0, user_min_y) - safety_margin
+        else:
+            width = estimated_width
+            height = estimated_height
+            start_x_offset = 0.0
+            start_y_offset = 0.0
 
         supply_radius = float(config["supply_radius"])
         # This ensures overlapping coverage while leaving maximum room for entities
@@ -196,13 +228,17 @@ class PowerPlanner:
         footprint = tuple(int(v) for v in config.get("footprint", (1, 1)))
 
         # Start at negative offset to ensure coverage of entities at (0,0)+
-        start_offset = -spacing / 2.0 + footprint[0] / 2.0
+        base_offset = -spacing / 2.0 + footprint[0] / 2.0
+        start_x = start_x_offset + base_offset
+        start_y = start_y_offset + base_offset
+        end_x = start_x_offset + width
+        end_y = start_y_offset + height
 
         poles_added = 0
-        x = start_offset
-        while x < width:
-            y = start_offset
-            while y < height:
+        x = start_x
+        while x < end_x:
+            y = start_y
+            while y < end_y:
                 tile_x = int(round(x))
                 tile_y = int(round(y))
 
@@ -244,5 +280,106 @@ class PowerPlanner:
 
         self.diagnostics.info(
             f"Added {poles_added} {pole_type} power poles in {int(width)}x{int(height)} grid "
+            f"(spacing: {spacing:.1f} tiles, coverage: {supply_radius:.1f} tiles)"
+        )
+
+    def add_power_pole_grid_from_bounds(self, pole_type: str) -> None:
+        """Add power poles based on actual entity positions.
+
+        This method should be called AFTER layout optimization to place
+        power poles based on actual entity positions rather than estimates.
+
+        Strategy:
+        1. Compute bounding box of all placed entities
+        2. Create a minimal grid of power poles covering the bounds
+        3. Only place poles where there's actually something to power
+
+        Args:
+            pole_type: Type of power pole (small/medium/big/substation)
+        """
+        config = POWER_POLE_CONFIG.get(pole_type.lower())
+        if config is None:
+            self.diagnostics.warning(
+                f"Unknown power pole type '{pole_type}'; skipping power grid"
+            )
+            return
+
+        # Get actual entity bounds (excluding power poles)
+        bounds = self._compute_entity_bounds(exclude_power_poles=True)
+        if bounds is None:
+            return
+
+        min_x, min_y, max_x, max_y = bounds
+
+        supply_radius = float(config["supply_radius"])
+        # Spacing should provide overlapping coverage
+        spacing = 2.0 * supply_radius
+
+        prototype = str(config["prototype"])
+        footprint = tuple(int(v) for v in config.get("footprint", (1, 1)))
+
+        # Expand bounds by supply radius to ensure edge coverage
+        grid_min_x = min_x - supply_radius
+        grid_min_y = min_y - supply_radius
+        grid_max_x = max_x + supply_radius
+        grid_max_y = max_y + supply_radius
+
+        poles_added = 0
+
+        # Start at the first pole position that would cover the minimum bound
+        x = grid_min_x
+        while x <= grid_max_x:
+            y = grid_min_y
+            while y <= grid_max_y:
+                tile_x = int(round(x))
+                tile_y = int(round(y))
+
+                if not self.tile_grid.is_available((tile_x, tile_y), footprint):
+                    # Try to find a nearby available position
+                    found = False
+                    for offset in [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, -1)]:
+                        alt_x = tile_x + offset[0]
+                        alt_y = tile_y + offset[1]
+                        if self.tile_grid.is_available((alt_x, alt_y), footprint):
+                            tile_x, tile_y = alt_x, alt_y
+                            found = True
+                            break
+                    if not found:
+                        y += spacing
+                        continue
+
+                pole_id = f"power_pole_{poles_added + 1}"
+
+                center_x = tile_x + footprint[0] / 2.0
+                center_y = tile_y + footprint[1] / 2.0
+
+                placement = EntityPlacement(
+                    ir_node_id=pole_id,
+                    entity_type=prototype,
+                    position=(center_x, center_y),
+                    properties={
+                        "footprint": footprint,
+                        "is_power_pole": True,
+                        "pole_type": pole_type,
+                        "debug_info": {
+                            "variable": f"power_pole_{poles_added + 1}",
+                            "operation": "power",
+                            "details": "electricity supply",
+                        },
+                    },
+                    role="power_pole",
+                )
+
+                self.layout_plan.add_placement(placement)
+                self.tile_grid.mark_occupied((tile_x, tile_y), footprint)
+
+                poles_added += 1
+
+                y += spacing
+            x += spacing
+
+        self.diagnostics.info(
+            f"Added {poles_added} {pole_type} power poles for entity bounds "
+            f"({min_x:.0f},{min_y:.0f})-({max_x:.0f},{max_y:.0f}) "
             f"(spacing: {spacing:.1f} tiles, coverage: {supply_radius:.1f} tiles)"
         )

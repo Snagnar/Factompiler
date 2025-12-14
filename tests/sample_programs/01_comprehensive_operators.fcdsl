@@ -1,0 +1,269 @@
+# Comprehensive Operator Test Suite
+# Visual verification with lamps - GREEN = test passes
+# Tests all new operators: **, <<, >>, AND, OR, XOR, &&, ||, and, or, :
+# Also tests different number bases: binary (0b), octal (0o), hexadecimal (0x)
+
+# ============================================================================
+# SECTION 1: POWER OPERATOR (**)
+# ============================================================================
+
+int lamp_y = -3;
+
+# Test 1: Basic power
+Signal pow_test1 = 2 ** 3;                  # Should be 8
+Signal pow_check1 = pow_test1 == 8 | "signal-A";
+Entity lamp_pow1 = place("small-lamp", 0, lamp_y);
+lamp_pow1.enable = pow_check1 > 0;
+
+# Test 2: Right-associativity (2**3**2 = 2**(3**2) = 2**9 = 512)
+Signal pow_test2 = 2 ** 3 ** 2;
+Signal pow_check2 = pow_test2 == 512 | "signal-A";
+Entity lamp_pow2 = place("small-lamp", 2, lamp_y);
+lamp_pow2.enable = pow_check2 > 0;
+
+# Test 3: Power with zero exponent
+Signal pow_test3 = 10 ** 0;                 # Should be 1
+Signal pow_check3 = pow_test3 == 1 | "signal-A";
+Entity lamp_pow3 = place("small-lamp", 4, lamp_y);
+lamp_pow3.enable = pow_check3 > 0;
+
+# ============================================================================
+# SECTION 2: SHIFT OPERATORS (<<, >>)
+# ============================================================================
+
+# Test 4: Left shift (multiply by 2^n)
+Signal shift_test1 = 5 << 2;                # 5 * 4 = 20
+Signal shift_check1 = shift_test1 == 20 | "signal-A";
+Entity lamp_shift1 = place("small-lamp", 6, lamp_y);
+lamp_shift1.enable = shift_check1 > 0;
+
+# Test 5: Right shift (divide by 2^n)
+Signal shift_test2 = 20 >> 2;               # 20 / 4 = 5
+Signal shift_check2 = shift_test2 == 5 | "signal-A";
+Entity lamp_shift2 = place("small-lamp", 8, lamp_y);
+lamp_shift2.enable = shift_check2 > 0;
+
+# Test 6: Shift chain (left-to-right)
+Signal shift_test3 = 128 >> 2 >> 2;         # 128 / 4 / 4 = 8
+Signal shift_check3 = shift_test3 == 8 | "signal-A";
+Entity lamp_shift3 = place("small-lamp", 10, lamp_y);
+lamp_shift3.enable = shift_check3 > 0;
+
+# ============================================================================
+# SECTION 3: BITWISE OPERATORS (AND, OR, XOR)
+# ============================================================================
+
+# Test 7: Bitwise AND (masking)
+Signal bit_test1 = 255 AND 15;              # 0xFF AND 0x0F = 0x0F = 15
+Signal bit_check1 = bit_test1 == 15 | "signal-A";
+Entity lamp_bit1 = place("small-lamp", 12, lamp_y);
+lamp_bit1.enable = bit_check1 > 0;
+
+# Test 8: Bitwise OR (combining)
+Signal bit_test2 = 240 OR 15;               # 0xF0 OR 0x0F = 0xFF = 255
+Signal bit_check2 = bit_test2 == 255 | "signal-A";
+Entity lamp_bit2 = place("small-lamp", 14, lamp_y);
+lamp_bit2.enable = bit_check2 > 0;
+
+# Test 9: Bitwise XOR (toggling)
+Signal bit_test3 = 255 XOR 255;             # Same bits cancel = 0
+Signal bit_check3 = bit_test3 == 0 | "signal-A";
+Entity lamp_bit3 = place("small-lamp", 16, lamp_y);
+lamp_bit3.enable = bit_check3 > 0;
+
+# Test 10: XOR with different values
+Signal bit_test4 = 170 XOR 85;              # 0xAA XOR 0x55 = 0xFF = 255
+Signal bit_check4 = bit_test4 == 255 | "signal-A";
+Entity lamp_bit4 = place("small-lamp", 18, lamp_y);
+lamp_bit4.enable = bit_check4 > 0;
+
+# ============================================================================
+# SECTION 4: LOGICAL OPERATORS (&&, ||) - FIXED FOR NEGATIVE VALUES
+# ============================================================================
+
+# Test 11: Logical AND with positive values
+Signal log_test1 = 5 && 3;                  # Both non-zero = 1
+Signal log_check1 = log_test1 == 1 | "signal-A";
+Entity lamp_log1 = place("small-lamp", 20, lamp_y);
+lamp_log1.enable = log_check1 > 0;
+
+# Test 12: Logical AND with zero
+Signal log_test2 = 0 && 5;                  # One zero = 0
+Signal log_check2 = log_test2 == 0 | "signal-A";
+Entity lamp_log2 = place("small-lamp", 22, lamp_y);
+lamp_log2.enable = log_check2 > 0;
+
+# Test 13: Logical OR with zero
+Signal log_test3 = 0 || 5;                  # One non-zero = 1
+Signal log_check3 = log_test3 == 1 | "signal-A";
+Entity lamp_log3 = place("small-lamp", 24, lamp_y);
+lamp_log3.enable = log_check3 > 0;
+
+# Test 14: Logical OR with negative (CRITICAL BUG FIX TEST!)
+Signal neg_five = -5;
+Signal log_test4 = neg_five || 0;           # Should be 1 (was broken before!)
+Signal log_check4 = log_test4 == 1 | "signal-A";
+Entity lamp_log4 = place("small-lamp", 26, lamp_y);
+lamp_log4.enable = log_check4 > 0;
+
+# Test 15: Logical AND with negatives
+Signal log_test5 = neg_five && 3;           # Both non-zero = 1
+Signal log_check5 = log_test5 == 1 | "signal-A";
+Entity lamp_log5 = place("small-lamp", 28, lamp_y);
+lamp_log5.enable = log_check5 > 0;
+
+# ============================================================================
+# SECTION 5: LOGICAL KEYWORDS (and, or)
+# ============================================================================
+
+# Test 16: 'and' keyword
+Signal kw_test1 = 5 and 3;                  # Same as 5 && 3 = 1
+Signal kw_check1 = kw_test1 == 1 | "signal-A";
+Entity lamp_kw1 = place("small-lamp", 30, lamp_y);
+lamp_kw1.enable = kw_check1 > 0;
+
+# Test 17: 'or' keyword
+Signal kw_test2 = 0 or 5;                   # Same as 0 || 5 = 1
+Signal kw_check2 = kw_test2 == 1 | "signal-A";
+Entity lamp_kw2 = place("small-lamp", 32, lamp_y);
+lamp_kw2.enable = kw_check2 > 0;
+
+# ============================================================================
+# SECTION 6: OUTPUT SPECIFIER (:)
+# ============================================================================
+
+# Test 18: Output specifier with constant
+Signal out_test1 = (10 > 5) : 42;           # Condition true, outputs 42
+Signal out_check1 = out_test1 == 42 | "signal-A";
+Entity lamp_out1 = place("small-lamp", 34, lamp_y);
+lamp_out1.enable = out_check1 > 0;
+
+# Test 19: Output specifier with signal (clamping)
+Signal out_val = 100;
+Signal out_max = 50;
+Signal out_test2 = (out_val > out_max) : out_max;  # Outputs 50 (clamped)
+Signal out_check2 = out_test2 == 50 | "signal-A";
+Entity lamp_out2 = place("small-lamp", 36, lamp_y);
+lamp_out2.enable = out_check2 > 0;
+
+# ============================================================================
+# SECTION 7: NUMBER LITERALS - BINARY (0b)
+# ============================================================================
+
+# Test 20: Binary literal
+Signal bin_test1 = 0b1111;                  # 15 in decimal
+Signal bin_check1 = bin_test1 == 15 | "signal-A";
+Entity lamp_bin1 = place("small-lamp", 38, lamp_y);
+lamp_bin1.enable = bin_check1 > 0;
+
+# Test 21: Binary with operations
+Signal bin_test2 = 0b1010 + 0b0101;         # 10 + 5 = 15
+Signal bin_check2 = bin_test2 == 15 | "signal-A";
+Entity lamp_bin2 = place("small-lamp", 40, lamp_y);
+lamp_bin2.enable = bin_check2 > 0;
+
+# Test 22: Binary mask
+Signal bin_test3 = 0b11111111 AND 0b00001111;  # 255 AND 15 = 15
+Signal bin_check3 = bin_test3 == 15 | "signal-A";
+Entity lamp_bin3 = place("small-lamp", 42, lamp_y);
+lamp_bin3.enable = bin_check3 > 0;
+
+# ============================================================================
+# SECTION 8: NUMBER LITERALS - OCTAL (0o)
+# ============================================================================
+
+# Test 23: Octal literal
+Signal oct_test1 = 0o77;                    # 63 in decimal
+Signal oct_check1 = oct_test1 == 63 | "signal-A";
+Entity lamp_oct1 = place("small-lamp", 44, lamp_y);
+lamp_oct1.enable = oct_check1 > 0;
+
+# Test 24: Octal equivalence
+Signal oct_test2 = 0o377;                   # 255 in decimal
+Signal oct_check2 = oct_test2 == 255 | "signal-A";
+Entity lamp_oct2 = place("small-lamp", 46, lamp_y);
+lamp_oct2.enable = oct_check2 > 0;
+
+# Test 25: Octal with operations
+Signal oct_test3 = 0o10 + 0o20;             # 8 + 16 = 24
+Signal oct_check3 = oct_test3 == 24 | "signal-A";
+Entity lamp_oct3 = place("small-lamp", 48, lamp_y);
+lamp_oct3.enable = oct_check3 > 0;
+
+# ============================================================================
+# SECTION 9: NUMBER LITERALS - HEXADECIMAL (0x)
+# ============================================================================
+
+# Test 26: Hex literal
+Signal hex_test1 = 0xFF;                    # 255 in decimal
+Signal hex_check1 = hex_test1 == 255 | "signal-A";
+Entity lamp_hex1 = place("small-lamp", 50, lamp_y);
+lamp_hex1.enable = hex_check1 > 0;
+
+# Test 27: Hex with operations
+Signal hex_test2 = 0xFF AND 0xF0;           # 255 AND 240 = 240
+Signal hex_check2 = hex_test2 == 240 | "signal-A";
+Entity lamp_hex2 = place("small-lamp", 52, lamp_y);
+lamp_hex2.enable = hex_check2 > 0;
+
+# Test 28: Hex case insensitivity
+Signal hex_test3 = 0xAbCd;                  # Mixed case = 43981
+Signal hex_check3 = hex_test3 == 43981 | "signal-A";
+Entity lamp_hex3 = place("small-lamp", 54, lamp_y);
+lamp_hex3.enable = hex_check3 > 0;
+
+# ============================================================================
+# SECTION 10: MIXED BASES
+# ============================================================================
+
+# Test 29: All bases equal (255 test)
+Signal mix_test1 = 255 == 0xFF;             # Decimal == Hex
+Signal mix_test2 = 0xFF == 0b11111111;      # Hex == Binary
+Signal mix_test3 = 0b11111111 == 0o377;     # Binary == Octal
+Signal mix_check = mix_test1 && mix_test2 && mix_test3 | "signal-A";
+Entity lamp_mix1 = place("small-lamp", 56, lamp_y);
+lamp_mix1.enable = mix_check > 0;
+
+# Test 30: Mixed base arithmetic
+Signal mix_test4 = 0b1010 + 0o12 + 0xFF;    # 10 + 10 + 255 = 275
+Signal mix_check2 = mix_test4 == 275 | "signal-A";
+Entity lamp_mix2 = place("small-lamp", 58, lamp_y);
+lamp_mix2.enable = mix_check2 > 0;
+
+# ============================================================================
+# SECTION 11: COMPLEX EXPRESSIONS
+# ============================================================================
+
+# Test 31: Operator precedence
+Signal prec_test1 = 2 + 3 ** 2;             # 2 + 9 = 11 (** before +)
+Signal prec_check1 = prec_test1 == 11 | "signal-A";
+Entity lamp_prec1 = place("small-lamp", 60, lamp_y);
+lamp_prec1.enable = prec_check1 > 0;
+
+# Test 32: Mixed operators
+Signal prec_test2 = 2 ** 3 + 4 << 1 AND 255;  # (8 + 4) << 1 AND 255 = 24
+Signal prec_check2 = prec_test2 == 24 | "signal-A";
+Entity lamp_prec2 = place("small-lamp", 62, lamp_y);
+lamp_prec2.enable = prec_check2 > 0;
+
+# # # ============================================================================
+# # MASTER SUMMARY LAMP
+# # ============================================================================
+
+# # Count passing tests (all should be 1)
+Signal total_passes = pow_check1 + pow_check2 + pow_check3 +
+                      shift_check1 + shift_check2 + shift_check3 +
+                      bit_check1 + bit_check2 + bit_check3 + bit_check4 +
+                      log_check1 + log_check2 + log_check3 + log_check4 + log_check5 +
+                      kw_check1 + kw_check2 +
+                      out_check1 + out_check2 +
+                      bin_check1 + bin_check2 + bin_check3 +
+                      oct_check1 + oct_check2 + oct_check3 +
+                      hex_check1 + hex_check2 + hex_check3 +
+                      mix_check + mix_check2 +
+                      prec_check1 + prec_check2;
+
+# If all 32 tests pass, this master lamp will be green
+Signal all_tests_pass = total_passes == 32;
+Entity lamp_master = place("small-lamp", 32, 32);
+lamp_master.enable = all_tests_pass > 0;

@@ -597,6 +597,27 @@ Entity train_stop = place("train-stop", 10, 5, {station: "Iron Pickup"});
 Entity assembler = place("assembling-machine-1", 0, 10);
 ```
 
+#### Position Parameters
+
+The position parameters (`x`, `y`) determine how the entity is placed:
+
+**Fixed Positions:** When both coordinates are constant integers (literals or constant integer variables), the entity is placed at the exact specified position:
+
+```fcdsl
+int lamp_y = 20;
+Entity lamp1 = place("small-lamp", 0, lamp_y);  # Fixed at (0, 20)
+Entity lamp2 = place("small-lamp", 5, 10);      # Fixed at (5, 10)
+```
+
+**Optimized Positions:** When either coordinate is a dynamic signal expression (not a compile-time constant), or when coordinates are omitted, the layout engine automatically optimizes the entity's position based on signal flow and wire connections:
+
+```fcdsl
+Signal x_pos = counter * 2;
+Entity lamp3 = place("small-lamp", x_pos, 0);  # Position optimized by layout engine
+```
+
+**Best Practice:** Use fixed positions when you need entities at specific coordinates (e.g., for visual alignment or testing). Let the layout engine optimize positions for functional circuits.
+
 #### Static vs Dynamic Properties
 
 **Static properties** (in the dictionary) are applied at entity creation:

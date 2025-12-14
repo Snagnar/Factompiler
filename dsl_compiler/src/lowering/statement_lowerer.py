@@ -7,6 +7,7 @@ from dsl_compiler.src.ir.builder import (
 )
 from dsl_compiler.src.ir.nodes import IR_EntityPropWrite
 from dsl_compiler.src.semantic.analyzer import SignalValue
+from dsl_compiler.src.semantic.type_system import IntValue
 from dsl_compiler.src.ast.statements import (
     AssignStmt,
     DeclStmt,
@@ -114,6 +115,15 @@ class StatementLowerer:
 
         if isinstance(value_ref, int):
             symbol = self.semantic.symbol_table.lookup(stmt.name)
+
+            # For int type variables, store the raw integer value.
+            # These are compile-time constants that get inlined when used.
+            # They do NOT create IR_Const nodes (no combinator).
+            if symbol and isinstance(symbol.value_type, IntValue):
+                self.parent.signal_refs[stmt.name] = value_ref
+                return
+
+            # For Signal type with integer value, create a constant combinator
             if symbol and isinstance(symbol.value_type, SignalValue):
                 signal_type = symbol.value_type.signal_type.name
             else:

@@ -14,6 +14,7 @@ from dsl_compiler.src.ast.expressions import (
     Expr,
     CallExpr,
     BinaryOp,
+    OutputSpecExpr,
 )
 from dsl_compiler.src.ast.literals import (
     DictLiteral,
@@ -63,6 +64,12 @@ class SemanticAnalyzer(ASTVisitor):
     RESERVED_SIGNAL_RULES: Dict[str, Tuple[str, str]] = {
         "signal-W": ("error", "the memory write-enable channel"),
     }
+
+    # Operator categories for type inference
+    ARITHMETIC_OPS = {"+", "-", "*", "/", "%", "**"}
+    BITWISE_OPS = {"<<", ">>", "AND", "OR", "XOR"}
+    COMPARISON_OPS = {"==", "!=", "<", "<=", ">", ">="}
+    LOGICAL_OPS = {"&&", "||"}
 
     def __init__(self, diagnostics: ProgramDiagnostics, strict_types: bool = False):
         self.strict_types = strict_types
@@ -507,6 +514,9 @@ class SemanticAnalyzer(ASTVisitor):
                 )
                 return IntValue()
 
+        elif isinstance(expr, OutputSpecExpr):
+            return self._infer_output_spec_type(expr)
+
         else:
             self.diagnostics.error(
                 f"Unknown expression type: {type(expr)}", stage="semantic", node=expr
@@ -561,20 +571,52 @@ class SemanticAnalyzer(ASTVisitor):
         left_type = self.get_expr_type(expr.left)
         right_type = self.get_expr_type(expr.right)
 
-        if expr.op in ["==", "!=", "<", "<=", ">", ">=", "&&", "||"]:
+        # Comparison operators return a signal (for compatibility)
+        if expr.op in self.COMPARISON_OPS:
             if isinstance(left_type, SignalValue) and self._is_virtual_channel(
                 left_type.signal_type
             ):
                 return left_type
-
             if isinstance(right_type, SignalValue) and self._is_virtual_channel(
                 right_type.signal_type
             ):
                 return right_type
-
             signal_type = self.allocate_implicit_type()
             return SignalValue(signal_type=signal_type)
 
+        # Logical operators return a signal
+        if expr.op in self.LOGICAL_OPS:
+            if isinstance(left_type, SignalValue):
+                return left_type
+            if isinstance(right_type, SignalValue):
+                return right_type
+            return SignalValue(signal_type=self.allocate_implicit_type())
+
+        # Bitwise operators follow same rules as arithmetic
+        if expr.op in self.BITWISE_OPS:
+            result_type, warning_msg = self._check_signal_type_compatibility(
+                left_type, right_type, expr.op, expr
+            )
+            if warning_msg:
+                if self.strict_types:
+                    self.diagnostics.error(warning_msg, stage="semantic", node=expr)
+                else:
+                    self.diagnostics.warning(warning_msg, stage="semantic", node=expr)
+            return result_type
+
+        # Power operator (same as arithmetic)
+        if expr.op == "**":
+            result_type, warning_msg = self._check_signal_type_compatibility(
+                left_type, right_type, expr.op, expr
+            )
+            if warning_msg:
+                if self.strict_types:
+                    self.diagnostics.error(warning_msg, stage="semantic", node=expr)
+                else:
+                    self.diagnostics.warning(warning_msg, stage="semantic", node=expr)
+            return result_type
+
+        # Standard arithmetic operators
         result_type, warning_msg = self._check_signal_type_compatibility(
             left_type, right_type, expr.op, expr
         )
@@ -586,6 +628,48 @@ class SemanticAnalyzer(ASTVisitor):
                 self.diagnostics.warning(warning_msg, stage="semantic", node=expr)
 
         return result_type
+
+    def _infer_output_spec_type(self, expr: OutputSpecExpr) -> ValueInfo:
+        """Infer type for output specifier expression.
+
+        The result type is determined by the output_value, not the condition.
+        """
+        # Validate that condition is a comparison
+        if not self._is_comparison_expr(expr.condition):
+            self.diagnostics.error(
+                "Output specifier (:) requires a comparison expression on the left. "
+                f"Got: {type(expr.condition).__name__}",
+                stage="semantic",
+                node=expr,
+            )
+
+        # Analyze both parts
+        self.get_expr_type(expr.condition)
+        output_type = self.get_expr_type(expr.output_value)
+
+        # Result type comes from output_value
+        if isinstance(output_type, IntValue):
+            # Integer constant output - result needs a signal type
+            # Use the left operand's type from the comparison if available
+            condition_type = self._get_comparison_left_type(expr.condition)
+            if isinstance(condition_type, SignalValue):
+                return condition_type
+            else:
+                return SignalValue(signal_type=self.allocate_implicit_type())
+
+        return output_type
+
+    def _is_comparison_expr(self, expr: Expr) -> bool:
+        """Check if expression is a comparison operation."""
+        if isinstance(expr, BinaryOp):
+            return expr.op in self.COMPARISON_OPS
+        return False
+
+    def _get_comparison_left_type(self, expr: Expr) -> ValueInfo:
+        """Get the type of the left operand in a comparison."""
+        if isinstance(expr, BinaryOp) and expr.op in self.COMPARISON_OPS:
+            return self.get_expr_type(expr.left)
+        return IntValue()
 
     def visit(self, node: ASTNode) -> Any:
         """Visit a node and perform semantic analysis."""

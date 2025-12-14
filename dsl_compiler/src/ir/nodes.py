@@ -103,12 +103,14 @@ class IR_Decider(IRValue):
         self.left: ValueRef = 0
         self.right: ValueRef = 0
         self.output_value: Union[ValueRef, int] = 1
+        self.copy_count_from_input: bool = False
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
+        copy_mode = " COPY" if self.copy_count_from_input else ""
         return (
             "IR_Decider("
             f"{self.node_id}: {self.output_type} = if({self.left} {self.test_op} {self.right}) "
-            f"then {self.output_value})"
+            f"then {self.output_value}{copy_mode})"
         )
 
 

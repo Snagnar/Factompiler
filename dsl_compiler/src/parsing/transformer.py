@@ -46,6 +46,28 @@ class DSLTransformer(Transformer):
     def __init__(self):
         super().__init__()
 
+    @staticmethod
+    def _parse_number(text: str) -> int:
+        """Parse a number literal supporting binary, octal, hex, and decimal formats.
+
+        Args:
+            text: The number string (e.g., "0xFF", "0b1010", "0o755", "42", "-10")
+
+        Returns:
+            The integer value
+        """
+        text = text.strip()
+
+        # Handle different bases
+        if text.startswith(("0x", "0X")):
+            return int(text, 16)
+        elif text.startswith(("0o", "0O")):
+            return int(text, 8)
+        elif text.startswith(("0b", "0B")):
+            return int(text, 2)
+        else:
+            return int(text, 10)
+
     def _set_position(self, node: ASTNode, token_or_tree) -> ASTNode:
         """Set line/column position on AST node from Lark token/tree."""
         if hasattr(token_or_tree, "meta"):
@@ -127,7 +149,9 @@ class DSLTransformer(Transformer):
                 result = StringLiteral(value=item.value[1:-1], raw_text=item.value)
                 return self._set_position(result, item)
             if item.type == "NUMBER":
-                result = NumberLiteral(value=int(item.value), raw_text=item.value)
+                result = NumberLiteral(
+                    value=self._parse_number(item.value), raw_text=item.value
+                )
                 return self._set_position(result, item)
             return item.value
         return item
@@ -265,19 +289,55 @@ class DSLTransformer(Transformer):
         return result
 
     def expr(self, items) -> Expr:
-        """expr: logic"""
+        """expr: logic_or"""
         return items[0]
 
-    def logic(self, items) -> Expr:
-        """logic: comparison ( ( "&&" | "||" ) comparison )*"""
-        return self._handle_binary_op_chain(items)
+    def logic_or(self, items) -> Expr:
+        """logic_or: logic_and ( LOGIC_OR logic_and )*"""
+        return self._handle_binary_op_chain(
+            items, normalize_op=self._normalize_logical_op
+        )
+
+    def logic_and(self, items) -> Expr:
+        """logic_and: output_spec ( LOGIC_AND output_spec )*"""
+        return self._handle_binary_op_chain(
+            items, normalize_op=self._normalize_logical_op
+        )
+
+    def output_spec(self, items) -> Expr:
+        """output_spec: comparison [ OUTPUT_SPEC output_value ]"""
+        # Filter out None items (optional parts not present)
+        items = [item for item in items if item is not None]
+
+        if len(items) == 1:
+            # No output specifier - just return the comparison
+            return items[0]
+
+        # Has output specifier
+        # items = [comparison, ":", output_value]
+        from dsl_compiler.src.ast.expressions import OutputSpecExpr
+
+        condition = items[0]
+        # Skip the ":" token (items[1]) and get the output_value (items[2])
+        output_value = items[2] if len(items) > 2 else items[1]
+
+        node = OutputSpecExpr(condition=condition, output_value=output_value)
+        return self._set_position(node, condition)
+
+    def output_value(self, items) -> Expr:
+        """output_value: primary"""
+        result = items[0]
+        # Unwrap any Tree/Token objects to get proper AST nodes
+        if not isinstance(result, Expr):
+            result = self._unwrap_tree(result)
+        return result
 
     def comparison(self, items) -> Expr:
         """comparison: projection ( COMP_OP projection )*"""
         return self._handle_binary_op_chain(items)
 
     def projection(self, items) -> Expr:
-        """projection: add ( PROJ_OP type_literal )*"""
+        """projection: bitwise_or ( PROJ_OP type_literal )*"""
         if len(items) == 1:
             return items[0]
 
@@ -289,13 +349,50 @@ class DSLTransformer(Transformer):
             index += 2
         return result
 
+    def bitwise_or(self, items) -> Expr:
+        """bitwise_or: bitwise_xor ( BITWISE_OR bitwise_xor )*"""
+        return self._handle_binary_op_chain(items)
+
+    def bitwise_xor(self, items) -> Expr:
+        """bitwise_xor: bitwise_and ( BITWISE_XOR bitwise_and )*"""
+        return self._handle_binary_op_chain(items)
+
+    def bitwise_and(self, items) -> Expr:
+        """bitwise_and: shift ( BITWISE_AND shift )*"""
+        return self._handle_binary_op_chain(items)
+
+    def shift(self, items) -> Expr:
+        """shift: add ( SHIFT_OP add )*"""
+        return self._handle_binary_op_chain(items)
+
     def add(self, items) -> Expr:
-        """add: mul ( ("+"|"-") mul )*"""
+        """add: mul ( ADD_OP mul )*"""
         return self._handle_binary_op_chain(items)
 
     def mul(self, items) -> Expr:
-        """mul: unary ( ("*"|"/"|"%") unary )*"""
+        """mul: power ( MUL_OP power )*"""
         return self._handle_binary_op_chain(items)
+
+    def power(self, items) -> Expr:
+        """power: unary ( POWER_OP power )?
+
+        Note: Right-associative due to recursive grammar structure.
+        """
+        if len(items) == 1:
+            return items[0]
+
+        # items = [unary, "**", power] - operator is in the middle
+        left = items[0]
+        # Skip the operator token (items[1])
+        right = items[2] if len(items) > 2 else items[1]
+
+        node = BinaryOp(op="**", left=left, right=right)
+
+        if hasattr(left, "line") and left.line > 0:
+            node.line = left.line
+            node.column = getattr(left, "column", 0)
+
+        return node
 
     def unary(self, items) -> Expr:
         """unary: ("+"|"-"|"!") unary | primary"""
@@ -307,12 +404,28 @@ class DSLTransformer(Transformer):
             return UnaryOp(op=op, expr=expr)
         return items[-1]
 
-    def _handle_binary_op_chain(self, items) -> Expr:
-        """Handle chains of binary operations like a + b - c."""
+    def _normalize_logical_op(self, op: str) -> str:
+        """Normalize logical operator keywords to symbols."""
+        if op.lower() == "and":
+            return "&&"
+        if op.lower() == "or":
+            return "||"
+        return op
+
+    def _handle_binary_op_chain(self, items, normalize_op=None) -> Expr:
+        """Handle chains of binary operations like a + b - c.
+
+        Args:
+            items: List of operands and operators
+            normalize_op: Optional function to normalize operator strings
+        """
         if len(items) == 1:
             return items[0]
         if len(items) == 3:
-            node = BinaryOp(op=str(items[1]), left=items[0], right=items[2])
+            op = str(items[1])
+            if normalize_op:
+                op = normalize_op(op)
+            node = BinaryOp(op=op, left=items[0], right=items[2])
             # Set position from first operand if it has position info
             if hasattr(items[0], "line") and items[0].line > 0:
                 node.line = items[0].line
@@ -324,6 +437,8 @@ class DSLTransformer(Transformer):
         index = 1
         while index + 1 < len(items):
             op = str(items[index])
+            if normalize_op:
+                op = normalize_op(op)
             right = items[index + 1]
             node = BinaryOp(op=op, left=result, right=right)
             # Set position from left operand (first in chain)
@@ -412,7 +527,7 @@ class DSLTransformer(Transformer):
             raw_number = token.value
         else:
             raw_number = str(token)
-        value = NumberLiteral(value=int(raw_number), raw_text=raw_number)
+        value = NumberLiteral(value=self._parse_number(raw_number), raw_text=raw_number)
         return SignalLiteral(value=value, signal_type=None, raw_text=raw_number)
 
     def type_literal(self, items) -> str:

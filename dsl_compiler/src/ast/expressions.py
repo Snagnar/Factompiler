@@ -124,3 +124,23 @@ class PropertyAccessExpr(Expr):
         super().__init__(line, column, raw_text=raw_text)
         self.object_name = object_name
         self.property_name = property_name
+
+
+class OutputSpecExpr(Expr):
+    """Comparison with output specifier: (condition) : output_value
+
+    When condition is true, outputs output_value instead of constant 1.
+    Maps to Factorio decider combinator's "copy count from input" mode.
+    """
+
+    def __init__(
+        self,
+        condition: "Expr",
+        output_value: "Expr",
+        line: int = 0,
+        column: int = 0,
+        raw_text: Optional[str] = None,
+    ) -> None:
+        super().__init__(line, column, raw_text=raw_text)
+        self.condition = condition  # Must be a comparison (BinaryOp with COMP_OP)
+        self.output_value = output_value  # Value to output when true
