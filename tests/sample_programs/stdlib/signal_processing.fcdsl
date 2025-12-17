@@ -1,7 +1,7 @@
 # Signal processing library  
 # Provides filtering and signal manipulation functions
 
-func smooth_filter(signal, window_size) {
+func smooth_filter(Signal signal, int window_size) {
     # Simple moving average filter
     Memory accumulator: "signal-0";
     Memory sample_count: "signal-0";
@@ -24,7 +24,7 @@ func smooth_filter(signal, window_size) {
     return final_sum / final_count;
 }
 
-func high_pass_filter(signal, cutoff) {
+func high_pass_filter(Signal signal, int cutoff) {
     # Simple high-pass filter
     Memory last_input: "signal-0";
     Memory last_output: "signal-0";
@@ -42,7 +42,7 @@ func high_pass_filter(signal, cutoff) {
     return (output > cutoff) * output;
 }
 
-func low_pass_filter(signal, cutoff) {
+func low_pass_filter(Signal signal, int cutoff) {
     # Simple low-pass filter  
     Memory filtered_value: "signal-0";
 
@@ -56,7 +56,7 @@ func low_pass_filter(signal, cutoff) {
     return (output < cutoff) * output + (output >= cutoff) * cutoff;
 }
 
-func combine_signals(signal_a, signal_b, signal_c) {
+func combine_signals(Signal signal_a, Signal signal_b, Signal signal_c) {
     # Combine three signals with weighting
     Signal weighted_sum = signal_a * 5 + signal_b * 3 + signal_c * 2;
     Signal average = weighted_sum / 10;

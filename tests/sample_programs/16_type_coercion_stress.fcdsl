@@ -57,7 +57,7 @@ write((copper + implicit2) | "signal-0", mixed_memory, when=1);
 Signal memory_read = read(mixed_memory);
 
 # Function with type mixing
-func mixed_type_function(param1, param2) {
+func mixed_type_function(Signal param1, Signal param2) {
     Signal local_mixed = param1 + iron;
     Signal result = local_mixed * param2 + copper;
     return result;

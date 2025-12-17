@@ -1,16 +1,16 @@
 # Test 6: Functions and modularity
 # Tests: func declaration, function calls, parameter passing, scoping
 
-func double_signal(x) {
+func double_signal(Signal x) {
     return x * 2;
 }
 
-func conditional_add(a, b, condition) {
+func conditional_add(Signal a, Signal b, Signal condition) {
     Signal result = a + (b * condition);
     return result;
 }
 
-func choose(a, b, condition) {
+func choose(Signal a, Signal b, Signal condition) {
     return a * condition + b * !condition;
 }
 

@@ -10,7 +10,7 @@ Signal processed = smooth_filter(input_signal, 5);
 Signal delayed = delay_signal(processed, 10);
 
 # Local function that uses imports
-func production_controller(demand, supply, buffer_size) {
+func production_controller(Signal demand, Signal supply, int buffer_size) {
     Signal shortfall = demand - supply;
     Signal buffered = accumulate_clamped(shortfall, 0, buffer_size);
     Signal smoothed = smooth_filter(buffered, 3);

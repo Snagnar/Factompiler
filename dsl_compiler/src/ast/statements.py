@@ -1,10 +1,22 @@
 from __future__ import annotations
+from dataclasses import dataclass
 from typing import List, Optional
 from .base import ASTNode
 from .expressions import Expr
 from .literals import LValue
 
 """Statement node definitions for the Factorio Circuit DSL."""
+
+
+@dataclass
+class TypedParam:
+    """A typed function parameter."""
+
+    type_name: str  # "int", "Signal", "Entity"
+    name: str
+    line: int = 0
+    column: int = 0
+    source_file: Optional[str] = None
 
 
 class Program(ASTNode):
@@ -97,7 +109,7 @@ class FuncDecl(Statement):
     def __init__(
         self,
         name: str,
-        params: List[str],
+        params: List[TypedParam],
         body: List[Statement],
         line: int = 0,
         column: int = 0,

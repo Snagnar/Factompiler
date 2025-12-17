@@ -2,14 +2,14 @@
 # Tests: functions returning projected signals, memory interaction, nested calls
 
 # Function that creates a multi-channel mix using projections
-func create_resource_mix(iron_amount, copper_amount) {
+func create_resource_mix(Signal iron_amount, Signal copper_amount) {
     Signal processed_iron = (iron_amount * 2) | "iron-plate";
     Signal processed_copper = (copper_amount + 10) | "copper-plate";
     return processed_iron + processed_copper;
 }
 
 # Function that processes the aggregated signal
-func process_mix(input_mix, multiplier) {
+func process_mix(Signal input_mix, Signal multiplier) {
     Signal scaled_mix = input_mix * multiplier;
     Signal iron_component = scaled_mix | "iron-plate";
     Signal copper_component = scaled_mix | "copper-plate";
@@ -17,7 +17,7 @@ func process_mix(input_mix, multiplier) {
 }
 
 # Function with memory that affects signal composition
-func stateful_mix_creator(base_value) {
+func stateful_mix_creator(Signal base_value) {
     Memory accumulator: "signal-0";
     Memory type_selector: "signal-1";
 

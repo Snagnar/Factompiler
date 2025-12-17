@@ -4,7 +4,7 @@
 # ============================================================
 # Helper function to place a colored lamp
 # ============================================================
-func place_colored_lamp(x, y, red, green, blue) {
+func place_colored_lamp(int x, int y, Signal red, Signal green, Signal blue) {
     Entity lamp = place("small-lamp", x, y, {use_colors: 1, always_on: 1, color_mode: 1});
     lamp.r = red;
     lamp.g = green;

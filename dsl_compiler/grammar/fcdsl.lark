@@ -80,9 +80,13 @@ import_stmt: "import" STRING ["as" NAME]
 // ---------------------------------
 // Functions
 // ---------------------------------
-func_decl: "func" NAME "(" [param_list] ")" "{" statement* "}"
+func_decl: "func" NAME "(" [typed_param_list] ")" "{" statement* "}"
 
-param_list: NAME ("," NAME)*
+typed_param_list: typed_param ("," typed_param)*
+
+typed_param: param_type NAME
+
+param_type: INT_KW | SIGNAL_KW | ENTITY_KW
 
 // ---------------------------------
 // Expressions with precedence

@@ -1,7 +1,7 @@
 # Memory utilities library
 # Provides common memory-based operations and patterns
 
-func delay_signal(signal, delay_ticks) {
+func delay_signal(Signal signal, int delay_ticks) {
     # Simple delay using memory - stores signal for delay_ticks
     Memory delayed_value: "signal-0";
     Memory tick_counter: "signal-0";
@@ -19,7 +19,7 @@ func delay_signal(signal, delay_ticks) {
     return current_delayed;
 }
 
-func accumulate_clamped(signal, min_val, max_val) {
+func accumulate_clamped(Signal signal, int min_val, int max_val) {
     # Accumulate signal with min/max bounds
     Memory accumulator: "signal-0";
 
@@ -36,7 +36,7 @@ func accumulate_clamped(signal, min_val, max_val) {
     return clamped;
 }
 
-func rate_limiter(signal, max_change_per_tick) {
+func rate_limiter(Signal signal, int max_change_per_tick) {
     # Limit rate of change in signal
     Memory last_value: "signal-0";
 

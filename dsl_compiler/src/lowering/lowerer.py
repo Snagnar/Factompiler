@@ -60,6 +60,9 @@ class ASTLowerer:
         # Expression context stack for tracking assignment context during lowering
         self._expr_context_stack: List[ExpressionContext] = []
 
+        # Track function inlining to detect recursion
+        self._inlining_stack: List[str] = []
+
         self.ir_builder.signal_registry = self.semantic.signal_registry
 
         self.returned_entity_id: Optional[str] = None

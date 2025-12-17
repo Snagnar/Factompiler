@@ -822,7 +822,7 @@ class ExpressionLowerer:
         self._error(f"Undefined entity: {entity_name}", expr)
         return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
-    def lower_call_expr(self, expr: CallExpr) -> ValueRef:
+    def lower_call_expr(self, expr: CallExpr) -> Optional[ValueRef]:
         if expr.name == "place":
             return self.lower_place_call(expr)
         if expr.name == "memory":
@@ -844,14 +844,27 @@ class ExpressionLowerer:
             )
         return self.lower_expr(expr.args[0])
 
-    def lower_function_call_inline(self, expr: CallExpr) -> ValueRef:
-        func_symbol = self.semantic.current_scope.lookup(expr.name)
+    def lower_function_call_inline(self, expr: CallExpr) -> Optional[ValueRef]:
+        func_name = expr.name
+
+        # Check for recursion
+        if func_name in self.parent._inlining_stack:
+            self._error(
+                f"Recursive function call detected during inlining: '{func_name}'. "
+                f"This should have been caught during semantic analysis.",
+                expr,
+            )
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
+
+        func_symbol = self.semantic.current_scope.lookup(func_name)
         if (
             not func_symbol
             or func_symbol.symbol_type != SymbolType.FUNCTION
             or not func_symbol.function_def
         ):
-            self._error(f"Cannot inline function: {expr.name}", expr)
+            self._error(f"Cannot inline function: {func_name}", expr)
             return self.ir_builder.const(
                 self.ir_builder.allocate_implicit_type(), 0, expr
             )
@@ -860,30 +873,61 @@ class ExpressionLowerer:
 
         if len(expr.args) != len(func_def.params):
             self._error(
-                f"Function {expr.name} expects {len(func_def.params)} arguments, got {len(expr.args)}",
+                f"Function {func_name} expects {len(func_def.params)} arguments, got {len(expr.args)}",
                 expr,
             )
             return self.ir_builder.const(
                 self.ir_builder.allocate_implicit_type(), 0, expr
             )
 
-        param_values = {
-            param_name: self.lower_expr(arg_expr)
-            for param_name, arg_expr in zip(func_def.params, expr.args)
-        }
+        # Evaluate arguments with type-aware handling
+        param_values: Dict[str, ValueRef] = {}
+        entity_params: Dict[str, str] = {}  # Track entity parameters separately
 
+        for param, arg_expr in zip(func_def.params, expr.args):
+            if param.type_name == "Entity":
+                # Entity parameters: extract entity_id from entity_refs
+                if isinstance(arg_expr, IdentifierExpr):
+                    entity_id = self.parent.entity_refs.get(arg_expr.name)
+                    if entity_id:
+                        entity_params[param.name] = entity_id
+                    else:
+                        self._error(
+                            f"Expected entity for parameter '{param.name}'", arg_expr
+                        )
+                else:
+                    self._error(
+                        f"Entity parameter '{param.name}' requires an entity identifier",
+                        arg_expr,
+                    )
+            else:
+                # int or Signal parameters
+                lowered_arg = self.lower_expr(arg_expr)
+                # If Signal parameter receives an int, convert to SignalRef
+                if param.type_name == "Signal" and isinstance(lowered_arg, int):
+                    signal_type = self.ir_builder.allocate_implicit_type()
+                    lowered_arg = self.ir_builder.const(
+                        signal_type, lowered_arg, arg_expr
+                    )
+                param_values[param.name] = lowered_arg
+
+        # Save state for nesting
         old_param_values = {
-            param_name: self.parent.param_values[param_name]
-            for param_name in func_def.params
-            if param_name in self.parent.param_values
+            k: v for k, v in self.parent.param_values.items() if k in param_values
         }
+        old_entity_refs = self.parent.entity_refs.copy()
+        old_signal_refs = self.parent.signal_refs.copy()
 
+        # Set up function scope
         self.parent.param_values.update(param_values)
+        self.parent.entity_refs.update(
+            entity_params
+        )  # Entity params accessible via entity_refs
+
+        # Push function name onto inlining stack
+        self.parent._inlining_stack.append(func_name)
 
         try:
-            old_signal_refs = self.parent.signal_refs.copy()
-            old_entity_refs = self.parent.entity_refs.copy()
-
             return_value: Optional[ValueRef] = None
             for stmt in func_def.body:
                 if isinstance(stmt, ReturnStmt) and stmt.expr:
@@ -898,27 +942,32 @@ class ExpressionLowerer:
                 else:
                     self.parent.stmt_lowerer.lower_statement(stmt)
 
+            # Track newly created entities (exclude entity params)
             created_entities = {
-                name: entity_id
-                for name, entity_id in self.parent.entity_refs.items()
-                if name not in old_entity_refs
+                name: eid
+                for name, eid in self.parent.entity_refs.items()
+                if name not in old_entity_refs and name not in entity_params
             }
 
+            # Restore state
             self.parent.signal_refs = old_signal_refs
             self.parent.entity_refs = old_entity_refs
             self.parent.entity_refs.update(created_entities)
 
             if return_value is not None:
                 return return_value
-            return self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
+            # Void function - return None (caller should handle this)
+            return None
         finally:
-            for param_name in func_def.params:
-                if param_name in old_param_values:
-                    self.parent.param_values[param_name] = old_param_values[param_name]
+            # Pop from inlining stack
+            self.parent._inlining_stack.pop()
+
+            # Restore param_values
+            for k in param_values:
+                if k in old_param_values:
+                    self.parent.param_values[k] = old_param_values[k]
                 else:
-                    self.parent.param_values.pop(param_name, None)
+                    self.parent.param_values.pop(k, None)
 
     def _is_simple_source_ref(self, value_ref: ValueRef) -> bool:
         if isinstance(value_ref, int):

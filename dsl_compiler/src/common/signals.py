@@ -1,0 +1,207 @@
+"""
+Explicit list of all valid Factorio virtual signals available for internal allocation.
+
+This module provides a curated list of virtual signals that can be safely used
+for implicit signal allocation. It excludes wildcard signals (each, anything,
+everything) which have special semantics in Factorio circuit networks.
+"""
+
+from typing import FrozenSet, List
+
+# Wildcard signals - cannot be used as regular signals
+WILDCARD_SIGNALS: FrozenSet[str] = frozenset(
+    {
+        "signal-each",
+        "signal-anything",
+        "signal-everything",
+    }
+)
+
+# Signals reserved by the compiler for internal use
+RESERVED_SIGNALS: FrozenSet[str] = frozenset(
+    {
+        "signal-W",  # Memory write-enable channel
+    }
+)
+
+# All valid virtual signals available for internal allocation, in priority order.
+# Letters and digits first (most recognizable), then colors, then symbols.
+# Total: 152 signals (155 virtual signals - 3 wildcards)
+AVAILABLE_VIRTUAL_SIGNALS: List[str] = [
+    # === Letters (26) - most commonly used ===
+    "signal-A",
+    "signal-B",
+    "signal-C",
+    "signal-D",
+    "signal-E",
+    "signal-F",
+    "signal-G",
+    "signal-H",
+    "signal-I",
+    "signal-J",
+    "signal-K",
+    "signal-L",
+    "signal-M",
+    "signal-N",
+    "signal-O",
+    "signal-P",
+    "signal-Q",
+    "signal-R",
+    "signal-S",
+    "signal-T",
+    "signal-U",
+    "signal-V",
+    "signal-W",
+    "signal-X",
+    "signal-Y",
+    "signal-Z",
+    # === Digits (10) ===
+    "signal-0",
+    "signal-1",
+    "signal-2",
+    "signal-3",
+    "signal-4",
+    "signal-5",
+    "signal-6",
+    "signal-7",
+    "signal-8",
+    "signal-9",
+    # === Colors (9) ===
+    "signal-black",
+    "signal-blue",
+    "signal-cyan",
+    "signal-green",
+    "signal-grey",
+    "signal-pink",
+    "signal-red",
+    "signal-white",
+    "signal-yellow",
+    # === Arrows (8) ===
+    "down-arrow",
+    "down-left-arrow",
+    "down-right-arrow",
+    "left-arrow",
+    "right-arrow",
+    "up-arrow",
+    "up-left-arrow",
+    "up-right-arrow",
+    # === Shapes (20) ===
+    "shape-circle",
+    "shape-corner",
+    "shape-corner-2",
+    "shape-corner-3",
+    "shape-corner-4",
+    "shape-cross",
+    "shape-curve",
+    "shape-curve-2",
+    "shape-curve-3",
+    "shape-curve-4",
+    "shape-diagonal",
+    "shape-diagonal-2",
+    "shape-diagonal-cross",
+    "shape-horizontal",
+    "shape-vertical",
+    "shape-t",
+    "shape-t-2",
+    "shape-t-3",
+    "shape-t-4",
+    # === Status/Battery/Thermometer ===
+    "signal-battery-full",
+    "signal-battery-low",
+    "signal-battery-mid-level",
+    "signal-thermometer-blue",
+    "signal-thermometer-red",
+    # === Common symbols ===
+    "signal-check",
+    "signal-deny",
+    "signal-info",
+    "signal-unknown",
+    "signal-alarm",
+    "signal-alert",
+    "signal-clock",
+    "signal-hourglass",
+    "signal-heart",
+    "signal-skull",
+    "signal-star",
+    "signal-moon",
+    "signal-sun",
+    "signal-fire",
+    "signal-lightning",
+    "signal-snowflake",
+    "signal-lock",
+    "signal-unlock",
+    "signal-input",
+    "signal-output",
+    "signal-fuel",
+    "signal-liquid",
+    "signal-mining",
+    "signal-weapon",
+    "signal-damage",
+    "signal-speed",
+    "signal-ghost",
+    "signal-radioactivity",
+    "signal-recycle",
+    "signal-trash-bin",
+    "signal-science-pack",
+    "signal-shuffle",
+    "signal-explosion",
+    "signal-map-marker",
+    "signal-no-entry",
+    "signal-white-flag",
+    # === Arrows (compound) ===
+    "signal-clockwise-circle-arrow",
+    "signal-anticlockwise-circle-arrow",
+    "signal-left-right-arrow",
+    "signal-up-down-arrow",
+    "signal-rightwards-leftwards-arrow",
+    "signal-upwards-downwards-arrow",
+    # === Math/comparison operators ===
+    "signal-plus",
+    "signal-minus",
+    "signal-multiplication",
+    "signal-division",
+    "signal-equal",
+    "signal-not-equal",
+    "signal-less-than",
+    "signal-greater-than",
+    "signal-less-than-or-equal-to",
+    "signal-greater-than-or-equal-to",
+    "signal-percent",
+    # === Punctuation/brackets ===
+    "signal-dot",
+    "signal-comma",
+    "signal-colon",
+    "signal-exclamation-mark",
+    "signal-question-mark",
+    "signal-apostrophe",
+    "signal-quotation-mark",
+    "signal-left-parenthesis",
+    "signal-right-parenthesis",
+    "signal-left-square-bracket",
+    "signal-right-square-bracket",
+    "signal-slash",
+    "signal-ampersand",
+    "signal-number-sign",
+    "signal-circumflex-accent",
+    "signal-letter-dot",
+    # === Parameters (for combinators) ===
+    "signal-any-quality",
+    "signal-fluid-parameter",
+    "signal-fuel-parameter",
+    "signal-item-parameter",
+    "signal-signal-parameter",
+    "signal-stack-size",
+]
+
+
+def get_available_signals_excluding(excluded: FrozenSet[str]) -> List[str]:
+    """
+    Get available virtual signals excluding the specified set.
+
+    Args:
+        excluded: Set of signal names to exclude (user-declared + reserved)
+
+    Returns:
+        List of signal names available for allocation
+    """
+    return [s for s in AVAILABLE_VIRTUAL_SIGNALS if s not in excluded]

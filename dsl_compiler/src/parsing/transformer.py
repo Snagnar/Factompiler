@@ -19,6 +19,7 @@ from dsl_compiler.src.ast.statements import (
     ReturnStmt,
     ImportStmt,
     FuncDecl,
+    TypedParam,
 )
 from dsl_compiler.src.ast.literals import (
     Identifier,
@@ -220,7 +221,7 @@ class DSLTransformer(Transformer):
         return ImportStmt(path=path, alias=alias)
 
     def func_decl(self, items) -> FuncDecl:
-        """func_decl: "func" NAME "(" [param_list] ")" "{" statement* "}" """
+        """func_decl: "func" NAME "(" [typed_param_list] ")" "{" statement* "}" """
         if len(items) == 1 and isinstance(items[0], FuncDecl):
             return items[0]
 
@@ -228,15 +229,14 @@ class DSLTransformer(Transformer):
             return FuncDecl(name="unknown", params=[], body=[])
 
         name = str(items[0])
-        params = []
-        body = []
+        params: List[TypedParam] = []
+        body: List[Statement] = []
 
         for item in items[1:]:
-            if isinstance(item, list) and all(
-                isinstance(x, str) or (isinstance(x, Token) and x.type == "NAME")
-                for x in item
-            ):
-                params = [str(x) for x in item]
+            if isinstance(item, list) and all(isinstance(x, TypedParam) for x in item):
+                params = item
+            elif isinstance(item, TypedParam):
+                params = [item]  # Single parameter case
             elif hasattr(item, "__class__") and (
                 "Stmt" in item.__class__.__name__
                 or item.__class__.__name__ in ["MemDecl", "FuncDecl"]
@@ -254,9 +254,29 @@ class DSLTransformer(Transformer):
             FuncDecl(name=name, params=params, body=body), items[0]
         )
 
-    def param_list(self, items) -> List[str]:
-        """param_list: NAME ("," NAME)*"""
-        return [str(item) for item in items]
+    def typed_param_list(self, items) -> List[TypedParam]:
+        """typed_param_list: typed_param ("," typed_param)*"""
+        return list(items)
+
+    def typed_param(self, items) -> TypedParam:
+        """typed_param: param_type NAME"""
+        type_token = items[0]
+        name_token = items[1]
+
+        type_name = (
+            str(type_token.value) if hasattr(type_token, "value") else str(type_token)
+        )
+        param_name = (
+            str(name_token.value) if hasattr(name_token, "value") else str(name_token)
+        )
+
+        result = TypedParam(type_name=type_name, name=param_name)
+        return self._set_position(result, name_token)
+
+    def param_type(self, items) -> str:
+        """param_type: INT_KW | SIGNAL_KW | ENTITY_KW"""
+        token = items[0]
+        return str(token.value) if hasattr(token, "value") else str(token)
 
     def lvalue(self, items) -> LValue:
         """lvalue: NAME ("." NAME)?"""

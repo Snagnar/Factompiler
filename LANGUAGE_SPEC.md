@@ -1,7 +1,7 @@
 # Factorio Circuit DSL Language Specification
 
-**Version 2.2**  
-**Date: December 8, 2025**
+**Version 2.3**  
+**Date: December 16, 2025**
 
 This document provides a complete specification of the Factorio Circuit DSL (Domain Specific Language) as currently implemented. The DSL compiles to Factorio 2.0 blueprint strings that can be imported into the game.
 
@@ -84,10 +84,30 @@ Signal x = 5;  // End-of-line comments
 ### Literals
 
 **Integers:**
+
+The DSL supports integer literals in multiple bases:
+
 ```fcdsl
+# Decimal
 42        # Positive integer
 -17       # Negative integer
+255       # Standard decimal
+
+# Binary (0b prefix)
+0b1010    # = 10 in decimal
+0b11111111  # = 255 in decimal
+
+# Octal (0o prefix)
+0o17      # = 15 in decimal
+0o377     # = 255 in decimal
+
+# Hexadecimal (0x prefix)
+0xA       # = 10 in decimal
+0xFF      # = 255 in decimal
+0xff      # = 255 in decimal (same as 0xFF)
 ```
+
+All number bases represent 32-bit signed integers and compile to the same values.
 
 **Strings:**
 ```fcdsl
@@ -100,24 +120,37 @@ Strings are used exclusively for signal type names and entity prototypes.
 
 ### Operators
 
-**Arithmetic:** `+` `-` `*` `/` `%`  
+**Arithmetic:** `+` `-` `*` `/` `%` `**`  
+**Bitwise:** `AND` `OR` `XOR` `<<` `>>`  
 **Comparison:** `==` `!=` `<` `<=` `>` `>=`  
-**Logical:** `&&` `||` `!`  
+**Logical:** `&&` `||` `and` `or` `!`  
 **Projection:** `|`  
+**Output Specifier:** `:`  
 **Assignment:** `=`
 
 ### Operator Precedence
 
-From highest to lowest:
+From highest (tightest binding) to lowest (loosest binding):
 
 1. **Parentheses** `()`
 2. **Unary** `+` `-` `!`
-3. **Multiplicative** `*` `/` `%`
-4. **Additive** `+` `-`
-5. **Projection** `|`
-6. **Comparison** `==` `!=` `<` `<=` `>` `>=`
-7. **Logical AND** `&&`
-8. **Logical OR** `||`
+3. **Power** `**` (right-associative)
+4. **Multiplicative** `*` `/` `%`
+5. **Additive** `+` `-`
+6. **Shift** `<<` `>>`
+7. **Bitwise AND** `AND`
+8. **Bitwise XOR** `XOR`
+9. **Bitwise OR** `OR`
+10. **Projection** `|`
+11. **Comparison** `==` `!=` `<` `<=` `>` `>=`
+12. **Output Specifier** `:`
+13. **Logical AND** `&&` `and`
+14. **Logical OR** `||` `or`
+
+**Important Notes:**
+- The power operator (`**`) is **right-associative**: `2 ** 3 ** 2` evaluates as `2 ** (3 ** 2)` = 512
+- All other binary operators are left-associative
+- Bitwise operators (`AND`, `OR`, `XOR`) use uppercase keywords to distinguish them from logical operators
 
 #### Type Precedence in Operations
 
@@ -273,7 +306,7 @@ This syntactic sugar is particularly useful when you need to add a type annotati
 
 ```fcdsl
 # Adding type to a function parameter
-func process(value) {
+func process(Signal value) {
     Signal typed_value = value | "signal-S";  # Annotate with signal-S
     Memory storage: "signal-S";
     write(typed_value, storage);
@@ -341,13 +374,51 @@ The result inherits the signal type from the left operand, or uses a virtual sig
 
 ### Logical Operations
 
+Logical operators work with boolean values (treating non-zero as true, zero as false):
+
 ```fcdsl
-Signal both = (a > 0) && (b > 0);   # AND: a * b
-Signal either = (a > 0) || (b > 0); # OR: (a + b) > 0
-Signal not_zero = !(x == 0);        # NOT: x == 0 ? 0 : 1
+# Logical AND - both operands must be non-zero
+Signal both1 = (a > 0) && (b > 0);  # Symbolic form
+Signal both2 = (a > 0) and (b > 0); # Word form (equivalent)
+
+# Logical OR - at least one operand must be non-zero
+Signal either1 = (a > 0) || (b > 0);  # Symbolic form
+Signal either2 = (a > 0) or (b > 0);  # Word form (equivalent)
+
+# Logical NOT - inverts boolean value
+Signal not_zero = !(x == 0);
 ```
 
-Logical operations are compiled to arithmetic combinators for efficiency.
+**Operator Aliases:** The word forms `and` and `or` are semantically identical to `&&` and `||`. Use whichever form improves readability.
+
+**Compilation:** Logical operations are compiled to arithmetic combinators:
+- `&&` compiles to multiplication (both must be non-zero)
+- `||` compiles to addition followed by comparison (at least one non-zero)
+- `!` compiles to a zero-equality check
+
+### Output Specifier
+
+The output specifier (`:`) is used with decider combinators to copy signal values from input:
+
+```fcdsl
+# Syntax: condition : output_value
+Signal filtered = (count > 10) : input_signal;
+
+# The condition determines WHEN to output
+# The output_value determines WHICH signal to copy
+```
+
+**Use Cases:**
+- Filtering signals based on conditions
+- Gating signal flow
+- Conditional pass-through
+
+**Precedence:** The output specifier has lower precedence than comparison operators, so:
+```fcdsl
+Signal result = x > 5 : y;    # Equivalent to: (x > 5) : y
+```
+
+**Type Inference:** The result type comes from the output_value, not the condition.
 
 ### Projection Operator (`|`)
 
@@ -421,7 +492,7 @@ place("lamp", 5, 0);   # Entity placement side effect
 Used in functions to specify return values:
 
 ```fcdsl
-func double(x) {
+func double(Signal x) {
     return x * 2;
 }
 ```
@@ -726,16 +797,21 @@ belt.enable = condition;            # Enable/disable belt movement
 ### Function Declarations
 
 ```fcdsl
-func function_name(param1, param2, ...) {
+func function_name(type1 param1, type2 param2, ...) {
     # Function body
     return expression;
 }
 ```
 
+**Parameter Types:**
+- `int` - Integer value
+- `Signal` - Circuit signal value
+- `Entity` - Reference to a placed entity
+
 **Example:**
 
 ```fcdsl
-func clamp(value, min_val, max_val) {
+func clamp(Signal value, int min_val, int max_val) {
     Signal too_low = value < min_val;
     Signal too_high = value > max_val;
     Signal result = too_low * min_val 
@@ -744,6 +820,10 @@ func clamp(value, min_val, max_val) {
     return result;
 }
 ```
+
+**Restrictions:**
+- `Memory` cannot be used as a parameter type (stateful, incompatible with inlining)
+- Recursive functions are not supported (functions are inlined at call sites)
 
 ### Function Inlining
 
@@ -756,20 +836,38 @@ Signal y = clamp(other, 10, 50);
 
 This generates **two separate** copies of the clamping logic in the IR.
 
-### Parameter Types
+### Type Coercion for Parameters
 
-Parameters are **untyped** and take the type of the passed argument:
+Signal and int types can be implicitly converted:
 
 ```fcdsl
-func double(x) {
-    return x * 2;
+func process(Signal s, int n) {
+    # s can receive both Signal and int
+    # n can receive both int and Signal
+    return s + n;
 }
 
 Signal a = ("iron-plate", 50);
-Signal b = ("signal-A", 10);
+int b = 10;
 
-Signal doubled_iron = double(a);    # x is iron-plate
-Signal doubled_virtual = double(b); # x is signal-A
+Signal result1 = process(a, b);     # OK: Signal, int
+Signal result2 = process(b, a);     # OK: int coerced to Signal, Signal coerced to int
+Signal result3 = process(100, 200); # OK: int coerced to Signal, int stays int
+```
+
+### Entity Parameters
+
+Entity parameters allow functions to operate on existing entities:
+
+```fcdsl
+func configure_lamp(Entity lamp, Signal red, Signal green, Signal blue) {
+    lamp.r = red;
+    lamp.g = green;
+    lamp.b = blue;
+}
+
+Entity my_lamp = place("small-lamp", 0, 0, {use_colors: 1});
+configure_lamp(my_lamp, 255, 0, 0);  # Configure it to be red
 ```
 
 ### Local Variables
@@ -777,7 +875,7 @@ Signal doubled_virtual = double(b); # x is signal-A
 Variables declared in functions are local to that scope:
 
 ```fcdsl
-func compute(input) {
+func compute(Signal input) {
     Signal temp = input * 2;  # Local to function
     Signal result = temp + 10;
     return result;
@@ -789,7 +887,7 @@ func compute(input) {
 Functions can return entities placed within them. This is useful for creating entity factory functions:
 
 ```fcdsl
-func place_colored_lamp(x, y, red, green, blue) {
+func place_colored_lamp(int x, int y, Signal red, Signal green, Signal blue) {
     Entity lamp = place("small-lamp", x, y, {use_colors: 1, always_on: 1, color_mode: 1});
     lamp.r = red;
     lamp.g = green;
@@ -1049,7 +1147,7 @@ write(value, counter);  # Hard to track what type counter uses
 
 **DO:**
 ```fcdsl
-func clamp(value, min_val, max_val) {
+func clamp(Signal value, int min_val, int max_val) {
     Signal result = (value < min_val) * min_val
                   + (value > max_val) * max_val
                   + ((value >= min_val) && (value <= max_val)) * value;
@@ -1059,7 +1157,7 @@ func clamp(value, min_val, max_val) {
 
 **DON'T:**
 ```fcdsl
-func stateful_function(input) {
+func stateful_function(Signal input) {
     Memory state;  # Each call creates separate memory!
     # ...
 }
@@ -1144,6 +1242,44 @@ assembler1.enable = should_produce;
 assembler2.enable = shortage > 100;  # Second machine for high demand
 ```
 
+### Bitwise Operations and other Tricks
+
+```fcdsl
+# Using different number bases
+Signal binary = 0b11111111;      # 255 in binary
+Signal octal = 0o377;            # 255 in octal
+Signal hex = 0xFF;               # 255 in hexadecimal
+Signal dec = 255;                # 255 in decimal
+# All four represent the same value
+
+# Bit masking for RGB color channels
+Signal color_value = 0xFF8040;   # RGB color as hex
+Signal red = (color_value >> 16) AND 0xFF;    # Extract red channel
+Signal green = (color_value >> 8) AND 0xFF;   # Extract green channel
+Signal blue = color_value AND 0xFF;           # Extract blue channel
+
+# M ultiplication using shifts
+Signal base = 10;
+Signal doubled = base << 1;      # 20 (multiply by 2)
+Signal quadrupled = base << 2;   # 40 (multiply by 4)
+
+# Power calculations
+Signal area = side ** 2;         # Square
+Signal volume = side ** 3;       # Cube
+Signal compound = 2 ** 10;       # 1024
+
+# Bitwise flags for state combinations
+Signal flag_a = 0b0001;
+Signal flag_b = 0b0010;
+Signal flag_c = 0b0100;
+Signal combined_state = flag_a OR flag_b;     # 0b0011
+Signal has_both = combined_state AND flag_a;  # Check if flag_a is set
+
+# Logical operators with word forms
+Signal valid = (value > 0) and (value < 100);    # Range check
+Signal active = enabled or override;             # Either condition
+```
+
 ### State Machine
 
 ```fcdsl
@@ -1180,7 +1316,7 @@ Signal error = (current_state == 3) | "signal-error";
 ### Filter and Accumulator
 
 ```fcdsl
-func smooth_filter(input, window_size) {
+func smooth_filter(Signal input, int window_size) {
     Memory sum: "signal-sum";
     Memory count: "signal-count";
     

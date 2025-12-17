@@ -49,12 +49,14 @@ from dsl_compiler.src.common.source_location import (
 
 from .symbol_table import SymbolTable, Symbol, SymbolType, SemanticError
 from .type_system import (
+    EntityValue,
     FunctionValue,
     IntValue,
     MemoryInfo,
     SignalDebugInfo,
     SignalValue,
     ValueInfo,
+    VoidValue,
 )
 
 
@@ -83,6 +85,10 @@ class SemanticAnalyzer(ASTVisitor):
         self.signal_debug_info: Dict[str, SignalDebugInfo] = {}
         self.memory_types: Dict[str, MemoryInfo] = {}
         self.expr_types: Dict[int, ValueInfo] = {}
+
+        self._analyzing_functions: set[str] = (
+            set()
+        )  # Track functions being analyzed for recursion detection
 
     @property
     def signal_type_map(self) -> Dict[str, Any]:
@@ -797,11 +803,14 @@ class SemanticAnalyzer(ASTVisitor):
         self, value_type: ValueInfo, expected_type_name: str
     ) -> bool:
         """Check if a value type matches the expected type name."""
+        # VoidValue never matches any expected type
+        if isinstance(value_type, VoidValue):
+            return False
         type_map = {
             "int": IntValue,
             "Signal": SignalValue,
             "SignalType": SignalValue,  # For now, treat as Signal
-            "Entity": SignalValue,  # Entity calls return signals for now
+            "Entity": EntityValue,  # Entity values
             "Memory": SignalValue,  # Memory is stored as Signal type
         }
         return (
@@ -811,12 +820,18 @@ class SemanticAnalyzer(ASTVisitor):
 
     def _value_type_name(self, value_type: ValueInfo) -> str:
         """Get a human-readable name for a value type."""
-        type_names = {
-            IntValue: "int",
-            SignalValue: "Signal",
-            FunctionValue: "function",
-        }
-        return type_names.get(type(value_type), "unknown")
+        if isinstance(value_type, IntValue):
+            return "int"
+        elif isinstance(value_type, SignalValue):
+            return "Signal"
+        elif isinstance(value_type, EntityValue):
+            return "Entity"
+        elif isinstance(value_type, FunctionValue):
+            return "function"
+        elif isinstance(value_type, VoidValue):
+            return "void"
+        else:
+            return "unknown"
 
     def _get_function_return_type(self, function_name: str) -> ValueInfo:
         """Determine the return type of a function by analyzing its return statements."""
@@ -831,7 +846,7 @@ class SemanticAnalyzer(ASTVisitor):
                     return_type = self.get_expr_type(stmt.expr)
                     return return_type
 
-        return SignalValue(signal_type=self.allocate_implicit_type())
+        return VoidValue()
 
     def _infer_parameter_type(self, param_name: str, func_def) -> ValueInfo:
         """Infer parameter type from usage within the function body."""
@@ -842,7 +857,7 @@ class SemanticAnalyzer(ASTVisitor):
         if expr.name == "place":
             signal_type = self.allocate_implicit_type()
             expr.metadata["entity_signal_type"] = signal_type
-            return SignalValue(signal_type=signal_type)
+            return EntityValue()  # place() returns an Entity, not a Signal
 
         if expr.name == "memory":
             signal_type = self._resolve_memory_signal_type(expr)
@@ -983,11 +998,57 @@ class SemanticAnalyzer(ASTVisitor):
             declared_type,
         )
 
+    def _type_name_to_value_info(self, type_name: str) -> ValueInfo:
+        """Convert type name to ValueInfo."""
+        if type_name == "int":
+            return IntValue()
+        elif type_name == "Signal":
+            return SignalValue(signal_type=self.allocate_implicit_type())
+        elif type_name == "Entity":
+            return EntityValue()
+        else:
+            return IntValue()  # Fallback
+
+    def _type_name_to_symbol_type(self, type_name: str) -> SymbolType:
+        """Convert type name to symbol type."""
+        if type_name == "Entity":
+            return SymbolType.ENTITY
+        elif type_name == "Memory":
+            return SymbolType.MEMORY
+        else:
+            return SymbolType.PARAMETER
+
+    def _is_compatible_argument(self, param_type: str, arg_type: ValueInfo) -> bool:
+        """Check if argument type is compatible with parameter type."""
+        if param_type == "int":
+            return isinstance(
+                arg_type, (IntValue, SignalValue)
+            )  # Allow signal->int coercion
+        elif param_type == "Signal":
+            return isinstance(
+                arg_type, (IntValue, SignalValue)
+            )  # Allow int->signal coercion
+        elif param_type == "Entity":
+            return isinstance(arg_type, EntityValue)
+        return False
+
     def visit_FuncDecl(self, node: FuncDecl) -> None:
         """Analyze function declaration."""
+        # Check for Memory parameters (disallowed)
+        for param in node.params:
+            if param.type_name == "Memory":
+                self.diagnostics.error(
+                    f"Memory cannot be used as a function parameter type",
+                    stage="semantic",
+                    node=node,
+                )
+                return
+
+        # Build param_types list from declared types
         param_types = []
-        for param_name in node.params:
-            param_types.append(IntValue())
+        for param in node.params:
+            param_type = self._type_name_to_value_info(param.type_name)
+            param_types.append(param_type)
 
         return_type = self._infer_function_return_type(node.body)
 
@@ -1004,27 +1065,39 @@ class SemanticAnalyzer(ASTVisitor):
             self.diagnostics.error(e.message, stage="semantic", node=node)
             return
 
-        func_scope = self.current_scope.create_child_scope()
-        old_scope = self.current_scope
-        self.current_scope = func_scope
+        # Track this function during analysis to detect recursion
+        self._analyzing_functions.add(node.name)
 
-        for param_name in node.params:
-            param_type = self._infer_parameter_type(param_name, node)
-            param_symbol = Symbol(
-                name=param_name,
-                symbol_type=SymbolType.PARAMETER,
-                value_type=param_type,
-                defined_at=node,
-            )
-            try:
-                self.current_scope.define(param_symbol)
-            except SemanticError as e:
-                self.diagnostics.error(e.message, stage="semantic", node=node)
+        try:
+            # Create child scope for function body
+            func_scope = self.current_scope.create_child_scope()
+            old_scope = self.current_scope
+            self.current_scope = func_scope
 
-        for stmt in node.body:
-            self.visit(stmt)
+            # Define parameters with their declared types
+            for param in node.params:
+                param_value_type = self._type_name_to_value_info(param.type_name)
+                param_symbol_type = self._type_name_to_symbol_type(param.type_name)
 
-        self.current_scope = old_scope
+                param_symbol = Symbol(
+                    name=param.name,
+                    symbol_type=param_symbol_type,
+                    value_type=param_value_type,
+                    defined_at=node,
+                )
+                try:
+                    self.current_scope.define(param_symbol)
+                except SemanticError as e:
+                    self.diagnostics.error(e.message, stage="semantic", node=node)
+
+            # Analyze body
+            for stmt in node.body:
+                self.visit(stmt)
+
+            self.current_scope = old_scope
+        finally:
+            # Remove from analyzing set
+            self._analyzing_functions.discard(node.name)
 
     def _infer_function_return_type(self, body: List[Statement]) -> ValueInfo:
         """Infer function return type by analyzing return statements."""
@@ -1033,7 +1106,7 @@ class SemanticAnalyzer(ASTVisitor):
             if isinstance(stmt, ReturnStmt) and stmt.expr:
                 return IntValue()
 
-        return IntValue()
+        return VoidValue()
 
     def visit_ExprStmt(self, node: ExprStmt) -> None:
         """Analyze expression statement."""
@@ -1049,7 +1122,7 @@ class SemanticAnalyzer(ASTVisitor):
                     entity_symbol = Symbol(
                         name=node.target.name,
                         symbol_type=SymbolType.ENTITY,
-                        value_type=IntValue(),
+                        value_type=EntityValue(),  # place() returns EntityValue
                         defined_at=node.target,
                         is_mutable=True,
                     )
@@ -1131,8 +1204,22 @@ class SemanticAnalyzer(ASTVisitor):
             )
             return
 
-        if hasattr(func_symbol, "function_def") and func_symbol.function_def:
-            expected_params = len(func_symbol.function_def.params)
+        # Check for recursion
+        if node.name in self._analyzing_functions:
+            self.diagnostics.error(
+                f"Recursive function call detected: '{node.name}' calls itself (directly or indirectly). "
+                f"Recursive functions are not supported because functions are inlined at call sites.",
+                stage="semantic",
+                node=node,
+            )
+            return
+
+        func_def = (
+            func_symbol.function_def if hasattr(func_symbol, "function_def") else None
+        )
+
+        if func_def:
+            expected_params = len(func_def.params)
             actual_args = len(node.args)
             if actual_args != expected_params:
                 self.diagnostics.error(
@@ -1140,9 +1227,23 @@ class SemanticAnalyzer(ASTVisitor):
                     stage="semantic",
                     node=node,
                 )
+                return
 
-        for arg in node.args:
-            self.get_expr_type(arg)
+            # Validate argument types
+            for i, (param, arg) in enumerate(zip(func_def.params, node.args)):
+                arg_type = self.get_expr_type(arg)
+
+                if not self._is_compatible_argument(param.type_name, arg_type):
+                    self.diagnostics.error(
+                        f"Argument {i + 1} to '{node.name}': expected {param.type_name}, "
+                        f"got {self._value_type_name(arg_type)}",
+                        stage="semantic",
+                        node=arg,
+                    )
+        else:
+            # No function_def, just type-check arguments
+            for arg in node.args:
+                self.get_expr_type(arg)
 
     def generic_visit(self, node: ASTNode) -> Any:
         """Default visitor - traverse children."""

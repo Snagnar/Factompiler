@@ -1,0 +1,8 @@
+func configure_lamp(Entity lamp, Signal red, Signal green, Signal blue) {
+    lamp.r = red;
+    lamp.g = green;
+    lamp.b = blue;
+}
+
+Entity my_lamp = place("small-lamp", 0, 0, {use_colors: 1, always_on: 1, color_mode: 1});
+configure_lamp(my_lamp, ("signal-red", 255), ("signal-green", 128), ("signal-blue", 128));  # Configure it to be red

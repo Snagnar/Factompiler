@@ -62,7 +62,22 @@ class FunctionValue:
     return_type: "ValueInfo" = field(default_factory=lambda: IntValue())
 
 
-ValueInfo = Union[SignalValue, IntValue, FunctionValue]
+@dataclass
+class EntityValue:
+    """An entity reference value."""
+
+    entity_id: Optional[str] = None
+    prototype: Optional[str] = None
+
+
+@dataclass
+class VoidValue:
+    """Represents the absence of a value (void return type)."""
+
+    pass
+
+
+ValueInfo = Union[SignalValue, IntValue, FunctionValue, EntityValue, VoidValue]
 
 
 @dataclass
