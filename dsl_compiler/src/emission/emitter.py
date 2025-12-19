@@ -123,7 +123,7 @@ class BlueprintEmitter:
         Note: Power poles are now added as entity_placements, so they're already
         created by the entity factory. This method just handles legacy power_poles
         list and generates the copper wire connections.
-        
+
         Wire relay poles get minimal connections (nearest 2 neighbors) to avoid
         hyper-connectivity, while regular power grid poles get normal connections.
         """
@@ -146,13 +146,14 @@ class BlueprintEmitter:
 
         # Identify relay poles
         relay_ids: Set[str] = {
-            p.ir_node_id for p in layout_plan.entity_placements.values()
+            p.ir_node_id
+            for p in layout_plan.entity_placements.values()
             if getattr(p, "role", None) == "wire_relay"
         }
 
         # Get all electric poles
         all_poles = self.blueprint.find_entities_filtered(type="electric-pole")
-        
+
         # Connect each pole: grid poles get more connections, relays get minimal
         for pole in all_poles:
             max_neighbors = 2 if pole.id in relay_ids else 5
@@ -162,18 +163,17 @@ class BlueprintEmitter:
         """Connect a pole to its nearest neighbors within wire range using spatial query."""
         pos = (pole.global_position.x, pole.global_position.y)
         nearby = self.blueprint.find_entities_filtered(
-            type="electric-pole", 
-            position=pos, 
-            radius=pole.maximum_wire_distance
+            type="electric-pole", position=pos, radius=pole.maximum_wire_distance
         )
-        
+
         # Sort by distance and connect to nearest
         candidates = [
             (distance(pole.global_position._data, p.global_position._data), p)
-            for p in nearby if p is not pole
+            for p in nearby
+            if p is not pole
         ]
         candidates.sort(key=lambda x: x[0])
-        
+
         for dist, neighbor in candidates[:max_neighbors]:
             if dist <= min(pole.maximum_wire_distance, neighbor.maximum_wire_distance):
                 try:
