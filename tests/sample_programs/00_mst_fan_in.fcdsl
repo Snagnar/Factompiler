@@ -1,20 +1,18 @@
-# Test 0: Constant folding test
-# Tests: All constant operations should fold to a single constant combinator
-# Expression uses all operators and number bases, expected result: 23
+# Test 0: MST fan-in behavior
+# Tests: Multiple connections from multiple sources to the same signal
+# there needs to be no optimization merging these connections, as all computations are usually with only 2 inputs
 
-# Precedence (highest to lowest):
-# ** > * / % > + - > << >> > AND > XOR > OR
-# 
-# Computation:
-# 2 ** 3 = 8
-# 8 * 4 = 32
-# 32 + 0x10 (16) = 48
-# 48 - 0o5 (5) = 43
-# 43 << 2 = 172
-# 172 >> 1 = 86
-# 86 AND 0b1111 (15) = 6
-# --- OR binds loosest, so right side is computed separately ---
-# 0x10 (16) XOR 0b0101 (5) = 21
-# 6 OR 21 = 23
+Signal in_0 = 2;
+Signal in_1 = 2;
+Signal in_2 = 2;
+Signal in_3 = 2;
+Signal in_4 = 2;
+Signal in_5 = 2;
+Signal in_6 = 2;
+Signal in_7 = 2;
+Signal in_8 = 2;
+Signal in_9 = 2;
 
-Signal test = 2 ** 3 * 4 + 0x10 - 0o5 << 2 >> 1 AND 0b1111 OR 0x10 XOR 0b0101;
+Signal total = in_0 * in_1 * in_2 * in_3 * in_4 * in_5 * in_6 * in_7 * in_8 * in_9;
+
+# Signal test = 2 ** 3 * 4 + 0x10 - 0o5 << 2 >> 1 AND 0b1111 OR 0x10 XOR 0b0101;

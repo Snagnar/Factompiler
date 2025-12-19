@@ -7,7 +7,7 @@ using the factorio-draftsman library to generate blueprint JSON.
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Set
 
 from draftsman.blueprintable import Blueprint
 from draftsman.entity import (
@@ -15,6 +15,7 @@ from draftsman.entity import (
 )  # Use draftsman's factory
 from draftsman.classes.entity import Entity
 from draftsman.data import signals as signal_data
+from draftsman.utils import distance
 
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.common.constants import DEFAULT_CONFIG
@@ -48,7 +49,9 @@ class BlueprintEmitter:
         """Emit a blueprint from a completed layout plan."""
 
         self.blueprint = Blueprint()
-        self.blueprint.label = layout_plan.blueprint_label or DEFAULT_CONFIG.default_blueprint_label
+        self.blueprint.label = (
+            layout_plan.blueprint_label or DEFAULT_CONFIG.default_blueprint_label
+        )
         self.blueprint.description = layout_plan.blueprint_description or ""
         self.blueprint.version = (2, 0)
 
@@ -120,6 +123,9 @@ class BlueprintEmitter:
         Note: Power poles are now added as entity_placements, so they're already
         created by the entity factory. This method just handles legacy power_poles
         list and generates the copper wire connections.
+        
+        Wire relay poles get minimal connections (nearest 2 neighbors) to avoid
+        hyper-connectivity, while regular power grid poles get normal connections.
         """
         for pole in layout_plan.power_poles:
             if pole.pole_id in entity_map:
@@ -138,12 +144,42 @@ class BlueprintEmitter:
             self.blueprint.entities.append(entity, copy=False)
             entity_map[entity.id] = entity
 
-        try:
-            self.blueprint.generate_power_connections(prefer_axis=True, only_axis=True)
-        except Exception as exc:  # pragma: no cover - draftsman warnings
-            self.diagnostics.warning(
-                f"Failed to auto-generate power connections: {exc}"
-            )
+        # Identify relay poles
+        relay_ids: Set[str] = {
+            p.ir_node_id for p in layout_plan.entity_placements.values()
+            if getattr(p, "role", None) == "wire_relay"
+        }
+
+        # Get all electric poles
+        all_poles = self.blueprint.find_entities_filtered(type="electric-pole")
+        
+        # Connect each pole: grid poles get more connections, relays get minimal
+        for pole in all_poles:
+            max_neighbors = 2 if pole.id in relay_ids else 5
+            self._connect_pole_to_nearest(pole, max_neighbors)
+
+    def _connect_pole_to_nearest(self, pole: Entity, max_neighbors: int) -> None:
+        """Connect a pole to its nearest neighbors within wire range using spatial query."""
+        pos = (pole.global_position.x, pole.global_position.y)
+        nearby = self.blueprint.find_entities_filtered(
+            type="electric-pole", 
+            position=pos, 
+            radius=pole.maximum_wire_distance
+        )
+        
+        # Sort by distance and connect to nearest
+        candidates = [
+            (distance(pole.global_position._data, p.global_position._data), p)
+            for p in nearby if p is not pole
+        ]
+        candidates.sort(key=lambda x: x[0])
+        
+        for dist, neighbor in candidates[:max_neighbors]:
+            if dist <= min(pole.maximum_wire_distance, neighbor.maximum_wire_distance):
+                try:
+                    self.blueprint.add_power_connection(pole, neighbor)
+                except Exception:
+                    pass  # Connection may already exist
 
     def _ensure_signal_map_registered(self) -> None:
         for entry in self.signal_type_map.values():

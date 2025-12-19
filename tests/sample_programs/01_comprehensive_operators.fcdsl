@@ -7,7 +7,7 @@
 # SECTION 1: POWER OPERATOR (**)
 # ============================================================================
 
-int lamp_y = -3;
+int lamp_y = -10;
 
 # Test 1: Basic power
 Signal pow_test1 = 2 ** 3;                  # Should be 8
