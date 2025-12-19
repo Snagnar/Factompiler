@@ -92,7 +92,7 @@ class BlueprintEmitter:
                     else connection.sink_entity_id
                 )
                 self.diagnostics.warning(
-                    f"Skipped wire for '{connection.signal_name}' due to missing entity '{missing_id}'."
+                    f"Skipped wire for '{connection.signal_name}' due to missing entity '{missing_id}' - this may indicate a logic error."
                 )
                 continue
 
@@ -200,7 +200,7 @@ class BlueprintEmitter:
             try:
                 signal_data.add_signal(name, signal_type)
             except Exception as exc:  # pragma: no cover - draftsman errors
-                self.diagnostics.warning(
+                self.diagnostics.info(
                     f"Could not register signal '{name}' as {signal_type}: {exc}"
                 )
 

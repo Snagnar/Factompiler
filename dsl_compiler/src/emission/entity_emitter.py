@@ -162,7 +162,7 @@ class PlanEntityEmitter:
                             else:
                                 setattr(entity, key, value)
                         except Exception as e:
-                            self.diagnostics.warning(
+                            self.diagnostics.info(
                                 f"Could not set property '{key}' on '{placement.entity_type}': {e}"
                             )
 
@@ -345,7 +345,7 @@ class PlanEntityEmitter:
                 try:
                     setattr(entity, prop_name, prop_data.get("value"))
                 except Exception:
-                    self.diagnostics.warning(
+                    self.diagnostics.info(
                         f"Could not set property '{prop_name}' on '{placement.entity_type}'."
                     )
 

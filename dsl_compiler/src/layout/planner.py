@@ -244,7 +244,7 @@ class LayoutPlanner:
             return injected_count + 1
         else:
             placement.properties[f"{operand_key}_operand_wires"] = {"red", "green"}
-            self.diagnostics.warning(
+            self.diagnostics.info(
                 f"No source found for {operand_key} operand signal {signal_id} of {placement.ir_node_id}"
             )
             return injected_count

@@ -439,7 +439,7 @@ class SignalAnalyzer:
                     ):
                         target_type = existing_type
             except Exception as exc:
-                self.diagnostics.warning(
+                self.diagnostics.info(
                     f"Could not register signal '{name}' as {target_type}: {exc}"
                 )
 
@@ -520,7 +520,7 @@ class SignalAnalyzer:
         """
         if not self._available_signal_pool:
             # No signals available at all - fall back to signal-0
-            self.diagnostics.warning(
+            self.diagnostics.info(
                 "No virtual signals available for allocation. Using signal-0."
             )
             return "signal-0"

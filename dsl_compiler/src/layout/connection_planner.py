@@ -289,7 +289,7 @@ class RelayNetwork:
             )
 
             if relay_node is None:
-                self.diagnostics.warning(
+                self.diagnostics.info(
                     f"Failed to create relay {i + 1} for {signal_name} "
                     f"at ideal position {ideal_pos}"
                 )
@@ -298,7 +298,7 @@ class RelayNetwork:
             # Verify the relay is reachable from current position
             relay_dist = math.dist(current_pos, relay_node.position)
             if relay_dist > span_limit * 0.95:
-                self.diagnostics.warning(
+                self.diagnostics.info(
                     f"Relay {relay_node.entity_id} at {relay_node.position} is too far "
                     f"({relay_dist:.1f}) from current position {current_pos}"
                 )
@@ -316,7 +316,7 @@ class RelayNetwork:
         # Verify we can reach sink from the last relay
         final_dist = math.dist(current_pos, sink_pos)
         if final_dist > span_limit * 0.95:
-            self.diagnostics.warning(
+            self.diagnostics.info(
                 f"Cannot reach sink from last relay, distance {final_dist:.1f} > {span_limit * 0.95:.1f}"
             )
             return None
@@ -891,7 +891,7 @@ class ConnectionPlanner:
 
                 source_desc = ", ".join(source_labels)
 
-                self.diagnostics.warning(
+                self.diagnostics.info(
                     "Detected multiple producers for signal "
                     f"'{resolved_signal}' feeding sink '{sink_label}'; attempting wire coloring to isolate networks (sources: {source_desc})."
                 )
@@ -921,7 +921,7 @@ class ConnectionPlanner:
             sink_desc = (
                 ", ".join(sorted(conflict.sinks)) if conflict.sinks else "unknown sinks"
             )
-            self.diagnostics.warning(
+            self.diagnostics.info(
                 "Two-color routing could not isolate signal "
                 f"'{resolved_signal}' across sinks [{sink_desc}]; falling back to single-channel wiring for involved entities ({source_desc})."
             )
@@ -1019,7 +1019,7 @@ class ConnectionPlanner:
                     return True
 
         if signal_name.startswith("__feedback_"):
-            self.diagnostics.warning(
+            self.diagnostics.info(
                 f"Found feedback-like signal '{signal_name}' but no matching module"
             )
             return True
@@ -1193,7 +1193,7 @@ class ConnectionPlanner:
         # Verify source is connected in MST
         source_in_mst = any(source_id in edge for edge in mst_edges)
         if not source_in_mst and mst_edges:
-            self.diagnostics.warning(
+            self.diagnostics.info(
                 f"MST bug: source '{source_id}' not connected in MST edges: {mst_edges}"
             )
             return False
@@ -1341,14 +1341,14 @@ class ConnectionPlanner:
         placement_b = self.layout_plan.get_placement(entity_b)
 
         if not placement_a or not placement_b:
-            self.diagnostics.warning(
+            self.diagnostics.info(
                 f"Skipped MST edge for '{signal_name}': missing placement "
                 f"({entity_a} or {entity_b})"
             )
             return False
 
         if not placement_a.position or not placement_b.position:
-            self.diagnostics.warning(
+            self.diagnostics.info(
                 f"Skipped MST edge for '{signal_name}': missing position "
                 f"({entity_a} or {entity_b})"
             )
@@ -1458,7 +1458,7 @@ class ConnectionPlanner:
         sink = self.layout_plan.get_placement(edge.sink_entity_id)
 
         if source is None or sink is None:
-            self.diagnostics.warning(
+            self.diagnostics.info(
                 "Skipped wiring for '%s' due to missing placement (%s -> %s)."
                 % (
                     edge.resolved_signal_name,
@@ -1542,7 +1542,9 @@ class ConnectionPlanner:
         )
 
         if relay_count > 0:
-            self.diagnostics.info(f"Placed {relay_count} wire relay poles")
+            self.diagnostics.warning(
+                f"Blueprint complexity required {relay_count} wire relay pole(s) to route signals"
+            )
 
     def edge_color_map(self) -> Dict[Tuple[str, str, str], str]:
         """Expose raw edge→color assignments."""

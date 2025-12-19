@@ -128,7 +128,9 @@ class MemoryBuilder:
         """Connect read to memory output."""
         module = self._modules.get(op.memory_id)
         if not module:
-            self.diagnostics.warning(f"Read from undefined memory: {op.memory_id}")
+            self.diagnostics.warning(
+                f"Read from undefined memory '{op.memory_id}' - this may indicate a logic error"
+            )
             return
 
         self._read_sources[op.node_id] = op.memory_id
@@ -151,13 +153,15 @@ class MemoryBuilder:
         """
         module = self._modules.get(op.memory_id)
         if not module:
-            self.diagnostics.warning(f"Write to undefined memory: {op.memory_id}")
+            self.diagnostics.warning(
+                f"Write to undefined memory '{op.memory_id}' - this may indicate a logic error"
+            )
             return
 
         if module._has_write:
             self.diagnostics.warning(
-                f"Multiple writes to memory '{op.memory_id}' - "
-                f"only last write will be optimized"
+                f"Multiple writes to memory '{op.memory_id}' detected - "
+                f"only the last write will be optimized"
             )
         module._has_write = True
 
