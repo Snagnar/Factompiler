@@ -7,7 +7,7 @@ from dsl_compiler.src.ir.builder import (
 )
 from dsl_compiler.src.ir.nodes import IR_EntityPropWrite
 from dsl_compiler.src.semantic.analyzer import SignalValue
-from dsl_compiler.src.semantic.type_system import IntValue
+from dsl_compiler.src.semantic.type_system import IntValue, get_signal_type_name
 from dsl_compiler.src.ast.statements import (
     AssignStmt,
     DeclStmt,
@@ -124,9 +124,8 @@ class StatementLowerer:
                 return
 
             # For Signal type with integer value, create a constant combinator
-            if symbol and isinstance(symbol.value_type, SignalValue):
-                signal_type = symbol.value_type.signal_type.name
-            else:
+            signal_type = get_signal_type_name(symbol.value_type) if symbol else None
+            if signal_type is None:
                 signal_type = self.ir_builder.allocate_implicit_type()
 
             const_ref = self.ir_builder.const(signal_type, value_ref, stmt)
@@ -204,9 +203,10 @@ class StatementLowerer:
 
             if isinstance(value_ref, int):
                 symbol = self.semantic.symbol_table.lookup(stmt.target.name)
-                if symbol and isinstance(symbol.value_type, SignalValue):
-                    signal_type = symbol.value_type.signal_type.name
-                else:
+                signal_type = (
+                    get_signal_type_name(symbol.value_type) if symbol else None
+                )
+                if signal_type is None:
                     signal_type = self.ir_builder.allocate_implicit_type()
 
                 const_ref = self.ir_builder.const(signal_type, value_ref, stmt)

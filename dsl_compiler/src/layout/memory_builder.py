@@ -12,7 +12,7 @@ from dsl_compiler.src.ir.builder import (
     IR_MemWrite,
     SignalRef,
 )
-from .layout_plan import LayoutPlan, EntityPlacement, WireConnection
+from .layout_plan import LayoutPlan, WireConnection, EntityPlacement
 from .signal_analyzer import SignalAnalyzer
 from .signal_graph import SignalGraph
 from .tile_grid import TileGrid
@@ -83,40 +83,34 @@ class MemoryBuilder:
         signal_name = self.signal_analyzer.get_signal_name(op.signal_type)
 
         write_id = f"{op.memory_id}_write_gate"
-        write_placement = EntityPlacement(
+        write_placement = self.layout_plan.create_and_add_placement(
             ir_node_id=write_id,
             entity_type="decider-combinator",
             position=None,  # Force-directed will position
-            properties={
-                "footprint": (1, 2),
-                "operation": ">",
-                "left_operand": "signal-W",
-                "right_operand": 0,
-                "output_signal": signal_name,
-                "copy_count_from_input": True,
-                "debug_info": self._make_debug_info(op, "write_gate"),
-            },
+            footprint=(1, 2),
             role="memory_write_gate",
+            debug_info=self._make_debug_info(op, "write_gate"),
+            operation=">",
+            left_operand="signal-W",
+            right_operand=0,
+            output_signal=signal_name,
+            copy_count_from_input=True,
         )
-        self.layout_plan.add_placement(write_placement)
 
         hold_id = f"{op.memory_id}_hold_gate"
-        hold_placement = EntityPlacement(
+        hold_placement = self.layout_plan.create_and_add_placement(
             ir_node_id=hold_id,
             entity_type="decider-combinator",
             position=None,
-            properties={
-                "footprint": (1, 2),
-                "operation": "=",
-                "left_operand": "signal-W",
-                "right_operand": 0,
-                "output_signal": signal_name,
-                "copy_count_from_input": True,
-                "debug_info": self._make_debug_info(op, "hold_gate"),
-            },
+            footprint=(1, 2),
             role="memory_hold_gate",
+            debug_info=self._make_debug_info(op, "hold_gate"),
+            operation="=",
+            left_operand="signal-W",
+            right_operand=0,
+            output_signal=signal_name,
+            copy_count_from_input=True,
         )
-        self.layout_plan.add_placement(hold_placement)
 
         module = MemoryModule(
             memory_id=op.memory_id,

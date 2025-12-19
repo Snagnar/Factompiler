@@ -5,6 +5,7 @@ from dsl_compiler.src.ast.expressions import ReadExpr, WriteExpr
 from dsl_compiler.src.ir.builder import SignalRef, ValueRef
 from dsl_compiler.src.ir.nodes import IR_Const, IR_Decider
 from dsl_compiler.src.semantic.analyzer import SignalValue
+from dsl_compiler.src.semantic.type_system import get_signal_type_name
 
 """Memory-related lowering helpers for the Factorio Circuit DSL."""
 
@@ -42,8 +43,8 @@ class MemoryLowerer:
             signal_type = mem_info.signal_type
         else:
             symbol = self.semantic.symbol_table.lookup(stmt.name)
-            if symbol and isinstance(symbol.value_type, SignalValue):
-                signal_type = symbol.value_type.signal_type.name
+            if symbol:
+                signal_type = get_signal_type_name(symbol.value_type)
 
         if signal_type is None:
             self._error(

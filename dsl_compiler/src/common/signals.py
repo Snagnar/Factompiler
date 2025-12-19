@@ -192,16 +192,3 @@ AVAILABLE_VIRTUAL_SIGNALS: List[str] = [
     "signal-signal-parameter",
     "signal-stack-size",
 ]
-
-
-def get_available_signals_excluding(excluded: FrozenSet[str]) -> List[str]:
-    """
-    Get available virtual signals excluding the specified set.
-
-    Args:
-        excluded: Set of signal names to exclude (user-declared + reserved)
-
-    Returns:
-        List of signal names available for allocation
-    """
-    return [s for s in AVAILABLE_VIRTUAL_SIGNALS if s not in excluded]

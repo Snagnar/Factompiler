@@ -454,40 +454,7 @@ class SemanticAnalyzer(ASTVisitor):
 
             return SignalValue(signal_type=self.allocate_implicit_type())
 
-        elif isinstance(expr, PropertyAccess):
-            object_symbol = self.current_scope.lookup(expr.object_name)
-            if object_symbol is None:
-                self.diagnostics.error(
-                    f"Undefined variable '{expr.object_name}'",
-                    stage="semantic",
-                    node=expr,
-                )
-                return IntValue()
-            elif object_symbol.symbol_type == SymbolType.ENTITY:
-                return SignalValue(signal_type=self.allocate_implicit_type())
-            elif object_symbol.symbol_type == SymbolType.MODULE:
-                if (
-                    object_symbol.properties
-                    and expr.property_name in object_symbol.properties
-                ):
-                    func_symbol = object_symbol.properties[expr.property_name]
-                    return func_symbol.value_type
-                else:
-                    self.diagnostics.error(
-                        f"Module '{expr.object_name}' has no function '{expr.property_name}'",
-                        stage="semantic",
-                        node=expr,
-                    )
-                    return IntValue()
-            else:
-                self.diagnostics.error(
-                    f"Cannot access property '{expr.property_name}' on '{expr.object_name}' of type {object_symbol.symbol_type}",
-                    stage="semantic",
-                    node=expr,
-                )
-                return IntValue()
-
-        elif isinstance(expr, PropertyAccessExpr):
+        elif isinstance(expr, (PropertyAccess, PropertyAccessExpr)):
             object_symbol = self.current_scope.lookup(expr.object_name)
             if object_symbol is None:
                 self.diagnostics.error(
@@ -572,6 +539,13 @@ class SemanticAnalyzer(ASTVisitor):
 
         return IntValue(), f"Invalid operand types for {op}"
 
+    def _emit_type_warning(self, message: str, node: ASTNode) -> None:
+        """Emit a type compatibility message as error or warning based on strict mode."""
+        if self.strict_types:
+            self.diagnostics.error(message, stage="semantic", node=node)
+        else:
+            self.diagnostics.warning(message, stage="semantic", node=node)
+
     def infer_binary_op_type(self, expr: BinaryOp) -> ValueInfo:
         """Infer type for binary operations with mixed-type rules."""
         left_type = self.get_expr_type(expr.left)
@@ -604,10 +578,7 @@ class SemanticAnalyzer(ASTVisitor):
                 left_type, right_type, expr.op, expr
             )
             if warning_msg:
-                if self.strict_types:
-                    self.diagnostics.error(warning_msg, stage="semantic", node=expr)
-                else:
-                    self.diagnostics.warning(warning_msg, stage="semantic", node=expr)
+                self._emit_type_warning(warning_msg, expr)
             return result_type
 
         # Power operator (same as arithmetic)
@@ -616,10 +587,7 @@ class SemanticAnalyzer(ASTVisitor):
                 left_type, right_type, expr.op, expr
             )
             if warning_msg:
-                if self.strict_types:
-                    self.diagnostics.error(warning_msg, stage="semantic", node=expr)
-                else:
-                    self.diagnostics.warning(warning_msg, stage="semantic", node=expr)
+                self._emit_type_warning(warning_msg, expr)
             return result_type
 
         # Standard arithmetic operators
@@ -628,10 +596,7 @@ class SemanticAnalyzer(ASTVisitor):
         )
 
         if warning_msg:
-            if self.strict_types:
-                self.diagnostics.error(warning_msg, stage="semantic", node=expr)
-            else:
-                self.diagnostics.warning(warning_msg, stage="semantic", node=expr)
+            self._emit_type_warning(warning_msg, expr)
 
         return result_type
 
@@ -848,10 +813,6 @@ class SemanticAnalyzer(ASTVisitor):
 
         return VoidValue()
 
-    def _infer_parameter_type(self, param_name: str, func_def) -> ValueInfo:
-        """Infer parameter type from usage within the function body."""
-        return SignalValue(signal_type=self.allocate_implicit_type())
-
     def _infer_builtin_call_type(self, expr: CallExpr) -> Optional[ValueInfo]:
         """Return ValueInfo for built-in calls or None if not handled."""
         if expr.name == "place":
@@ -1009,8 +970,8 @@ class SemanticAnalyzer(ASTVisitor):
         else:
             return IntValue()  # Fallback
 
-    def _type_name_to_symbol_type(self, type_name: str) -> SymbolType:
-        """Convert type name to symbol type."""
+    def _param_type_name_to_symbol_type(self, type_name: str) -> SymbolType:
+        """Convert type name to symbol type for function parameters."""
         if type_name == "Entity":
             return SymbolType.ENTITY
         elif type_name == "Memory":
@@ -1077,7 +1038,9 @@ class SemanticAnalyzer(ASTVisitor):
             # Define parameters with their declared types
             for param in node.params:
                 param_value_type = self._type_name_to_value_info(param.type_name)
-                param_symbol_type = self._type_name_to_symbol_type(param.type_name)
+                param_symbol_type = self._param_type_name_to_symbol_type(
+                    param.type_name
+                )
 
                 param_symbol = Symbol(
                     name=param.name,

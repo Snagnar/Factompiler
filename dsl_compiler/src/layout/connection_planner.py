@@ -7,7 +7,7 @@ from dsl_compiler.src.ir.builder import SignalRef
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.common.constants import CompilerConfig, DEFAULT_CONFIG
 from .tile_grid import TileGrid
-from .layout_plan import LayoutPlan, WireConnection, EntityPlacement
+from .layout_plan import LayoutPlan, WireConnection
 from .signal_analyzer import SignalUsageEntry
 
 from .wire_router import (
@@ -83,6 +83,11 @@ class RelayNetwork:
         self.relay_nodes: Dict[Tuple[int, int], RelayNode] = {}
         self._relay_counter = 0
 
+    @property
+    def span_limit(self) -> float:
+        """Effective span limit with safety margin."""
+        return max(1.0, float(self.max_span) - self.config.wire_span_safety_margin)
+
     def add_relay_node(
         self, position: Tuple[float, float], entity_id: str, pole_type: str
     ) -> RelayNode:
@@ -142,16 +147,12 @@ class RelayNetwork:
         """
         distance = math.dist(source_pos, sink_pos)
 
-        span_limit = max(
-            1.0, float(self.max_span) - self.config.wire_span_safety_margin
-        )
-
-        if distance <= span_limit * 0.95:
+        if distance <= self.span_limit * 0.95:
             return []  # No relays needed
 
         # Phase 1: Try to find a path through existing relays
         existing_path = self._find_path_through_existing_relays(
-            source_pos, sink_pos, span_limit, wire_color, network_id
+            source_pos, sink_pos, self.span_limit, wire_color, network_id
         )
         if existing_path is not None:
             # Found complete path! Register the network usage on each relay
@@ -166,7 +167,7 @@ class RelayNetwork:
 
         # Phase 2: Plan and create relays along the source-sink line
         return self._plan_and_create_relay_path(
-            source_pos, sink_pos, span_limit, signal_name, wire_color, network_id
+            source_pos, sink_pos, self.span_limit, signal_name, wire_color, network_id
         )
 
     def _find_path_through_existing_relays(
@@ -198,7 +199,7 @@ class RelayNetwork:
         visited = set()
 
         while open_set:
-            f, g, current, path = heapq.heappop(open_set)
+            _, g, current, path = heapq.heappop(open_set)
 
             if current in visited:
                 continue
@@ -455,21 +456,19 @@ class RelayNetwork:
 
         relay_node = self.add_relay_node(center_pos, relay_id, "medium-electric-pole")
 
-        relay_placement = EntityPlacement(
+        self.layout_plan.create_and_add_placement(
             ir_node_id=relay_id,
             entity_type="medium-electric-pole",
             position=center_pos,
-            properties={
-                "debug_info": {
-                    "variable": f"relay_{self._relay_counter}",
-                    "operation": "infrastructure",
-                    "details": "wire_relay",
-                    "role": "relay",
-                }
-            },
+            footprint=(1, 1),
             role="wire_relay",
+            debug_info={
+                "variable": f"relay_{self._relay_counter}",
+                "operation": "infrastructure",
+                "details": "wire_relay",
+                "role": "relay",
+            },
         )
-        self.layout_plan.add_placement(relay_placement)
 
         return relay_node
 
@@ -479,69 +478,6 @@ class RelayNetwork:
             if node.entity_id == relay_id:
                 return node
         return None
-
-    def can_route_signal(
-        self,
-        source_pos: Tuple[float, float],
-        sink_pos: Tuple[float, float],
-    ) -> bool:
-        """Check if a signal can be routed between two positions.
-
-        Returns True if:
-        - The distance is within wire span limit (no relays needed), or
-        - All necessary relay positions have available space
-
-        This is a dry-run check that doesn't create any relays.
-        """
-        distance = math.dist(source_pos, sink_pos)
-
-        span_limit = max(
-            1.0, float(self.max_span) - self.config.wire_span_safety_margin
-        )
-
-        if distance <= span_limit * 0.95:
-            return True  # No relays needed
-
-        safe_interval = span_limit * 0.8
-        num_relays = max(1, int(math.ceil(distance / safe_interval)) - 1)
-
-        for i in range(1, num_relays + 1):
-            ratio = i / (num_relays + 1)
-            relay_x = source_pos[0] + (sink_pos[0] - source_pos[0]) * ratio
-            relay_y = source_pos[1] + (sink_pos[1] - source_pos[1]) * ratio
-            ideal_pos = (relay_x, relay_y)
-
-            # Check if there's an existing relay nearby
-            relay_node = self.find_relay_near(ideal_pos, max_distance=0.7)
-            if relay_node is not None:
-                continue  # Can reuse existing relay
-
-            # Check if we could place a new relay
-            tile_pos = (int(round(relay_x)), int(round(relay_y)))
-            if self.tile_grid.is_available(tile_pos, footprint=(1, 1)):
-                continue  # Can place new relay here
-
-            # Check offset positions
-            found_space = False
-            for offset in [
-                (0, 1),
-                (1, 0),
-                (0, -1),
-                (-1, 0),
-                (1, 1),
-                (-1, 1),
-                (1, -1),
-                (-1, -1),
-            ]:
-                nearby_pos = (tile_pos[0] + offset[0], tile_pos[1] + offset[1])
-                if self.tile_grid.is_available(nearby_pos, footprint=(1, 1)):
-                    found_space = True
-                    break
-
-            if not found_space:
-                return False  # Can't place relay at this position
-
-        return True
 
 
 class ConnectionPlanner:
@@ -672,56 +608,6 @@ class ConnectionPlanner:
         self.diagnostics.info(
             f"Computed network IDs: {num_networks} isolated source networks"
         )
-
-    def _find_network_components(
-        self, edges: List[Tuple[str, str, str]], offset: int = 0
-    ) -> Dict[Tuple[str, str, str], int]:
-        """Find connected components among edges based on shared endpoints.
-
-        Returns a mapping from edge key to network ID.
-        """
-        from collections import defaultdict
-
-        if not edges:
-            return {}
-
-        # Build adjacency list: entity -> list of edges
-        entity_edges: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
-        for edge in edges:
-            source, sink, signal = edge
-            entity_edges[source].append(edge)
-            entity_edges[sink].append(edge)
-
-        # Find connected components using BFS
-        edge_to_network: Dict[Tuple[str, str, str], int] = {}
-        visited_edges: Set[Tuple[str, str, str]] = set()
-        network_id = offset
-
-        for start_edge in edges:
-            if start_edge in visited_edges:
-                continue
-
-            # BFS from this edge
-            queue = [start_edge]
-            while queue:
-                edge = queue.pop(0)
-                if edge in visited_edges:
-                    continue
-                visited_edges.add(edge)
-                edge_to_network[edge] = network_id
-
-                source, sink, _ = edge
-                # Find all edges connected through source or sink
-                for connected_edge in entity_edges[source]:
-                    if connected_edge not in visited_edges:
-                        queue.append(connected_edge)
-                for connected_edge in entity_edges[sink]:
-                    if connected_edge not in visited_edges:
-                        queue.append(connected_edge)
-
-            network_id += 1
-
-        return edge_to_network
 
     def plan_connections(
         self,
@@ -1315,7 +1201,7 @@ class ConnectionPlanner:
         # Pre-validate ALL MST edges are short enough to NOT need relays
         # If any edge needs relays, skip MST entirely to avoid relay conflicts
         # between different signal groups
-        span_limit = self.relay_network.max_span - self.config.wire_span_safety_margin
+        span_limit = self.relay_network.span_limit
         for ent_a, ent_b in mst_edges:
             placement_a = self.layout_plan.get_placement(ent_a)
             placement_b = self.layout_plan.get_placement(ent_b)
@@ -1487,22 +1373,52 @@ class ConnectionPlanner:
             )
             return False
 
+        self._create_relay_chain(
+            entity_a, entity_b, signal_name, wire_color, relay_path, side_a, side_b
+        )
+
+        return True
+
+    def _create_relay_chain(
+        self,
+        source_id: str,
+        sink_id: str,
+        signal_name: str,
+        wire_color: str,
+        relay_path: List[Tuple[str, str]],
+        source_side: Optional[str] = None,
+        sink_side: Optional[str] = None,
+    ) -> None:
+        """Create wire connections through a relay path.
+
+        This is the shared implementation for chaining connections through
+        relay poles. Used by both MST edge routing and regular connection routing.
+
+        Args:
+            source_id: Starting entity ID.
+            sink_id: Ending entity ID.
+            signal_name: Name of the signal being routed.
+            wire_color: Wire color for direct connection (used if relay_path is empty).
+            relay_path: List of (relay_id, wire_color) tuples from relay network.
+            source_side: Circuit side for source entity (None for poles).
+            sink_side: Circuit side for sink entity (None for poles).
+        """
         if len(relay_path) == 0:
             # Direct connection - no relays needed
             self.layout_plan.add_wire_connection(
                 WireConnection(
-                    source_entity_id=entity_a,
-                    sink_entity_id=entity_b,
+                    source_entity_id=source_id,
+                    sink_entity_id=sink_id,
                     signal_name=signal_name,
                     wire_color=wire_color,
-                    source_side=side_a,
-                    sink_side=side_b,
+                    source_side=source_side,
+                    sink_side=sink_side,
                 )
             )
         else:
             # Chain through relay poles
-            current_id = entity_a
-            current_side = side_a
+            current_id = source_id
+            current_side = source_side
 
             for relay_id, relay_color in relay_path:
                 self.layout_plan.add_wire_connection(
@@ -1518,19 +1434,17 @@ class ConnectionPlanner:
                 current_id = relay_id
                 current_side = None
 
-            # Final connection to entity_b
+            # Final connection to sink
             self.layout_plan.add_wire_connection(
                 WireConnection(
                     source_entity_id=current_id,
-                    sink_entity_id=entity_b,
+                    sink_entity_id=sink_id,
                     signal_name=signal_name,
                     wire_color=relay_path[-1][1],
                     source_side=None,
-                    sink_side=side_b,
+                    sink_side=sink_side,
                 )
             )
-
-        return True
 
     def _route_connection_with_relays(
         self,
@@ -1577,55 +1491,22 @@ class ConnectionPlanner:
             )
             return
 
-        if len(relay_path) == 0:
-            self.layout_plan.add_wire_connection(
-                WireConnection(
-                    source_entity_id=edge.source_entity_id,
-                    sink_entity_id=edge.sink_entity_id,
-                    signal_name=edge.resolved_signal_name,
-                    wire_color=wire_color,
-                    source_side=source_side,
-                    sink_side=sink_side,
-                )
-            )
-        else:
-            current_id = edge.source_entity_id
-            current_side = source_side
-
-            for relay_id, relay_color in relay_path:
-                self.layout_plan.add_wire_connection(
-                    WireConnection(
-                        source_entity_id=current_id,
-                        sink_entity_id=relay_id,
-                        signal_name=edge.resolved_signal_name,
-                        wire_color=relay_color,  # Use color assigned by relay network
-                        source_side=current_side,
-                        sink_side=None,
-                    )
-                )
-                current_id = relay_id
-                current_side = None
-
-            self.layout_plan.add_wire_connection(
-                WireConnection(
-                    source_entity_id=current_id,
-                    sink_entity_id=edge.sink_entity_id,
-                    signal_name=edge.resolved_signal_name,
-                    wire_color=relay_path[-1][1],  # Use last relay's color
-                    source_side=None,
-                    sink_side=sink_side,
-                )
-            )
+        self._create_relay_chain(
+            edge.source_entity_id,
+            edge.sink_entity_id,
+            edge.resolved_signal_name,
+            wire_color,
+            relay_path,
+            source_side,
+            sink_side,
+        )
 
     def _validate_relay_coverage(self) -> None:
         """Validate that all wire connections have adequate relay coverage.
 
         Logs warnings for any connections that exceed span limits.
         """
-        max_span = (
-            self.max_wire_span if self.max_wire_span and self.max_wire_span > 0 else 9.0
-        )
-        span_limit = max(1.0, float(max_span) - self.config.wire_span_safety_margin)
+        span_limit = self.relay_network.span_limit
         epsilon = 1e-6
 
         violation_count = 0

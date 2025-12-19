@@ -89,3 +89,18 @@ class MemoryInfo:
     signal_type: Optional[str] = None
     signal_info: Optional[SignalTypeInfo] = None
     explicit: bool = False
+
+
+def get_signal_type_name(value_type: ValueInfo) -> Optional[str]:
+    """Extract signal type name from ValueInfo if it's a SignalValue.
+
+    Args:
+        value_type: A ValueInfo instance
+
+    Returns:
+        The signal type name if value_type is a SignalValue with a signal_type,
+        otherwise None.
+    """
+    if isinstance(value_type, SignalValue) and value_type.signal_type:
+        return value_type.signal_type.name
+    return None

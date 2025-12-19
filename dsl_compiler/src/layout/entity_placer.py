@@ -4,8 +4,8 @@ from dsl_compiler.src.common.entity_data import (
     get_entity_footprint,
     get_entity_alignment,
 )
-from .layout_plan import LayoutPlan, EntityPlacement, WireConnection
-from .signal_analyzer import SignalAnalyzer, SignalUsageEntry
+from .layout_plan import LayoutPlan, EntityPlacement
+from .signal_analyzer import SignalAnalyzer
 from .signal_graph import SignalGraph
 from .tile_grid import TileGrid
 from .memory_builder import MemoryBuilder
@@ -198,21 +198,18 @@ class EntityPlacer:
             is_input = True
 
         # Store placement in plan (NOT creating Draftsman entity yet!)
-        placement = EntityPlacement(
+        self.plan.create_and_add_placement(
             ir_node_id=op.node_id,
             entity_type="constant-combinator",
             position=pos,
-            properties={
-                "signal_name": signal_name,
-                "signal_type": signal_type,
-                "value": op.value,
-                "footprint": (1, 2),
-                "debug_info": debug_info,
-                "is_input": is_input,  # Mark user-declared constants as inputs
-            },
+            footprint=(1, 2),
             role="literal",
+            debug_info=debug_info,
+            signal_name=signal_name,
+            signal_type=signal_type,
+            value=op.value,
+            is_input=is_input,  # Mark user-declared constants as inputs
         )
-        self.plan.add_placement(placement)
 
         self.signal_graph.set_source(op.node_id, op.node_id)
 
@@ -234,23 +231,20 @@ class EntityPlacer:
         right_operand = self.signal_analyzer.get_operand_for_combinator(op.right)
         output_signal = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
 
-        placement = EntityPlacement(
+        self.plan.create_and_add_placement(
             ir_node_id=op.node_id,
             entity_type="arithmetic-combinator",
             position=pos,
-            properties={
-                "operation": op.op,
-                "left_operand": left_operand,
-                "right_operand": right_operand,
-                "left_operand_signal_id": op.left,  # IR signal ID for wire color lookup
-                "right_operand_signal_id": op.right,  # IR signal ID for wire color lookup
-                "output_signal": output_signal,
-                "footprint": (1, 2),
-                "debug_info": self._build_debug_info(op),
-            },
+            footprint=(1, 2),
             role="arithmetic",
+            debug_info=self._build_debug_info(op),
+            operation=op.op,
+            left_operand=left_operand,
+            right_operand=right_operand,
+            left_operand_signal_id=op.left,  # IR signal ID for wire color lookup
+            right_operand_signal_id=op.right,  # IR signal ID for wire color lookup
+            output_signal=output_signal,
         )
-        self.plan.add_placement(placement)
 
         self.signal_graph.set_source(op.node_id, op.node_id)
         self._add_signal_sink(op.left, op.node_id)
@@ -278,25 +272,22 @@ class EntityPlacer:
         # Use the copy_count_from_input field from the IR node
         copy_count_from_input = op.copy_count_from_input
 
-        placement = EntityPlacement(
+        self.plan.create_and_add_placement(
             ir_node_id=op.node_id,
             entity_type="decider-combinator",
             position=pos,
-            properties={
-                "operation": op.test_op,
-                "left_operand": left_operand,
-                "right_operand": right_operand,
-                "left_operand_signal_id": op.left,  # IR signal ID for wire color lookup
-                "right_operand_signal_id": op.right,  # IR signal ID for wire color lookup
-                "output_signal": output_signal,
-                "output_value": output_value,
-                "copy_count_from_input": copy_count_from_input,
-                "footprint": (1, 2),
-                "debug_info": self._build_debug_info(op),
-            },
+            footprint=(1, 2),
             role="decider",
+            debug_info=self._build_debug_info(op),
+            operation=op.test_op,
+            left_operand=left_operand,
+            right_operand=right_operand,
+            left_operand_signal_id=op.left,  # IR signal ID for wire color lookup
+            right_operand_signal_id=op.right,  # IR signal ID for wire color lookup
+            output_signal=output_signal,
+            output_value=output_value,
+            copy_count_from_input=copy_count_from_input,
         )
-        self.plan.add_placement(placement)
 
         self.signal_graph.set_source(op.node_id, op.node_id)
         self._add_signal_sink(op.left, op.node_id)
@@ -606,19 +597,16 @@ class EntityPlacer:
                         except ValueError:
                             pass
 
-                placement = EntityPlacement(
+                self.plan.create_and_add_placement(
                     ir_node_id=anchor_id,
                     entity_type="constant-combinator",
                     position=None,  # Will be set by layout optimizer
-                    properties={
-                        "signals": [],  # Empty constant combinator
-                        "footprint": (1, 1),
-                        "debug_info": debug_info,
-                        "is_output": True,  # Mark output anchors as outputs
-                    },
+                    footprint=(1, 1),
                     role="output_anchor",
+                    debug_info=debug_info,
+                    signals=[],  # Empty constant combinator
+                    is_output=True,  # Mark output anchors as outputs
                 )
-                self.plan.add_placement(placement)
 
                 # Wire the producer's output to this anchor
                 # The anchor acts as a sink for the signal

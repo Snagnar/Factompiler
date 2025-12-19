@@ -34,7 +34,12 @@ from dsl_compiler.src.ir.builder import (
 )
 from dsl_compiler.src.ir.nodes import IR_EntityPropRead, IR_Decider, IR_Arith, IR_Const
 from dsl_compiler.src.semantic.symbol_table import SymbolType
-from dsl_compiler.src.semantic.type_system import IntValue, SignalValue, ValueInfo
+from dsl_compiler.src.semantic.type_system import (
+    IntValue,
+    SignalValue,
+    ValueInfo,
+    get_signal_type_name,
+)
 
 from .constant_folder import ConstantFolder
 
@@ -98,7 +103,7 @@ class ExpressionLowerer:
             ProjectionExpr: self.lower_projection_expr,
             CallExpr: self.lower_call_expr,
             PropertyAccess: self.lower_property_access,
-            PropertyAccessExpr: self.lower_property_access_expr,
+            PropertyAccessExpr: self.lower_property_access,  # Same method handles both
             SignalLiteral: self.lower_signal_literal,
             DictLiteral: self.lower_dict_literal,
             OutputSpecExpr: self.lower_output_spec_expr,
@@ -141,11 +146,8 @@ class ExpressionLowerer:
 
         if isinstance(value_ref, SignalRef):
             signal_type_name = value_ref.signal_type
-            if signal_type_name and signal_type_name != (
-                semantic_type.signal_type.name
-                if isinstance(semantic_type, SignalValue)
-                else None
-            ):
+            semantic_signal_type = get_signal_type_name(semantic_type)
+            if signal_type_name and signal_type_name != semantic_signal_type:
                 return SignalValue(
                     signal_type=SignalTypeInfo(
                         name=signal_type_name, is_implicit=True, is_virtual=True
@@ -160,9 +162,7 @@ class ExpressionLowerer:
         right_type = self.semantic.get_expr_type(expr.right)
         result_type = self.semantic.get_expr_type(expr)
 
-        left_signal_type = (
-            left_type.signal_type.name if isinstance(left_type, SignalValue) else None
-        )
+        left_signal_type = get_signal_type_name(left_type)
 
         # Try constant folding FIRST, before lowering sub-expressions.
         # This prevents creating unnecessary IR nodes for intermediate constants.
@@ -172,12 +172,11 @@ class ExpressionLowerer:
         if left_const is not None and right_const is not None:
             folded = self._fold_binary_constant(expr.op, left_const, right_const, expr)
             if folded is not None:
-                if isinstance(result_type, SignalValue):
-                    output_type = result_type.signal_type.name
-                elif isinstance(left_type, SignalValue):
-                    output_type = left_type.signal_type.name
-                else:
-                    output_type = self.ir_builder.allocate_implicit_type()
+                output_type = (
+                    get_signal_type_name(result_type)
+                    or get_signal_type_name(left_type)
+                    or self.ir_builder.allocate_implicit_type()
+                )
                 if isinstance(result_type, SignalValue):
                     self.parent.ensure_signal_registered(output_type, left_signal_type)
                 result = self.ir_builder.const(output_type, folded, expr)
@@ -195,19 +194,20 @@ class ExpressionLowerer:
 
         # Recompute result type based on actual operand types if we're in a function
         if actual_left_type != left_type or actual_right_type != right_type:
-            if isinstance(actual_left_type, SignalValue):
+            actual_left_signal = get_signal_type_name(actual_left_type)
+            actual_right_signal = get_signal_type_name(actual_right_type)
+            if actual_left_signal:
                 result_type = actual_left_type
-                left_signal_type = actual_left_type.signal_type.name
-            elif isinstance(actual_right_type, SignalValue):
+                left_signal_type = actual_left_signal
+            elif actual_right_signal:
                 result_type = actual_right_type
-                left_signal_type = actual_right_type.signal_type.name
+                left_signal_type = actual_right_signal
 
-        if isinstance(result_type, SignalValue):
-            output_type = result_type.signal_type.name
-        elif isinstance(left_type, SignalValue):
-            output_type = left_type.signal_type.name
-        else:
-            output_type = self.ir_builder.allocate_implicit_type()
+        output_type = (
+            get_signal_type_name(result_type)
+            or get_signal_type_name(left_type)
+            or self.ir_builder.allocate_implicit_type()
+        )
 
         # Route to appropriate handler based on operator category
         if expr.op in ARITHMETIC_OPS:
@@ -215,18 +215,8 @@ class ExpressionLowerer:
                 expr, left_ref, right_ref, output_type, result_type, left_signal_type
             )
 
-        if expr.op == POWER_OP:
-            return self._lower_power_op(
-                expr, left_ref, right_ref, output_type, left_signal_type
-            )
-
-        if expr.op in SHIFT_OPS:
-            return self._lower_shift_op(
-                expr, left_ref, right_ref, output_type, left_signal_type
-            )
-
-        if expr.op in BITWISE_OPS:
-            return self._lower_bitwise_op(
+        if expr.op == POWER_OP or expr.op in SHIFT_OPS or expr.op in BITWISE_OPS:
+            return self._lower_arithmetic_like_op(
                 expr, left_ref, right_ref, output_type, left_signal_type
             )
 
@@ -268,7 +258,7 @@ class ExpressionLowerer:
         self._attach_expr_context(result.source_id, expr)
         return result
 
-    def _lower_power_op(
+    def _lower_arithmetic_like_op(
         self,
         expr: BinaryOp,
         left_ref: ValueRef,
@@ -276,41 +266,17 @@ class ExpressionLowerer:
         output_type: str,
         left_signal_type: Optional[str],
     ) -> SignalRef:
-        """Lower power operation (**)."""
-        self.parent.ensure_signal_registered(output_type, left_signal_type)
-        # Factorio uses "^" for power
-        result = self.ir_builder.arithmetic("^", left_ref, right_ref, output_type, expr)
-        self._attach_expr_context(result.source_id, expr)
-        return result
+        """Lower arithmetic-like operations (**, <<, >>, AND, OR, XOR).
 
-    def _lower_shift_op(
-        self,
-        expr: BinaryOp,
-        left_ref: ValueRef,
-        right_ref: ValueRef,
-        output_type: str,
-        left_signal_type: Optional[str],
-    ) -> SignalRef:
-        """Lower bit shift operations (<<, >>)."""
+        These all follow the same pattern: register signal, call ir_builder.arithmetic,
+        attach context, and return result. The only variation is operator mapping.
+        """
+        # Map DSL operators to Factorio operators
+        factorio_op = {"**": "^"}.get(expr.op, expr.op)
+
         self.parent.ensure_signal_registered(output_type, left_signal_type)
         result = self.ir_builder.arithmetic(
-            expr.op, left_ref, right_ref, output_type, expr
-        )
-        self._attach_expr_context(result.source_id, expr)
-        return result
-
-    def _lower_bitwise_op(
-        self,
-        expr: BinaryOp,
-        left_ref: ValueRef,
-        right_ref: ValueRef,
-        output_type: str,
-        left_signal_type: Optional[str],
-    ) -> SignalRef:
-        """Lower bitwise operations (AND, OR, XOR)."""
-        self.parent.ensure_signal_registered(output_type, left_signal_type)
-        result = self.ir_builder.arithmetic(
-            expr.op, left_ref, right_ref, output_type, expr
+            factorio_op, left_ref, right_ref, output_type, expr
         )
         self._attach_expr_context(result.source_id, expr)
         return result
@@ -573,15 +539,17 @@ class ExpressionLowerer:
 
         # Determine output signal type from the output_value
         result_type = self.semantic.get_expr_type(expr)
-        if isinstance(result_type, SignalValue):
-            output_type = result_type.signal_type.name
+        result_signal = get_signal_type_name(result_type)
+        if result_signal:
+            output_type = result_signal
         elif isinstance(output_value_ref, SignalRef):
             output_type = output_value_ref.signal_type
         else:
             # Integer constant - use comparison left operand's type
             left_type = self.semantic.get_expr_type(comparison.left)
-            if isinstance(left_type, SignalValue):
-                output_type = left_type.signal_type.name
+            left_signal = get_signal_type_name(left_type)
+            if left_signal:
+                output_type = left_signal
             else:
                 output_type = self.ir_builder.allocate_implicit_type()
 
@@ -625,16 +593,12 @@ class ExpressionLowerer:
         if actual_operand_type != operand_type:
             result_type = actual_operand_type
 
-        if isinstance(result_type, SignalValue):
-            output_type = result_type.signal_type.name
-        else:
-            output_type = self.ir_builder.allocate_implicit_type()
-
-        operand_signal_type = (
-            result_type.signal_type.name
-            if isinstance(result_type, SignalValue)
-            else None
+        output_type = (
+            get_signal_type_name(result_type)
+            or self.ir_builder.allocate_implicit_type()
         )
+
+        operand_signal_type = get_signal_type_name(result_type)
         self.parent.ensure_signal_registered(output_type, operand_signal_type)
 
         if expr.op == "+":
@@ -720,8 +684,8 @@ class ExpressionLowerer:
             return ref
 
         semantic_type = self.semantic.get_expr_type(expr)
-        if isinstance(semantic_type, SignalValue):
-            signal_name = semantic_type.signal_type.name
+        signal_name = get_signal_type_name(semantic_type)
+        if signal_name:
             output_type = signal_name
             self.parent.ensure_signal_registered(signal_name)
             value_ref = self.lower_expr(expr.value)
@@ -786,25 +750,10 @@ class ExpressionLowerer:
                     )
         return properties
 
-    def lower_property_access(self, expr: PropertyAccess) -> ValueRef:
-        entity_name = expr.object_name
-        prop_name = expr.property_name
-
-        if entity_name in self.parent.entity_refs:
-            entity_id = self.parent.entity_refs[entity_name]
-            signal_type = self.ir_builder.allocate_implicit_type()
-            read_op = IR_EntityPropRead(
-                f"prop_read_{entity_id}_{prop_name}", signal_type, expr
-            )
-            read_op.entity_id = entity_id
-            read_op.property_name = prop_name
-            self.ir_builder.add_operation(read_op)
-            return SignalRef(signal_type, read_op.node_id)
-
-        self._error(f"Undefined entity: {entity_name}", expr)
-        return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
-
-    def lower_property_access_expr(self, expr: PropertyAccessExpr) -> ValueRef:
+    def lower_property_access(
+        self, expr: Union[PropertyAccess, PropertyAccessExpr]
+    ) -> ValueRef:
+        """Lower property access expression (works for both LValue and Expr forms)."""
         entity_name = expr.object_name
         prop_name = expr.property_name
 
@@ -1075,7 +1024,7 @@ class ExpressionLowerer:
         if len(combined_sources) < 2:
             return None
 
-        output_type = result_type.signal_type.name
+        output_type = get_signal_type_name(result_type)
         if not output_type:
             return None
 

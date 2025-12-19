@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import math
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from .tile_grid import TileGrid
-from .layout_plan import LayoutPlan, PowerPolePlacement, EntityPlacement
+from .layout_plan import LayoutPlan, PowerPolePlacement
 
 """Power infrastructure planning for the layout module."""
 
@@ -87,72 +87,6 @@ class PowerPlanner:
         ys = [p[1] for p in positions]
 
         return (min(xs), min(ys), max(xs), max(ys))
-
-    def _place_pole(
-        self, position: Tuple[int, int], prototype: str, footprint: Tuple[int, int]
-    ) -> PlannedPowerPole:
-        """Place a single power pole at the given position.
-
-        Args:
-            position: (x, y) tile position (top-left for 2x2 poles)
-            prototype: Factorio entity prototype name
-            footprint: (width, height) in tiles
-
-        Returns:
-            PlannedPowerPole object
-        """
-        # ✅ FIX: Snap position to integer grid
-        snapped_x = int(round(position[0]))
-        snapped_y = int(round(position[1]))
-        snapped_position = (snapped_x, snapped_y)
-
-        for existing in self._planned:
-            if existing.position == snapped_position:
-                return existing  # Return existing pole
-
-        pole = PlannedPowerPole(position=snapped_position, prototype=prototype)
-        self._planned.append(pole)
-
-        pole_id = f"power_pole_{len(self.layout_plan.power_poles) + 1}"
-        self.layout_plan.add_power_pole(
-            PowerPolePlacement(
-                pole_id=pole_id,
-                pole_type=prototype,
-                position=snapped_position,
-            )
-        )
-
-        center_x = snapped_position[0] + footprint[0] / 2.0
-        center_y = snapped_position[1] + footprint[1] / 2.0
-
-        placement = EntityPlacement(
-            ir_node_id=pole_id,
-            entity_type=prototype,
-            position=(center_x, center_y),
-            properties={
-                "footprint": footprint,
-                "is_power_pole": True,
-                "debug_info": {
-                    "variable": pole_id,
-                    "operation": "power",
-                    "details": "electricity supply",
-                },
-            },
-            role="power_pole",
-        )
-        self.layout_plan.add_placement(placement)
-
-        self.tile_grid.mark_occupied(snapped_position, footprint)
-
-        if self.connection_planner and hasattr(
-            self.connection_planner, "relay_network"
-        ):
-            center_position = (center_x, center_y)
-            self.connection_planner.relay_network.add_relay_node(
-                center_position, pole_id, prototype
-            )
-
-        return pole
 
     def add_power_pole_grid(self, pole_type: str) -> None:
         """Add power poles in a regular grid pattern with fixed positions.
@@ -251,25 +185,21 @@ class PowerPlanner:
                 center_x = tile_x + footprint[0] / 2.0
                 center_y = tile_y + footprint[1] / 2.0
 
-                placement = EntityPlacement(
+                self.layout_plan.create_and_add_placement(
                     ir_node_id=pole_id,
                     entity_type=prototype,
                     position=(center_x, center_y),  # Fixed position
-                    properties={
-                        "footprint": footprint,
-                        "is_power_pole": True,
-                        "pole_type": pole_type,
-                        "fixed_position": True,  # Don't optimize this position
-                        "debug_info": {
-                            "variable": f"power_pole_{poles_added + 1}",
-                            "operation": "power",
-                            "details": "electricity supply",
-                        },
-                    },
+                    footprint=footprint,
                     role="power_pole",
+                    debug_info={
+                        "variable": f"power_pole_{poles_added + 1}",
+                        "operation": "power",
+                        "details": "electricity supply",
+                    },
+                    is_power_pole=True,
+                    pole_type=pole_type,
+                    fixed_position=True,  # Don't optimize this position
                 )
-
-                self.layout_plan.add_placement(placement)
 
                 self.tile_grid.mark_occupied((tile_x, tile_y), footprint)
 
@@ -280,106 +210,5 @@ class PowerPlanner:
 
         self.diagnostics.info(
             f"Added {poles_added} {pole_type} power poles in {int(width)}x{int(height)} grid "
-            f"(spacing: {spacing:.1f} tiles, coverage: {supply_radius:.1f} tiles)"
-        )
-
-    def add_power_pole_grid_from_bounds(self, pole_type: str) -> None:
-        """Add power poles based on actual entity positions.
-
-        This method should be called AFTER layout optimization to place
-        power poles based on actual entity positions rather than estimates.
-
-        Strategy:
-        1. Compute bounding box of all placed entities
-        2. Create a minimal grid of power poles covering the bounds
-        3. Only place poles where there's actually something to power
-
-        Args:
-            pole_type: Type of power pole (small/medium/big/substation)
-        """
-        config = POWER_POLE_CONFIG.get(pole_type.lower())
-        if config is None:
-            self.diagnostics.warning(
-                f"Unknown power pole type '{pole_type}'; skipping power grid"
-            )
-            return
-
-        # Get actual entity bounds (excluding power poles)
-        bounds = self._compute_entity_bounds(exclude_power_poles=True)
-        if bounds is None:
-            return
-
-        min_x, min_y, max_x, max_y = bounds
-
-        supply_radius = float(config["supply_radius"])
-        # Spacing should provide overlapping coverage
-        spacing = 2.0 * supply_radius
-
-        prototype = str(config["prototype"])
-        footprint = tuple(int(v) for v in config.get("footprint", (1, 1)))
-
-        # Expand bounds by supply radius to ensure edge coverage
-        grid_min_x = min_x - supply_radius
-        grid_min_y = min_y - supply_radius
-        grid_max_x = max_x + supply_radius
-        grid_max_y = max_y + supply_radius
-
-        poles_added = 0
-
-        # Start at the first pole position that would cover the minimum bound
-        x = grid_min_x
-        while x <= grid_max_x:
-            y = grid_min_y
-            while y <= grid_max_y:
-                tile_x = int(round(x))
-                tile_y = int(round(y))
-
-                if not self.tile_grid.is_available((tile_x, tile_y), footprint):
-                    # Try to find a nearby available position
-                    found = False
-                    for offset in [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, -1)]:
-                        alt_x = tile_x + offset[0]
-                        alt_y = tile_y + offset[1]
-                        if self.tile_grid.is_available((alt_x, alt_y), footprint):
-                            tile_x, tile_y = alt_x, alt_y
-                            found = True
-                            break
-                    if not found:
-                        y += spacing
-                        continue
-
-                pole_id = f"power_pole_{poles_added + 1}"
-
-                center_x = tile_x + footprint[0] / 2.0
-                center_y = tile_y + footprint[1] / 2.0
-
-                placement = EntityPlacement(
-                    ir_node_id=pole_id,
-                    entity_type=prototype,
-                    position=(center_x, center_y),
-                    properties={
-                        "footprint": footprint,
-                        "is_power_pole": True,
-                        "pole_type": pole_type,
-                        "debug_info": {
-                            "variable": f"power_pole_{poles_added + 1}",
-                            "operation": "power",
-                            "details": "electricity supply",
-                        },
-                    },
-                    role="power_pole",
-                )
-
-                self.layout_plan.add_placement(placement)
-                self.tile_grid.mark_occupied((tile_x, tile_y), footprint)
-
-                poles_added += 1
-
-                y += spacing
-            x += spacing
-
-        self.diagnostics.info(
-            f"Added {poles_added} {pole_type} power poles for entity bounds "
-            f"({min_x:.0f},{min_y:.0f})-({max_x:.0f},{max_y:.0f}) "
             f"(spacing: {spacing:.1f} tiles, coverage: {supply_radius:.1f} tiles)"
         )
