@@ -175,7 +175,9 @@ class EntityPlacer:
         """Place constant combinator (if materialization required)."""
         usage = self.signal_usage.get(op.node_id)
         if not usage or not usage.should_materialize:
-            return
+            # For bundle constants, always materialize if they have signals
+            if not op.signals:
+                return
 
         signal_name = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
         signal_type = self.signal_analyzer.resolve_signal_type(op.output_type, usage)
@@ -197,19 +199,32 @@ class EntityPlacer:
         if hasattr(op, "debug_metadata") and op.debug_metadata.get("user_declared"):
             is_input = True
 
-        # Store placement in plan (NOT creating Draftsman entity yet!)
-        self.plan.create_and_add_placement(
-            ir_node_id=op.node_id,
-            entity_type="constant-combinator",
-            position=pos,
-            footprint=(1, 2),
-            role="literal",
-            debug_info=debug_info,
-            signal_name=signal_name,
-            signal_type=signal_type,
-            value=op.value,
-            is_input=is_input,  # Mark user-declared constants as inputs
-        )
+        # Handle multi-signal constants (bundles)
+        if op.signals:
+            self.plan.create_and_add_placement(
+                ir_node_id=op.node_id,
+                entity_type="constant-combinator",
+                position=pos,
+                footprint=(1, 2),
+                role="bundle_const",
+                debug_info=debug_info,
+                signals=op.signals,  # Dict of signal_name -> value
+                is_input=is_input,
+            )
+        else:
+            # Store placement in plan (NOT creating Draftsman entity yet!)
+            self.plan.create_and_add_placement(
+                ir_node_id=op.node_id,
+                entity_type="constant-combinator",
+                position=pos,
+                footprint=(1, 2),
+                role="literal",
+                debug_info=debug_info,
+                signal_name=signal_name,
+                signal_type=signal_type,
+                value=op.value,
+                is_input=is_input,  # Mark user-declared constants as inputs
+            )
 
         self.signal_graph.set_source(op.node_id, op.node_id)
 
@@ -244,6 +259,7 @@ class EntityPlacer:
             left_operand_signal_id=op.left,  # IR signal ID for wire color lookup
             right_operand_signal_id=op.right,  # IR signal ID for wire color lookup
             output_signal=output_signal,
+            needs_wire_separation=op.needs_wire_separation,  # For bundle operations
         )
 
         self.signal_graph.set_source(op.node_id, op.node_id)

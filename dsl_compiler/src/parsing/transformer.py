@@ -38,6 +38,10 @@ from dsl_compiler.src.ast.expressions import (
     WriteExpr,
     ProjectionExpr,
     SignalLiteral,
+    BundleLiteral,
+    BundleSelectExpr,
+    BundleAnyExpr,
+    BundleAllExpr,
 )
 
 
@@ -526,6 +530,76 @@ class DSLTransformer(Transformer):
             key = str(key_token)
 
         return key, value_expr, key_token
+
+    def empty_brace(self, items) -> BundleLiteral:
+        """empty_brace: '{' '}'
+        
+        Empty braces default to an empty bundle (since empty dicts make no sense).
+        """
+        return BundleLiteral(elements=[])
+
+    def bundle_literal(self, items) -> BundleLiteral:
+        """bundle_literal: '{' [bundle_element (',' bundle_element)*] '}'"""
+        elements: List[Expr] = []
+        first_token = None
+        for item in items:
+            unwrapped = self._unwrap_tree(item)
+            if unwrapped is not None:
+                elements.append(unwrapped)
+            if first_token is None and hasattr(item, "line"):
+                first_token = item
+
+        literal = BundleLiteral(elements=elements)
+        if first_token is not None:
+            literal = self._set_position(literal, first_token)
+        return literal
+
+    def bundle_element(self, items) -> Expr:
+        """bundle_element: expr"""
+        return self._unwrap_tree(items[0])
+
+    def bundle_select(self, items) -> BundleSelectExpr:
+        """bundle_select: NAME '[' STRING ']'"""
+        bundle_name = items[0]
+        signal_type_token = items[1]
+
+        if isinstance(bundle_name, Token):
+            bundle_expr = IdentifierExpr(name=str(bundle_name.value))
+            self._set_position(bundle_expr, bundle_name)
+        else:
+            bundle_expr = IdentifierExpr(name=str(bundle_name))
+
+        if isinstance(signal_type_token, Token):
+            signal_type = signal_type_token.value[1:-1]  # Remove quotes
+        else:
+            signal_type = str(signal_type_token)[1:-1]
+
+        select_expr = BundleSelectExpr(bundle=bundle_expr, signal_type=signal_type)
+        if isinstance(bundle_name, Token):
+            select_expr = self._set_position(select_expr, bundle_name)
+        return select_expr
+
+    def bundle_any(self, items) -> BundleAnyExpr:
+        """bundle_any: ANY_KW '(' expr ')'
+        
+        items[0] is the ANY_KW token, items[1] is the bundle expression.
+        """
+        bundle_expr = self._unwrap_tree(items[1])
+        any_expr = BundleAnyExpr(bundle=bundle_expr)
+        if hasattr(items[0], "line"):
+            any_expr = self._set_position(any_expr, items[0])
+        return any_expr
+
+    def bundle_all(self, items) -> BundleAllExpr:
+        """bundle_all: ALL_KW '(' expr ')'
+        
+        items[0] is the ALL_KW token, items[1] is the bundle expression.
+        """
+        bundle_expr = self._unwrap_tree(items[1])
+        all_expr = BundleAllExpr(bundle=bundle_expr)
+        if hasattr(items[0], "line"):
+            all_expr = self._set_position(all_expr, items[0])
+        return all_expr
 
     def signal_with_type(self, items) -> SignalLiteral:
         """signal_literal: "(" type_literal "," expr ")" -> signal_with_type"""

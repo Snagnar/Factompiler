@@ -1,878 +1,2627 @@
-# Entity Properties for Circuit DSL
+# Entity Reference for Factorio Circuit DSL
 
-This reference shows entity properties relevant for circuit control in your DSL.
-Generated for Draftsman 3.2.0
+**Generated:** 2025-12-21
+**Draftsman version:** 3.2.0
 
-## Quick Links
+This is the **complete reference** for all entities available in the DSL.
+Each entity lists its prototypes, circuit I/O capabilities, and all settable properties.
 
-- [Draftsman ReadTheDocs](https://factorio-draftsman.readthedocs.io/en/latest/)
-- [Draftsman GitHub](https://github.com/redruin1/factorio-draftsman)
+## Table of Contents
+
+- [Using Entities in the DSL](#using-entities-in-the-dsl)
+- [Enum Reference](#enum-reference)
+- [Combinators](#combinators)
+- [Lamps & Displays](#lamps--displays)
+- [Inserters](#inserters)
+- [Belts & Logistics](#belts--logistics)
+- [Train System](#train-system)
+- [Production](#production)
+- [Storage](#storage)
+- [Power](#power)
+- [Fluids](#fluids)
+- [Combat](#combat)
+- [Robots & Logistics](#robots--logistics)
+- [Space](#space)
+- [Misc](#misc)
+- [Uncategorized Entities](#uncategorized-entities)
+
+## Using Entities in the DSL
+
+### Placement Syntax
+
+```fcdsl
+Entity name = place("prototype-name", x, y, {prop1: value1, prop2: value2});
+```
+
+### Setting Properties
+
+**At placement time** (in the property dictionary):
+```fcdsl
+Entity lamp = place("small-lamp", 0, 0, {use_colors: 1, color_mode: 1});
+```
+
+**After placement** (for circuit-controlled values):
+```fcdsl
+lamp.enable = signal > 0;  # Control based on circuit signal
+lamp.r = red_value;        # Dynamic RGB control
+```
+
+### Enum Properties
+
+Enum properties accept **integer values**. See the [Enum Reference](#enum-reference) for all values.
+
+```fcdsl
+Entity lamp = place("small-lamp", 0, 0, {color_mode: 1});  # 1 = COMPONENTS
+```
+
+### Boolean Properties
+
+Boolean properties accept `1` (true) or `0` (false):
+```fcdsl
+Entity lamp = place("small-lamp", 0, 0, {use_colors: 1, always_on: 1});
+```
+
+## Enum Reference
+
+When setting enum properties in the DSL, use the **integer value**.
+This section lists all enums used by entity properties.
+
+### <a id="lampcolormode"></a>LampColorMode
+
+| DSL Value | Enum Name |
+|-----------|-----------|
+| `0` | COLOR_MAPPING |
+| `1` | COMPONENTS |
+| `2` | PACKED_RGB |
+
+### <a id="direction"></a>Direction
+
+| DSL Value | Enum Name |
+|-----------|-----------|
+| `0` | NORTH |
+| `1` | NORTHNORTHEAST |
+| `2` | NORTHEAST |
+| `3` | EASTNORTHEAST |
+| `4` | EAST |
+| `5` | EASTSOUTHEAST |
+| `6` | SOUTHEAST |
+| `7` | SOUTHSOUTHEAST |
+| `8` | SOUTH |
+| `9` | SOUTHSOUTHWEST |
+| `10` | SOUTHWEST |
+| `11` | WESTSOUTHWEST |
+| `12` | WEST |
+| `13` | WESTNORTHWEST |
+| `14` | NORTHWEST |
+| `15` | NORTHNORTHWEST |
+
+### <a id="insertermodeofoperation"></a>InserterModeOfOperation
+
+| DSL Value | Enum Name |
+|-----------|-----------|
+| `0` | ENABLE_DISABLE |
+| `1` | SET_FILTERS |
+| `2` | READ_HAND_CONTENTS |
+| `3` | NONE |
+| `4` | SET_STACK_SIZE |
+
+### <a id="inserterreadmode"></a>InserterReadMode
+
+| DSL Value | Enum Name |
+|-----------|-----------|
+| `0` | PULSE |
+| `1` | HOLD |
+
+### <a id="beltreadmode"></a>BeltReadMode
+
+| DSL Value | Enum Name |
+|-----------|-----------|
+| `0` | PULSE |
+| `1` | HOLD |
+| `2` | HOLD_ALL_BELTS |
+
+### <a id="filtermode"></a>FilterMode
+
+| DSL Value | Enum Name |
+|-----------|-----------|
+| `0` | WHITELIST |
+| `1` | BLACKLIST |
+
+### <a id="logisticmodeofoperation"></a>LogisticModeOfOperation
+
+| DSL Value | Enum Name |
+|-----------|-----------|
+| `0` | SEND_CONTENTS |
+| `1` | SET_REQUESTS |
+| `2` | NONE |
+
+### <a id="miningdrillreadmode"></a>MiningDrillReadMode
+
+| DSL Value | Enum Name |
+|-----------|-----------|
+| `0` | UNDER_DRILL |
+| `1` | TOTAL_PATCH |
+
+### <a id="siloreadmode"></a>SiloReadMode
+
+| DSL Value | Enum Name |
+|-----------|-----------|
+| `0` | NONE |
+| `1` | READ_CONTENTS |
+| `2` | READ_ORBITAL_REQUESTS |
 
 ## Combinators
 
 ### ArithmeticCombinator
 
-**Circuit/Dynamic Properties:**
+**Description:** An arithmetic combinator. Peforms a mathematical or bitwise operation on circuit signals.
 
-| Property | Type |
-|----------|------|
-| `direction` | Direction |
-| `first_operand` | NoneType |
-| `item_requests` | list |
-| `name` | str |
-| `operation` | str |
-| `output_signal` | NoneType |
-| `player_description` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `second_operand` | int |
-| `tile_position` | _TileVector |
+**Prototypes:** `"arithmetic-combinator"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Dual circuit connection (separate input and output sides)
 
-- `first_operand_wires` (CircuitNetworkSelection)
-- `second_operand_wires` (CircuitNetworkSelection)
+#### Circuit Signal I/O
 
+**Signal Outputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `output_signal` | Result value | Signal to output the combinator result on | Always active |
+
+#### DSL Examples
+
+```fcdsl
+# Note: Combinators are typically generated by the compiler
+Signal result = input * 2 + offset;  # Creates ArithmeticCombinator(s)
+```
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `first_operand` | Integer | None |  |
+| `first_operand_wires` | Complex (see draftsman docs) ⚠️ | (factory) |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `operation` | One of: *, /, +, -, %, ^, <<, >>, AND, OR, XOR | "*" |  |
+| `player_description` | String | "" |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `second_operand` | Integer | 0 |  |
+| `second_operand_wires` | Complex (see draftsman docs) ⚠️ | (factory) |  |
+
+---
 
 ### DeciderCombinator
 
-**Circuit/Dynamic Properties:**
+**Description:** A decider combinator. Makes comparisons based on circuit network inputs.
 
-| Property | Type |
-|----------|------|
-| `conditions` | list |
-| `direction` | Direction |
-| `item_requests` | list |
-| `name` | str |
-| `outputs` | list |
-| `player_description` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
+**Prototypes:** `"decider-combinator"`
 
+**Connection Type:** Dual circuit connection (separate input and output sides)
+
+#### DSL Examples
+
+```fcdsl
+# Note: Combinators are typically generated by the compiler
+Signal flag = (count > 100) : 1;  # Creates DeciderCombinator
+```
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `conditions` | List (complex) ⚠️ | (factory) |  |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `outputs` | List (complex) ⚠️ | (factory) |  |
+| `player_description` | String | "" |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
 
 ### ConstantCombinator
 
-**Circuit/Dynamic Properties:**
+**Description:** A combinator that holds a number of constant signals that can be output to the circuit network.
 
-| Property | Type |
-|----------|------|
-| `direction` | Direction |
-| `enabled` | bool |
-| `item_requests` | list |
-| `name` | str |
-| `player_description` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `sections` | list |
-| `tile_position` | _TileVector |
+**Prototypes:** `"constant-combinator"`
 
+**Connection Type:** Single circuit connection
+
+#### DSL Examples
+
+```fcdsl
+# Note: Constant combinators are typically generated by the compiler
+Signal constant = 42;  # Creates ConstantCombinator
+```
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `enabled` | Boolean (0/1) | true | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `player_description` | String | "" |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `sections` | List (complex) ⚠️ | (factory) |  |
+
+---
 
 ### SelectorCombinator
 
-**Circuit/Dynamic Properties:**
+**Description:** (Factorio 2.0)
 
-| Property | Type |
-|----------|------|
-| `count_signal` | NoneType |
-| `direction` | Direction |
-| `index_signal` | NoneType |
-| `item_requests` | list |
-| `name` | str |
-| `operation` | str |
-| `player_description` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `quality_destination_signal` | NoneType |
-| `quality_source_signal` | NoneType |
-| `select_quality_from_signal` | bool |
-| `tile_position` | _TileVector |
+**Prototypes:** `"selector-combinator"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Dual circuit connection (separate input and output sides)
 
-- `index_constant` (int)
-- `quality_filter` (QualityFilter)
-- `quality_source_static` (str)
-- `random_update_interval` (int)
-- `select_max` (bool)
+#### Circuit Signal I/O
 
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `index_signal` | Integer | Signal for selector index input | Always active |
+| `quality_source_signal` | Any signal | Signal to read quality from | Always active |
+
+**Signal Outputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `count_signal` | Integer | Signal to output the count result | Always active |
+| `quality_destination_signal` | Quality level | Signal to output quality result | Always active |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `index_constant` | Integer | 0 |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `operation` | String (see type for valid values) | "select" |  |
+| `player_description` | String | "" |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `quality_filter` | Complex (see draftsman docs) ⚠️ | (factory) |  |
+| `quality_source_static` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `random_update_interval` | Integer | 0 |  |
+| `select_max` | Boolean (0/1) | true | `1` |
+| `select_quality_from_signal` | Boolean (0/1) | false | `1` |
+
+---
 
 ## Lamps & Displays
 
 ### Lamp
 
-**Circuit/Dynamic Properties:**
+**Description:** An entity that illuminates an area.
 
-| Property | Type |
-|----------|------|
-| `always_on` | bool |
-| `blue_signal` | SignalID |
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `color` | Color |
-| `color_mode` | LampColorMode |
-| `connect_to_logistic_network` | bool |
-| `green_signal` | SignalID |
-| `item_requests` | list |
-| `logistic_condition` | Condition |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `red_signal` | SignalID |
-| `rgb_signal` | SignalID |
-| `tile_position` | _TileVector |
-| `use_colors` | bool |
+**Prototypes:** `"small-lamp"`
 
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+| `red_signal` | Integer (0-255) | Red color component (COMPONENTS mode) | `use_colors: 1, color_mode: 1` |
+| `green_signal` | Integer (0-255) | Green color component (COMPONENTS mode) | `use_colors: 1, color_mode: 1` |
+| `blue_signal` | Integer (0-255) | Blue color component (COMPONENTS mode) | `use_colors: 1, color_mode: 1` |
+| `rgb_signal` | Packed RGB integer | Combined RGB value (PACKED_RGB mode) | `use_colors: 1, color_mode: 2` |
+
+#### DSL Examples
+
+```fcdsl
+# Basic lamp controlled by circuit
+Entity lamp = place("small-lamp", 0, 0);
+lamp.enable = signal > 0;
+
+# RGB colored lamp
+Entity rgb_lamp = place("small-lamp", 2, 0, {use_colors: 1, color_mode: 1});
+rgb_lamp.r = red_signal;
+rgb_lamp.g = green_signal;
+rgb_lamp.b = blue_signal;
+```
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `always_on` | Boolean (0/1) | false | `1` |
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `color` | Color {r: 0-255, g: 0-255, b: 0-255} | (factory) | `{r: 255, g: 0, b: 0}` |
+| `color_mode` | Integer ([LampColorMode](#lampcolormode)) | 0 | `0  # COLOR_MAPPING` |
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `use_colors` | Boolean (0/1) | false | `1` |
+
+---
 
 ### DisplayPanel
 
-**Circuit/Dynamic Properties:**
+**Description:** (Factorio 2.0)
 
-| Property | Type |
-|----------|------|
-| `direction` | Direction |
-| `item_requests` | list |
-| `name` | str |
-| `player_description` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
+**Prototypes:** `"display-panel"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Single circuit connection
 
-- `always_show_in_alt_mode` (bool)
-- `icon` (NoneType)
-- `messages` (list)
-- `show_in_chart` (bool)
-- `text` (str)
+#### Settable Properties
 
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `always_show_in_alt_mode` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `icon` | String (signal name) | None |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `messages` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `player_description` | String | "" |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `show_in_chart` | Boolean (0/1) | false | `1` |
+| `text` | String | "" |  |
+
+---
 
 ## Inserters
 
 ### Inserter
 
-**Circuit/Dynamic Properties:**
+**Description:** An entity with a swinging arm that can move items between machines.
 
-| Property | Type |
-|----------|------|
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `circuit_set_filters` | bool |
-| `circuit_set_stack_size` | bool |
-| `connect_to_logistic_network` | bool |
-| `direction` | Direction |
-| `filter_mode` | str |
-| `filters` | list |
-| `item_requests` | list |
-| `logistic_condition` | Condition |
-| `name` | str |
-| `override_stack_size` | NoneType |
-| `position` | _PosVector |
-| `quality` | str |
-| `stack_size_control_signal` | NoneType |
-| `tile_position` | _TileVector |
-| `read_hand_contents` | bool |
-| `read_mode` | InserterReadMode |
+**Prototypes:** `"bulk-inserter"`, `"fast-inserter"`, `"inserter"`, `"burner-inserter"`, `"long-handed-inserter"`, `"stack-inserter"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Single circuit connection
 
-- `drop_position_offset` (Vector)
-- `mode_of_operation` (InserterModeOfOperation)
-- `pickup_position_offset` (Vector)
-- `spoil_priority` (NoneType)
-- `use_filters` (bool)
+#### Circuit Signal I/O
 
+**Signal Inputs:**
 
-## Belts
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+| `stack_size_control_signal` | Integer signal | Sets inserter stack size from signal value | `circuit_set_stack_size: 1` |
+
+**Content Outputs:**
+
+- Inserter hand contents (items being moved, enable with `read_hand_contents: 1`)
+
+#### DSL Examples
+
+```fcdsl
+# Inserter that enables when chest has items
+Entity inserter = place("inserter", 0, 0, {direction: 4});
+inserter.enable = chest_contents > 50;
+```
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `circuit_set_filters` | Boolean (0/1) | false | `1` |
+| `circuit_set_stack_size` | Boolean (0/1) | false | `1` |
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `drop_position_offset` | Vector {x, y} ⚠️ | (factory) |  |
+| `filter_mode` | One of: whitelist, blacklist | "whitelist" |  |
+| `filters` | List (complex) ⚠️ | (factory) |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `mode_of_operation` | Integer ([InserterModeOfOperation](#insertermodeofoperation)) | 0 | `0  # ENABLE_DISABLE` |
+| `name` | String (entity prototype name) | (factory) |  |
+| `override_stack_size` | Integer | None |  |
+| `pickup_position_offset` | Vector {x, y} ⚠️ | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_hand_contents` | Boolean (0/1) | false | `1` |
+| `read_mode` | Integer ([InserterReadMode](#inserterreadmode)) | 0 | `0  # PULSE` |
+| `spoil_priority` | One of: spoiled-first, fresh-first, None | None |  |
+| `use_filters` | Boolean (0/1) | false | `1` |
+
+---
+
+## Belts & Logistics
 
 ### TransportBelt
 
-**Circuit/Dynamic Properties:**
+**Description:** An entity that transports items.
 
-| Property | Type |
-|----------|------|
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `connect_to_logistic_network` | bool |
-| `direction` | Direction |
-| `item_requests` | list |
-| `logistic_condition` | Condition |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-| `read_contents` | bool |
-| `read_mode` | BeltReadMode |
+**Prototypes:** `"express-transport-belt"`, `"transport-belt"`, `"fast-transport-belt"`, `"turbo-transport-belt"`
 
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+
+**Content Outputs:**
+
+- Item contents (all items in entity, enable with `read_contents: 1`)
+
+#### DSL Examples
+
+```fcdsl
+# Belt that stops when storage is full
+Entity belt = place("transport-belt", 0, 0, {direction: 4});
+belt.enable = storage_count < 1000;
+```
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_contents` | Boolean (0/1) | false | `1` |
+| `read_mode` | Integer ([BeltReadMode](#beltreadmode)) | 0 | `0  # PULSE` |
+
+---
 
 ### UndergroundBelt
 
-**Circuit/Dynamic Properties:**
+**Description:** A transport belt that transfers items underneath other entities.
 
-| Property | Type |
-|----------|------|
-| `direction` | Direction |
-| `io_type` | str |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
+**Prototypes:** `"underground-belt"`, `"turbo-underground-belt"`, `"fast-underground-belt"`, `"express-underground-belt"`
 
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `io_type` | One of: input, output, None | "input" |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
 
 ### Splitter
 
-**Circuit/Dynamic Properties:**
+**Description:** An entity that evenly splits a set of input belts between a set of output belts.
 
-| Property | Type |
-|----------|------|
-| `direction` | Direction |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-| `input_left_condition` | Condition |
-| `input_right_condition` | Condition |
-| `output_left_condition` | Condition |
-| `output_right_condition` | Condition |
+**Prototypes:** `"turbo-splitter"`, `"express-splitter"`, `"fast-splitter"`, `"splitter"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Single circuit connection
 
-- `filter` (NoneType)
-- `input_priority` (str)
-- `output_priority` (str)
-- `set_filter` (bool)
-- `set_input_side` (bool)
-- `set_output_side` (bool)
+#### Settable Properties
 
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `filter` | String (signal name) | None |  |
+| `input_left_condition` | Condition (set via .enable) ⚠️ | (factory) |  |
+| `input_priority` | One of: left, none, right | "none" |  |
+| `input_right_condition` | Condition (set via .enable) ⚠️ | (factory) |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `output_left_condition` | Condition (set via .enable) ⚠️ | (factory) |  |
+| `output_priority` | One of: left, none, right | "none" |  |
+| `output_right_condition` | Condition (set via .enable) ⚠️ | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `set_filter` | Boolean (0/1) | false | `1` |
+| `set_input_side` | Boolean (0/1) | false | `1` |
+| `set_output_side` | Boolean (0/1) | false | `1` |
+
+---
 
 ### Loader
 
-**Circuit/Dynamic Properties:**
+**Description:** An entity that inserts items directly from a belt to an inventory or vise-versa.
 
-| Property | Type |
-|----------|------|
-| `direction` | Direction |
-| `filters` | list |
-| `io_type` | str |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
+**Prototypes:** `"loader"`, `"fast-loader"`, `"turbo-loader"`, `"express-loader"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Single circuit connection
 
-- `use_filters` (bool)
+#### Settable Properties
 
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `filters` | List (complex) ⚠️ | (factory) |  |
+| `io_type` | One of: input, output, None | "input" |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `use_filters` | Boolean (0/1) | false | `1` |
+
+---
+
+### LinkedBelt
+
+**Description:** A belt object that can transfer items over any distance, regardless of constraint, as long as the two are paired together.
+
+**Prototypes:** `"linked-belt"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
 
 ## Train System
 
 ### TrainStop
 
-**Circuit/Dynamic Properties:**
+**Description:** A stop for making train schedules for locomotives.
 
-| Property | Type |
-|----------|------|
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `color` | Color |
-| `connect_to_logistic_network` | bool |
-| `direction` | Direction |
-| `item_requests` | list |
-| `logistic_condition` | Condition |
-| `manual_trains_limit` | NoneType |
-| `name` | str |
-| `position` | _PosVector |
-| `priority` | int |
-| `priority_signal` | SignalID |
-| `quality` | str |
-| `read_from_train` | bool |
-| `read_stopped_train` | bool |
-| `read_trains_count` | bool |
-| `send_to_train` | bool |
-| `set_priority` | bool |
-| `signal_limits_trains` | bool |
-| `station` | str |
-| `tile_position` | _TileVector |
-| `train_stopped_signal` | SignalID |
-| `trains_count_signal` | SignalID |
-| `trains_limit_signal` | SignalID |
+**Prototypes:** `"train-stop"`
 
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+| `trains_limit_signal` | Integer | Sets train limit from signal value | `signal_limits_trains: 1` |
+| `priority_signal` | Integer | Sets station priority from signal value | `set_priority: 1` |
+
+**Signal Outputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `train_stopped_signal` | Train ID | Outputs ID of stopped train | `read_stopped_train: 1` |
+| `trains_count_signal` | Integer | Outputs count of trains en route | `read_trains_count: 1` |
+
+#### DSL Examples
+
+```fcdsl
+# Train station with circuit control
+Entity station = place("train-stop", 0, 0, {station: "Iron Pickup"});
+station.enable = has_cargo > 0;
+```
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `color` | Color {r: 0-255, g: 0-255, b: 0-255} | (factory) | `{r: 255, g: 0, b: 0}` |
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `manual_trains_limit` | Integer | None |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `priority` | Integer | 50 |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_from_train` | Boolean (0/1) | false | `1` |
+| `read_stopped_train` | Boolean (0/1) | false | `1` |
+| `read_trains_count` | Boolean (0/1) | false | `1` |
+| `send_to_train` | Boolean (0/1) | true | `1` |
+| `set_priority` | Boolean (0/1) | false | `1` |
+| `signal_limits_trains` | Boolean (0/1) | false | `1` |
+| `station` | String | "" | `"Station Name"` |
+
+---
 
 ### RailSignal
 
-**Circuit/Dynamic Properties:**
+**Description:** A rail signal that determines whether or not trains can pass along their rail block.
 
-| Property | Type |
-|----------|------|
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `direction` | Direction |
-| `green_output_signal` | SignalID |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `read_signal` | bool |
-| `red_output_signal` | SignalID |
-| `tile_position` | _TileVector |
-| `yellow_output_signal` | SignalID |
+**Prototypes:** `"rail-signal"`
 
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+
+**Signal Outputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `red_output_signal` | 1 when red | Outputs 1 when rail signal shows red | `read_signal: 1` |
+| `yellow_output_signal` | 1 when yellow | Outputs 1 when rail signal shows yellow | `read_signal: 1` |
+| `green_output_signal` | 1 when green | Outputs 1 when rail signal shows green | `read_signal: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_signal` | Boolean (0/1) | true | `1` |
+
+---
 
 ### RailChainSignal
 
-**Circuit/Dynamic Properties:**
+**Description:** A rail signal that determines access of a current rail block based on a forward rail block.
 
-| Property | Type |
-|----------|------|
-| `blue_output_signal` | SignalID |
-| `direction` | Direction |
-| `green_output_signal` | SignalID |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `red_output_signal` | SignalID |
-| `tile_position` | _TileVector |
-| `yellow_output_signal` | SignalID |
+**Prototypes:** `"rail-chain-signal"`
 
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Outputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `red_output_signal` | 1 when red | Outputs 1 when rail signal shows red | `read_signal: 1` |
+| `yellow_output_signal` | 1 when yellow | Outputs 1 when rail signal shows yellow | `read_signal: 1` |
+| `green_output_signal` | 1 when green | Outputs 1 when rail signal shows green | `read_signal: 1` |
+| `blue_output_signal` | 1 when blue | Outputs 1 when chain signal reserved | Always active |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
 
 ### Locomotive
 
-**Circuit/Dynamic Properties:**
+**Description:** A train car that moves other wagons around using a fuel.
 
-| Property | Type |
-|----------|------|
-| `color` | Color |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-| `enable_logistics_while_moving` | bool |
+**Prototypes:** `"locomotive"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Single circuit connection
 
-- `equipment` (list)
-- `orientation` (Orientation)
+#### Settable Properties
 
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `color` | Color {r: 0-255, g: 0-255, b: 0-255} | Color(r=0.9176470588235294, g=0.06666666666666667, b=0, a=0.4980392156862745) | `{r: 255, g: 0, b: 0}` |
+| `enable_logistics_while_moving` | Boolean (0/1) | true | `1` |
+| `equipment` | List (complex) ⚠️ | (factory) |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `orientation` | Float (0.0-1.0) | <Orientation.NORTH: 0.0> |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
 
 ### CargoWagon
 
-**Circuit/Dynamic Properties:**
+**Description:** A train wagon that holds items as cargo.
 
-| Property | Type |
-|----------|------|
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-| `enable_logistics_while_moving` | bool |
+**Prototypes:** `"cargo-wagon"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Single circuit connection
 
-- `equipment` (list)
-- `inventory` (Inventory)
-- `orientation` (Orientation)
+#### Settable Properties
 
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `enable_logistics_while_moving` | Boolean (0/1) | true | `1` |
+| `equipment` | List (complex) ⚠️ | (factory) |  |
+| `inventory` | Complex (see draftsman docs) ⚠️ | (factory) |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `orientation` | Float (0.0-1.0) | <Orientation.NORTH: 0.0> |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
 
 ### FluidWagon
 
-**Circuit/Dynamic Properties:**
+**Description:** A train wagon that holds a fluid as cargo.
 
-| Property | Type |
-|----------|------|
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-| `enable_logistics_while_moving` | bool |
+**Prototypes:** `"fluid-wagon"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Single circuit connection
 
-- `equipment` (list)
-- `orientation` (Orientation)
+#### Settable Properties
 
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `enable_logistics_while_moving` | Boolean (0/1) | true | `1` |
+| `equipment` | List (complex) ⚠️ | (factory) |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `orientation` | Float (0.0-1.0) | <Orientation.NORTH: 0.0> |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### ArtilleryWagon
+
+**Description:** An artillery train car.
+
+**Prototypes:** `"artillery-wagon"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `auto_target` | Boolean (0/1) | true | `1` |
+| `enable_logistics_while_moving` | Boolean (0/1) | true | `1` |
+| `equipment` | List (complex) ⚠️ | (factory) |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `orientation` | Float (0.0-1.0) | <Orientation.NORTH: 0.0> |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### StraightRail
+
+**Description:** A piece of rail track that moves in the 8 cardinal directions.
+
+**Prototypes:** `"straight-rail"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### CurvedRailA
+
+**Description:** Curved rails which connect straight rails to half-diagonal rails.
+
+**Prototypes:** `"curved-rail-a"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### CurvedRailB
+
+**Description:** Curved rails which connect half-diagonal rails to diagonal rails.
+
+**Prototypes:** `"curved-rail-b"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### HalfDiagonalRail
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"half-diagonal-rail"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### RailRamp
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"rail-ramp"`, `"dummy-rail-ramp"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### RailSupport
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"dummy-rail-support"`, `"rail-support"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### ElevatedStraightRail
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"dummy-elevated-straight-rail"`, `"elevated-straight-rail"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### ElevatedCurvedRailA
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"dummy-elevated-curved-rail-a"`, `"elevated-curved-rail-a"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### ElevatedCurvedRailB
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"dummy-elevated-curved-rail-b"`, `"elevated-curved-rail-b"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### ElevatedHalfDiagonalRail
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"dummy-elevated-half-diagonal-rail"`, `"elevated-half-diagonal-rail"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### LegacyStraightRail
+
+**Description:** An old, Factorio 1.0 straight rail entity.
+
+**Prototypes:** `"legacy-straight-rail"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### LegacyCurvedRail
+
+**Description:** An old, Factorio 1.0 curved rail entity.
+
+**Prototypes:** `"legacy-curved-rail"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
 
 ## Production
 
 ### AssemblingMachine
 
-**Circuit/Dynamic Properties:**
+**Description:** A machine that takes input items and produces output items. Includes assembling machines, chemical plants, oil refineries, and centrifuges, but does not include :py:class:`.RocketSilo`.
 
-| Property | Type |
-|----------|------|
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `circuit_set_recipe` | bool |
-| `connect_to_logistic_network` | bool |
-| `direction` | Direction |
-| `item_requests` | list |
-| `logistic_condition` | Condition |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `recipe` | NoneType |
-| `recipe_finished_signal` | NoneType |
-| `tile_position` | _TileVector |
-| `working_signal` | NoneType |
-| `read_contents` | bool |
-| `read_recipe_finished` | bool |
-| `read_working` | bool |
+**Prototypes:** `"centrifuge"`, `"biochamber"`, `"oil-refinery"`, `"foundry"`, `"captive-biter-spawner"`, `"assembling-machine-1"`, `"electromagnetic-plant"`, `"crusher"`, `"cryogenic-plant"`, `"assembling-machine-2"`, `"assembling-machine-3"`, `"chemical-plant"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Single circuit connection
 
-- `include_in_crafting` (bool)
-- `recipe_quality` (str)
+#### Circuit Signal I/O
 
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+
+**Signal Outputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `recipe_finished_signal` | Pulse (1) | Pulses when recipe completes | `read_recipe_finished: 1` |
+| `working_signal` | 1 when working | Outputs 1 while machine is crafting | `read_working: 1` |
+
+#### DSL Examples
+
+```fcdsl
+# Assembler controlled by circuit
+Entity assembler = place("assembling-machine-1", 0, 0, {recipe: "iron-gear-wheel"});
+assembler.enable = iron_count > 100;
+```
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `circuit_set_recipe` | Boolean (0/1) | false | `1` |
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `include_in_crafting` | Boolean (0/1) | true | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_contents` | Boolean (0/1) | false | `1` |
+| `read_recipe_finished` | Boolean (0/1) | false | `1` |
+| `read_working` | Boolean (0/1) | false | `1` |
+| `recipe` | String (recipe name) | None | `"iron-gear-wheel"` |
+| `recipe_quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
 
 ### Furnace
 
-**Circuit/Dynamic Properties:**
+**Description:** An entity that automatically determines it's recipe from it's input items. Obviously includes regular furnaces, but can also include other machines like recyclers.
 
-| Property | Type |
-|----------|------|
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `circuit_set_recipe` | bool |
-| `connect_to_logistic_network` | bool |
-| `direction` | Direction |
-| `item_requests` | list |
-| `logistic_condition` | Condition |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `recipe_finished_signal` | NoneType |
-| `tile_position` | _TileVector |
-| `working_signal` | NoneType |
-| `read_contents` | bool |
-| `read_recipe_finished` | bool |
-| `read_working` | bool |
+**Prototypes:** `"recycler"`, `"stone-furnace"`, `"steel-furnace"`, `"electric-furnace"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Single circuit connection
 
-- `include_in_crafting` (bool)
+#### Circuit Signal I/O
 
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+
+**Signal Outputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `recipe_finished_signal` | Pulse (1) | Pulses when recipe completes | `read_recipe_finished: 1` |
+| `working_signal` | 1 when working | Outputs 1 while machine is crafting | `read_working: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `circuit_set_recipe` | Boolean (0/1) | false | `1` |
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `include_in_crafting` | Boolean (0/1) | true | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_contents` | Boolean (0/1) | false | `1` |
+| `read_recipe_finished` | Boolean (0/1) | false | `1` |
+| `read_working` | Boolean (0/1) | false | `1` |
+
+---
 
 ### MiningDrill
 
-**Circuit/Dynamic Properties:**
+**Description:** An entity that extracts resources (item or fluid) from the environment.
 
-| Property | Type |
-|----------|------|
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `connect_to_logistic_network` | bool |
-| `direction` | Direction |
-| `item_requests` | list |
-| `logistic_condition` | Condition |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-| `read_mode` | MiningDrillReadMode |
-| `read_resources` | bool |
+**Prototypes:** `"electric-mining-drill"`, `"big-mining-drill"`, `"pumpjack"`, `"burner-mining-drill"`
 
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+
+**Content Outputs:**
+
+- Resource amounts (resources under entity, enable with `read_resources: 1`)
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_mode` | Integer ([MiningDrillReadMode](#miningdrillreadmode)) | 0 | `0  # UNDER_DRILL` |
+| `read_resources` | Boolean (0/1) | true | `1` |
+
+---
 
 ### Lab
 
-**Circuit/Dynamic Properties:**
+**Description:** An entity that consumes items and produces research.
 
-| Property | Type |
-|----------|------|
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
+**Prototypes:** `"lab"`, `"biolab"`
 
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### RocketSilo
+
+**Description:** An entity that launches rockets, usually to move items between surfaces or space platforms.
+
+**Prototypes:** `"rocket-silo"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `auto_launch` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_items_mode` | Integer ([SiloReadMode](#siloreadmode)) | 1 | `0  # NONE` |
+| `recipe` | String (recipe name) | "rocket-part" | `"iron-gear-wheel"` |
+| `recipe_quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `transitional_request_index` | Integer | 0 |  |
+| `use_transitional_requests` | Boolean (0/1) | false | `1` |
+
+---
+
+### Beacon
+
+**Description:** An entity designed to apply module effects to other machines in its radius.
+
+**Prototypes:** `"beacon"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### Boiler
+
+**Description:** An entity that uses a fuel to convert a fluid (usually water) to another fluid (usually steam).
+
+**Prototypes:** `"boiler"`, `"heat-exchanger"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### Generator
+
+**Description:** An entity that converts a fluid (usually steam) to electricity.
+
+**Prototypes:** `"steam-engine"`, `"steam-turbine"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### BurnerGenerator
+
+**Description:** A electrical generator that turns burnable fuel directly into electrical energy.
+
+**Prototypes:** `"burner-generator"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### Reactor
+
+**Description:** An entity that converts a fuel into thermal energy.
+
+**Prototypes:** `"heating-tower"`, `"nuclear-reactor"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_burner_fuel` | Boolean (0/1) | false | `1` |
+| `read_temperature` | Boolean (0/1) | false | `1` |
+| `temperature_signal` | String (signal name) | (factory) | `"signal-A"` |
+
+---
+
+### FusionReactor
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"fusion-reactor"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### FusionGenerator
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"fusion-generator"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### LightningAttractor
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"lightning-rod"`, `"fulgoran-ruin-attractor"`, `"lightning-collector"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### AgriculturalTower
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"agricultural-tower"`
+
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_contents` | Boolean (0/1) | false | `1` |
+
+---
 
 ## Storage
 
 ### Container
 
-**Circuit/Dynamic Properties:**
+**Description:** An entity that holds items.
 
-| Property | Type |
-|----------|------|
-| `bar` | NoneType |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
+**Prototypes:** `"factorio-logo-22tiles"`, `"bottomless-chest"`, `"red-chest"`, `"crash-site-chest-2"`, `"factorio-logo-16tiles"`, `"iron-chest"`, `"blue-chest"`, `"crash-site-chest-1"`, `"steel-chest"`, `"factorio-logo-11tiles"`, `"wooden-chest"`
 
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `bar` | Integer | None |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
 
 ### LogisticPassiveContainer
 
-**Circuit/Dynamic Properties:**
+**Description:** A logistics container that provides it's contents to the logistic network when needed by the network.
 
-| Property | Type |
-|----------|------|
-| `bar` | NoneType |
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-| `read_contents` | bool |
+**Prototypes:** `"passive-provider-chest"`
 
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `bar` | Integer | None |  |
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_contents` | Boolean (0/1) | true | `1` |
+
+---
 
 ### LogisticActiveContainer
 
-**Circuit/Dynamic Properties:**
+**Description:** A logistics container that immediately provides it's contents to the logistic network.
 
-| Property | Type |
-|----------|------|
-| `bar` | NoneType |
-| `circuit_condition` | Condition |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-| `read_contents` | bool |
+**Prototypes:** `"active-provider-chest"`
 
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `bar` | Integer | None |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_contents` | Boolean (0/1) | true | `1` |
+
+---
 
 ### LogisticStorageContainer
 
-**Circuit/Dynamic Properties:**
+**Description:** A logistics container that stores items not currently being used in the logistic network.
 
-| Property | Type |
-|----------|------|
-| `bar` | NoneType |
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `sections` | list |
-| `tile_position` | _TileVector |
-| `read_contents` | bool |
-| `requests_enabled` | bool |
+**Prototypes:** `"storage-chest"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Single circuit connection
 
-- `request_from_buffers` (bool)
-- `trash_not_requested` (bool)
+#### Circuit Signal I/O
 
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `bar` | Integer | None |  |
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_contents` | Boolean (0/1) | true | `1` |
+| `request_from_buffers` | Boolean (0/1) | true | `1` |
+| `requests_enabled` | Boolean (0/1) | true | `1` |
+| `sections` | List (complex) ⚠️ | (factory) |  |
+| `trash_not_requested` | Boolean (0/1) | false | `1` |
+
+---
 
 ### LogisticRequestContainer
 
-**Circuit/Dynamic Properties:**
+**Description:** A logistics container that requests items with a primary priority.
 
-| Property | Type |
-|----------|------|
-| `bar` | NoneType |
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `sections` | list |
-| `tile_position` | _TileVector |
-| `requests_enabled` | bool |
+**Prototypes:** `"requester-chest"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Single circuit connection
 
-- `mode_of_operation` (LogisticModeOfOperation)
-- `request_from_buffers` (bool)
-- `trash_not_requested` (bool)
+#### Circuit Signal I/O
 
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `bar` | Integer | None |  |
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `mode_of_operation` | Integer ([LogisticModeOfOperation](#logisticmodeofoperation)) | 0 | `0  # SEND_CONTENTS` |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `request_from_buffers` | Boolean (0/1) | false | `1` |
+| `requests_enabled` | Boolean (0/1) | true | `1` |
+| `sections` | List (complex) ⚠️ | (factory) |  |
+| `trash_not_requested` | Boolean (0/1) | false | `1` |
+
+---
 
 ### LogisticBufferContainer
 
-**Circuit/Dynamic Properties:**
+**Description:** A logistics container that requests items on a secondary priority.
 
-| Property | Type |
-|----------|------|
-| `bar` | NoneType |
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `sections` | list |
-| `tile_position` | _TileVector |
-| `requests_enabled` | bool |
+**Prototypes:** `"buffer-chest"`
 
-**Static Properties (set at placement):**
+**Connection Type:** Single circuit connection
 
-- `mode_of_operation` (LogisticModeOfOperation)
-- `request_from_buffers` (bool)
-- `trash_not_requested` (bool)
+#### Circuit Signal I/O
 
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `bar` | Integer | None |  |
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `mode_of_operation` | Integer ([LogisticModeOfOperation](#logisticmodeofoperation)) | 0 | `0  # SEND_CONTENTS` |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `request_from_buffers` | Boolean (0/1) | true | `1` |
+| `requests_enabled` | Boolean (0/1) | true | `1` |
+| `sections` | List (complex) ⚠️ | (factory) |  |
+| `trash_not_requested` | Boolean (0/1) | false | `1` |
+
+---
+
+### LinkedContainer
+
+**Description:** An entity that allows sharing it's contents with any other ``LinkedContainer`` with the same ``link_id``.
+
+**Prototypes:** `"linked-chest"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `bar` | Integer | None |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `link_id` | Integer | 0 |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
 
 ## Power
 
 ### ElectricPole
 
-**Circuit/Dynamic Properties:**
+**Description:** An entity used to distribute electrical energy as a network.
 
-| Property | Type |
-|----------|------|
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
+**Prototypes:** `"substation"`, `"medium-electric-pole"`, `"big-electric-pole"`, `"small-electric-pole"`
 
+**Connection Type:** Single circuit connection
 
-### PowerSwitch
+#### Settable Properties
 
-**Circuit/Dynamic Properties:**
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
 
-| Property | Type |
-|----------|------|
-| `circuit_condition` | Condition |
-| `connect_to_logistic_network` | bool |
-| `item_requests` | list |
-| `logistic_condition` | Condition |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-
-**Static Properties (set at placement):**
-
-- `switch_state` (bool)
-
-
-### Accumulator
-
-**Circuit/Dynamic Properties:**
-
-| Property | Type |
-|----------|------|
-| `item_requests` | list |
-| `name` | str |
-| `output_signal` | SignalID |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-
-
-## Fluid
-
-### Pump
-
-**Circuit/Dynamic Properties:**
-
-| Property | Type |
-|----------|------|
-| `circuit_condition` | Condition |
-| `connect_to_logistic_network` | bool |
-| `direction` | Direction |
-| `item_requests` | list |
-| `logistic_condition` | Condition |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-
-
-### StorageTank
-
-**Circuit/Dynamic Properties:**
-
-| Property | Type |
-|----------|------|
-| `direction` | Direction |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-
-
-### OffshorePump
-
-**Circuit/Dynamic Properties:**
-
-| Property | Type |
-|----------|------|
-| `circuit_condition` | Condition |
-| `connect_to_logistic_network` | bool |
-| `direction` | Direction |
-| `item_requests` | list |
-| `logistic_condition` | Condition |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-
-
-## Other
-
-### ProgrammableSpeaker
-
-**Circuit/Dynamic Properties:**
-
-| Property | Type |
-|----------|------|
-| `circuit_condition` | Condition |
-| `circuit_enabled` | bool |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `signal_value_is_pitch` | bool |
-| `tile_position` | _TileVector |
-| `volume_controlled_by_signal` | bool |
-| `volume_signal` | NoneType |
-
-**Static Properties (set at placement):**
-
-- `alert_icon` (NoneType)
-- `alert_message` (str)
-- `allow_polyphony` (bool)
-- `instrument_id` (int)
-- `instrument_name` (str)
-- `note_id` (int)
-- `note_name` (str)
-- `playback_mode` (str)
-- ... and 4 more
-
-
-### Roboport
-
-**Circuit/Dynamic Properties:**
-
-| Property | Type |
-|----------|------|
-| `available_construction_signal` | SignalID |
-| `available_logistic_signal` | SignalID |
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `roboport_count_signal` | SignalID |
-| `sections` | list |
-| `tile_position` | _TileVector |
-| `total_construction_signal` | SignalID |
-| `total_logistic_signal` | SignalID |
-| `read_items_mode` | ReadItemsMode |
-| `read_robot_stats` | bool |
-| `requests_enabled` | bool |
-
-**Static Properties (set at placement):**
-
-- `request_from_buffers` (bool)
-- `trash_not_requested` (bool)
-
-
-### Radar
-
-**Circuit/Dynamic Properties:**
-
-| Property | Type |
-|----------|------|
-| `item_requests` | list |
-| `name` | str |
-| `position` | _PosVector |
-| `quality` | str |
-| `tile_position` | _TileVector |
-
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
 
 ---
 
-## All Entity Classes
+### PowerSwitch
 
-Complete list of all 87 entity classes in Draftsman:
+**Description:** An entity that connects or disconnects a power network.
 
-- [Accumulator](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/accumulator.html)
-- [AgriculturalTower](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/agricultural_tower.html)
-- [AmmoTurret](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/ammo_turret.html)
-- [ArithmeticCombinator](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/arithmetic_combinator.html)
-- [ArtilleryTurret](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/artillery_turret.html)
-- [ArtilleryWagon](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/artillery_wagon.html)
-- [AssemblingMachine](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/assembling_machine.html)
-- [AsteroidCollector](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/asteroid_collector.html)
-- [Beacon](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/beacon.html)
-- [Boiler](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/boiler.html)
-- [BurnerGenerator](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/burner_generator.html)
-- [Car](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/car.html)
-- [CargoBay](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/cargo_bay.html)
-- [CargoLandingPad](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/cargo_landing_pad.html)
-- [CargoWagon](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/cargo_wagon.html)
-- [ConstantCombinator](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/constant_combinator.html)
-- [Container](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/container.html)
-- [CurvedRailA](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/curved_rail_a.html)
-- [CurvedRailB](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/curved_rail_b.html)
-- [DeciderCombinator](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/decider_combinator.html)
-- [DisplayPanel](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/display_panel.html)
-- [ElectricEnergyInterface](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/electric_energy_interface.html)
-- [ElectricPole](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/electric_pole.html)
-- [ElectricTurret](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/electric_turret.html)
-- [ElevatedCurvedRailA](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/elevated_curved_rail_a.html)
-- [ElevatedCurvedRailB](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/elevated_curved_rail_b.html)
-- [ElevatedHalfDiagonalRail](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/elevated_half_diagonal_rail.html)
-- [ElevatedStraightRail](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/elevated_straight_rail.html)
-- [FluidTurret](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/fluid_turret.html)
-- [FluidWagon](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/fluid_wagon.html)
-- [Furnace](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/furnace.html)
-- [FusionGenerator](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/fusion_generator.html)
-- [FusionReactor](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/fusion_reactor.html)
-- [Gate](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/gate.html)
-- [Generator](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/generator.html)
-- [HalfDiagonalRail](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/half_diagonal_rail.html)
-- [HeatInterface](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/heat_interface.html)
-- [HeatPipe](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/heat_pipe.html)
-- [InfinityContainer](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/infinity_container.html)
-- [InfinityPipe](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/infinity_pipe.html)
-- [Inserter](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/inserter.html)
-- [Lab](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/lab.html)
-- [Lamp](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/lamp.html)
-- [LandMine](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/land_mine.html)
-- [LegacyCurvedRail](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/legacy_curved_rail.html)
-- [LegacyStraightRail](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/legacy_straight_rail.html)
-- [LightningAttractor](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/lightning_attractor.html)
-- [LinkedBelt](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/linked_belt.html)
-- [LinkedContainer](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/linked_container.html)
-- [Loader](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/loader.html)
-- [Locomotive](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/locomotive.html)
-- [LogisticActiveContainer](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/logistic_active_container.html)
-- [LogisticBufferContainer](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/logistic_buffer_container.html)
-- [LogisticPassiveContainer](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/logistic_passive_container.html)
-- [LogisticRequestContainer](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/logistic_request_container.html)
-- [LogisticStorageContainer](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/logistic_storage_container.html)
-- [MiningDrill](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/mining_drill.html)
-- [OffshorePump](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/offshore_pump.html)
-- [Pipe](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/pipe.html)
-- [PlayerPort](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/player_port.html)
-- [PowerSwitch](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/power_switch.html)
-- [ProgrammableSpeaker](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/programmable_speaker.html)
-- [Pump](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/pump.html)
-- [Radar](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/radar.html)
-- [RailChainSignal](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/rail_chain_signal.html)
-- [RailRamp](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/rail_ramp.html)
-- [RailSignal](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/rail_signal.html)
-- [RailSupport](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/rail_support.html)
-- [Reactor](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/reactor.html)
-- [Roboport](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/roboport.html)
-- [RocketSilo](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/rocket_silo.html)
-- [SelectorCombinator](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/selector_combinator.html)
-- [SimpleEntityWithForce](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/simple_entity_with_force.html)
-- [SimpleEntityWithOwner](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/simple_entity_with_owner.html)
-- [SolarPanel](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/solar_panel.html)
-- [SpacePlatformHub](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/space_platform_hub.html)
-- [SpiderVehicle](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/spider_vehicle.html)
-- [Splitter](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/splitter.html)
-- [StorageTank](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/storage_tank.html)
-- [StraightRail](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/straight_rail.html)
-- [Thruster](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/thruster.html)
-- [TrainStop](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/train_stop.html)
-- [TransportBelt](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/transport_belt.html)
-- [UndergroundBelt](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/underground_belt.html)
-- [UndergroundPipe](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/underground_pipe.html)
-- [Valve](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/valve.html)
-- [Wall](https://factorio-draftsman.readthedocs.io/en/latest/reference/prototypes/wall.html)
+**Prototypes:** `"power-switch"`
+
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `switch_state` | Boolean (0/1) | false | `1` |
+
+---
+
+### Accumulator
+
+**Description:** An entity that stores electricity for periods of high demand.
+
+**Prototypes:** `"accumulator"`
+
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Outputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `output_signal` | Result value | Signal to output the combinator result on | Always active |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### SolarPanel
+
+**Description:** An entity that produces electricity depending on the presence of the sun.
+
+**Prototypes:** `"solar-panel"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### ElectricEnergyInterface
+
+**Description:** An entity that interfaces with an electrical grid.
+
+**Prototypes:** `"electric-energy-interface"`, `"hidden-electric-energy-interface"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `buffer_size` | Complex (see draftsman docs) ⚠️ | (factory) |  |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `power_production` | Complex (see draftsman docs) ⚠️ | (factory) |  |
+| `power_usage` | Complex (see draftsman docs) ⚠️ | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+## Fluids
+
+### Pump
+
+**Description:** An entity that aids fluid transfer through pipes.
+
+**Prototypes:** `"pump"`
+
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### StorageTank
+
+**Description:** An entity that stores a fluid.
+
+**Prototypes:** `"storage-tank"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### OffshorePump
+
+**Description:** An entity that pumps a fluid from the environment.
+
+**Prototypes:** `"offshore-pump"`
+
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### Pipe
+
+**Description:** A structure that transports a fluid across a surface.
+
+**Prototypes:** `"pipe"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### InfinityPipe
+
+**Description:** An entity used to create an infinite amount of any fluid at any temperature.
+
+**Prototypes:** `"infinity-pipe"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `fluid_name` | Condition (set via .enable) ⚠️ | None |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `mode` | One of: at-least, at-most, exactly, add, remove | "at-least" |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `percentage` | Complex (see draftsman docs) ⚠️ | 0.0 |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `temperature` | Integer | 0 |  |
+
+---
+
+## Combat
+
+### Radar
+
+**Description:** An entity that reveals and scans neighbouring chunks.
+
+**Prototypes:** `"radar"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### ArtilleryTurret
+
+**Description:** A turret which can only target enemy structures and uses artillery ammunition.
+
+**Prototypes:** `"artillery-turret"`
+
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `auto_target` | Boolean (0/1) | true | `1` |
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_ammo` | Boolean (0/1) | true | `1` |
+
+---
+
+### AmmoTurret
+
+**Description:** An entity that automatically targets and attacks other forces within range. Consumes item-based ammunition.
+
+**Prototypes:** `"rocket-turret"`, `"gun-turret"`, `"railgun-turret"`
+
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `ignore_unlisted_targets_condition` | Condition (set via .enable) ⚠️ | (factory) |  |
+| `ignore_unprioritized` | Boolean (0/1) | false | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `priority_list` | List (complex) ⚠️ | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_ammo` | Boolean (0/1) | true | `1` |
+| `set_ignore_unprioritized` | Boolean (0/1) | false | `1` |
+| `set_priority_list` | Boolean (0/1) | false | `1` |
+
+---
+
+### ElectricTurret
+
+**Description:** An entity that automatically targets and attacks other forces within range. Uses electricity as ammunition.
+
+**Prototypes:** `"tesla-turret"`, `"laser-turret"`
+
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `ignore_unlisted_targets_condition` | Condition (set via .enable) ⚠️ | (factory) |  |
+| `ignore_unprioritized` | Boolean (0/1) | false | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `priority_list` | List (complex) ⚠️ | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_ammo` | Boolean (0/1) | true | `1` |
+| `set_ignore_unprioritized` | Boolean (0/1) | false | `1` |
+| `set_priority_list` | Boolean (0/1) | false | `1` |
+
+---
+
+### FluidTurret
+
+**Description:** An entity that automatically targets and attacks other forces within range. Uses fluids as ammunition.
+
+**Prototypes:** `"flamethrower-turret"`
+
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `logistic_condition` | Any signal | Logistic network signal for enable/disable | `connect_to_logistic_network: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `connect_to_logistic_network` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `ignore_unlisted_targets_condition` | Condition (set via .enable) ⚠️ | (factory) |  |
+| `ignore_unprioritized` | Boolean (0/1) | false | `1` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `priority_list` | List (complex) ⚠️ | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_ammo` | Boolean (0/1) | true | `1` |
+| `set_ignore_unprioritized` | Boolean (0/1) | false | `1` |
+| `set_priority_list` | Boolean (0/1) | false | `1` |
+
+---
+
+### Wall
+
+**Description:** A static barrier that acts as protection for structures.
+
+**Prototypes:** `"stone-wall"`
+
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+
+**Signal Outputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `output_signal` | Result value | Signal to output the combinator result on | Always active |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `circuit_enabled` | Boolean (0/1) | true | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_gate` | Boolean (0/1) | false | `1` |
+
+---
+
+### Gate
+
+**Description:** A wall that opens near the player.
+
+**Prototypes:** `"gate"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+## Robots & Logistics
+
+### Roboport
+
+**Description:** An entity that acts as a node in a logistics network.
+
+**Prototypes:** `"roboport"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `available_construction_signal` | String (signal name) | (factory) | `"signal-A"` |
+| `available_logistic_signal` | String (signal name) | (factory) | `"signal-A"` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_items_mode` | Integer (see enum reference) | 1 |  |
+| `read_robot_stats` | Boolean (0/1) | false | `1` |
+| `request_from_buffers` | Boolean (0/1) | true | `1` |
+| `requests_enabled` | Boolean (0/1) | true | `1` |
+| `roboport_count_signal` | String (signal name) | (factory) | `"signal-A"` |
+| `sections` | List (complex) ⚠️ | (factory) |  |
+| `total_construction_signal` | String (signal name) | (factory) | `"signal-A"` |
+| `total_logistic_signal` | String (signal name) | (factory) | `"signal-A"` |
+| `trash_not_requested` | Boolean (0/1) | false | `1` |
+
+---
+
+## Space
+
+### SpacePlatformHub
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"space-platform-hub"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `damage_taken_signal` | String (signal name) | (factory) | `"signal-A"` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_contents` | Boolean (0/1) | true | `1` |
+| `read_damage_taken` | Boolean (0/1) | false | `1` |
+| `read_moving_from` | Boolean (0/1) | false | `1` |
+| `read_moving_to` | Boolean (0/1) | false | `1` |
+| `read_speed` | Boolean (0/1) | false | `1` |
+| `request_from_buffers` | Boolean (0/1) | true | `1` |
+| `request_missing_construction_materials` | Boolean (0/1) | true | `1` |
+| `requests_enabled` | Boolean (0/1) | true | `1` |
+| `sections` | List (complex) ⚠️ | (factory) |  |
+| `send_to_platform` | Boolean (0/1) | true | `1` |
+| `speed_signal` | String (signal name) | (factory) | `"signal-A"` |
+| `trash_not_requested` | Boolean (0/1) | false | `1` |
+
+---
+
+### CargoLandingPad
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"cargo-landing-pad"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `mode_of_operation` | Integer ([LogisticModeOfOperation](#logisticmodeofoperation)) | 0 | `0  # SEND_CONTENTS` |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `request_from_buffers` | Boolean (0/1) | true | `1` |
+| `requests_enabled` | Boolean (0/1) | true | `1` |
+| `sections` | List (complex) ⚠️ | (factory) |  |
+| `trash_not_requested` | Boolean (0/1) | false | `1` |
+
+---
+
+### AsteroidCollector
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"asteroid-collector"`
+
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `chunk_filter` | List (complex) ⚠️ | (factory) |  |
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `circuit_set_filters` | Boolean (0/1) | false | `1` |
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `read_contents` | Boolean (0/1) | false | `1` |
+| `read_hands` | Boolean (0/1) | true | `1` |
+| `result_inventory` | Complex (see draftsman docs) ⚠️ | (factory) |  |
+
+---
+
+### CargoBay
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"cargo-bay"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### Thruster
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"thruster"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+## Misc
+
+### ProgrammableSpeaker
+
+**Description:** An entity that makes sounds that can be controlled by circuit network signals.
+
+**Prototypes:** `"programmable-speaker"`
+
+**Connection Type:** Single circuit connection
+
+#### Circuit Signal I/O
+
+**Signal Inputs:**
+
+| Signal Property | Signal Type | Description | Enable With |
+|-----------------|-------------|-------------|-------------|
+| `circuit_condition` | Any signal | Signal used in enable/disable condition | `circuit_enabled: 1` |
+| `signal_value_is_pitch` | Pitch value | Signal value controls note pitch | Always active |
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `alert_icon` | String (signal name) | None |  |
+| `alert_message` | Complex (see draftsman docs) ⚠️ | "" |  |
+| `allow_polyphony` | Boolean (0/1) | false | `1` |
+| `circuit_enabled` | Boolean (0/1) | false | `1` |
+| `instrument_id` | Integer | 0 |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `note_id` | Integer | 0 |  |
+| `playback_mode` | One of: local, surface, global | "local" |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `show_alert` | Boolean (0/1) | false | `1` |
+| `show_alert_on_map` | Boolean (0/1) | true | `1` |
+| `stop_playing_sounds` | Boolean (0/1) | false | `1` |
+| `volume` | Complex (see draftsman docs) ⚠️ | 1.0 |  |
+| `volume_controlled_by_signal` | Boolean (0/1) | false | `1` |
+| `volume_signal` | String (signal name) | None | `"signal-A"` |
+
+---
+
+### Car
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"car"`, `"tank"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `ammo_inventory` | Complex (see draftsman docs) ⚠️ | (factory) |  |
+| `driver_is_main_gunner` | Boolean (0/1) | false | `1` |
+| `enable_logistics_while_moving` | Boolean (0/1) | true | `1` |
+| `equipment` | List (complex) ⚠️ | (factory) |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `orientation` | Float (0.0-1.0) | <Orientation.NORTH: 0.0> |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `selected_gun_index` | Integer | 0 |  |
+| `trunk_inventory` | Complex (see draftsman docs) ⚠️ | (factory) |  |
+
+---
+
+### SpiderVehicle
+
+**Description:** (Factorio 2.0)
+
+**Prototypes:** `"spidertron"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `ammo_inventory` | Complex (see draftsman docs) ⚠️ | (factory) |  |
+| `auto_target_with_gunner` | Boolean (0/1) | false | `1` |
+| `auto_target_without_gunner` | Boolean (0/1) | true | `1` |
+| `color` | Color {r: 0-255, g: 0-255, b: 0-255} | (factory) | `{r: 255, g: 0, b: 0}` |
+| `driver_is_main_gunner` | Boolean (0/1) | false | `1` |
+| `enable_logistics_while_moving` | Boolean (0/1) | true | `1` |
+| `equipment` | List (complex) ⚠️ | (factory) |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `request_from_buffers` | Boolean (0/1) | true | `1` |
+| `requests_enabled` | Boolean (0/1) | true | `1` |
+| `sections` | List (complex) ⚠️ | (factory) |  |
+| `selected_gun_index` | Integer | 0 |  |
+| `trash_not_requested` | Boolean (0/1) | false | `1` |
+| `trunk_inventory` | Complex (see draftsman docs) ⚠️ | (factory) |  |
+
+---
+
+### HeatPipe
+
+**Description:** An entity used to transfer thermal energy.
+
+**Prototypes:** `"heat-pipe"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### HeatInterface
+
+**Description:** An entity that interacts with a heat network.
+
+**Prototypes:** `"heat-interface"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `mode` | One of: at-least, at-most, exactly, add, remove | "at-least" |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `temperature` | Complex (see draftsman docs) ⚠️ | 0.0 |  |
+
+---
+
+### SimpleEntityWithOwner
+
+**Description:** A generic entity owned by some other entity.
+
+**Prototypes:** `"simple-entity-with-owner"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `variation` | Integer | 1 |  |
+
+---
+
+### SimpleEntityWithForce
+
+**Description:** A generic entity associated with friends or foes.
+
+**Prototypes:** `"simple-entity-with-force"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `variation` | Integer | 1 |  |
+
+---
+
+## Uncategorized Entities
+
+The following entities are available but not yet categorized.
+They still have full documentation below.
+
+### InfinityContainer
+
+**Description:** An entity used to create an infinite amount of any item.
+
+**Prototypes:** `"infinity-chest"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `bar` | Integer | None |  |
+| `filters` | List (complex) ⚠️ | (factory) |  |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+| `remove_unfiltered_items` | Boolean (0/1) | false | `1` |
+
+---
+
+### LandMine
+
+**Description:** An entity that explodes when in proximity to another force.
+
+**Prototypes:** `"land-mine"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### PlayerPort
+
+**Description:** A constructable respawn point typically used in scenarios.
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### UndergroundPipe
+
+**Description:** A pipe that transports fluids underneath other entities.
+
+**Prototypes:** `"pipe-to-ground"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+### Valve
+
+**Description:** A pipe that may or may not admit fluid to pass through it based on some threshold.
+
+**Prototypes:** `"top-up-valve"`, `"overflow-valve"`, `"one-way-valve"`
+
+**Connection Type:** Single circuit connection
+
+#### Settable Properties
+
+Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`
+
+| Property | Type | Default | Example |
+|----------|------|---------|---------|
+| `direction` | Integer ([Direction](#direction)) | 0 | `0  # NORTH` |
+| `item_requests` | List (complex) ⚠️ | (factory) |  |
+| `name` | String (entity prototype name) | (factory) |  |
+| `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
+
+---
+
+## Notes on Complex Property Types
+
+Some properties marked with ⚠️ have complex types that may not be directly settable
+in the current DSL syntax. These typically include:
+
+| Type | Description | Workaround |
+|------|-------------|------------|
+| List | Arrays of items/filters | May require special syntax |
+| Condition | Circuit conditions | Use `.enable = signal > value` syntax |
+| Vector | Position offsets | Use `{x: value, y: value}` |
+| Complex | Other structured data | See draftsman documentation |
+
+For full details on complex types, refer to the 
+[Draftsman documentation](https://factorio-draftsman.readthedocs.io/en/latest/).

@@ -19,6 +19,7 @@ from .nodes import (
     IR_PlaceEntity,
     IR_WireMerge,
     SignalRef,
+    BundleRef,
     ValueRef,
 )
 
@@ -215,6 +216,60 @@ class IRBuilder:
     def allocate_implicit_type(self) -> str:
         """Allocate a new implicit signal type name and record the mapping."""
         return self.signal_registry.allocate_implicit()
+
+    def bundle_const(
+        self,
+        signals: Dict[str, int],
+        source_ast: Optional[ASTNode] = None,
+    ) -> BundleRef:
+        """Create a constant combinator with multiple signals (bundle).
+
+        Args:
+            signals: Dictionary mapping signal type names to integer values
+            source_ast: Source AST node for debugging
+
+        Returns:
+            BundleRef pointing to the constant combinator
+        """
+        node_id = self.next_id("bundle_const")
+        # Use "signal-each" as the nominal output type for bundle constants
+        op = IR_Const(node_id, "signal-each", source_ast)
+        op.signals = signals.copy()
+        self.add_operation(op)
+        return BundleRef(set(signals.keys()), node_id, source_ast=source_ast)
+
+    def bundle_arithmetic(
+        self,
+        op: str,
+        bundle: BundleRef,
+        operand: ValueRef,
+        source_ast: Optional[ASTNode] = None,
+    ) -> BundleRef:
+        """Create an arithmetic operation on a bundle using 'each'.
+
+        Args:
+            op: Arithmetic operator (+, -, *, /, %, **, <<, >>, AND, OR, XOR)
+            bundle: The bundle to operate on
+            operand: Signal or constant to use as right operand
+            source_ast: Source AST node for debugging
+
+        Returns:
+            BundleRef with same signal types as input bundle
+        """
+        node_id = self.next_id("bundle_arith")
+        # Use "signal-each" for both input and output
+        arith_op = IR_Arith(node_id, "signal-each", source_ast)
+        arith_op.op = op
+        arith_op.left = SignalRef("signal-each", bundle.source_id)
+        arith_op.right = operand
+        
+        # If the right operand is a signal (not a constant), we need wire separation
+        # to prevent the scalar signal from being processed by "each"
+        if isinstance(operand, SignalRef):
+            arith_op.needs_wire_separation = True
+            
+        self.add_operation(arith_op)
+        return BundleRef(bundle.signal_types.copy(), node_id, source_ast=source_ast)
 
     def get_ir(self) -> List[IRNode]:
         """Return a copy of the currently built IR operations."""

@@ -249,6 +249,15 @@ class PlanEntityEmitter:
         self, entity: ConstantCombinator, props: Dict[str, Any]
     ) -> None:
         """Configure a constant combinator from placement properties."""
+        # Handle multi-signal constants (bundles)
+        signals = props.get("signals")
+        if signals:
+            section = entity.add_section()
+            for idx, (signal_name, value) in enumerate(signals.items()):
+                section.set_signal(idx, signal_name, value)
+            return
+
+        # Single signal constant
         signal_name = props.get("signal_name")
         value = props.get("value", 0)
 

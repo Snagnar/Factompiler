@@ -1,0 +1,28 @@
+# Test 25: Basic Bundle Operations
+# Tests: Bundle literal, bundle arithmetic, bundle selection, any(), all()
+
+# Create a bundle with multiple signal types
+Bundle resources = { ("iron-plate", 100), ("copper-plate", 80), ("coal", 50) };
+
+# Bundle arithmetic: multiply all signals by 2
+Bundle doubled = resources * 2;
+
+# Bundle arithmetic: add scalar to all signals
+Bundle incremented = resources + 10;
+
+# Bundle arithmetic: shift right all signals
+Bundle shifted = resources >> 1;
+
+# Extract a specific signal from the bundle
+Signal iron = resources["iron-plate"];
+Signal copper = resources["copper-plate"];
+
+# Use any() for "any signal matches" comparison
+Signal anyLow = any(resources) < 60;
+
+# Use all() for "all signals match" comparison  
+Signal allPositive = all(resources) > 0;
+
+# Combine bundle operations with regular arithmetic
+Signal ironDoubled = doubled["iron-plate"];
+Signal total = ironDoubled + copper;

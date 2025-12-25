@@ -15,6 +15,10 @@ from dsl_compiler.src.ast.expressions import (
     CallExpr,
     BinaryOp,
     OutputSpecExpr,
+    BundleLiteral,
+    BundleSelectExpr,
+    BundleAnyExpr,
+    BundleAllExpr,
 )
 from dsl_compiler.src.ast.literals import (
     DictLiteral,
@@ -49,6 +53,7 @@ from dsl_compiler.src.common.source_location import (
 
 from .symbol_table import SymbolTable, Symbol, SymbolType, SemanticError
 from .type_system import (
+    BundleValue,
     EntityValue,
     FunctionValue,
     IntValue,
@@ -490,6 +495,18 @@ class SemanticAnalyzer(ASTVisitor):
         elif isinstance(expr, OutputSpecExpr):
             return self._infer_output_spec_type(expr)
 
+        elif isinstance(expr, BundleLiteral):
+            return self._infer_bundle_literal_type(expr)
+
+        elif isinstance(expr, BundleSelectExpr):
+            return self._infer_bundle_select_type(expr)
+
+        elif isinstance(expr, BundleAnyExpr):
+            return self._infer_bundle_any_type(expr)
+
+        elif isinstance(expr, BundleAllExpr):
+            return self._infer_bundle_all_type(expr)
+
         else:
             self.diagnostics.error(
                 f"Unknown expression type: {type(expr)}", stage="semantic", node=expr
@@ -550,6 +567,28 @@ class SemanticAnalyzer(ASTVisitor):
         """Infer type for binary operations with mixed-type rules."""
         left_type = self.get_expr_type(expr.left)
         right_type = self.get_expr_type(expr.right)
+
+        # Handle Bundle operations: Bundle OP Signal/int -> Bundle
+        if isinstance(left_type, BundleValue):
+            if expr.op in self.COMPARISON_OPS:
+                # Bundle comparisons should use any() or all() instead
+                self.diagnostics.error(
+                    "Cannot compare Bundle directly. Use any(bundle) or all(bundle) for comparisons.",
+                    stage="semantic",
+                    node=expr,
+                )
+                return SignalValue(signal_type=self.allocate_implicit_type())
+
+            # Bundle arithmetic: result is a Bundle with same signal types
+            if isinstance(right_type, (SignalValue, IntValue)):
+                return BundleValue(signal_types=left_type.signal_types.copy())
+
+            self.diagnostics.error(
+                f"Bundle operations require Signal or int operand on right side, got {type(right_type).__name__}",
+                stage="semantic",
+                node=expr,
+            )
+            return left_type
 
         # Comparison operators return a signal (for compatibility)
         if expr.op in self.COMPARISON_OPS:
@@ -1207,6 +1246,133 @@ class SemanticAnalyzer(ASTVisitor):
             # No function_def, just type-check arguments
             for arg in node.args:
                 self.get_expr_type(arg)
+
+    # -------------------------------------------------------------------------
+    # Bundle type inference methods
+    # -------------------------------------------------------------------------
+
+    def _infer_bundle_literal_type(self, expr: BundleLiteral) -> BundleValue:
+        """Infer type for bundle literal { signal1, signal2, ... }.
+
+        Collects signal types from all elements and checks for duplicates.
+        Elements can be signal literals, signal variables, or other bundles.
+        """
+        signal_types: set[str] = set()
+        seen_signals: dict[str, Expr] = {}  # Track where each signal was first seen
+
+        for element in expr.elements:
+            element_type = self.get_expr_type(element)
+
+            if isinstance(element_type, SignalValue):
+                signal_name = (
+                    element_type.signal_type.name if element_type.signal_type else None
+                )
+                if signal_name:
+                    if signal_name in seen_signals:
+                        self.diagnostics.error(
+                            f"Duplicate signal type '{signal_name}' in bundle",
+                            stage="semantic",
+                            node=expr,
+                        )
+                    else:
+                        seen_signals[signal_name] = element
+                        signal_types.add(signal_name)
+
+            elif isinstance(element_type, BundleValue):
+                # Flatten nested bundle
+                for nested_signal in element_type.signal_types:
+                    if nested_signal in seen_signals:
+                        self.diagnostics.error(
+                            f"Duplicate signal type '{nested_signal}' in bundle (from nested bundle)",
+                            stage="semantic",
+                            node=expr,
+                        )
+                    else:
+                        seen_signals[nested_signal] = element
+                        signal_types.add(nested_signal)
+
+            elif isinstance(element_type, IntValue):
+                # Integer literals can't be in bundles without explicit signal type
+                self.diagnostics.error(
+                    "Bundle elements must be signals or bundles, not plain integers. "
+                    "Use signal literals like ('signal-A', 100) instead.",
+                    stage="semantic",
+                    node=element,
+                )
+
+            else:
+                self.diagnostics.error(
+                    f"Invalid bundle element type: {type(element_type).__name__}",
+                    stage="semantic",
+                    node=element,
+                )
+
+        return BundleValue(signal_types=signal_types)
+
+    def _infer_bundle_select_type(self, expr: BundleSelectExpr) -> SignalValue:
+        """Infer type for bundle selection bundle['signal-type'].
+
+        Returns a SignalValue with the selected signal type.
+        """
+        bundle_type = self.get_expr_type(expr.bundle)
+
+        if not isinstance(bundle_type, BundleValue):
+            self.diagnostics.error(
+                f"Cannot select from non-bundle type: {type(bundle_type).__name__}",
+                stage="semantic",
+                node=expr,
+            )
+            return SignalValue(signal_type=self.allocate_implicit_type())
+
+        if expr.signal_type not in bundle_type.signal_types:
+            available = ", ".join(sorted(bundle_type.signal_types)) or "(empty bundle)"
+            self.diagnostics.error(
+                f"Signal type '{expr.signal_type}' not found in bundle. "
+                f"Available types: {available}",
+                stage="semantic",
+                node=expr,
+            )
+            return SignalValue(signal_type=self.allocate_implicit_type())
+
+        # Valid selection - return SignalValue with the selected type
+        signal_type_info = self.make_signal_type_info(expr.signal_type)
+        return SignalValue(signal_type=signal_type_info)
+
+    def _infer_bundle_any_type(self, expr: BundleAnyExpr) -> SignalValue:
+        """Infer type for any(bundle) expression.
+
+        Returns SignalValue - any() is used in comparisons and returns a boolean signal.
+        The actual Factorio 'anything' signal is handled during lowering.
+        """
+        bundle_type = self.get_expr_type(expr.bundle)
+
+        if not isinstance(bundle_type, BundleValue):
+            self.diagnostics.error(
+                f"any() requires a Bundle argument, got {type(bundle_type).__name__}",
+                stage="semantic",
+                node=expr,
+            )
+
+        # any() returns a signal for use in comparisons
+        return SignalValue(signal_type=self.allocate_implicit_type())
+
+    def _infer_bundle_all_type(self, expr: BundleAllExpr) -> SignalValue:
+        """Infer type for all(bundle) expression.
+
+        Returns SignalValue - all() is used in comparisons and returns a boolean signal.
+        The actual Factorio 'everything' signal is handled during lowering.
+        """
+        bundle_type = self.get_expr_type(expr.bundle)
+
+        if not isinstance(bundle_type, BundleValue):
+            self.diagnostics.error(
+                f"all() requires a Bundle argument, got {type(bundle_type).__name__}",
+                stage="semantic",
+                node=expr,
+            )
+
+        # all() returns a signal for use in comparisons
+        return SignalValue(signal_type=self.allocate_implicit_type())
 
     def generic_visit(self, node: ASTNode) -> Any:
         """Default visitor - traverse children."""

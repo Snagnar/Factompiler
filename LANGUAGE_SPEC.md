@@ -1,7 +1,7 @@
 # Factorio Circuit DSL Language Specification
 
-**Version 2.3**  
-**Date: December 16, 2025**
+**Version 2.4**  
+**Date: January 2025**
 
 This document provides a complete specification of the Factorio Circuit DSL (Domain Specific Language) as currently implemented. The DSL compiles to Factorio 2.0 blueprint strings that can be imported into the game.
 
@@ -187,7 +187,7 @@ Signal aligned = (copper | "iron-plate") + iron;  # Both iron-plate, no warning
 
 ## Type System
 
-The DSL has four fundamental value types that map directly to Factorio circuit concepts.
+The DSL has five fundamental value types that map directly to Factorio circuit concepts.
 
 ### Integer (`int`)
 
@@ -264,6 +264,124 @@ Entity train_stop = place("train-stop", 10, 5);
 ```
 
 Entities expose **properties** that can be read from or written to using circuit signals.
+
+### Bundle (`Bundle`)
+
+Bundles are **unordered collections of signals** that can be operated on as a unit. When used in arithmetic operations, bundles compile to Factorio's "each" signal combinators. When used in comparisons, bundles use "anything" or "everything" virtual signals.
+
+#### Bundle Creation
+
+Create bundles using curly brace syntax with signal elements:
+
+```fcdsl
+# Bundle from signal literals
+Bundle resources = { ("iron-plate", 100), ("copper-plate", 80), ("coal", 50) };
+
+# Bundle from existing signals
+Signal x = ("signal-X", 10);
+Signal y = ("signal-Y", 20);
+Bundle pair = { x, y };
+
+# Empty bundle
+Bundle empty = {};
+```
+
+**Bundle Flattening:** Bundles can contain other bundles, which are automatically flattened:
+
+```fcdsl
+Bundle more = { ("signal-Z", 30) };
+Bundle all = { pair, more };  # Contains signal-X, signal-Y, signal-Z
+```
+
+**Important:** Each signal type within a bundle must be unique. Duplicate signal types are a compile-time error:
+
+```fcdsl
+Bundle bad = { ("iron-plate", 10), ("iron-plate", 20) };  # ERROR: Duplicate signal type
+```
+
+#### Bundle Element Selection
+
+Extract a specific signal from a bundle using bracket notation:
+
+```fcdsl
+Bundle resources = { ("iron-plate", 100), ("copper-plate", 80) };
+
+Signal iron = resources["iron-plate"];   # Value: 100
+Signal copper = resources["copper-plate"];  # Value: 80
+
+# Use directly in expressions
+Signal doubled = resources["iron-plate"] * 2;
+```
+
+#### Bundle Arithmetic
+
+Apply arithmetic operations to **all signals** in a bundle simultaneously:
+
+```fcdsl
+Bundle resources = { ("iron-plate", 100), ("copper-plate", 80), ("coal", 50) };
+
+Bundle doubled = resources * 2;      # All values doubled
+Bundle incremented = resources + 10; # 10 added to all values
+Bundle shifted = resources >> 1;     # All values right-shifted
+
+# Supported operators: +, -, *, /, %, **, <<, >>, AND, OR, XOR
+```
+
+**Factorio Output:** Each bundle arithmetic operation compiles to exactly one arithmetic combinator using the `signal-each` virtual signal:
+
+```
+Input: signal-each
+Operation: * (or +, -, etc.)
+Output: signal-each
+```
+
+**Important:** Bundle arithmetic requires a **scalar operand** (Signal or int). Bundle + Bundle is not supported:
+
+```fcdsl
+Bundle a = { ("iron-plate", 100) };
+Bundle b = { ("copper-plate", 80) };
+Bundle c = a + b;  # ERROR: Bundle operations require Signal or int operand
+```
+
+#### Bundle Comparisons with `any()` and `all()`
+
+Use `any()` and `all()` functions for bundle-wide comparisons:
+
+```fcdsl
+Bundle levels = { ("water", 500), ("oil", 100), ("steam", 0) };
+
+# any() - True if at least one signal matches
+Signal anyLow = any(levels) < 50;      # True (steam=0 matches)
+Signal anyHigh = any(levels) > 400;    # True (water=500 matches)
+
+# all() - True if every signal matches
+Signal allPresent = all(levels) > 0;   # False (steam=0 fails)
+Signal allBelow1000 = all(levels) < 1000;  # True (all values match)
+```
+
+**Factorio Output:**
+- `any()` compiles to a decider combinator outputting `signal-anything`
+- `all()` compiles to a decider combinator outputting `signal-everything`
+
+#### Bundle Use Cases
+
+Bundles are ideal for:
+- **Parallel processing**: Apply the same operation to multiple signals
+- **Signal aggregation**: Combine multiple signals for bulk operations
+- **Conditional logic**: Check conditions across multiple signals at once
+
+```fcdsl
+# 7-segment display example: store digit patterns as a bundle
+Bundle digit_0 = {
+    ("signal-A", 0b1111110),  # Segments a-g encoded as bits
+    ("signal-B", 0b0110000),
+    ("signal-C", 0b1101101)
+};
+
+# Shift to extract bit for each segment
+Bundle segment_bits = digit_0 >> position;
+Bundle active = segment_bits AND 1;
+```
 
 ---
 

@@ -40,7 +40,7 @@ class CompilerConfig:
     """
 
     # Layout Optimization
-    layout_solver_time_limit: int = 15
+    layout_solver_time_limit: int = 2
     max_layout_coordinate: int = 200
     acceptable_layout_violations: int = 5
 

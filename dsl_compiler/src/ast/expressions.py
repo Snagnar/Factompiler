@@ -144,3 +144,77 @@ class OutputSpecExpr(Expr):
         super().__init__(line, column, raw_text=raw_text)
         self.condition = condition  # Must be a comparison (BinaryOp with COMP_OP)
         self.output_value = output_value  # Value to output when true
+
+
+class BundleLiteral(Expr):
+    """Bundle literal: { signal1, signal2, ... }
+
+    A bundle is an unordered collection of signals that can be operated on
+    as a unit. Elements can be signal literals, signal variables, or other bundles.
+    """
+
+    def __init__(
+        self,
+        elements: List["Expr"],
+        line: int = 0,
+        column: int = 0,
+        raw_text: Optional[str] = None,
+    ) -> None:
+        super().__init__(line, column, raw_text=raw_text)
+        self.elements = elements  # List of signal/bundle expressions
+
+
+class BundleSelectExpr(Expr):
+    """Bundle element selection: bundle["signal-type"]
+
+    Extracts a single signal from a bundle by its signal type.
+    Returns a Signal that can be used in any expression.
+    """
+
+    def __init__(
+        self,
+        bundle: "Expr",
+        signal_type: str,
+        line: int = 0,
+        column: int = 0,
+        raw_text: Optional[str] = None,
+    ) -> None:
+        super().__init__(line, column, raw_text=raw_text)
+        self.bundle = bundle  # The bundle expression
+        self.signal_type = signal_type  # The signal type to select
+
+
+class BundleAnyExpr(Expr):
+    """any(bundle) for 'anything' comparisons.
+
+    Used in comparisons like: any(bundle) > value
+    Maps to Factorio's 'signal-anything' in decider combinators.
+    """
+
+    def __init__(
+        self,
+        bundle: "Expr",
+        line: int = 0,
+        column: int = 0,
+        raw_text: Optional[str] = None,
+    ) -> None:
+        super().__init__(line, column, raw_text=raw_text)
+        self.bundle = bundle
+
+
+class BundleAllExpr(Expr):
+    """all(bundle) for 'everything' comparisons.
+
+    Used in comparisons like: all(bundle) > value
+    Maps to Factorio's 'signal-everything' in decider combinators.
+    """
+
+    def __init__(
+        self,
+        bundle: "Expr",
+        line: int = 0,
+        column: int = 0,
+        raw_text: Optional[str] = None,
+    ) -> None:
+        super().__init__(line, column, raw_text=raw_text)
+        self.bundle = bundle

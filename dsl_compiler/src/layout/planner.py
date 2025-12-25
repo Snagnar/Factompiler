@@ -380,6 +380,10 @@ class LayoutPlanner:
         - Data/feedback channel: RED (signal-B or memory signal)
         - Control channel: GREEN (signal-W)
 
+        For bundle operations with signal operands:
+        - Left operand (bundle/each): RED
+        - Right operand (scalar signal): GREEN
+
         This prevents signal summation at combinator inputs.
         """
         from .memory_builder import MemoryModule
@@ -439,5 +443,24 @@ class LayoutPlanner:
                     self.diagnostics.info(
                         f"Locked {entity_id} feedback signal '{feedback_signal}' to red wire"
                     )
+
+        # Lock wire colors for bundle operations with signal operands
+        # Left operand (bundle/each) -> red, Right operand (scalar) -> green
+        for entity_id, placement in self.layout_plan.entity_placements.items():
+            if placement.properties.get("needs_wire_separation"):
+                # Get the source IDs for left and right operands
+                left_signal_id = placement.properties.get("left_operand_signal_id")
+                right_signal_id = placement.properties.get("right_operand_signal_id")
+                right_operand = placement.properties.get("right_operand")
+                
+                # Lock the right operand source to green wire
+                if right_signal_id and isinstance(right_operand, str):
+                    # Get the source entity for the right operand
+                    if hasattr(right_signal_id, 'source_id'):
+                        source_id = right_signal_id.source_id
+                        locked[(source_id, right_operand)] = "green"
+                        self.diagnostics.info(
+                            f"Bundle wire separation: locked {source_id}/{right_operand} to green for {entity_id}"
+                        )
 
         return locked

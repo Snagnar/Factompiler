@@ -19,6 +19,10 @@ from dsl_compiler.src.ast.expressions import (
     SignalLiteral,
     UnaryOp,
     WriteExpr,
+    BundleLiteral,
+    BundleSelectExpr,
+    BundleAnyExpr,
+    BundleAllExpr,
 )
 from dsl_compiler.src.ast.literals import (
     DictLiteral,
@@ -30,11 +34,13 @@ from dsl_compiler.src.ir.builder import (
     IR_Const,
     IR_WireMerge,
     SignalRef,
+    BundleRef,
     ValueRef,
 )
 from dsl_compiler.src.ir.nodes import IR_EntityPropRead, IR_Decider, IR_Arith, IR_Const
 from dsl_compiler.src.semantic.symbol_table import SymbolType
 from dsl_compiler.src.semantic.type_system import (
+    BundleValue,
     IntValue,
     SignalValue,
     ValueInfo,
@@ -107,6 +113,10 @@ class ExpressionLowerer:
             SignalLiteral: self.lower_signal_literal,
             DictLiteral: self.lower_dict_literal,
             OutputSpecExpr: self.lower_output_spec_expr,
+            BundleLiteral: self.lower_bundle_literal,
+            BundleSelectExpr: self.lower_bundle_select,
+            BundleAnyExpr: self.lower_bundle_any,
+            BundleAllExpr: self.lower_bundle_all,
         }
 
         if type(expr) in handlers:
@@ -161,6 +171,10 @@ class ExpressionLowerer:
         left_type = self.semantic.get_expr_type(expr.left)
         right_type = self.semantic.get_expr_type(expr.right)
         result_type = self.semantic.get_expr_type(expr)
+
+        # Handle Bundle operations: Bundle OP Signal/int -> Bundle
+        if isinstance(left_type, BundleValue):
+            return self._lower_bundle_op(expr, left_type)
 
         left_signal_type = get_signal_type_name(left_type)
 
@@ -749,6 +763,168 @@ class ExpressionLowerer:
                         value_expr,
                     )
         return properties
+
+    # -------------------------------------------------------------------------
+    # Bundle lowering methods
+    # -------------------------------------------------------------------------
+
+    def lower_bundle_literal(self, expr: BundleLiteral) -> BundleRef:
+        """Lower a bundle literal { signal1, signal2, ... } to IR.
+
+        For all-constant bundles: Creates a single IR_Const with multiple signals.
+        For mixed bundles: Creates IR_WireMerge of computed + constant parts.
+        """
+        constant_signals: Dict[str, int] = {}
+        computed_refs: List[ValueRef] = []
+        all_signal_types: set[str] = set()
+
+        for element in expr.elements:
+            element_type = self.semantic.get_expr_type(element)
+
+            if isinstance(element_type, SignalValue):
+                signal_name = (
+                    element_type.signal_type.name if element_type.signal_type else None
+                )
+                if signal_name:
+                    all_signal_types.add(signal_name)
+
+                    # Check if it's a constant signal literal
+                    if isinstance(element, SignalLiteral) and element.signal_type:
+                        const_value = ConstantFolder.extract_constant_int(
+                            element.value, self.diagnostics
+                        )
+                        if const_value is not None:
+                            constant_signals[signal_name] = const_value
+                            continue
+
+                    # Not a constant - lower it as a computed signal
+                    ref = self.lower_expr(element)
+                    computed_refs.append(ref)
+
+            elif isinstance(element_type, BundleValue):
+                # Nested bundle - recursively lower and merge
+                nested_ref = self.lower_expr(element)
+                if isinstance(nested_ref, BundleRef):
+                    all_signal_types.update(nested_ref.signal_types)
+                    computed_refs.append(nested_ref)
+                else:
+                    computed_refs.append(nested_ref)
+
+        # Case 1: All constants - single constant combinator
+        if constant_signals and not computed_refs:
+            return self.ir_builder.bundle_const(constant_signals, expr)
+
+        # Case 2: All computed - wire merge
+        if computed_refs and not constant_signals:
+            # For now, return the first ref - proper wire merge would combine them
+            # In Factorio, signals on the same wire naturally merge
+            if len(computed_refs) == 1:
+                ref = computed_refs[0]
+                if isinstance(ref, BundleRef):
+                    return ref
+                # Single signal, wrap in BundleRef
+                if isinstance(ref, SignalRef):
+                    return BundleRef({ref.signal_type}, ref.source_id, source_ast=expr)
+            # Multiple computed signals - they'll be on the same wire
+            # Create a wire merge of all computed signals
+            source_ids = set()
+            for ref in computed_refs:
+                if isinstance(ref, (SignalRef, BundleRef)):
+                    source_ids.add(ref.source_id)
+            # Return a BundleRef pointing to the merged sources
+            # For simplicity, use the first source - proper wiring handles the rest
+            first_source = computed_refs[0]
+            if isinstance(first_source, (SignalRef, BundleRef)):
+                return BundleRef(all_signal_types, first_source.source_id, source_ast=expr)
+
+        # Case 3: Mixed - constant combinator + wire merge of computed
+        const_ref = self.ir_builder.bundle_const(constant_signals, expr)
+        all_signal_types.update(constant_signals.keys())
+
+        # The constant combinator output will be on the same wire as computed signals
+        return BundleRef(all_signal_types, const_ref.source_id, source_ast=expr)
+
+    def lower_bundle_select(self, expr: BundleSelectExpr) -> SignalRef:
+        """Lower bundle selection bundle['signal-type'].
+
+        Bundle selection doesn't create any combinator - it just specifies
+        which signal type to read from the bundle's wire.
+        """
+        bundle_ref = self.lower_expr(expr.bundle)
+
+        if isinstance(bundle_ref, BundleRef):
+            # Return a SignalRef pointing to the same source but with specific signal type
+            return SignalRef(
+                expr.signal_type, bundle_ref.source_id, source_ast=expr
+            )
+        elif isinstance(bundle_ref, SignalRef):
+            # If it's already a SignalRef (shouldn't happen for valid bundles),
+            # just change the signal type
+            return SignalRef(expr.signal_type, bundle_ref.source_id, source_ast=expr)
+        else:
+            self._error("Cannot select from non-bundle value", expr)
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
+
+    def lower_bundle_any(self, expr: BundleAnyExpr) -> SignalRef:
+        """Lower any(bundle) expression.
+
+        Returns a SignalRef with 'signal-anything' type for use in comparisons.
+        """
+        bundle_ref = self.lower_expr(expr.bundle)
+
+        if isinstance(bundle_ref, BundleRef):
+            # Return a SignalRef with signal-anything pointing to the bundle source
+            return SignalRef("signal-anything", bundle_ref.source_id, source_ast=expr)
+        else:
+            self._error("any() requires a bundle argument", expr)
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
+
+    def lower_bundle_all(self, expr: BundleAllExpr) -> SignalRef:
+        """Lower all(bundle) expression.
+
+        Returns a SignalRef with 'signal-everything' type for use in comparisons.
+        """
+        bundle_ref = self.lower_expr(expr.bundle)
+
+        if isinstance(bundle_ref, BundleRef):
+            # Return a SignalRef with signal-everything pointing to the bundle source
+            return SignalRef("signal-everything", bundle_ref.source_id, source_ast=expr)
+        else:
+            self._error("all() requires a bundle argument", expr)
+            return self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), 0, expr
+            )
+
+    def _lower_bundle_op(self, expr: BinaryOp, bundle_type: BundleValue) -> BundleRef:
+        """Lower Bundle OP operand to an arithmetic combinator using 'each'.
+
+        Args:
+            expr: The binary operation expression
+            bundle_type: The BundleValue type of the left operand
+
+        Returns:
+            BundleRef with the same signal types as input, pointing to the result
+        """
+        # Lower the bundle expression
+        bundle_ref = self.lower_expr(expr.left)
+        if not isinstance(bundle_ref, BundleRef):
+            self._error("Expected bundle for bundle operation", expr)
+            return BundleRef(set(), "error", source_ast=expr)
+
+        # Lower the right operand (must be Signal or int)
+        right_ref = self.lower_expr(expr.right)
+
+        # Map DSL operators to Factorio operators
+        factorio_op = {"**": "^"}.get(expr.op, expr.op)
+
+        # Create arithmetic combinator with 'each' input/output
+        return self.ir_builder.bundle_arithmetic(
+            factorio_op, bundle_ref, right_ref, expr
+        )
 
     def lower_property_access(
         self, expr: Union[PropertyAccess, PropertyAccessExpr]

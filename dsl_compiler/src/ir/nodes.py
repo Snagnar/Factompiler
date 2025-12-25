@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 from dsl_compiler.src.ast.statements import ASTNode
 
 """IR node and signal representations for the Factorio Circuit DSL."""
@@ -28,7 +28,34 @@ class SignalRef:
         return f"{self.signal_type}@{self.source_id}"
 
 
-ValueRef = Union[SignalRef, int]
+class BundleRef:
+    """Reference to a bundle of signals in the IR.
+
+    A bundle contains multiple signals on the same wire. Operations on bundles
+    use Factorio's 'each' signal for parallel processing.
+    """
+
+    def __init__(
+        self,
+        signal_types: Set[str],
+        source_id: str,
+        *,
+        debug_label: Optional[str] = None,
+        source_ast: Optional[ASTNode] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.signal_types = signal_types  # Set of signal type names in the bundle
+        self.source_id = source_id
+        self.debug_label = debug_label
+        self.source_ast = source_ast
+        self.debug_metadata: Dict[str, Any] = metadata.copy() if metadata else {}
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        types_str = ", ".join(sorted(self.signal_types))
+        return f"Bundle({types_str})@{self.source_id}"
+
+
+ValueRef = Union[SignalRef, BundleRef, int]
 
 
 class IRNode(ABC):
@@ -61,15 +88,24 @@ class IREffect(IRNode):
 
 
 class IR_Const(IRValue):
-    """Constant combinator producing a fixed signal value."""
+    """Constant combinator producing fixed signal value(s).
+
+    For single signals: uses output_type and value.
+    For bundles: uses signals dict mapping signal_type -> value.
+    """
 
     def __init__(
         self, node_id: str, output_type: str, source_ast: Optional[ASTNode] = None
     ) -> None:
         super().__init__(node_id, output_type, source_ast)
         self.value: int = 0
+        # For multi-signal constants (bundles): signal_type -> value
+        self.signals: Dict[str, int] = {}
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
+        if self.signals:
+            signals_str = ", ".join(f"{k}={v}" for k, v in self.signals.items())
+            return f"IR_Const({self.node_id}: bundle({signals_str}))"
         return f"IR_Const({self.node_id}: {self.output_type} = {self.value})"
 
 
@@ -83,6 +119,9 @@ class IR_Arith(IRValue):
         self.op: str = "+"
         self.left: ValueRef = 0
         self.right: ValueRef = 0
+        # For bundle operations with signal operands, we need wire separation:
+        # left operand (bundle/each) on one wire color, right operand (scalar) on the other.
+        self.needs_wire_separation: bool = False
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         return (
@@ -241,6 +280,7 @@ class IR_EntityPropWrite(IREffect):
 
 __all__ = [
     "SignalRef",
+    "BundleRef",
     "ValueRef",
     "IRNode",
     "IRValue",

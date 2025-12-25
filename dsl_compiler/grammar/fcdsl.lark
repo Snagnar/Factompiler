@@ -26,6 +26,11 @@ SIGNAL_KW: "Signal"
 SIGNALTYPE_KW: "SignalType" 
 ENTITY_KW: "Entity"
 MEMORY_KW: "Memory"
+BUNDLE_KW: "Bundle"
+
+// Bundle comparison keywords
+ANY_KW: "any"
+ALL_KW: "all"
 
 // Operator Tokens
 // Note: Lark automatically handles longest-match, but we define multi-char operators first for clarity
@@ -65,7 +70,7 @@ decl_stmt: type_name NAME "=" expr
 
 mem_decl: MEMORY_KW NAME [":" STRING]
 
-type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW
+type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW | BUNDLE_KW
 
 assign_stmt: lvalue "=" expr
 
@@ -127,12 +132,15 @@ power: unary ( POWER_OP power )?
 unary: UNARY_OP unary
      | primary
 
-// primary expressions (constructors, calls, memory ops, property access)
+// primary expressions (constructors, calls, memory ops, property access, bundle operations)
 primary: literal
      | signal_literal                       // New signal literal syntax
+     | bundle_select                        // Bundle selection: bundle["type"]
+     | bundle_any                           // any(bundle) for anything comparisons
+     | bundle_all                           // all(bundle) for everything comparisons
      | READ_KW "(" NAME ")"
      | WRITE_KW "(" expr "," NAME ["," WHEN_KW "=" write_when] ")"
-     | dict_literal
+     | brace_literal                        // Either dict { k: v } or bundle { elem, elem }
        | call_expr                            // General function calls after specific forms
        | method_call
        | lvalue                               // Simple identifiers last
@@ -145,8 +153,22 @@ method_call: NAME "." NAME "(" [arglist] ")"
 
 arglist: expr ("," expr)*
 
-dict_literal: "{" [dict_item ("," dict_item)*] "}"
+// Unified brace literal - disambiguated in transformer based on content
+// If elements have ":", it's a dict literal. Otherwise it's a bundle literal.
+brace_literal: "{" "}"                                      -> empty_brace
+             | "{" dict_item ("," dict_item)* "}"           -> dict_literal
+             | "{" bundle_element ("," bundle_element)* "}" -> bundle_literal
+
 dict_item: (STRING | NAME) ":" expr
+
+bundle_element: expr
+
+// Bundle selection: bundle["signal-type"]
+bundle_select: NAME "[" STRING "]"
+
+// Bundle comparison functions
+bundle_any: ANY_KW "(" expr ")"
+bundle_all: ALL_KW "(" expr ")"
 
 // Signal literal syntax: ("type", value) or just value
 signal_literal: "(" type_literal "," expr ")"    -> signal_with_type

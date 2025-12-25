@@ -240,6 +240,15 @@ class SignalAnalyzer:
         entry: Optional[SignalUsageEntry] = None,
     ) -> str:
         """Resolve a signal type to a Factorio signal name."""
+        # If signal_type is a concrete Factorio signal name (not an implicit __v variable),
+        # return it directly without looking up the entry's resolved name.
+        # This handles bundle selection like resources["iron-plate"] where signal_type is
+        # "iron-plate" but entry might be for the bundle with resolved_signal_name="signal-each".
+        if signal_type and not signal_type.startswith("__"):
+            # Check if it's a known Factorio signal
+            if signal_type in signal_data.raw or signal_type.startswith("signal-"):
+                return signal_type
+        
         lookup_entry = entry
         if lookup_entry is None and signal_type:
             lookup_entry = self.signal_usage.get(signal_type)

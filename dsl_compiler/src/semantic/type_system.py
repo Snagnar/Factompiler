@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 from dsl_compiler.src.ast.statements import ASTNode, Expr
 
 """Type system primitives used by semantic analysis."""
@@ -77,7 +77,20 @@ class VoidValue:
     pass
 
 
-ValueInfo = Union[SignalValue, IntValue, FunctionValue, EntityValue, VoidValue]
+@dataclass
+class BundleValue:
+    """A bundle of signals that can be operated on as a unit.
+
+    Bundles contain zero or more signals, each with a distinct signal type.
+    When used in arithmetic operations, bundles compile to Factorio's "each"
+    signal combinators. When used in comparisons with any/all, they use
+    "anything" or "everything" virtual signals.
+    """
+
+    signal_types: Set[str] = field(default_factory=set)  # Set of signal type names
+
+
+ValueInfo = Union[SignalValue, IntValue, FunctionValue, EntityValue, VoidValue, BundleValue]
 
 
 @dataclass

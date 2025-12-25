@@ -3,6 +3,7 @@ from typing import Any
 from dsl_compiler.src.ir.builder import (
     IR_Const,
     SignalRef,
+    BundleRef,
     ValueRef,
 )
 from dsl_compiler.src.ir.nodes import IR_EntityPropWrite
@@ -113,6 +114,17 @@ class StatementLowerer:
             self.parent.annotate_signal_ref(stmt.name, value_ref, stmt)
             return
 
+        # Handle Bundle type declarations
+        if isinstance(value_ref, BundleRef):
+            source_op = self.ir_builder.get_operation(value_ref.source_id)
+            if source_op:
+                source_op.debug_metadata["user_declared"] = True
+                source_op.debug_metadata["declared_name"] = stmt.name
+                source_op.debug_label = stmt.name
+
+            self.parent.signal_refs[stmt.name] = value_ref
+            return
+
         if isinstance(value_ref, int):
             symbol = self.semantic.symbol_table.lookup(stmt.name)
 
@@ -181,6 +193,19 @@ class StatementLowerer:
         self.parent.pop_expr_context()
 
         if isinstance(stmt.target, Identifier):
+            # Handle BundleRef (bundle assignments)
+            if isinstance(value_ref, BundleRef):
+                source_op = self.ir_builder.get_operation(value_ref.source_id)
+                if source_op:
+                    source_op.debug_metadata["user_declared"] = True
+                    if "declared_name" not in source_op.debug_metadata:
+                        source_op.debug_metadata["declared_name"] = stmt.target.name
+                    source_op.debug_label = stmt.target.name
+
+                self.parent.signal_refs[stmt.target.name] = value_ref
+                self.parent.annotate_signal_ref(stmt.target.name, value_ref, stmt)
+                return
+
             if isinstance(value_ref, SignalRef):
                 const_op = self.ir_builder.get_operation(value_ref.source_id)
                 if isinstance(const_op, IR_Const):

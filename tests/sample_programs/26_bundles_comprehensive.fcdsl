@@ -1,0 +1,152 @@
+# Test 26: Comprehensive Bundle Operations with Lamp Assertions
+# Tests all bundle features with visual verification using lamps
+
+# ============================================================================
+# BUNDLE CREATION TESTS
+# ============================================================================
+
+# Test 1: Create bundle with multiple signal literals
+Bundle resources = { ("iron-plate", 100), ("copper-plate", 80), ("coal", 50) };
+
+# Test 2: Create bundle with computed signals (wire merge)
+Signal x = ("signal-X", 10);
+Signal y = ("signal-Y", 20);
+Bundle computed = { x, y };
+
+# Test 3: Empty bundle
+Bundle empty = {};
+
+# ============================================================================
+# BUNDLE ARITHMETIC TESTS (signal-each operations)
+# ============================================================================
+
+# Test 4: Multiply all signals in bundle by scalar
+Bundle doubled = resources * 2;
+# Expected: iron-plate=200, copper-plate=160, coal=100
+
+# Test 5: Add scalar to all signals
+Bundle incremented = resources + 10;
+# Expected: iron-plate=110, copper-plate=90, coal=60
+
+# Test 6: Subtract scalar from all signals
+Bundle decremented = resources - 5;
+# Expected: iron-plate=95, copper-plate=75, coal=45
+
+# Test 7: Divide all signals by scalar
+Bundle halved = resources / 2;
+# Expected: iron-plate=50, copper-plate=40, coal=25
+
+# Test 8: Modulo operation on all signals
+Bundle modded = resources % 30;
+# Expected: iron-plate=10, copper-plate=20, coal=20
+
+# Test 9: Left shift all signals
+Bundle leftShifted = resources << 1;
+# Expected: iron-plate=200, copper-plate=160, coal=100
+
+# Test 10: Right shift all signals
+Bundle rightShifted = resources >> 1;
+# Expected: iron-plate=50, copper-plate=40, coal=25
+
+# Test 11: Bitwise AND with scalar
+Bundle andMasked = resources AND 0xFF;
+# Expected: all values unchanged since they're < 256
+
+# Test 12: Bitwise OR with scalar
+Bundle orMasked = resources OR 0x100;
+# Expected: all values have bit 8 set
+
+# Test 13: Bitwise XOR with scalar
+Bundle xorMasked = resources XOR 0x0F;
+# Expected: lower 4 bits flipped
+
+# ============================================================================
+# BUNDLE SELECTION TESTS
+# ============================================================================
+
+# Test 14: Extract specific signal from bundle
+Signal ironFromBundle = resources["iron-plate"];
+# Expected: 100
+
+# Test 15: Extract different signal from bundle
+Signal copperFromBundle = resources["copper-plate"];
+# Expected: 80
+
+# Test 16: Extract from computed bundle
+Signal doubledIron = doubled["iron-plate"];
+# Expected: 200
+
+# ============================================================================
+# BUNDLE COMPARISON TESTS (any/all)
+# ============================================================================
+
+# Test 17: any() with greater than - some signals match
+Signal anyAbove90 = any(resources) > 90;
+# Expected: 1 (iron-plate=100 matches)
+
+# Test 18: any() with less than - some signals match
+Signal anyBelow60 = any(resources) < 60;
+# Expected: 1 (coal=50 matches)
+
+# Test 19: all() with greater than - check if all match
+Signal allAbove40 = all(resources) > 40;
+# Expected: 1 (all values are > 40)
+
+# Test 20: all() with greater than - check if all match (should fail)
+Signal allAbove60 = all(resources) > 60;
+# Expected: 0 (coal=50 doesn't match)
+
+# ============================================================================
+# LAMP ASSERTIONS
+# ============================================================================
+
+# Assertion lamps - each lights up if the corresponding test passes
+
+# Assertion 1: Bundle creation - iron value is 100
+Entity lamp1 = place("small-lamp", 0, 0);
+lamp1.enable = ironFromBundle == 100;
+
+# Assertion 2: Bundle creation - copper value is 80
+Entity lamp2 = place("small-lamp", 1, 0);
+lamp2.enable = copperFromBundle == 80;
+
+# Assertion 3: Bundle multiplication - doubled iron is 200
+Entity lamp3 = place("small-lamp", 2, 0);
+lamp3.enable = doubledIron == 200;
+
+# Assertion 4: any() works correctly - at least one signal > 90
+Entity lamp4 = place("small-lamp", 3, 0);
+lamp4.enable = anyAbove90 == 1;
+
+# Assertion 5: all() works correctly - all signals > 40
+Entity lamp5 = place("small-lamp", 4, 0);
+lamp5.enable = allAbove40 == 1;
+
+# Assertion 6: all() negative case - not all signals > 60
+Entity lamp6 = place("small-lamp", 5, 0);
+lamp6.enable = allAbove60 == 0;
+
+# ============================================================================
+# CHAINED OPERATIONS
+# ============================================================================
+
+# Test 21: Chain multiple operations
+Bundle chained = (resources * 2) + 10;
+Signal chainedIron = chained["iron-plate"];
+# Expected: 210
+
+Entity lamp7 = place("small-lamp", 6, 0);
+lamp7.enable = chainedIron == 210;
+
+# ============================================================================
+# BUNDLE WITH SCALAR SIGNAL OPERATIONS
+# ============================================================================
+
+# Test 22: Bundle with signal (not just int constant)
+Signal multiplier = ("signal-M", 3);
+Bundle scaled = resources * multiplier;
+Signal scaledIron = scaled["iron-plate"];
+# Expected: 300
+
+Entity lamp8 = place("small-lamp", 7, 0);
+lamp8.enable = scaledIron == 300;
