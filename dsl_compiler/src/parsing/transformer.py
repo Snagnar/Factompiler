@@ -43,6 +43,7 @@ from dsl_compiler.src.ast.expressions import (
     BundleSelectExpr,
     BundleAnyExpr,
     BundleAllExpr,
+    SignalTypeAccess,
 )
 
 
@@ -474,7 +475,10 @@ class DSLTransformer(Transformer):
         result = items[0]
         index = 1
         while index + 1 < len(items):
-            target_type = str(items[index + 1])
+            target_type = items[index + 1]
+            # Keep SignalTypeAccess as-is; convert other types to string
+            if not isinstance(target_type, SignalTypeAccess):
+                target_type = str(target_type)
             result = ProjectionExpr(expr=result, target_type=target_type)
             index += 2
         return result
@@ -730,9 +734,22 @@ class DSLTransformer(Transformer):
         value = NumberLiteral(value=self._parse_number(raw_number), raw_text=raw_number)
         return SignalLiteral(value=value, signal_type=None, raw_text=raw_number)
 
-    def type_literal(self, items) -> str:
-        """type_literal: STRING | NAME"""
+    def type_property_access(self, items) -> "SignalTypeAccess":
+        """type_property_access: NAME "." NAME
+        
+        Returns a SignalTypeAccess node that will be resolved during semantic analysis
+        to extract the signal type from a signal variable.
+        """
+        object_name = str(items[0])
+        property_name = str(items[1])
+        return SignalTypeAccess(object_name=object_name, property_name=property_name)
+
+    def type_literal(self, items) -> "str | SignalTypeAccess":
+        """type_literal: STRING | type_property_access | NAME"""
         token = items[0]
+        # If it's a SignalTypeAccess from type_property_access, return it as-is
+        if isinstance(token, SignalTypeAccess):
+            return token
         if isinstance(token, Token):
             if token.type == "STRING":
                 return token.value[1:-1]

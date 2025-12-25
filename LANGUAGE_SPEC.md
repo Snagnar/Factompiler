@@ -1,7 +1,7 @@
 # Factorio Circuit DSL Language Specification
 
-**Version 2.4**  
-**Date: January 2025**
+**Version 2.5**  
+**Date: December 2025**
 
 This document provides a complete specification of the Factorio Circuit DSL (Domain Specific Language) as currently implemented. The DSL compiles to Factorio 2.0 blueprint strings that can be imported into the game.
 
@@ -572,6 +572,47 @@ Signal total = (iron | "signal-total")
 
 This pattern creates a single combinator that outputs `signal-total` with value 230.
 
+### Signal Type Access (`.type`)
+
+Access a signal's type at compile time using the `.type` property. This allows you to create signals that inherit their type from another signal.
+
+#### Basic Usage
+
+```fcdsl
+Signal a = ("iron-plate", 60);
+Signal b = 50 | a.type;   # b is projected to iron-plate (same type as a)
+```
+
+#### In Signal Literals
+
+Use `.type` in signal literal syntax:
+
+```fcdsl
+Signal iron = ("iron-plate", 100);
+Signal derived = (iron.type, 42);  # Creates iron-plate signal with value 42
+```
+
+#### Practical Use Cases
+
+**Type Propagation:** Keep signal types consistent without repeating type names:
+
+```fcdsl
+Signal input = ("signal-A", 0);       # Input from circuit
+Signal doubled = input * 2;            # Inherits signal-A type
+Signal offset = 10 | input.type;       # Explicit same type as input
+Signal result = doubled + offset;      # No type mismatch warning
+```
+
+**Dynamic Type Matching:** Match the type of a parameter:
+
+```fcdsl
+func add_offset(Signal value, int offset) {
+    Signal typed_offset = offset | value.type;
+    return value + typed_offset;
+}
+```
+
+
 ---
 
 ## Statements
@@ -624,6 +665,101 @@ import "stdlib/memory_utils.fcdsl";
 Imports use **C-style preprocessing**: the imported file's content is inlined before parsing. Circular imports are detected and skipped.
 
 **Note:** The `import "file" as alias` syntax is recognized by the grammar but aliases are not currently utilized since files are textually inlined. All functions from imported files become available in the global namespace.
+
+### For Loop Statements
+
+For loops allow you to repeat code with an iterator variable. They are **unrolled at compile time**, meaning each iteration generates separate entities and IR operations.
+
+#### Range Iteration
+
+Iterate over a range of numbers:
+
+```fcdsl
+# Basic range: 0, 1, 2, 3, 4 (excludes end value)
+for i in 0..5 {
+    Entity lamp = place("small-lamp", i, 0);
+    lamp.enable = count > 0;
+}
+
+# Range with step: 0, 2, 4, 6, 8
+for j in 0..10 step 2 {
+    Entity lamp = place("small-lamp", j, 0);
+    lamp.enable = count > 0;
+}
+
+# Counting down: 10, 8, 6, 4, 2 (excludes end value)
+for k in 10..0 step -2 {
+    Entity lamp = place("small-lamp", k, 0);
+    lamp.enable = count > 0;
+}
+```
+
+**Range Syntax:** `start..end [step value]`
+- **start**: Starting value (inclusive)
+- **end**: Ending value (exclusive)
+- **step**: Optional increment/decrement (default: 1)
+
+#### List Iteration
+
+Iterate over an explicit list of values:
+
+```fcdsl
+for value in [1, 3, 5, 7, 9] {
+    Entity lamp = place("small-lamp", value, 0);
+    lamp.enable = count >= value;
+}
+```
+
+**List Syntax:** `[value1, value2, ...]`
+- Values must be integer literals
+- Empty lists are allowed: `for x in [] { }` (no iterations)
+
+#### Using Iterator Variables
+
+The iterator variable can be used in expressions:
+
+```fcdsl
+Signal base = ("signal-B", 10);
+
+for x in 0..4 {
+    Entity lamp = place("small-lamp", x, 2);
+    # Use iterator in comparisons
+    lamp.enable = base > x * 2;
+}
+
+for y in 0..3 {
+    # Multiple entities per iteration
+    Entity lampA = place("small-lamp", y * 2, 4);
+    Entity lampB = place("small-lamp", y * 2 + 1, 4);
+    lampA.enable = count > y;
+    lampB.enable = count > y;
+}
+```
+
+**Important:** Iterator variables are **compile-time constants** - they are substituted directly into expressions during loop unrolling. The iterator variable is scoped to the loop body.
+
+#### Compile-Time Unrolling
+
+For loops are fully unrolled at compile time. This means:
+
+```fcdsl
+for i in 0..3 {
+    Entity lamp = place("small-lamp", i, 0);
+}
+```
+
+Is equivalent to writing:
+
+```fcdsl
+Entity lamp_0 = place("small-lamp", 0, 0);
+Entity lamp_1 = place("small-lamp", 1, 0);
+Entity lamp_2 = place("small-lamp", 2, 0);
+```
+
+**Use Cases:**
+- Creating arrays of entities (lamps, inserters, etc.)
+- Generating repetitive signal processing logic
+- Building multi-channel displays
 
 ---
 
@@ -1453,6 +1589,79 @@ func smooth_filter(Signal input, int window_size) {
 
 Signal raw_input = ("iron-plate", 0);
 Signal smoothed = smooth_filter(raw_input, 10);
+```
+
+### For Loop: Lamp Array
+
+```fcdsl
+# Create a row of 10 lamps controlled by a counter
+Memory tick: "signal-T";
+write(read(tick) + 1, tick);
+Signal position = read(tick) % 10;
+
+for i in 0..10 {
+    Entity lamp = place("small-lamp", i, 0);
+    lamp.enable = position == i;  # Only one lamp on at a time
+}
+```
+
+### For Loop: Knight Rider Effect
+
+```fcdsl
+# Create a bouncing light pattern
+Memory counter: "signal-C";
+write(read(counter) + 1, counter);
+
+# Create 8 lamps
+for i in 0..8 {
+    Entity lamp = place("small-lamp", i, 0);
+    # Calculate distance from current position (modulo ping-pong)
+    Signal pos = read(counter) % 14;  # 0-13 for 8 positions
+    Signal actual_pos = (pos < 8) * pos + (pos >= 8) * (14 - pos);
+    lamp.enable = actual_pos == i;
+}
+```
+
+### Signal Type Access: Type Propagation
+
+```fcdsl
+# Keep consistent types without repeating type strings
+Signal source = ("iron-plate", 100);
+Signal offset = 50 | source.type;        # iron-plate type from source
+Signal doubled = source * 2;              # inherits iron-plate
+Signal result = doubled + offset;         # no type mismatch
+
+# Type-aware factory function
+func scaled_signal(Signal input, int factor) {
+    Signal scale = factor | input.type;   # Match input's type
+    return input * scale;
+}
+
+Signal output = scaled_signal(source, 10);
+```
+
+### Bundle Processing: Resource Monitor
+
+```fcdsl
+# Monitor multiple resource levels
+Bundle resources = { 
+    ("iron-plate", 0),      # Wired from storage 
+    ("copper-plate", 0), 
+    ("coal", 0) 
+};
+
+# Double all resource readings for display
+Bundle display_values = resources * 2;
+
+# Check if any resource is low (< 100)
+Signal alert = any(resources) < 100;
+
+# Check if all resources are present (> 0)
+Signal all_present = all(resources) > 0;
+
+# Control warning lamp
+Entity warning = place("small-lamp", 0, 0);
+warning.enable = alert;
 ```
 
 ---

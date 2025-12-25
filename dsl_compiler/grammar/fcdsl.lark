@@ -192,8 +192,13 @@ bundle_all: ALL_KW "(" expr ")"
 signal_literal: "(" type_literal "," expr ")"    -> signal_with_type
               | NUMBER                          -> signal_constant
 
+// Type literal can be a string, a name, or a property access (for signal.type)
 type_literal: STRING
+            | type_property_access
             | NAME
+
+// Property access for signal.type - extracts signal type at compile time
+type_property_access: NAME "." NAME
 
 literal: STRING    -> string
 

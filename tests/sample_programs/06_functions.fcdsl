@@ -1,5 +1,5 @@
 # Test 6: Functions and modularity
-# Tests: func declaration, function calls, parameter passing, scoping
+# Tests: func declaration, function calls, parameter passing, scoping, .type access
 
 func double_signal(Signal x) {
     return x * 2;
@@ -23,6 +23,12 @@ func memory_toggle() {
     return new_state * 10;
 }
 
+# Function using .type to match the type of the input signal
+func add_with_same_type(Signal input, int value) {
+    Signal typed_value = value | input.type;
+    return input + typed_value;
+}
+
 
 # Use functions
 Signal input_val = 42;
@@ -32,6 +38,10 @@ Signal condition = 50 > 0;
 Signal computed = conditional_add(input_val, 5, condition);
 
 Signal toggle_output = memory_toggle();
+
+# Test .type inside function - should preserve iron-plate type
+Signal iron = ("iron-plate", 100);
+Signal iron_plus_fifty = add_with_same_type(iron, 50);
 
 # Nested function calls
 Signal complex_result = conditional_add(

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from .base import ASTNode
 
 """Expression node definitions for the Factorio Circuit DSL."""
@@ -74,10 +74,15 @@ class WriteExpr(Expr):
 
 
 class ProjectionExpr(Expr):
-    """expr | "type" - project signal/bundle to specific channel"""
+    """expr | "type" - project signal/bundle to specific channel
+    
+    target_type can be:
+    - A string (e.g., "iron-plate", "signal-A")
+    - A SignalTypeAccess (e.g., a.type - resolved at compile time)
+    """
 
     def __init__(
-        self, expr: "Expr", target_type: str, line: int = 0, column: int = 0
+        self, expr: "Expr", target_type: "Union[str, SignalTypeAccess]", line: int = 0, column: int = 0
     ) -> None:
         super().__init__(line, column)
         self.expr = expr
@@ -85,12 +90,18 @@ class ProjectionExpr(Expr):
 
 
 class SignalLiteral(Expr):
-    """Signal literal: ("type", value) or just value"""
+    """Signal literal: ("type", value) or just value
+    
+    signal_type can be:
+    - None for implicit type (compiler allocates virtual signal)
+    - A string (e.g., "iron-plate", "signal-A") 
+    - A SignalTypeAccess (e.g., a.type - resolved at compile time)
+    """
 
     def __init__(
         self,
         value: "Expr",
-        signal_type: Optional[str] = None,
+        signal_type: "Optional[Union[str, SignalTypeAccess]]" = None,
         line: int = 0,
         column: int = 0,
         raw_text: Optional[str] = None,
@@ -218,3 +229,27 @@ class BundleAllExpr(Expr):
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
         self.bundle = bundle
+
+
+class SignalTypeAccess(Expr):
+    """Access to a signal's type: signal_var.type
+    
+    Used in projections and signal literals to dynamically reference
+    the type of another signal variable. The type is resolved at compile time.
+    
+    Example:
+        Signal a = ("iron-plate", 60);
+        Signal b = 50 | a.type;  # b is projected to iron-plate
+    """
+
+    def __init__(
+        self,
+        object_name: str,
+        property_name: str,
+        line: int = 0,
+        column: int = 0,
+        raw_text: Optional[str] = None,
+    ) -> None:
+        super().__init__(line, column, raw_text=raw_text)
+        self.object_name = object_name
+        self.property_name = property_name

@@ -1,5 +1,5 @@
 # Test 2: Mixed-type arithmetic (should warn, left-operand wins)
-# Tests: mixed-type rules, warnings, projection operator
+# Tests: mixed-type rules, warnings, projection operator, .type access
 
 Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 80);
@@ -12,6 +12,13 @@ Signal forced_copper = iron + copper | "copper-plate";
 
 # Explicit re-channeling without bundles
 Signal rechanneled_sum = (iron + copper) | "steel-plate";
+
+# Signal type access: project using another signal's type
+# This creates a signal with the same type as iron (iron-plate)
+Signal derived_type = 50 | iron.type;
+
+# Signal literal with type access
+Signal explicit_derived = (iron.type, 42);
 
 # Comparison operations
 Signal is_positive = iron > 0;

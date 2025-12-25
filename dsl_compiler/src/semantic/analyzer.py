@@ -19,6 +19,7 @@ from dsl_compiler.src.ast.expressions import (
     BundleSelectExpr,
     BundleAnyExpr,
     BundleAllExpr,
+    SignalTypeAccess,
 )
 from dsl_compiler.src.ast.literals import (
     DictLiteral,
@@ -220,6 +221,74 @@ class SemanticAnalyzer(ASTVisitor):
             )
         return is_valid
 
+    def resolve_signal_type_access(
+        self, type_ref: "str | SignalTypeAccess", node: ASTNode
+    ) -> Optional[str]:
+        """Resolve a signal type reference to a string type name.
+        
+        Handles both:
+        - String literals (e.g., "iron-plate") - returned as-is
+        - SignalTypeAccess (e.g., a.type) - resolved to the signal's type at compile time
+        
+        Args:
+            type_ref: Either a string type name or a SignalTypeAccess expression
+            node: The AST node for error reporting
+            
+        Returns:
+            The resolved signal type name as a string, or None on error
+        """
+        if isinstance(type_ref, str):
+            return type_ref
+            
+        if isinstance(type_ref, SignalTypeAccess):
+            if type_ref.property_name != "type":
+                self.diagnostics.error(
+                    f"Invalid property '.{type_ref.property_name}' on signal. Only '.type' is supported.",
+                    stage="semantic",
+                    node=node,
+                )
+                return None
+                
+            # Look up the signal variable
+            symbol = self.current_scope.lookup(type_ref.object_name)
+            if symbol is None:
+                self.diagnostics.error(
+                    f"Undefined variable '{type_ref.object_name}' in .type access",
+                    stage="semantic",
+                    node=node,
+                )
+                return None
+                
+            # Check that the variable is a Signal
+            if not isinstance(symbol.value_type, SignalValue):
+                self.diagnostics.error(
+                    f"Cannot access '.type' on non-signal variable '{type_ref.object_name}'. "
+                    f"The variable is of type {type(symbol.value_type).__name__}.",
+                    stage="semantic",
+                    node=node,
+                )
+                return None
+                
+            # Extract the signal type name (works for both explicit and implicit types)
+            if symbol.value_type.signal_type is None:
+                # This shouldn't normally happen since SignalValue always has a signal_type
+                self.diagnostics.error(
+                    f"Signal '{type_ref.object_name}' has no type. Cannot use '.type' access.",
+                    stage="semantic",
+                    node=node,
+                )
+                return None
+            
+            return symbol.value_type.signal_type.name
+            
+        # Unknown type
+        self.diagnostics.error(
+            f"Invalid type reference: {type(type_ref).__name__}",
+            stage="semantic",
+            node=node,
+        )
+        return None
+
     def get_expr_type(self, expr: Expr) -> ValueInfo:
         """Get the inferred type of an expression."""
         expr_id = id(expr)
@@ -415,14 +484,20 @@ class SemanticAnalyzer(ASTVisitor):
             # This is essential for function parameters to be found during lowering.
             self.get_expr_type(expr.expr)
 
-            if expr.target_type in self.RESERVED_SIGNAL_RULES:
+            # Resolve the target type (may be a string or SignalTypeAccess)
+            resolved_type = self.resolve_signal_type_access(expr.target_type, expr)
+            if resolved_type is None:
+                # Error already reported by resolve_signal_type_access
+                return SignalValue(signal_type=self.allocate_implicit_type())
+                
+            if resolved_type in self.RESERVED_SIGNAL_RULES:
                 self._emit_reserved_signal_diagnostic(
-                    expr.target_type, expr, "as a projection target"
+                    resolved_type, expr, "as a projection target"
                 )
             self.validate_signal_type_with_error(
-                expr.target_type, expr, "in projection"
+                resolved_type, expr, "in projection"
             )
-            target_signal_type = SignalTypeInfo(name=expr.target_type)
+            target_signal_type = SignalTypeInfo(name=resolved_type)
             return SignalValue(signal_type=target_signal_type)
 
         elif isinstance(expr, SignalLiteral):
@@ -431,14 +506,20 @@ class SemanticAnalyzer(ASTVisitor):
             self.get_expr_type(expr.value)
 
             if expr.signal_type:
-                if expr.signal_type in self.RESERVED_SIGNAL_RULES:
+                # Resolve the signal type (may be a string or SignalTypeAccess)
+                resolved_type = self.resolve_signal_type_access(expr.signal_type, expr)
+                if resolved_type is None:
+                    # Error already reported by resolve_signal_type_access
+                    return SignalValue(signal_type=self.allocate_implicit_type())
+                    
+                if resolved_type in self.RESERVED_SIGNAL_RULES:
                     self._emit_reserved_signal_diagnostic(
-                        expr.signal_type, expr, "in signal literals"
+                        resolved_type, expr, "in signal literals"
                     )
                 self.validate_signal_type_with_error(
-                    expr.signal_type, expr, "in signal literal"
+                    resolved_type, expr, "in signal literal"
                 )
-                signal_type = SignalTypeInfo(name=expr.signal_type)
+                signal_type = SignalTypeInfo(name=resolved_type)
                 return SignalValue(signal_type=signal_type, count_expr=expr.value)
             else:
                 if isinstance(expr.value, NumberLiteral):

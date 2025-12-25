@@ -23,6 +23,7 @@ from dsl_compiler.src.ast.expressions import (
     BundleSelectExpr,
     BundleAnyExpr,
     BundleAllExpr,
+    SignalTypeAccess,
 )
 from dsl_compiler.src.ast.literals import (
     DictLiteral,
@@ -75,6 +76,50 @@ class ExpressionLowerer:
     @property
     def diagnostics(self):
         return self.parent.diagnostics
+
+    def _resolve_signal_type(
+        self, type_ref: "str | SignalTypeAccess", expr: Expr
+    ) -> Optional[str]:
+        """Resolve a signal type reference to a string type name.
+        
+        Handles both:
+        - String literals (e.g., "iron-plate") - returned as-is
+        - SignalTypeAccess (e.g., a.type) - resolved from the actual signal's type
+        
+        Args:
+            type_ref: Either a string type name or a SignalTypeAccess expression
+            expr: The AST expression for error reporting context
+            
+        Returns:
+            The resolved signal type name as a string, or None on error
+        """
+        if isinstance(type_ref, str):
+            return type_ref
+            
+        if isinstance(type_ref, SignalTypeAccess):
+            var_name = type_ref.object_name
+            
+            # Check param_values first (for function parameters during inlining)
+            if var_name in self.parent.param_values:
+                value = self.parent.param_values[var_name]
+                if isinstance(value, SignalRef):
+                    return value.signal_type
+                self._error(f"Cannot access '.type' on non-signal parameter '{var_name}'", expr)
+                return None
+            
+            # Check signal_refs for regular variables
+            if var_name in self.parent.signal_refs:
+                value = self.parent.signal_refs[var_name]
+                if isinstance(value, SignalRef):
+                    return value.signal_type
+                self._error(f"Cannot access '.type' on non-signal variable '{var_name}'", expr)
+                return None
+            
+            # Fall back to semantic analyzer for scope lookup
+            return self.semantic.resolve_signal_type_access(type_ref, expr)
+            
+        self._error(f"Invalid type reference: {type(type_ref).__name__}", expr)
+        return None
 
     def _attach_expr_context(self, node_id: str, expr: Optional[Expr] = None) -> None:
         """Attach current expression context to an IR node for debug info."""
@@ -635,7 +680,12 @@ class ExpressionLowerer:
     def lower_projection_expr(self, expr: ProjectionExpr) -> SignalRef:
         """Lower projection expression with type conversion."""
         source_ref = self.lower_expr(expr.expr)
-        target_type = expr.target_type
+        
+        # Resolve the target type (may be a string or SignalTypeAccess)
+        target_type = self._resolve_signal_type(expr.target_type, expr)
+        if target_type is None:
+            # Error already reported
+            target_type = self.ir_builder.allocate_implicit_type()
 
         if isinstance(source_ref, SignalRef):
             return self._lower_projection_from_signal(expr, source_ref, target_type)
@@ -683,8 +733,13 @@ class ExpressionLowerer:
 
     def lower_signal_literal(self, expr: SignalLiteral) -> SignalRef:
         if expr.signal_type is not None:
-            signal_name = expr.signal_type
-            output_type = expr.signal_type
+            # Resolve the signal type (may be a string or SignalTypeAccess)
+            signal_name = self._resolve_signal_type(expr.signal_type, expr)
+            if signal_name is None:
+                # Error already reported, use implicit type
+                signal_name = self.ir_builder.allocate_implicit_type()
+                
+            output_type = signal_name
             self.parent.ensure_signal_registered(signal_name)
             value_ref = self.lower_expr(expr.value)
             if isinstance(value_ref, int):
