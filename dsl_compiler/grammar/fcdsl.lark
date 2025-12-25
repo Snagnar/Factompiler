@@ -32,6 +32,14 @@ BUNDLE_KW: "Bundle"
 ANY_KW: "any"
 ALL_KW: "all"
 
+// For loop keywords
+FOR_KW: "for"
+IN_KW: "in"
+STEP_KW: "step"
+
+// Range operator (must be before other operators)
+RANGE_OP: ".."
+
 // Operator Tokens
 // Note: Lark automatically handles longest-match, but we define multi-char operators first for clarity
 POWER_OP: "**"
@@ -65,6 +73,7 @@ statement: decl_stmt ";"                    -> decl_stmt
          | import_stmt ";"                  -> import_stmt
          | func_decl                        -> func_decl   // function bodies contain their own semicolons
          | mem_decl ";"                     -> mem_decl
+         | for_stmt                         -> for_stmt
 
 decl_stmt: type_name NAME "=" expr
 
@@ -81,6 +90,15 @@ expr_stmt: expr
 return_stmt: "return" expr
 
 import_stmt: "import" STRING ["as" NAME]
+
+// ---------------------------------
+// For loops
+// ---------------------------------
+for_stmt: FOR_KW NAME IN_KW for_iterator "{" statement* "}"
+
+for_iterator: range_iterator | list_iterator
+range_iterator: NUMBER RANGE_OP NUMBER [STEP_KW NUMBER]
+list_iterator: "[" [NUMBER ("," NUMBER)*] "]"
 
 // ---------------------------------
 // Functions

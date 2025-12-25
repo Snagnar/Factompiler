@@ -18,6 +18,7 @@ from dsl_compiler.src.ast.statements import (
     MemDecl,
     ReturnStmt,
     Statement,
+    ForStmt,
 )
 from dsl_compiler.src.ast.expressions import (
     CallExpr,
@@ -55,6 +56,7 @@ class StatementLowerer:
             ReturnStmt: self.lower_return_stmt,
             FuncDecl: self.lower_func_decl,
             ImportStmt: self.lower_import_stmt,
+            ForStmt: self.lower_for_stmt,
         }
 
         handler = handlers.get(type(stmt))
@@ -271,3 +273,37 @@ class StatementLowerer:
             f"{stmt.path}",
             stmt,
         )
+
+    def lower_for_stmt(self, stmt: ForStmt) -> None:
+        """Lower a for loop by unrolling all iterations.
+        
+        For loops are compile-time constructs. Each iteration:
+        1. Saves current signal_refs state
+        2. Registers the iterator as a compile-time integer constant
+        3. Lowers all body statements
+        4. Restores signal_refs to remove body-scoped variables
+        """
+        iteration_values = stmt.get_iteration_values()
+
+        for value in iteration_values:
+            # Save current signal_refs state to implement scope isolation
+            # We only save the keys, not a deep copy
+            saved_signal_refs_keys = set(self.parent.signal_refs.keys())
+            saved_entity_refs_keys = set(self.parent.entity_refs.keys())
+
+            # Register the iterator variable as a compile-time integer constant
+            # This allows expressions like place("lamp", i, 0) to use the literal value
+            self.parent.signal_refs[stmt.iterator_name] = value
+
+            # Lower each statement in the body
+            for body_stmt in stmt.body:
+                self.lower_statement(body_stmt)
+
+            # Remove variables defined in this iteration (restore scope)
+            # Keep only the keys that existed before this iteration
+            new_signal_refs = {k: v for k, v in self.parent.signal_refs.items() 
+                              if k in saved_signal_refs_keys}
+            new_entity_refs = {k: v for k, v in self.parent.entity_refs.items() 
+                              if k in saved_entity_refs_keys}
+            self.parent.signal_refs = new_signal_refs
+            self.parent.entity_refs = new_entity_refs

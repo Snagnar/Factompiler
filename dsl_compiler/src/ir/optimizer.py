@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Dict, List, Optional, Set
-from .nodes import IRNode, IR_Arith, IR_Decider, IR_MemWrite, IR_Const, SignalRef
+from .nodes import IRNode, IR_Arith, IR_Decider, IR_MemWrite, IR_Const, IR_EntityPropWrite, SignalRef
 
 """IR optimization passes for the Factorio Circuit DSL."""
 
@@ -68,6 +68,11 @@ class ConstantPropagationOptimizer:
                                 op.node_id + "_folded", op.output_type, op.source_ast
                             )
                             new_const.value = folded
+                            
+                            # Propagate suppress_materialization flag from original op
+                            if op.debug_metadata.get("suppress_materialization"):
+                                new_const.debug_metadata["suppress_materialization"] = True
+                            
                             const_map[new_const.node_id] = new_const
 
                             # Replace this operation with the constant
@@ -114,6 +119,11 @@ class ConstantPropagationOptimizer:
                                 op.node_id + "_folded", op.output_type, op.source_ast
                             )
                             new_const.value = final_value
+                            
+                            # Propagate suppress_materialization flag from original op
+                            if op.debug_metadata.get("suppress_materialization"):
+                                new_const.debug_metadata["suppress_materialization"] = True
+                            
                             const_map[new_const.node_id] = new_const
 
                             self.replacements[op.node_id] = new_const.node_id
@@ -368,6 +378,8 @@ class CSEOptimizer:
             elif isinstance(op, IR_MemWrite):
                 op.data_signal = self._update_value(op.data_signal)
                 op.write_enable = self._update_value(op.write_enable)
+            elif isinstance(op, IR_EntityPropWrite):
+                op.value = self._update_value(op.value)
 
         return operations
 

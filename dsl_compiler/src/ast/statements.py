@@ -118,3 +118,51 @@ class FuncDecl(Statement):
         self.name = name
         self.params = params
         self.body = body
+
+
+class ForStmt(Statement):
+    """for variable in iterator { body }
+    
+    Represents a compile-time for loop that is fully unrolled.
+    """
+
+    def __init__(
+        self,
+        iterator_name: str,
+        start: Optional[int],
+        stop: Optional[int],
+        step: Optional[int],
+        values: Optional[List[int]],
+        body: List["Statement"],
+        line: int = 0,
+        column: int = 0,
+    ) -> None:
+        super().__init__(line, column)
+        self.iterator_name = iterator_name
+        self.start = start  # Start value for range (inclusive), None for list
+        self.stop = stop    # Stop value for range (exclusive), None for list
+        self.step = step    # Step value for range, None for list
+        self.values = values  # List of values for list iterator, None for range
+        self.body = body
+
+    def get_iteration_values(self) -> List[int]:
+        """Returns the sequence of values the iterator takes."""
+        if self.values is not None:
+            return list(self.values)
+        # Range iteration
+        result = []
+        if self.step is None:
+            step = 1 if self.start < self.stop else -1
+        else:
+            step = self.step
+        if step > 0:
+            i = self.start
+            while i < self.stop:
+                result.append(i)
+                i += step
+        elif step < 0:
+            i = self.start
+            while i > self.stop:
+                result.append(i)
+                i += step
+        return result

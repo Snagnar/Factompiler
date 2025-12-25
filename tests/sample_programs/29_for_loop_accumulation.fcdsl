@@ -1,0 +1,69 @@
+# Test signal accumulation patterns in for loops
+# 
+# IMPORTANT: For loops in this language are COMPILE-TIME UNROLLING constructs.
+# They cannot be used for runtime signal accumulation because:
+# 1. Signals are immutable (you can't reassign a signal variable)
+# 2. Each iteration creates independent circuit elements
+# 
+# What DOES work:
+# - Wiring the same signal to multiple entities
+# - Using loop variables as compile-time constants in expressions
+# - Creating arrays of entities that all read from shared signals
+#
+# What DOES NOT work:
+# - Reassigning signal variables (prod = prod * k is an error)
+# - Runtime accumulation (use Memory with write() for that)
+
+# =============================================================================
+# Test 1: Simple accumulation - add multiple signals together
+# =============================================================================
+
+# Create multiple input signals
+Signal a = ("signal-A", 10);
+Signal b = ("signal-B", 20);
+Signal c = ("signal-C", 30);
+
+# We CAN compute sums of multiple signals - this creates arithmetic combinators
+Signal sum = a + b + c;
+
+# Visualize with a lamp
+Entity lamp1 = place("small-lamp", 0, 0);
+lamp1.enable = sum > 50;
+
+# =============================================================================
+# Test 2: Using loop to create multiple signal sources feeding a decider
+# =============================================================================
+Signal input = ("signal-I", 5);
+
+# Create multiple lamps, each checking a different threshold
+for i in [1, 2, 3, 4, 5] {
+    Entity lamp = place("small-lamp", i, 2);
+    lamp.enable = input >= i;
+}
+
+# =============================================================================
+# Test 3: Chained computations using loop iteration values
+# =============================================================================
+Signal base = ("signal-X", 100);
+
+# Each lamp checks if base > (i * 10), so:
+# i=1: base > 10 (true)
+# i=2: base > 20 (true)
+# i=3: base > 30 (true)
+# ... up to i=10: base > 100 (false, since 100 > 100 is false)
+for j in 0..11 step 1 {
+    Entity lamp = place("small-lamp", j, 4);
+    lamp.enable = base > j * 10;
+}
+
+# =============================================================================
+# Test 4: Multiple entities using computed signals
+# =============================================================================
+Signal p = ("signal-P", 7);
+Signal q = ("signal-Q", 3);
+Signal computed = p * q;  # Should be 21
+
+for k in [10, 20, 30] {
+    Entity lamp = place("small-lamp", k / 10, 6);
+    lamp.enable = computed > k;  # 21 > 10, 21 > 20, 21 > 30
+}

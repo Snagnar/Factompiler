@@ -37,6 +37,7 @@ from dsl_compiler.src.ast.statements import (
     AssignStmt,
     ExprStmt,
     ImportStmt,
+    ForStmt,
 )
 from dsl_compiler.src.ast.base import ASTVisitor
 from dsl_compiler.src.common.diagnostics import (
@@ -1109,6 +1110,54 @@ class SemanticAnalyzer(ASTVisitor):
                 return IntValue()
 
         return VoidValue()
+
+    def visit_ForStmt(self, node: ForStmt) -> None:
+        """Analyze a for loop statement.
+        
+        For loops are compile-time constructs that get unrolled.
+        The iterator variable is an immutable int with a known literal value.
+        """
+        # Validate step is not zero for range iterators
+        if node.step is not None and node.step == 0:
+            self.diagnostics.error(
+                "For loop step cannot be zero",
+                stage="semantic",
+                node=node,
+            )
+            return
+
+        # Get all iteration values
+        iteration_values = node.get_iteration_values()
+
+        # For each iteration, create a new scope and analyze the body
+        for value in iteration_values:
+            # Create child scope for this iteration
+            iteration_scope = self.current_scope.create_child_scope()
+            old_scope = self.current_scope
+            self.current_scope = iteration_scope
+
+            # Define the iterator variable as an immutable int with literal value
+            iterator_symbol = Symbol(
+                name=node.iterator_name,
+                symbol_type=SymbolType.VARIABLE,
+                value_type=IntValue(),
+                defined_at=node,
+                is_mutable=False,  # Iterator cannot be reassigned
+            )
+            # Store the literal value in debug_info for constant folding
+            iterator_symbol.debug_info["literal_value"] = value
+
+            try:
+                self.current_scope.define(iterator_symbol)
+            except SemanticError as e:
+                self.diagnostics.error(e.message, stage="semantic", node=node)
+
+            # Analyze each statement in the body
+            for stmt in node.body:
+                self.visit(stmt)
+
+            # Restore parent scope
+            self.current_scope = old_scope
 
     def visit_ExprStmt(self, node: ExprStmt) -> None:
         """Analyze expression statement."""

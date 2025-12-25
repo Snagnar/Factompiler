@@ -1,0 +1,109 @@
+# Comprehensive for loop tests - testing all edge cases and functionality
+
+# =============================================================================
+# Test 1: Basic range iteration with step
+# =============================================================================
+Signal counter = ("signal-C", 1);
+
+# Range with default step of 1: iterations 0, 1, 2
+for i in 0..3 {
+    Entity lamp1 = place("small-lamp", i, 0);
+    lamp1.enable = counter > 0;
+}
+
+# Range with explicit step of 2: iterations 0, 2, 4
+for j in 0..6 step 2 {
+    Entity lamp2 = place("small-lamp", 10 + j / 2, 0);
+    lamp2.enable = counter == 1;
+}
+
+# =============================================================================
+# Test 2: Negative step (counting down)
+# =============================================================================
+# Range 10..0 step -2: iterations 10, 8, 6, 4, 2 (5 lamps)
+for d in 10..0 step -2 {
+    Entity lampDown = place("small-lamp", 30 + d / 2, 0);
+    lampDown.enable = counter > 0;
+}
+
+# =============================================================================
+# Test 3: List iteration  
+# =============================================================================
+for k in [1, 3, 5, 7] {
+    Entity lamp3 = place("small-lamp", 40 + k, 0);
+    lamp3.enable = counter >= k;
+}
+
+# =============================================================================
+# Test 4: Using iterator variable in expressions
+# =============================================================================
+Signal base = ("signal-B", 10);
+
+for x in 0..4 {
+    Entity lamp4 = place("small-lamp", x, 2);
+    # Use iterator in comparisons
+    lamp4.enable = base > x * 2;
+}
+
+# =============================================================================
+# Test 5: Multiple entities per loop iteration
+# =============================================================================
+for y in 0..3 {
+    # Place two entities per iteration
+    Entity lampA = place("small-lamp", y * 2, 4);
+    Entity lampB = place("small-lamp", y * 2 + 1, 4);
+    
+    # Both reference the same external signal
+    lampA.enable = counter > 0;
+    lampB.enable = counter > 0;
+}
+
+# =============================================================================
+# Test 6: Computed signals referencing outside variables
+# =============================================================================
+Signal input1 = ("signal-1", 5);
+Signal input2 = ("signal-2", 3);
+Signal computed = input1 + input2;
+
+for z in 0..2 {
+    Entity lamp5 = place("small-lamp", z, 6);
+    # Reference computed signal from outside loop
+    lamp5.enable = computed > z;
+}
+
+# =============================================================================
+# Test 7: Nested expressions with loop variable
+# =============================================================================
+Signal threshold = ("signal-T", 50);
+
+for n in [10, 20, 30] {
+    Entity lamp6 = place("small-lamp", n / 10, 8);
+    # Complex expression mixing iterator and external signals  
+    lamp6.enable = (threshold - n) > 0;
+}
+
+# =============================================================================
+# Test 8: Negative step with step -1 (decrements by 1)
+# =============================================================================
+# 5..0 step -1: iterations 5, 4, 3, 2, 1 (5 lamps, excludes 0)
+for m in 5..0 step -1 {
+    Entity lampNeg = place("small-lamp", 50 + m, 0);
+    lampNeg.enable = counter > 0;
+}
+
+# =============================================================================
+# Test 9: Single-element list
+# =============================================================================
+for single in [42] {
+    Entity lampSingle = place("small-lamp", 60, 0);
+    lampSingle.enable = counter == single;
+}
+
+# =============================================================================
+# Test 10: Empty range (no iterations)
+# =============================================================================
+# 5..5: empty range, no lamps created (start equals stop)
+for empty in 5..5 {
+    Entity lampEmpty = place("small-lamp", 70, 0);
+    lampEmpty.enable = counter > 0;
+}

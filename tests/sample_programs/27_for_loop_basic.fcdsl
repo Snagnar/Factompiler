@@ -1,0 +1,7 @@
+# Basic for loop test - creates 5 lamps in a row
+Signal sig = ("signal-A", 1);
+
+for i in 0..5 {
+    Entity lamp = place("small-lamp", i, 0);
+    lamp.enable = sig > 0;
+}

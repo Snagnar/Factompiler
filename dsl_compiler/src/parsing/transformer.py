@@ -20,6 +20,7 @@ from dsl_compiler.src.ast.statements import (
     ImportStmt,
     FuncDecl,
     TypedParam,
+    ForStmt,
 )
 from dsl_compiler.src.ast.literals import (
     Identifier,
@@ -276,6 +277,111 @@ class DSLTransformer(Transformer):
 
         result = TypedParam(type_name=type_name, name=param_name)
         return self._set_position(result, name_token)
+
+    def for_stmt(self, items) -> ForStmt:
+        """for_stmt: FOR_KW NAME IN_KW for_iterator "{" statement* "}"""
+        if len(items) == 1 and isinstance(items[0], ForStmt):
+            return items[0]
+
+        # Find iterator name (first NAME token after FOR_KW)
+        iterator_name = None
+        iterator_data = None
+        statements = []
+        position_token = None
+
+        for item in items:
+            if isinstance(item, Token):
+                if item.type == "NAME" and iterator_name is None:
+                    iterator_name = str(item.value)
+                    position_token = item
+            elif isinstance(item, dict):
+                # This is the iterator data from range_iterator or list_iterator
+                iterator_data = item
+            elif isinstance(item, Statement):
+                statements.append(item)
+            elif isinstance(item, Tree):
+                # Could be for_iterator tree
+                if item.data in ("range_iterator", "list_iterator", "for_iterator"):
+                    iterator_data = self.transform(item)
+
+        if iterator_name is None:
+            raise ValueError(f"Could not find iterator name in for_stmt: {items}")
+        if iterator_data is None:
+            raise ValueError(f"Could not find iterator data in for_stmt: {items}")
+
+        # Unwrap for_iterator if needed
+        if isinstance(iterator_data, dict) and "inner" in iterator_data:
+            iterator_data = iterator_data["inner"]
+
+        # Build ForStmt based on iterator type
+        if "values" in iterator_data:
+            # List iterator
+            return self._set_position(
+                ForStmt(
+                    iterator_name=iterator_name,
+                    start=None,
+                    stop=None,
+                    step=None,
+                    values=iterator_data["values"],
+                    body=statements,
+                ),
+                position_token,
+            )
+        else:
+            # Range iterator
+            return self._set_position(
+                ForStmt(
+                    iterator_name=iterator_name,
+                    start=iterator_data["start"],
+                    stop=iterator_data["stop"],
+                    step=iterator_data.get("step", 1),
+                    values=None,
+                    body=statements,
+                ),
+                position_token,
+            )
+
+    def for_iterator(self, items):
+        """for_iterator: range_iterator | list_iterator"""
+        if len(items) == 1:
+            return items[0]
+        return items[0]
+
+    def range_iterator(self, items) -> dict:
+        """range_iterator: NUMBER RANGE_OP NUMBER [STEP_KW NUMBER]"""
+        # Extract numbers - filter out operators and keywords
+        numbers = []
+        has_step = False
+        step_value = 1
+        
+        i = 0
+        while i < len(items):
+            item = items[i]
+            if isinstance(item, Token):
+                if item.type == "NUMBER":
+                    numbers.append(self._parse_number(item.value))
+                elif item.type == "STEP_KW":
+                    has_step = True
+                    # Next token should be the step value
+                    if i + 1 < len(items):
+                        next_item = items[i + 1]
+                        if isinstance(next_item, Token) and next_item.type == "NUMBER":
+                            step_value = self._parse_number(next_item.value)
+                            i += 1
+            i += 1
+
+        if len(numbers) < 2:
+            raise ValueError(f"Range iterator requires start and stop: {items}")
+
+        return {"start": numbers[0], "stop": numbers[1], "step": step_value}
+
+    def list_iterator(self, items) -> dict:
+        """list_iterator: "[" [NUMBER ("," NUMBER)*] "]" """
+        values = []
+        for item in items:
+            if isinstance(item, Token) and item.type == "NUMBER":
+                values.append(self._parse_number(item.value))
+        return {"values": values}
 
     def param_type(self, items) -> str:
         """param_type: INT_KW | SIGNAL_KW | ENTITY_KW"""

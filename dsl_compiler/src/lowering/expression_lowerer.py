@@ -1315,10 +1315,35 @@ class ExpressionLowerer:
         # Try to extract a constant value (handles variables and const expressions)
         const_value = self._try_extract_const_value(value_ref)
         if const_value is not None:
+            # Mark the IR operations as not needing materialization
+            # since we extracted the value as a compile-time constant
+            self._suppress_value_ref_materialization(value_ref)
             return const_value
 
         # Dynamic expression - return as-is for layout optimization
         return value_ref
+
+    def _suppress_value_ref_materialization(self, value_ref: ValueRef) -> None:
+        """Mark IR operations backing a value ref as not needing materialization.
+        
+        Called when we've extracted a compile-time constant from an expression
+        and no longer need the IR operations to produce a signal.
+        """
+        if not isinstance(value_ref, SignalRef):
+            return
+            
+        op = self.ir_builder.get_operation(value_ref.source_id)
+        if op is None:
+            return
+            
+        # Mark this operation as suppressed
+        if hasattr(op, 'debug_metadata'):
+            op.debug_metadata["suppress_materialization"] = True
+        
+        # Recursively suppress operands for arithmetic operations
+        if isinstance(op, IR_Arith):
+            self._suppress_value_ref_materialization(op.left)
+            self._suppress_value_ref_materialization(op.right)
 
     def _lower_place_core(self, expr: CallExpr) -> tuple[str, SignalRef]:
         """Lower place() builtin into IR operations."""
