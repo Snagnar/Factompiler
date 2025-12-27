@@ -520,8 +520,8 @@ Entity lamp_2 = place("small-lamp", 2, 0);
 
 ```fcdsl
 Memory counter: "signal-A";
-write((read(counter) + 1) % 8, counter);
-Signal pos = read(counter);
+counter.write((counter.read() + 1) % 8);
+Signal pos = counter.read();
 
 # Create 8 lamps in a row - one lights up at a time (chaser effect)
 for i in 0..8 {
@@ -534,12 +534,12 @@ for i in 0..8 {
 
 ```fcdsl
 Memory bits: "signal-A";
-write((read(bits) + 1) % 16, bits);
+bits.write((bits.read() + 1) % 16);
 
 # 4-bit binary display
 for bit in 0..4 {
     Entity lamp = place("small-lamp", bit, 0);
-    lamp.enable = ((read(bits) >> bit) AND 1) > 0;
+    lamp.enable = ((bits.read() >> bit) AND 1) > 0;
 }
 ```
 

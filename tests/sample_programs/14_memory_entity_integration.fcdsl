@@ -17,12 +17,12 @@ Signal mode_selector = 100 % 3;  # 0, 1, or 2
 Signal enable_signal = 110 > 0;
 
 # Entity property control based on memory state
-Signal current_state = read(entity_state);
+Signal current_state = entity_state.read();
 controller_lamp.enable = (current_state == 1) || (current_state == 2);
 
 # Read entity property and store in memory
 Signal lamp_is_on = controller_lamp.enable;
-Signal last_status = read(last_lamp_status);
+Signal last_status = last_lamp_status.read();
 Signal status_changed = lamp_is_on != last_status;
 
 # State machine driven by entity status
@@ -34,12 +34,12 @@ Signal next_state =
           (current_state == 1 && status_changed) + 
           (current_state == 2 && !enable_signal))) * current_state;
 
-write(next_state, entity_state, when=1);
-write(lamp_is_on, last_lamp_status, when=1);
+entity_state.write(next_state);
+last_lamp_status.write(lamp_is_on);
 
 # Blinking pattern based on memory
-Signal blink_count = read(blink_counter);
-write((blink_count + 1) % 20, blink_counter, when=1);
+Signal blink_count = blink_counter.read();
+blink_counter.write((blink_count + 1) % 20);
 Signal should_blink = current_state == 2;
 status_lamp.enable = should_blink && ((blink_count % 10) < 5);
 
@@ -51,9 +51,9 @@ Signal total_lamps_on = controller_lamp.enable + status_lamp.enable + indicator_
 Signal any_lamp_on = total_lamps_on > 0;
 
 # Entity placement based on memory values  
-Signal memory_x = read(entity_state) * 3;
-Signal memory_y = read(blink_counter) / 10;
+Signal memory_x = entity_state.read() * 3;
+Signal memory_y = blink_counter.read() / 10;
 Entity dynamic_entity = place("fast-inserter", memory_x, memory_y);
 
 # Property assignment from memory
-dynamic_entity.enable = (read(entity_state) == 2) && (read(blink_counter) > 10);
+dynamic_entity.enable = (entity_state.read() == 2) && (blink_counter.read() > 10);

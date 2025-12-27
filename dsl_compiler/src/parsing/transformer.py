@@ -611,6 +611,30 @@ class DSLTransformer(Transformer):
         qualified_name = f"{module_name}.{method_name}"
         return self._set_position(CallExpr(name=qualified_name, args=args), items[0])
 
+    def memory_read(self, items) -> ReadExpr:
+        """memory_read: NAME "." "read" "(" ")" """
+        memory_name = str(items[0])
+        return self._set_position(ReadExpr(memory_name=memory_name), items[0])
+
+    def memory_write(self, items) -> WriteExpr:
+        """memory_write: NAME "." "write" "(" expr ")" """
+        memory_name = str(items[0])
+        value = self._unwrap_tree(items[1])
+        write_node = WriteExpr(value=value, memory_name=memory_name, when=None)
+        return self._set_position(write_node, items[0])
+
+    def memory_write_when(self, items) -> WriteExpr:
+        """memory_write_when: NAME "." "write" "(" expr "," WHEN_KW "=" expr ")" 
+        
+        Items: [NAME, expr, WHEN_KW, expr]
+        """
+        memory_name = str(items[0])
+        value = self._unwrap_tree(items[1])
+        # items[2] is the WHEN_KW token, items[3] is the condition expression
+        condition = self._unwrap_tree(items[3])
+        write_node = WriteExpr(value=value, memory_name=memory_name, when=condition)
+        return self._set_position(write_node, items[0])
+
     def arglist(self, items) -> List[Expr]:
         """arglist: expr ("," expr)*"""
         return list(items)
@@ -781,72 +805,5 @@ class DSLTransformer(Transformer):
                 )
 
             return item
-
-        if len(items) > 0 and isinstance(items[0], Token):
-            token_type = items[0].type
-            if token_type == "READ_KW":
-                memory_name = str(items[1])
-                return ReadExpr(memory_name=memory_name)
-            if token_type == "WRITE_KW":
-                if len(items) >= 3:
-                    first_arg = self._unwrap_tree(items[1])
-                    second_arg = items[2]
-
-                    value_expr = first_arg if isinstance(first_arg, Expr) else items[1]
-
-                    if isinstance(second_arg, Token) and second_arg.type == "NAME":
-                        memory_name = str(second_arg)
-                    elif isinstance(second_arg, Identifier):
-                        memory_name = second_arg.name
-                    else:
-                        memory_name = str(second_arg)
-
-                    when_expr = None
-                    if len(items) > 3:
-                        for extra in items[3:]:
-                            candidate = self._unwrap_tree(extra)
-
-                            if isinstance(candidate, Expr):
-                                when_expr = candidate
-                                break
-
-                    if not isinstance(value_expr, Expr):
-                        value_expr = self._unwrap_tree(value_expr)
-
-                    write_node = WriteExpr(
-                        value=value_expr,
-                        memory_name=memory_name,
-                        when=when_expr,
-                    )
-                    return self._set_position(write_node, items[0])
-                error_node = WriteExpr(value=NumberLiteral(0), memory_name="__error")
-                return self._set_position(error_node, items[0])
-
-        if len(items) > 0 and isinstance(items[0], str):
-            if items[0] == "read":
-                memory_name = str(items[1])
-                return ReadExpr(memory_name=memory_name)
-            if items[0] == "write":
-                if len(items) >= 3:
-                    first_arg = items[1]
-                    second_arg = items[2]
-
-                    value_expr = self._unwrap_tree(first_arg)
-                    memory_name = str(second_arg)
-                    when_expr = None
-
-                    if len(items) > 3:
-                        for extra in items[3:]:
-                            candidate = self._unwrap_tree(extra)
-
-                            if isinstance(candidate, Expr):
-                                when_expr = candidate
-                                break
-
-                    return WriteExpr(
-                        value=value_expr,
-                        memory_name=memory_name,
-                        when=when_expr,
-                    )
 
         return items[0]

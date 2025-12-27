@@ -307,9 +307,9 @@ Control multiple entities with the same logic:
 
 ```fcdsl
 Memory counter: "signal-A";
-write((read(counter) + 1) % 20, counter);
+counter.write((counter.read() + 1) % 20);
 
-Signal phase = read(counter);
+Signal phase = counter.read();
 
 Entity lamp1 = place("small-lamp", 0, 0);
 Entity lamp2 = place("small-lamp", 2, 0);
@@ -329,8 +329,8 @@ lamp4.enable = phase >= 15;
 
 ```fcdsl
 Memory counter: "signal-A";
-write((read(counter) + 1) % 8, counter);
-Signal pos = read(counter);
+counter.write((counter.read() + 1) % 8);
+Signal pos = counter.read();
 
 # Create 8 lamps in a row using a for loop
 for i in 0..8 {
@@ -346,9 +346,9 @@ This example creates a lamp that smoothly cycles through all colors:
 ```fcdsl
 # HSV color cycling (simplified)
 Memory hue: "signal-H";
-write((read(hue) + 1) % 1530, hue);  # 1530 = 6 * 255
+hue.write((hue.read() + 1) % 1530);  # 1530 = 6 * 255
 
-Signal h = read(hue);
+Signal h = hue.read();
 
 # Calculate sector (0-5) and position within sector
 Signal sector = h / 255;

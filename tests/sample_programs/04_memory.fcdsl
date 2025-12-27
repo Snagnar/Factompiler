@@ -4,20 +4,20 @@
 # 1. Standard SR Latch (no arithmetic optimization possible)
 # Simple set/reset memory - can't be optimized to arithmetic feedback
 Memory sr_latch: "signal-A";
-write(("signal-A", 1), sr_latch, when=1);  # Always writes 1, needs SR latch
+sr_latch.write(("signal-A", 1));  # Always writes 1, needs SR latch
 
 # Lamp 1: Blinks when sr_latch is set
 Entity lamp_sr = place("small-lamp", 0, 0);
-lamp_sr.enable = read(sr_latch) > 0;
+lamp_sr.enable = sr_latch.read() > 0;
 
 
 # 2. Single-Operation Arithmetic Feedback
 # Simple incrementing counter - optimized to 1 combinator with self-feedback
 Memory counter_simple: "signal-B";
-write(read(counter_simple) + 1, counter_simple, when=1);
+counter_simple.write(counter_simple.read() + 1);
 
 # Lamp 2: Blinks every 10 ticks (when counter_simple % 10 == 0)
-Signal blink_simple = read(counter_simple) % 10 == 0;
+Signal blink_simple = counter_simple.read() % 10 == 0;
 Entity lamp_simple = place("small-lamp", 2, 0);
 lamp_simple.enable = blink_simple;
 
@@ -25,17 +25,17 @@ lamp_simple.enable = blink_simple;
 # 3. Multi-Operation Arithmetic Feedback (modulo)
 # Counter with wraparound - optimized to 2 combinators with feedback loop
 Memory counter_mod10: "signal-C";
-write((read(counter_mod10) + 1) % 10, counter_mod10, when=1);
+counter_mod10.write((counter_mod10.read() + 1) % 10);
 
 # Lamp 3: On when counter is 0 (once every 10 ticks)
 Entity lamp_mod = place("small-lamp", 4, 0);
-lamp_mod.enable = read(counter_mod10) == 0;
+lamp_mod.enable = counter_mod10.read() == 0;
 
 
 # 4. Long Chain Arithmetic Feedback (10 operations)
 # Complex pattern generator with many operations
 Memory pattern_gen: "signal-D";
-Signal step1 = read(pattern_gen) + 1;
+Signal step1 = pattern_gen.read() + 1;
 Signal step2 = step1 * 3;
 Signal step3 = step2 % 17;
 Signal step4 = step3 + 5;
@@ -46,22 +46,22 @@ Signal step8 = step7 * 4;
 Signal step9 = step8 % 53;
 Signal step10 = step9 + 11;
 Signal final_pattern = step10 % 100;
-write(final_pattern, pattern_gen, when=1);
+pattern_gen.write(final_pattern);
 
 # Lamp 4: Complex blinking pattern (on when pattern divisible by 7)
 Entity lamp_pattern = place("small-lamp", 6, 0);
-lamp_pattern.enable = read(pattern_gen) % 7 == 0;
+lamp_pattern.enable = pattern_gen.read() % 7 == 0;
 
 
 # 5. Multiple Operations with Different Outputs
 # Counter used in multiple ways
 Memory counter_multi: "signal-E";
-write((read(counter_multi) + 1) % 20, counter_multi, when=1);
+counter_multi.write((counter_multi.read() + 1) % 20);
 
 # Multiple lamps showing different aspects of the same counter
-Signal is_even = read(counter_multi) % 2 == 0;
-Signal is_div5 = read(counter_multi) % 5 == 0;
-Signal is_high = read(counter_multi) > 10;
+Signal is_even = counter_multi.read() % 2 == 0;
+Signal is_div5 = counter_multi.read() % 5 == 0;
+Signal is_high = counter_multi.read() > 10;
 
 Entity lamp_even = place("small-lamp", 8, 0);
 lamp_even.enable = is_even;
@@ -76,9 +76,9 @@ lamp_high.enable = is_high;
 # 6. Conditional Write
 # Counter that only increments when below threshold
 Memory conditional_counter: "signal-F";
-Signal can_increment = read(conditional_counter) < 15;
-write(read(conditional_counter) + 1, conditional_counter, when=can_increment);
+Signal can_increment = conditional_counter.read() < 15;
+conditional_counter.write(conditional_counter.read() + 1, when=can_increment);
 
 # Lamp 6: On when counter reaches max
 Entity lamp_maxed = place("small-lamp", 14, 0);
-lamp_maxed.enable = read(conditional_counter) >= 15;
+lamp_maxed.enable = conditional_counter.read() >= 15;

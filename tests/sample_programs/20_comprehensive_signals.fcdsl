@@ -171,22 +171,22 @@ Memory copper_consumed: "signal-0";
 
 
 Signal iron_increment = iron_plate > 0 && 1 || 0;
-write(read(iron_consumed) + iron_increment, iron_consumed, when=1);
+iron_consumed.write(iron_consumed.read() + iron_increment);
 Signal copper_increment = copper_plate > 0 && 1 || 0;
-write(read(copper_consumed) + copper_increment, copper_consumed, when=1);
+copper_consumed.write(copper_consumed.read() + copper_increment);
 
 # Fluid tracking
 Memory water_used: "signal-0";
 
 Signal water_amount = water > 0 && water || 0;
-write(read(water_used) + water_amount, water_used, when=1);
+water_used.write(water_used.read() + water_amount);
 
 # Virtual signal state
 Memory system_mode: "signal-0";
 
 Signal mode_change = (signal_A > 1000) | "signal-0";
-Signal new_mode = mode_change && 2 || read(system_mode);
-write(new_mode, system_mode, when=1);
+Signal new_mode = mode_change && 2 || system_mode.read();
+system_mode.write(new_mode);
 
 # =============================================================================
 # OUTPUT AGGREGATE WITH ALL SIGNAL TYPES

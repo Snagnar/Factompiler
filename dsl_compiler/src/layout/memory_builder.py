@@ -22,7 +22,7 @@ from .tile_grid import TileGrid
 class MemoryModule:
     """Represents a memory cell's physical implementation.
 
-    Standard memories use SR latch (2 deciders).
+    Standard memories use a write-gated latch (2 deciders).
     Optimized memories use fewer components.
     """
 
@@ -41,13 +41,17 @@ class MemoryModule:
     _has_write: bool = False
 
     _feedback_signal_ids: List[str] = field(default_factory=list)
+    
+    # Track unique write enable signals for multi-write memories
+    _write_enable_signals: List[str] = field(default_factory=list)
+    _data_gate_count: int = 0
 
 
 class MemoryBuilder:
     """Builds memory modules from IR operations.
 
     Responsibilities:
-    - Create SR latch gate placements
+    - Create write-gated latch placements
     - Detect optimization opportunities
     - Handle memory reads/writes
     - Clean up unused optimized gates
@@ -76,7 +80,7 @@ class MemoryBuilder:
     def create_memory(
         self, op: IR_MemCreate, signal_graph: SignalGraph
     ) -> MemoryModule:
-        """Create SR latch gates for a memory cell.
+        """Create write-gated latch for a memory cell.
 
         Returns MemoryModule with write_gate and hold_gate placements.
         """
@@ -399,12 +403,18 @@ class MemoryBuilder:
     def _setup_standard_write(
         self, op: IR_MemWrite, module: MemoryModule, signal_graph: SignalGraph
     ):
-        """Set up standard SR latch write.
+        """Set up standard write-gated latch.
 
-        CRITICAL: Both gates must receive ALL input signals for proper SR latch behavior:
-        - Data signal must go to both gates (so hold gate has data to hold)
-        - Write enable (signal-W) must go to both gates (so each gate knows when to activate)
-        - Feedback loop connects both gates' outputs to both gates' inputs
+        The write-gated latch works as follows:
+        - write_gate: if signal-W > 0, copy input to output (pass through data)
+        - hold_gate: if signal-W = 0, copy input to output (maintain via self-feedback)
+        
+        For conditional writes with multiple data sources, we need data gates:
+        - Each data gate receives: data signal + write enable
+        - Data gate: if signal-W > 0, copy data signal to output
+        - All data gates connect to write_gate input
+        
+        This prevents data values from accumulating when multiple writes exist.
         """
         if not module.write_gate or not module.hold_gate:
             self.diagnostics.warning(
@@ -412,69 +422,190 @@ class MemoryBuilder:
             )
             return
 
+        signal_name = self.signal_analyzer.get_signal_name(module.signal_type)
+        
         # ===================================================================
-        # STEP 1: Connect data signal to WRITE GATE ONLY
+        # STEP 1: Connect data signal to WRITE GATE
+        # If this memory has multiple writes, we need a data gate to prevent
+        # data values from accumulating. The data gate passes the data signal
+        # only when its specific write condition is true.
         # ===================================================================
         if isinstance(op.data_signal, SignalRef):
-            signal_graph.add_sink(
-                op.data_signal.source_id, module.write_gate.ir_node_id
+            # Check if there are multiple writes to this memory
+            write_count = sum(
+                1 for ir_op in self._ir_nodes.values()
+                if isinstance(ir_op, IR_MemWrite) and ir_op.memory_id == op.memory_id
             )
-            self.diagnostics.info(
-                f"Connected data signal {op.data_signal.source_id} → write_gate {module.write_gate.ir_node_id}"
-            )
+            
+            if write_count > 1 and isinstance(op.write_enable, SignalRef):
+                # Multiple writes: create a data gate that passes the data signal
+                # only when this specific write condition is true.
+                #
+                # Each write has a UNIQUE write enable signal (signal-W, signal-X, etc.)
+                # assigned at lowering time. The data gate checks its specific signal.
+                gate_index = getattr(module, '_data_gate_count', 0)
+                module._data_gate_count = gate_index + 1
+                data_gate_id = f"{op.memory_id}_data_gate_{gate_index}"
+                
+                # Get the SPECIFIC write enable signal for this write
+                # (assigned at lowering time: signal-W, signal-X, signal-Y, etc.)
+                write_enable_signal = op.write_enable.signal_type
+                
+                # Create a decider that copies the data signal when THIS write_enable > 0
+                self.layout_plan.create_and_add_placement(
+                    ir_node_id=data_gate_id,
+                    entity_type="decider-combinator",
+                    position=None,
+                    footprint=(1, 2),
+                    role="memory_data_gate",
+                    debug_info={
+                        "variable": f"mem:{op.memory_id}",
+                        "operation": "memory",
+                        "details": f"data_gate for write #{gate_index} (checks {write_enable_signal})",
+                        "signal_type": signal_name,
+                        "role": "memory_data_gate",
+                    },
+                    operation=">",
+                    left_operand=write_enable_signal,  # Check THIS write's unique signal
+                    right_operand=0,
+                    output_signal=signal_name,
+                    copy_count_from_input=True,  # Copy the actual input value
+                )
+                
+                # Connect data signal to data gate input
+                signal_graph.add_sink(op.data_signal.source_id, data_gate_id)
+                
+                # Connect write_enable to data gate input (no special wire color needed)
+                signal_graph.add_sink(op.write_enable.source_id, data_gate_id)
+                
+                # Connect data gate output to write_gate input
+                signal_graph.set_source(data_gate_id, data_gate_id)
+                signal_graph.add_sink(data_gate_id, module.write_gate.ir_node_id)
+                
+                self.diagnostics.info(
+                    f"Created data gate {data_gate_id} for memory '{op.memory_id}' "
+                    f"({op.data_signal.source_id} gated by {op.write_enable.source_id} [{write_enable_signal}])"
+                )
+            else:
+                # Single write or always-write: connect data directly
+                signal_graph.add_sink(
+                    op.data_signal.source_id, module.write_gate.ir_node_id
+                )
+                self.diagnostics.info(
+                    f"Connected data signal {op.data_signal.source_id} → write_gate {module.write_gate.ir_node_id}"
+                )
 
         # ===================================================================
-        # STEP 2: Connect write enable (signal-W) to BOTH gates
+        # STEP 2: Connect write enable to gates
+        # For multi-write memories with unique write enable signals (W, X, Y, etc.),
+        # we track them for aggregation and connect to an aggregator.
         # ===================================================================
         if isinstance(op.write_enable, SignalRef):
-            signal_graph.add_sink(
-                op.write_enable.source_id, module.write_gate.ir_node_id
+            write_enable_signal = op.write_enable.signal_type
+            
+            # Check if there are multiple writes to this memory
+            write_count = sum(
+                1 for ir_op in self._ir_nodes.values()
+                if isinstance(ir_op, IR_MemWrite) and ir_op.memory_id == op.memory_id
             )
-            self.diagnostics.info(
-                f"Connected write_enable {op.write_enable.source_id} → write_gate {module.write_gate.ir_node_id}"
-            )
-            # Connect to hold gate (KEY FIX #2)
-            signal_graph.add_sink(
-                op.write_enable.source_id, module.hold_gate.ir_node_id
-            )
-            self.diagnostics.info(
-                f"Connected write_enable {op.write_enable.source_id} → hold_gate {module.hold_gate.ir_node_id}"
-            )
+            
+            if write_count > 1:
+                # Multi-write: track the write enable signal and source for aggregation
+                if write_enable_signal not in module._write_enable_signals:
+                    module._write_enable_signals.append(write_enable_signal)
+                
+                # Create a signal converter: X + 0 → W
+                # This converts the unique signal to signal-W for the aggregated check
+                converter_id = f"{op.memory_id}_we_conv_{len(module._write_enable_signals) - 1}"
+                self.layout_plan.create_and_add_placement(
+                    ir_node_id=converter_id,
+                    entity_type="arithmetic-combinator",
+                    position=None,
+                    footprint=(1, 2),
+                    role="memory_we_converter",
+                    debug_info={
+                        "variable": f"mem:{op.memory_id}",
+                        "operation": "memory",
+                        "details": f"write_enable converter: {write_enable_signal} → signal-W",
+                        "role": "memory_we_converter",
+                    },
+                    operation="+",
+                    left_operand=write_enable_signal,
+                    right_operand=0,
+                    output_signal="signal-W",
+                )
+                
+                # Connect write enable source to converter input
+                signal_graph.add_sink(op.write_enable.source_id, converter_id)
+                
+                # Connect converter output to both gates
+                signal_graph.set_source(converter_id, converter_id)
+                signal_graph.add_sink(converter_id, module.write_gate.ir_node_id)
+                signal_graph.add_sink(converter_id, module.hold_gate.ir_node_id)
+                
+                self.diagnostics.info(
+                    f"Created write_enable converter {converter_id}: "
+                    f"{write_enable_signal} → signal-W for multi-write memory '{op.memory_id}'"
+                )
+            else:
+                # Single write: connect directly
+                signal_graph.add_sink(
+                    op.write_enable.source_id, module.write_gate.ir_node_id
+                )
+                signal_graph.add_sink(
+                    op.write_enable.source_id, module.hold_gate.ir_node_id
+                )
+                self.diagnostics.info(
+                    f"Connected write_enable {op.write_enable.source_id} → gates"
+                )
 
         # ===================================================================
-        # STEP 3: Set up unidirectional forward feedback + self-loop
+        # STEP 3: Set up latch feedback topology
         # ===================================================================
-        # Write gate output → hold gate input (forward feedback, RED wire)
-        # Hold gate output → hold gate input (self-loop, RED wire)
-        # This topology prevents write_gate from seeing feedback (no accumulation)
+        # Topology:
+        # - write_gate output ↔ hold_gate output (same RED wire network)
+        # - hold_gate output → hold_gate input (self-loop on RED)
+        # - This prevents write_gate from seeing feedback (no accumulation on input)
+        # - But allows hold_gate to capture write_gate's output for holding
 
         # Create unique internal signal identifier to avoid signal_graph collisions
         # This ensures the gates are placed close together during layout optimization
         feedback_write_to_hold = f"__feedback_{op.memory_id}_w2h"
 
         # Add feedback edge to signal_graph for LAYOUT purposes only
-        # Only forward feedback: write gate → hold gate
-        # (No reverse edge since we use unidirectional topology)
+        # This helps the layout planner keep gates close together
         signal_graph.set_source(feedback_write_to_hold, module.write_gate.ir_node_id)
         signal_graph.add_sink(feedback_write_to_hold, module.hold_gate.ir_node_id)
 
         # Create DIRECT wire connections with the ACTUAL signal name
-        # Use RED wire for data/feedback channel (signal-B)
-        # This creates a unidirectional forward feedback + self-loop topology
+        # Use RED wire for data/feedback channel
+        #
+        # CRITICAL TOPOLOGY: For proper latching behavior, we need:
+        # 1. write_gate output → hold_gate OUTPUT (shared output network)
+        # 2. hold_gate output → hold_gate input (self-feedback)
+        #
+        # This ensures that when write_gate is active:
+        # - write_gate output appears on the shared output network
+        # - hold_gate's self-feedback loop sees this value
+        # - When write_gate deactivates, hold_gate continues outputting via self-feedback
+        #
+        # Previous approach (write_gate → hold_gate INPUT) failed because:
+        # - hold_gate is inactive during writes, so its self-feedback dies
+        # - When hold_gate reactivates, it has no value to hold
 
-        # Forward feedback: write_gate output → hold_gate input (RED)
-        write_to_hold = WireConnection(
+        # Connect write_gate output to hold_gate OUTPUT side (shared output network)
+        write_to_hold_output = WireConnection(
             source_entity_id=module.write_gate.ir_node_id,
             sink_entity_id=module.hold_gate.ir_node_id,
             signal_name=module.signal_type,  # Use ACTUAL signal, not internal ID
             wire_color="red",  # ✅ RED for data/feedback
             source_side="output",
-            sink_side="input",
+            sink_side="output",  # ✅ KEY FIX: Connect to OUTPUT side, not input!
         )
-        self.layout_plan.add_wire_connection(write_to_hold)
+        self.layout_plan.add_wire_connection(write_to_hold_output)
 
         # Self-feedback: hold_gate output → hold_gate input (RED)
-        # This maintains the value when hold_gate is active
+        # Now this sees the combined output of write_gate + hold_gate
         hold_to_hold = WireConnection(
             source_entity_id=module.hold_gate.ir_node_id,
             sink_entity_id=module.hold_gate.ir_node_id,
@@ -490,7 +621,7 @@ class MemoryBuilder:
         module._feedback_signal_ids = [feedback_write_to_hold]
 
         self.diagnostics.info(
-            f"Set up SR latch feedback loop for memory '{op.memory_id}': "
+            f"Set up write-gated latch feedback loop for memory '{op.memory_id}': "
             f"added internal edges to signal_graph for layout, "
             f"created direct RED wire connections for actual signal '{module.signal_type}'"
         )

@@ -33,36 +33,36 @@ Memory state: "signal-S";
 Memory buffer;  # Type unknown until first write
 
 Signal iron = ("iron-plate", 50);
-write(iron, buffer);  # Now buffer uses iron-plate
+buffer.write(iron);  # Now buffer uses iron-plate
 ```
 
 While convenient, implicit types can be confusing. We recommend always specifying the type.
 
 ## Reading and Writing Memory
 
-### Reading: The `read()` Function
+### Reading: The `.read()` Method
 
 Read the current value stored in memory:
 
 ```fcdsl
 Memory counter: "signal-A";
 
-Signal current_value = read(counter);
+Signal current_value = counter.read();
 ```
 
-`read()` returns a signal with the memory's type and its stored value.
+`.read()` returns a signal with the memory's type and its stored value.
 
-### Writing: The `write()` Function
+### Writing: The `.write()` Method
 
 Store a new value in memory:
 
 ```fcdsl
-write(value, memory_name, when=condition);
+memory.write(value);                  # Unconditional
+memory.write(value, when=condition);  # Conditional
 ```
 
 Parameters:
 - **value** – The value to store (must match memory's signal type)
-- **memory_name** – Which memory cell to write to
 - **when** (optional) – Condition for when to write (default: always)
 
 ### Unconditional Writes
@@ -71,7 +71,7 @@ Write every tick:
 
 ```fcdsl
 Memory counter: "signal-A";
-write(read(counter) + 1, counter);  # Increment every tick
+counter.write(counter.read() + 1);  # Increment every tick
 ```
 
 When `when` is omitted, the write happens every single tick.
@@ -84,7 +84,7 @@ Write only when a condition is met:
 Memory buffer: "signal-A";
 Signal trigger = ("signal-T", 0);  # Wire this from your factory
 
-write(new_value, buffer, when=trigger > 0);
+buffer.write(new_value, when=trigger > 0);
 ```
 
 The value is written only when `trigger > 0`. Otherwise, the previous value is held.
@@ -97,7 +97,7 @@ The classic increment-every-tick counter:
 
 ```fcdsl
 Memory counter: "signal-A";
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 ```
 
 > **[IMAGE PLACEHOLDER]**: Screenshot of a simple counter circuit in Factorio, showing an arithmetic combinator with feedback.
@@ -116,7 +116,7 @@ Count up to a limit, then reset:
 Memory counter: "signal-A";
 int max_value = 60;  # Reset after reaching 60
 
-write((read(counter) + 1) % max_value, counter);
+counter.write((counter.read() + 1) % max_value);
 # Counts 0, 1, 2, ..., 59, 0, 1, 2, ...
 ```
 
@@ -134,10 +134,10 @@ Memory captured: "signal-A";
 Signal input = ("signal-input", 0);     # External signal
 Signal trigger = ("signal-trigger", 0); # Capture when > 0
 
-write(input, captured, when=trigger > 0);
+captured.write(input, when=trigger > 0);
 
 # Output the captured value
-Signal output = read(captured);
+Signal output = captured.read();
 ```
 
 When `trigger` is 0, the memory holds its previous value. When `trigger` becomes positive, it captures the current `input` value.
@@ -153,10 +153,10 @@ Memory toggle: "signal-A";
 Signal button = ("signal-button", 0);  # Pulse input
 
 # Toggle on button press
-Signal new_state = 1 - read(toggle);  # 0→1 or 1→0
-write(new_state, toggle, when=button > 0);
+Signal new_state = 1 - toggle.read();  # 0→1 or 1→0
+toggle.write(new_state, when=button > 0);
 
-Signal output = read(toggle);
+Signal output = toggle.read();
 ```
 
 Press once to turn on, press again to turn off.
@@ -171,9 +171,9 @@ Sum values over time:
 Memory total: "signal-A";
 Signal incoming = ("iron-plate", 0);  # Items passing by
 
-write(read(total) + incoming, total);
+total.write(total.read() + incoming);
 
-Signal running_total = read(total);
+Signal running_total = total.read();
 ```
 
 Each tick, the incoming value is added to the total.
@@ -187,7 +187,7 @@ Memory total: "iron-plate";
 Signal incoming = ("iron-plate", 0);
 Signal should_count = ("signal-enable", 0);
 
-write(read(total) + incoming, total, when=should_count > 0);
+total.write(total.read() + incoming, when=should_count > 0);
 ```
 
 ### Maximum Tracker
@@ -198,11 +198,11 @@ Remember the highest value seen:
 Memory maximum: "signal-A";
 Signal input = ("signal-input", 0);
 
-Signal current_max = read(maximum);
+Signal current_max = maximum.read();
 Signal new_max = (input > current_max) * input 
                + (input <= current_max) * current_max;
 
-write(new_max, maximum);
+maximum.write(new_max);
 ```
 
 ### Minimum Tracker (with initialization)
@@ -212,8 +212,8 @@ Memory minimum: "signal-A";
 Memory initialized: "signal-I";
 Signal input = ("signal-input", 0);
 
-Signal current_min = read(minimum);
-Signal is_first = read(initialized) == 0;
+Signal current_min = minimum.read();
+Signal is_first = initialized.read() == 0;
 
 # On first tick, use input as minimum
 # After that, take smaller of current and input
@@ -221,8 +221,8 @@ Signal new_min = is_first * input
                + (!is_first) * ((input < current_min) * input
                               + (input >= current_min) * current_min);
 
-write(new_min, minimum);
-write(1, initialized, when=is_first);
+minimum.write(new_min);
+initialized.write(1, when=is_first);
 ```
 
 ## Multiple Memories
@@ -235,13 +235,13 @@ Memory previous: "signal-B";
 Memory accumulator: "signal-C";
 
 # Counter increments
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 
 # Previous holds the old counter value
-write(read(counter), previous);
+previous.write(counter.read());
 
 # Accumulator sums all counter values
-write(read(accumulator) + read(counter), accumulator);
+accumulator.write(accumulator.read() + counter.read());
 ```
 
 Each memory cell is independent and can hold different signal types.
@@ -258,8 +258,8 @@ Memory buffer: "iron-plate";
 Signal iron = ("iron-plate", 50);
 Signal copper = ("copper-plate", 30);
 
-write(iron, buffer);    # OK - types match
-write(copper, buffer);  # ERROR - type mismatch!
+buffer.write(iron);    # OK - types match
+buffer.write(copper);  # ERROR - type mismatch!
 ```
 
 If you need to store different types, use projection:
@@ -268,7 +268,7 @@ If you need to store different types, use projection:
 Memory buffer: "iron-plate";
 
 Signal copper = ("copper-plate", 30);
-write(copper | "iron-plate", buffer);  # OK - projected to correct type
+buffer.write(copper | "iron-plate");  # OK - projected to correct type
 ```
 
 ### Reserved Signal: signal-W
@@ -285,9 +285,9 @@ This is the only reserved signal – all others are available for your use.
 
 Understanding the implementation helps with debugging and optimization.
 
-### SR Latch Circuit
+### Write-Gated Latch Circuit
 
-For conditional writes, the compiler generates an **SR latch** using two decider combinators:
+For conditional writes, the compiler generates a **write-gated latch** (also called a sample-and-hold latch) using two decider combinators:
 
 ```
                 ┌─────────────────┐
@@ -307,7 +307,7 @@ Data ─────────► │  Write Gate    │ ──┬──► Ou
 - **Hold Gate**: Recirculates its output when write-enable is zero
 - **Wire Colors**: Data flows on red wires, control (signal-W) flows on green wires
 
-> **[IMAGE PLACEHOLDER]**: Screenshot of an SR latch in Factorio showing the two decider combinators and their connections.
+> **[IMAGE PLACEHOLDER]**: Screenshot of the latch circuit in Factorio showing the two decider combinators and their connections.
 
 ### Arithmetic Feedback Optimization
 
@@ -315,7 +315,7 @@ For unconditional writes (no `when` parameter), the compiler can optimize to a s
 
 ```fcdsl
 Memory counter: "signal-A";
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 ```
 
 This becomes a single arithmetic combinator with a feedback wire:
@@ -345,13 +345,13 @@ The combinator's output feeds back to its own input, creating a self-incrementin
 ```fcdsl
 # WRONG - this just stores 1 forever
 Memory counter: "signal-A";
-write(1, counter);
+counter.write(1);
 ```
 
 ```fcdsl
 # CORRECT - increment based on current value
 Memory counter: "signal-A";
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 ```
 
 ### Mistake 2: Type Mismatch
@@ -360,12 +360,12 @@ write(read(counter) + 1, counter);
 Memory buffer: "signal-A";
 Signal value = ("signal-B", 50);  # Different type!
 
-write(value, buffer);  # Warning or error
+buffer.write(value);  # Warning or error
 ```
 
 Fix with projection:
 ```fcdsl
-write(value | "signal-A", buffer);  # OK
+buffer.write(value | "signal-A");  # OK
 ```
 
 ### Mistake 3: Using signal-W
@@ -384,13 +384,13 @@ Memory write_count: "signal-V";  # OK
 ```fcdsl
 # This works but creates many combinators
 Memory value: "signal-A";
-write(some_complex_expression, value, when=(a > b) && (c < d) || (e == f));
+value.write(some_complex_expression, when=(a > b) && (c < d) || (e == f));
 ```
 
 Sometimes it's cleaner to pre-compute the condition:
 ```fcdsl
 Signal should_write = (a > b) && (c < d) || (e == f);
-write(some_complex_expression, value, when=should_write);
+value.write(some_complex_expression, when=should_write);
 ```
 
 ## Practical Example: Binary Clock
@@ -400,9 +400,9 @@ A clock that cycles through binary patterns:
 ```fcdsl
 # Binary counter for 4 lamps (0-15)
 Memory counter: "signal-A";
-write((read(counter) + 1) % 16, counter);
+counter.write((counter.read() + 1) % 16);
 
-Signal bits = read(counter);
+Signal bits = counter.read();
 
 # Extract individual bits
 Signal bit0 = (bits >> 0) AND 1;  # Fastest (toggles every tick)
@@ -438,13 +438,13 @@ Memory sample4: "signal-A";
 Signal input = ("signal-input", 0);  # Wire from your sensor
 
 # Shift samples (oldest falls off)
-write(read(sample3), sample4);
-write(read(sample2), sample3);
-write(read(sample1), sample2);
-write(input, sample1);
+sample4.write(sample3.read());
+sample3.write(sample2.read());
+sample2.write(sample1.read());
+sample1.write(input);
 
 # Calculate average
-Signal sum = read(sample1) + read(sample2) + read(sample3) + read(sample4);
+Signal sum = sample1.read() + sample2.read() + sample3.read() + sample4.read();
 Signal average = sum / 4;
 
 Signal output = average | "signal-output";
@@ -456,8 +456,8 @@ Signal output = average | "signal-output";
 
 - **Memory** stores values that persist across ticks
 - Declare with `Memory name: "type";`
-- Use `read(memory)` to get the current value
-- Use `write(value, memory, when=condition)` to store values
+- Use `memory.read()` to get the current value
+- Use `memory.write(value)` or `memory.write(value, when=condition)` to store values
 - All writes to a memory must use the same signal type
 - The `signal-W` signal is reserved for internal use
 - The compiler optimizes common patterns (counters, feedback loops)

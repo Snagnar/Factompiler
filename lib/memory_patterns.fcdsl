@@ -1,0 +1,251 @@
+# =============================================================================
+# Memory Patterns Standard Library
+# =============================================================================
+# Common memory patterns using the method-based syntax.
+# Import with: import "lib/memory_patterns.fcdsl";
+#
+# Design principles:
+# - Use conditional writes (when=) to avoid combinators when possible
+# - Prefer simple arithmetic over complex conditional logic
+# - Minimize intermediate signals to reduce combinator count
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Rising Edge Detector
+# -----------------------------------------------------------------------------
+# Outputs 1 for one tick when input transitions from 0 to non-zero.
+# Uses: 1 memory (2 deciders for latch) + 1 decider for comparison
+#
+func edge_rising(Signal input) {
+    Memory prev: "signal-P";
+    Signal was_zero = prev.read() == 0;
+    Signal is_nonzero = input > 0;
+    prev.write(is_nonzero);
+    return was_zero * is_nonzero;
+}
+
+
+# -----------------------------------------------------------------------------
+# Falling Edge Detector
+# -----------------------------------------------------------------------------
+# Outputs 1 for one tick when input transitions from non-zero to 0.
+# Uses: 1 memory (2 deciders for latch) + 1 decider for comparison
+#
+func edge_falling(Signal input) {
+    Memory prev: "signal-P";
+    Signal was_nonzero = prev.read() > 0;
+    Signal is_zero = input == 0;
+    prev.write(input > 0);
+    return was_nonzero * is_zero;
+}
+
+
+# -----------------------------------------------------------------------------
+# Toggle (T Flip-Flop)
+# -----------------------------------------------------------------------------
+# Alternates between 0 and 1 each time trigger goes high.
+# Uses conditional write to only toggle on rising edge.
+#
+func toggle(Signal trigger) {
+    Memory state: "signal-T";
+    Memory prev_trigger: "signal-P";
+    
+    # Detect rising edge inline to avoid function call overhead
+    Signal was_zero = prev_trigger.read() == 0;
+    Signal is_nonzero = trigger > 0;
+    Signal edge = was_zero * is_nonzero;
+    prev_trigger.write(is_nonzero);
+    
+    # Toggle state only on rising edge: new = 1 - old
+    state.write(1 - state.read(), when=edge);
+    return state.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# Sample and Hold
+# -----------------------------------------------------------------------------
+# Captures input value when trigger goes high, holds until next trigger.
+# Uses conditional write for minimal combinator count.
+#
+func sample_hold(Signal input, Signal trigger) {
+    Memory held: "signal-S";
+    Memory prev_trigger: "signal-P";
+    
+    # Detect rising edge inline
+    Signal edge = (prev_trigger.read() == 0) * (trigger > 0);
+    prev_trigger.write(trigger > 0);
+    
+    held.write(input, when=edge);
+    return held.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# Hysteresis (Schmitt Trigger)
+# -----------------------------------------------------------------------------
+# Output goes high when input drops below low_threshold.
+# Output goes low when input rises above high_threshold.
+# Between thresholds, output maintains previous state.
+#
+# Example:
+#   Signal backup_on = hysteresis(accumulator_charge, 20, 70);
+#   steam_engine.enable = backup_on;
+#
+func hysteresis(Signal input, int low_threshold, int high_threshold) {
+    Memory state: "signal-H";
+    
+    Signal below_low = input < low_threshold;
+    Signal above_high = input > high_threshold;
+
+    Signal high = ("signal-H", 1);
+    Signal low = ("signal-H", 0);
+    
+    # Set state to 1 when below low threshold
+    state.write(high, when=below_low);
+    # Reset state to 0 when above high threshold
+    state.write(low, when=above_high);
+    # Between thresholds: no write, state holds automatically
+    
+    return state.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# Modulo Counter (Clock)
+# -----------------------------------------------------------------------------
+# Counter that wraps at specified value. Optimized to arithmetic feedback.
+#
+func clock(int period) {
+    Memory tick: "signal-T";
+    tick.write((tick.read() + 1) % period);
+    return tick.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# Pulse Stretcher
+# -----------------------------------------------------------------------------
+# Extends a 1-tick pulse to last for 'duration' ticks.
+# Output is 1 while countdown > 0 or during trigger.
+#
+func pulse_stretch(Signal input, int duration) {
+    Memory countdown: "signal-C";
+    
+    Signal triggered = input > 0;
+    
+    # On trigger: reset countdown to duration
+    countdown.write(duration, when=triggered);
+    # While countdown > 0 and not triggered: decrement
+    Signal counting = (countdown.read() > 0) * (triggered == 0);
+    countdown.write(countdown.read() - 1, when=counting);
+    
+    return (countdown.read() > 0) + triggered;
+}
+
+
+# -----------------------------------------------------------------------------
+# Debounce
+# -----------------------------------------------------------------------------
+# Requires input to be stable for 'ticks' before output changes.
+# Filters out rapid toggles and glitches.
+#
+func debounce(Signal input, int ticks) {
+    Memory output: "signal-O";
+    Memory counter: "signal-C";
+    
+    Signal matches_output = input == output.read();
+    Signal counter_val = counter.read();
+    
+    # When input matches output: count up
+    # When input differs: reset counter
+    Signal next_counter = matches_output * (counter_val + 1);
+    counter.write(next_counter);
+    
+    # Update output when counter reaches threshold
+    Signal reached = counter_val >= ticks;
+    output.write(input, when=reached);
+    
+    return output.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# Rate Limiter
+# -----------------------------------------------------------------------------
+# Tracks input value but limits change to max_change per tick.
+# Useful for smoothing out sudden value changes.
+#
+func rate_limit(Signal input, int max_change) {
+    Memory current: "signal-R";
+    
+    Signal delta = input - current.read();
+    
+    # Clamp delta to [-max_change, max_change]
+    # Use min/max pattern: result = (val > limit) * limit + (val <= limit) * val
+    Signal abs_delta = (delta >= 0) * delta + (delta < 0) * (0 - delta);
+    Signal sign = (delta >= 0) * 1 + (delta < 0) * (0 - 1);
+    Signal clamped_abs = (abs_delta > max_change) * max_change 
+                       + (abs_delta <= max_change) * abs_delta;
+    Signal clamped_delta = sign * clamped_abs;
+    
+    current.write(current.read() + clamped_delta);
+    return current.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# Exponential Moving Average
+# -----------------------------------------------------------------------------
+# Smooths signal using EMA formula: new = old + (input - old) * alpha
+# Alpha is expressed as a fraction: alpha_num / alpha_denom
+# Higher alpha = faster response, lower = smoother
+#
+# Example: ema(sensor_value, 1, 4) for 25% weight on new values
+#
+func ema(Signal input, int alpha_num, int alpha_denom) {
+    Memory avg: "signal-E";
+    
+    Signal delta = input - avg.read();
+    Signal adjustment = (delta * alpha_num) / alpha_denom;
+    
+    avg.write(avg.read() + adjustment);
+    return avg.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# One-Shot (Single Pulse)
+# -----------------------------------------------------------------------------
+# Outputs a single 1-tick pulse when input first goes high.
+# Ignores subsequent high values until input goes low and high again.
+# Equivalent to edge_rising but with a clearer name for this use case.
+#
+func one_shot(Signal input) {
+    Memory armed: "signal-A";
+    
+    Signal is_high = input > 0;
+    Signal was_armed = armed.read() > 0;
+    
+    # Arm when input goes low
+    armed.write(1, when=is_high == 0);
+    # Disarm when we fire
+    Signal fires = was_armed * is_high;
+    armed.write(0, when=fires);
+    
+    return fires;
+}
+
+
+# -----------------------------------------------------------------------------
+# Delay Line (1-tick delay)
+# -----------------------------------------------------------------------------
+# Delays a signal by exactly 1 tick.
+# Useful for synchronization and creating pipeline stages.
+#
+func delay(Signal input) {
+    Memory prev: "signal-D";
+    Signal output = prev.read();
+    prev.write(input);
+    return output;
+}

@@ -17,9 +17,9 @@ func choose(Signal a, Signal b, Signal condition) {
 func memory_toggle() {
     Memory toggle_state: "signal-A";
 
-    Signal current = read(toggle_state);
+    Signal current = toggle_state.read();
     Signal new_state = 1 - current;  # toggle between 0 and 1
-    write(new_state, toggle_state, when=1);
+    toggle_state.write(new_state);
     return new_state * 10;
 }
 

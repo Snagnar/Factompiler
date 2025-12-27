@@ -217,8 +217,8 @@ Functions can declare local memory, but remember: **each call creates a separate
 ```fcdsl
 func counter() {
     Memory count: "signal-A";
-    write(read(count) + 1, count);
-    return read(count);
+    count.write(count.read() + 1);
+    return count.read();
 }
 
 Signal counter1 = counter();  # Independent counter
@@ -234,8 +234,8 @@ Creating multiple independent counters:
 ```fcdsl
 func make_blinker(int period) {
     Memory tick: "signal-T";
-    write((read(tick) + 1) % period, tick);
-    return read(tick) < (period / 2);
+    tick.write((tick.read() + 1) % period);
+    return tick.read() < (period / 2);
 }
 
 # Two blinkers with different periods
@@ -256,7 +256,7 @@ If you want **shared** state across multiple uses, don't put memory in a functio
 # WRONG - each call has separate memory
 func get_shared_counter() {
     Memory shared: "signal-A";
-    return read(shared);
+    return shared.read();
 }
 # counter1 and counter2 read from DIFFERENT memories!
 Signal counter1 = get_shared_counter();
@@ -264,10 +264,10 @@ Signal counter2 = get_shared_counter();
 
 # RIGHT - declare memory once, outside the function
 Memory shared_counter: "signal-A";
-write(read(shared_counter) + 1, shared_counter);
+shared_counter.write(shared_counter.read() + 1);
 
-Signal counter1 = read(shared_counter);  # Same memory
-Signal counter2 = read(shared_counter);  # Same memory
+Signal counter1 = shared_counter.read();  # Same memory
+Signal counter2 = shared_counter.read();  # Same memory
 ```
 
 ## Type Coercion in Parameters
@@ -491,13 +491,13 @@ Common signal processing functions:
 # Deadband filter - ignores small changes
 func deadband(Signal input, int threshold) {
     Memory last_output: "signal-L";
-    Signal diff = input - read(last_output);
+    Signal diff = input - last_output.read();
     Signal abs_diff = (diff < 0) * (0 - diff) + (diff >= 0) * diff;
     
     # Only update if change exceeds threshold
     Signal should_update = abs_diff > threshold;
-    Signal new_output = should_update * input + (!should_update) * read(last_output);
-    write(new_output, last_output);
+    Signal new_output = should_update * input + (!should_update) * last_output.read();
+    last_output.write(new_output);
     
     return new_output;
 }
@@ -505,7 +505,7 @@ func deadband(Signal input, int threshold) {
 # Rate limiter - limits how fast a value can change
 func rate_limit(Signal input, int max_change) {
     Memory last: "signal-L";
-    Signal current = read(last);
+    Signal current = last.read();
     Signal diff = input - current;
     
     # Clamp the change
@@ -515,7 +515,7 @@ func rate_limit(Signal input, int max_change) {
     Signal clamped_diff = clamped_up + clamped_down + clamped_same;
     
     Signal new_value = current + clamped_diff;
-    write(new_value, last);
+    last.write(new_value);
     
     return new_value;
 }
@@ -523,7 +523,7 @@ func rate_limit(Signal input, int max_change) {
 # Hysteresis - different thresholds for on/off
 func hysteresis(Signal input, int low_threshold, int high_threshold) {
     Memory state: "signal-S";
-    Signal current_state = read(state);
+    Signal current_state = state.read();
     
     # Turn on when above high, off when below low
     Signal turn_on = (current_state == 0) && (input >= high_threshold);
@@ -531,7 +531,7 @@ func hysteresis(Signal input, int low_threshold, int high_threshold) {
     Signal stay_same = (!turn_on) && (!turn_off);
     
     Signal new_state = turn_on * 1 + stay_same * current_state;
-    write(new_state, state);
+    state.write(new_state);
     
     return new_state;
 }

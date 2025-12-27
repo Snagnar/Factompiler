@@ -3,7 +3,7 @@
 
 Memory counter;
 
-write((read(counter) + 1) % 256, counter);
+counter.write((counter.read() + 1) % 256);
 
 lamp0 = place("small-lamp", 0, 0);
 lamp1 = place("small-lamp", 1, 0);
@@ -14,11 +14,11 @@ lamp5 = place("small-lamp", 5, 0);
 lamp6 = place("small-lamp", 6, 0);
 lamp7 = place("small-lamp", 7, 0);
 
-lamp0.enable = (read(counter) % 2) >= 1;
-lamp1.enable = (read(counter) % 4) >= 2;
-lamp2.enable = (read(counter) % 8) >= 4;
-lamp3.enable = (read(counter) % 16) >= 8;
-lamp4.enable = (read(counter) % 32) >= 16;
-lamp5.enable = (read(counter) % 64) >= 32;
-lamp6.enable = (read(counter) % 128) >= 64;
-lamp7.enable = (read(counter) % 256) >= 128;
+lamp0.enable = (counter.read() % 2) >= 1;
+lamp1.enable = (counter.read() % 4) >= 2;
+lamp2.enable = (counter.read() % 8) >= 4;
+lamp3.enable = (counter.read() % 16) >= 8;
+lamp4.enable = (counter.read() % 32) >= 16;
+lamp5.enable = (counter.read() % 64) >= 32;
+lamp6.enable = (counter.read() % 128) >= 64;
+lamp7.enable = (counter.read() % 256) >= 128;

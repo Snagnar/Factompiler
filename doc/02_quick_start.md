@@ -59,10 +59,10 @@ Create a new file called `blink.fcdsl`:
 Memory counter: "signal-A";
 
 # Increment the counter each tick, wrapping at 20
-write((read(counter) + 1) % 20, counter);
+counter.write((counter.read() + 1) % 20);
 
 # Lamp is ON when counter is less than 10 (first half of cycle)
-Signal blink = read(counter) < 10;
+Signal blink = counter.read() < 10;
 
 # Place a lamp and control it with our blink signal
 Entity lamp = place("small-lamp", 0, 0);
@@ -100,7 +100,7 @@ Memory counter: "signal-A";
 This creates a **memory cell** – a circuit that remembers a value between ticks. It stores a signal of type `signal-A`.
 
 ```fcdsl
-write((read(counter) + 1) % 20, counter);
+counter.write((counter.read() + 1) % 20);
 ```
 Every tick, this:
 1. Reads the current value from `counter`
@@ -109,7 +109,7 @@ Every tick, this:
 4. Writes the result back to `counter`
 
 ```fcdsl
-Signal blink = read(counter) < 10;
+Signal blink = counter.read() < 10;
 ```
 Creates a signal that is `1` (true) when the counter is 0-9, and `0` (false) when it's 10-19.
 
@@ -309,8 +309,8 @@ A: Use memory with a conditional write:
 
 ```fcdsl
 Memory buffer: "signal-A";
-write(input_signal, buffer, when=trigger > 0);
-Signal output = read(buffer);
+buffer.write(input_signal, when=trigger > 0);
+Signal output = buffer.read();
 ```
 
 **Q: Can I create multiple blueprints from one file?**

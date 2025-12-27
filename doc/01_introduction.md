@@ -9,9 +9,9 @@ Factompiler is a **domain-specific language (DSL)** designed to make building co
 **Write this:**
 ```fcdsl
 Memory counter: "signal-A";
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 
-Signal blink = (read(counter) % 10) < 5;
+Signal blink = (counter.read() % 10) < 5;
 
 Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = blink;
@@ -83,7 +83,7 @@ Need to store state across ticks? Declare memory:
 
 ```fcdsl
 Memory counter: "signal-A";
-write(read(counter) + 1, counter);  # Increment every tick
+counter.write(counter.read() + 1);  # Increment every tick
 ```
 
 ### Entities

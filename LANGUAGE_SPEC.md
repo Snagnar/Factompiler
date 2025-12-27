@@ -54,9 +54,9 @@ Each stage validates and optimizes the program before generating the final Facto
 ```fcdsl
 # Create a blinking lamp controlled by a counter
 Memory counter: "signal-A";
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 
-Signal blink = (read(counter) % 10) < 5;
+Signal blink = (counter.read() % 10) < 5;
 
 Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = blink;
@@ -234,7 +234,7 @@ Signal threshold = ("iron-plate", 100 / 2 + 50);  # Compiles to ("iron-plate", 1
 
 ### Memory (`Memory`)
 
-Stateful storage cells that persist values across game ticks using SR latch circuits.
+Stateful storage cells that persist values across game ticks using write-gated latch circuits.
 
 ```fcdsl
 Memory counter: "signal-A";             # Explicit type
@@ -243,13 +243,13 @@ Memory state;                           # Implicit type (inferred from first wri
 
 #### Type Inference
 
-If you don't specify a type, the compiler infers it from the first `write()`:
+If you don't specify a type, the compiler infers it from the first `.write()`:
 
 ```fcdsl
 Memory accumulator;  # Type unknown
 
 Signal iron = ("iron-plate", 50);
-write(iron, accumulator);  # Now accumulator stores iron-plate signals
+accumulator.write(iron);  # Now accumulator stores iron-plate signals
 ```
 
 **Warning:** All writes to a memory cell must use the same signal type. Mixed types will generate warnings (or errors in `--strict` mode).
@@ -427,7 +427,7 @@ This syntactic sugar is particularly useful when you need to add a type annotati
 func process(Signal value) {
     Signal typed_value = value | "signal-S";  # Annotate with signal-S
     Memory storage: "signal-S";
-    write(typed_value, storage);
+    storage.write(typed_value);
 }
 ```
 
@@ -642,7 +642,7 @@ lamp.enable = count > 0; # Property assignment
 Any expression can be a statement for side effects:
 
 ```fcdsl
-write(value, memory);  # Memory write side effect
+memory.write(value);   # Memory write side effect
 place("lamp", 5, 0);   # Entity placement side effect
 ```
 
@@ -765,7 +765,7 @@ Entity lamp_2 = place("small-lamp", 2, 0);
 
 ## Memory System
 
-Memory in the DSL models **persistent state** using SR latch circuits or optimized arithmetic feedback loops. The compiler automatically chooses the most efficient implementation based on usage patterns.
+Memory in the DSL models **persistent state** using write-gated latch circuits or optimized arithmetic feedback loops. The compiler automatically chooses the most efficient implementation based on usage patterns.
 
 ### Memory Declaration
 
@@ -779,31 +779,31 @@ Memory state;                            # Implicit type (inferred from first wr
 #### Reading Memory
 
 ```fcdsl
-Signal current = read(counter);
+Signal current = counter.read();
 ```
 
-This connects to the memory's output (the hold gate in the SR latch).
+Returns the current stored value as a Signal with the memory's declared type.
 
 #### Writing Memory
 
 ```fcdsl
-write(value_expr, memory_name, when=enable_signal);
+memory.write(value_expr);                  # Unconditional
+memory.write(value_expr, when=condition);  # Conditional
 ```
 
 **Parameters:**
 - `value_expr`: Expression to store (must match memory's signal type)
-- `memory_name`: Target memory cell
-- `when` (optional): Signal controlling the write (default: `1` = always write)
+- `when` (optional): Condition controlling the write (default: always write)
 
 **Examples:**
 
 ```fcdsl
 # Unconditional write (every tick)
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 
 # Conditional write
 Signal should_update = input > threshold;
-write(new_value, buffer, when=should_update);
+buffer.write(new_value, when=should_update);
 ```
 
 #### Write Enable Semantics
@@ -817,9 +817,9 @@ If omitted, `when=1` (always write) is used as the default.
 
 ### Memory Implementation Details
 
-#### SR Latch Architecture (Standard)
+#### Write-Gated Latch Architecture (Standard)
 
-For conditional writes, the compiler generates an SR latch with the following architecture:
+For conditional writes, the compiler generates a **write-gated latch** (also known as a sample-and-hold latch) using two decider combinators:
 
 **Combinator Configuration:**
 ```
@@ -835,7 +835,7 @@ This wire color separation is **critical** for correctness. If control and data 
 
 **Feedback Topology:**
 
-The SR latch uses a **unidirectional forward feedback + self-loop** topology:
+The write-gated latch uses a **unidirectional forward feedback + self-loop** topology:
 
 1. **Data Input** → Write Gate (RED wire)
 2. **Write Gate Output** → Hold Gate Input (RED wire, forward feedback)
@@ -854,10 +854,10 @@ For **unconditional writes** that read the same memory:
 
 ```fcdsl
 Memory counter: "signal-A";
-write(read(counter) + 1, counter);  # Always-on counter
+counter.write(counter.read() + 1);  # Always-on counter
 ```
 
-The compiler optimizes this to **arithmetic combinators with feedback loops** instead of the two-decider SR latch. This saves space and reduces tick delay.
+The compiler optimizes this to **arithmetic combinators with feedback loops** instead of the two-decider latch. This saves space and reduces tick delay.
 
 **When This Applies:**
 - `when=1` or omitted (unconditional write)
@@ -869,18 +869,18 @@ The compiler optimizes this to **arithmetic combinators with feedback loops** in
 **Single-Operation Pattern:**
 ```fcdsl
 Memory counter: "signal-A";
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 ```
 Result: One arithmetic combinator with red self-feedback wire instead of two deciders.
 
 **Multi-Operation Chain Pattern:**
 ```fcdsl
 Memory pattern_gen: "signal-D";
-Signal step1 = read(pattern_gen) + 1;
+Signal step1 = pattern_gen.read() + 1;
 Signal step2 = step1 * 3;
 Signal step3 = step2 % 17;
 Signal final = step3 % 100;
-write(final, pattern_gen);
+pattern_gen.write(final);
 ```
 Result: Chain of arithmetic combinators with a feedback wire from the last combinator's output back to the first combinator's input (e.g., final → step1).
 
@@ -1162,8 +1162,8 @@ Functions can declare local memory, but remember each call site gets its own cop
 ```fcdsl
 func counter() {
     Memory count: "signal-C";
-    write(read(count) + 1, count);
-    return read(count);
+    count.write(count.read() + 1);
+    return count.read();
 }
 
 Signal count1 = counter();  # Separate memory instance
@@ -1342,14 +1342,14 @@ As described earlier, unconditional memory writes with feedback are optimized to
 ```fcdsl
 # Single-operation: self-feedback on one combinator
 Memory counter: "signal-A";
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 
 # Multi-operation: feedback wire from last to first combinator
 Memory pattern: "signal-B";
-Signal s1 = read(pattern) + 1;
+Signal s1 = pattern.read() + 1;
 Signal s2 = s1 * 3;
 Signal s3 = s2 % 17;
-write(s3, pattern);  # Creates feedback loop: s3 → s1
+pattern.write(s3);  # Creates feedback loop: s3 → s1
 ```
 
 The compiler detects dependency chains up to 50 operations deep and optimizes them automatically.
@@ -1388,13 +1388,13 @@ Signal mixed = iron + copper;  # Warning: Mixed types, left wins
 **DO:**
 ```fcdsl
 Memory counter: "signal-A";  # Explicit type is best
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 ```
 
 **DON'T:**
 ```fcdsl
 Memory counter;  # Implicit type is confusing
-write(value, counter);  # Hard to track what type counter uses
+counter.write(value);  # Hard to track what type counter uses
 ```
 
 ### Function Design
@@ -1457,18 +1457,18 @@ Signal extracted = mixed | "copper-plate";  # Can't recover lost info
 
 ```fcdsl
 Memory counter: "signal-A";
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 
-Signal output = read(counter) | "signal-output";
+Signal output = counter.read() | "signal-output";
 ```
 
 ### Blinking Lamps
 
 ```fcdsl
 Memory tick: "signal-T";
-write(read(tick) + 1, tick);
+tick.write(tick.read() + 1);
 
-Signal pattern = read(tick) % 20;
+Signal pattern = tick.read() % 20;
 
 Entity lamp1 = place("small-lamp", 0, 0);
 Entity lamp2 = place("small-lamp", 2, 0);
@@ -1539,7 +1539,7 @@ Signal active = enabled or override;             # Either condition
 ```fcdsl
 Memory state: "signal-S";
 
-Signal current_state = read(state);
+Signal current_state = state.read();
 
 # Inputs (wire from factory)
 Signal start_signal = ("signal-start", 0);
@@ -1559,7 +1559,7 @@ Signal next_state =
      (current_state == 2 && start_signal == 0) ||
      (current_state == 3 && start_signal == 0)) * current_state;
 
-write(next_state, state);
+state.write(next_state);
 
 # Outputs based on state
 Signal running = (current_state == 1) | "signal-running";
@@ -1574,15 +1574,15 @@ func smooth_filter(Signal input, int window_size) {
     Memory sum: "signal-sum";
     Memory count: "signal-count";
     
-    Signal current_sum = read(sum);
-    Signal current_count = read(count);
+    Signal current_sum = sum.read();
+    Signal current_count = count.read();
     
     Signal should_reset = current_count >= window_size;
     Signal new_sum = should_reset * input + (!should_reset) * (current_sum + input);
     Signal new_count = should_reset * 1 + (!should_reset) * (current_count + 1);
     
-    write(new_sum, sum);
-    write(new_count, count);
+    sum.write(new_sum);
+    count.write(new_count);
     
     return new_sum / new_count;
 }
@@ -1596,8 +1596,8 @@ Signal smoothed = smooth_filter(raw_input, 10);
 ```fcdsl
 # Create a row of 10 lamps controlled by a counter
 Memory tick: "signal-T";
-write(read(tick) + 1, tick);
-Signal position = read(tick) % 10;
+tick.write(tick.read() + 1);
+Signal position = tick.read() % 10;
 
 for i in 0..10 {
     Entity lamp = place("small-lamp", i, 0);
@@ -1610,13 +1610,13 @@ for i in 0..10 {
 ```fcdsl
 # Create a bouncing light pattern
 Memory counter: "signal-C";
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 
 # Create 8 lamps
 for i in 0..8 {
     Entity lamp = place("small-lamp", i, 0);
     # Calculate distance from current position (modulo ping-pong)
-    Signal pos = read(counter) % 14;  # 0-13 for 8 positions
+    Signal pos = counter.read() % 14;  # 0-13 for 8 positions
     Signal actual_pos = (pos < 8) * pos + (pos >= 8) * (14 - pos);
     lamp.enable = actual_pos == i;
 }
@@ -1715,7 +1715,7 @@ Entity lamp = 42;
 ```fcdsl
 Memory buffer: "iron-plate";
 Signal copper = ("copper-plate", 50);
-write(copper, buffer);
+buffer.write(copper);
 # Error: Type mismatch: Memory 'buffer' expects 'iron-plate' but write provides 'copper-plate'
 ```
 

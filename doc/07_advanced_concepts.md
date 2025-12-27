@@ -60,7 +60,7 @@ The compiler converts your code to IR nodes representing Factorio entities:
 | `IR_Arith` | Arithmetic Combinator | Math operations (+, -, *, /, %) |
 | `IR_Decider` | Decider Combinator | Comparisons and conditionals |
 | `IR_WireMerge` | (virtual) | Wire-only signal addition |
-| `IR_MemCreate` | Decider pair (SR latch) | Memory cell |
+| `IR_MemCreate` | Decider pair (write-gated latch) | Memory cell |
 | `IR_PlaceEntity` | Various | User-placed entities |
 
 ## Compiler Optimizations
@@ -129,23 +129,23 @@ For unconditional memory writes with feedback, the compiler generates optimized 
 ```fcdsl
 # This:
 Memory counter: "signal-A";
-write(read(counter) + 1, counter);
+counter.write(counter.read() + 1);
 
 # Becomes a single arithmetic combinator with self-feedback
-# Instead of the two-decider SR latch
+# Instead of the two-decider latch
 ```
 
 **Multi-step optimization:**
 
 ```fcdsl
 Memory state: "signal-A";
-Signal s1 = read(state) + 1;
+Signal s1 = state.read() + 1;
 Signal s2 = s1 * 3;
 Signal s3 = s2 % 100;
-write(s3, state);
+state.write(s3);
 ```
 
-The compiler creates a chain of arithmetic combinators with feedback from the last back to the first, rather than an SR latch.
+The compiler creates a chain of arithmetic combinators with feedback from the last back to the first, rather than a write-gated latch.
 
 ### Entity Property Inlining
 
@@ -183,7 +183,7 @@ For memory circuits:
 - **Red wires** carry data signals and feedback
 - **Green wires** carry the control signal (`signal-W`)
 
-This separation is critical for correct SR latch operation.
+This separation is critical for correct latch operation.
 
 ### Debugging Wire Issues
 
@@ -246,8 +246,8 @@ Detect when a signal changes (pulse on transition):
 ```fcdsl
 Memory previous: "signal-A";
 Signal current = input_signal;
-Signal changed = current != read(previous);
-write(current, previous);
+Signal changed = current != previous.read();
+previous.write(current);
 
 # changed is 1 for one tick when input changes
 ```
@@ -257,8 +257,8 @@ write(current, previous);
 ```fcdsl
 Memory previous: "signal-A";
 Signal current = input_signal;
-Signal rising = (current > 0) && (read(previous) == 0);
-write(current, previous);
+Signal rising = (current > 0) && (previous.read() == 0);
+previous.write(current);
 ```
 
 ### Debouncing
@@ -273,16 +273,16 @@ Memory output: "signal-O";
 Signal input = ("signal-input", 0);
 int stability_threshold = 3;
 
-Signal input_changed = input != read(last_input);
-Signal count = input_changed * 0 + (!input_changed) * (read(stable_count) + 1);
-write(count, stable_count);
-write(input, last_input);
+Signal input_changed = input != last_input.read();
+Signal count = input_changed * 0 + (!input_changed) * (stable_count.read() + 1);
+stable_count.write(count);
+last_input.write(input);
 
 # Only update output when input has been stable
 Signal should_update = count >= stability_threshold;
-write(input, output, when=should_update);
+output.write(input, when=should_update);
 
-Signal stable_output = read(output);
+Signal stable_output = output.read();
 ```
 
 ### State Machine
@@ -291,7 +291,7 @@ Implement a finite state machine:
 
 ```fcdsl
 Memory state: "signal-S";
-Signal current = read(state);
+Signal current = state.read();
 
 # Inputs
 Signal start = ("signal-start", 0);
@@ -307,7 +307,7 @@ Signal to_idle = (current == 2) && (reset > 0);
 Signal stay = (!to_running) && (!to_stopped) && (!to_idle);
 
 Signal next = to_running * 1 + to_stopped * 2 + stay * current;
-write(next, state);
+state.write(next);
 
 # Outputs based on state
 Signal is_idle = current == 0;
@@ -360,11 +360,11 @@ Memory ticks: "signal-T";
 int duration = 60;  # 60 ticks = 1 second at 60 UPS
 
 Signal running = ("signal-run", 0);
-Signal count = read(ticks);
+Signal count = ticks.read();
 
 # Only count when running
-write((running > 0) * (count + 1), ticks, when=running > 0);
-write(0, ticks, when=running == 0);  # Reset when not running
+ticks.write((running > 0) * (count + 1), when=running > 0);
+ticks.write(0, when=running == 0);  # Reset when not running
 
 Signal elapsed = count >= duration;
 Signal progress = (count * 100) / duration;  # 0-100%
@@ -379,8 +379,8 @@ Memory counter: "signal-A";
 int period = 60;
 int pulse_width = 5;
 
-write((read(counter) + 1) % period, counter);
-Signal pulse = read(counter) < pulse_width;
+counter.write((counter.read() + 1) % period);
+Signal pulse = counter.read() < pulse_width;
 # pulse is 1 for 5 ticks, then 0 for 55 ticks
 ```
 
@@ -472,12 +472,12 @@ Show a number in binary:
 
 ```fcdsl
 Memory value: "signal-V";
-write((read(value) + 1) % 256, value);  # 8-bit counter
+value.write((value.read() + 1) % 256);  # 8-bit counter
 
 for bit in 0..8 {
     Entity lamp = place("small-lamp", bit, 0);
     # Extract each bit
-    lamp.enable = ((read(value) >> bit) AND 1) > 0;
+    lamp.enable = ((value.read() >> bit) AND 1) > 0;
 }
 ```
 
@@ -503,8 +503,8 @@ Create a step sequencer using loops:
 
 ```fcdsl
 Memory step: "signal-S";
-write((read(step) + 1) % 16, step);
-Signal current = read(step);
+step.write((step.read() + 1) % 16);
+Signal current = step.read();
 
 # 16-step indicator
 for i in 0..16 {
@@ -609,7 +609,7 @@ Warnings become errors. Use this for production-quality circuits.
 
 **"Type mismatch: Memory expects 'iron-plate' but write provides 'copper-plate'"**
 - All writes to a memory must use the same signal type
-- Use projection to convert: `write(copper | "iron-plate", mem)`
+- Use projection to convert: `mem.write(copper | "iron-plate")`
 
 **"Signal 'signal-W' is reserved"**
 - `signal-W` is used internally for memory
@@ -654,8 +654,8 @@ lamp.enable = expensive > threshold;
 
 # If expensive changes rarely, cache it
 Memory cached: "signal-C";
-write(((a * b) + (c * d)) / ((e * f) - (g * h)), cached, when=inputs_changed);
-lamp.enable = read(cached) > threshold;
+cached.write(((a * b) + (c * d)) / ((e * f) - (g * h)), when=inputs_changed);
+lamp.enable = cached.read() > threshold;
 ```
 
 ## Advanced Examples
@@ -674,16 +674,16 @@ Signal input = ("signal-input", 0);
 Signal clock = ("signal-clock", 0);  # Pulse to shift
 
 # Shift on clock pulse
-write(read(stage2), stage3, when=clock > 0);
-write(read(stage1), stage2, when=clock > 0);
-write(read(stage0), stage1, when=clock > 0);
-write(input, stage0, when=clock > 0);
+stage3.write(stage2.read(), when=clock > 0);
+stage2.write(stage1.read(), when=clock > 0);
+stage1.write(stage0.read(), when=clock > 0);
+stage0.write(input, when=clock > 0);
 
 # Outputs
-Signal out0 = read(stage0);
-Signal out1 = read(stage1);
-Signal out2 = read(stage2);
-Signal out3 = read(stage3);
+Signal out0 = stage0.read();
+Signal out1 = stage1.read();
+Signal out2 = stage2.read();
+Signal out3 = stage3.read();
 ```
 
 ### Ring Counter
@@ -695,17 +695,17 @@ Memory position: "signal-A";
 int num_positions = 8;
 
 # Increment position each tick, wrapping
-write((read(position) + 1) % num_positions, position);
+position.write((position.read() + 1) % num_positions);
 
 # One-hot outputs
-Signal pos0 = read(position) == 0;
-Signal pos1 = read(position) == 1;
-Signal pos2 = read(position) == 2;
-Signal pos3 = read(position) == 3;
-Signal pos4 = read(position) == 4;
-Signal pos5 = read(position) == 5;
-Signal pos6 = read(position) == 6;
-Signal pos7 = read(position) == 7;
+Signal pos0 = position.read() == 0;
+Signal pos1 = position.read() == 1;
+Signal pos2 = position.read() == 2;
+Signal pos3 = position.read() == 3;
+Signal pos4 = position.read() == 4;
+Signal pos5 = position.read() == 5;
+Signal pos6 = position.read() == 6;
+Signal pos7 = position.read() == 7;
 ```
 
 ### PID Controller (Simplified)
@@ -726,16 +726,16 @@ Signal error = setpoint - actual;
 
 # Integral (accumulated error)
 Memory integral: "signal-I";
-write(read(integral) + error, integral);
+integral.write(integral.read() + error);
 
 # Derivative (rate of change)
 Memory prev_error: "signal-P";
-Signal derivative = error - read(prev_error);
-write(error, prev_error);
+Signal derivative = error - prev_error.read();
+prev_error.write(error);
 
 # PID output
 Signal p_term = error * kp;
-Signal i_term = read(integral) * ki;
+Signal i_term = integral.read() * ki;
 Signal d_term = derivative * kd;
 
 Signal output = (p_term + i_term + d_term) / 100;

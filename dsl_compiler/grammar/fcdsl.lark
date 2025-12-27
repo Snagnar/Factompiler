@@ -16,8 +16,6 @@ BIN_NUMBER: /0[bB][01]+/
 DEC_NUMBER: /[+-]?[0-9]+/
 
 // Keywords for special forms (must come before NAME to take precedence)
-READ_KW: "read"
-WRITE_KW: "write"
 WHEN_KW: "when"
 
 // Type keywords
@@ -156,15 +154,19 @@ primary: literal
      | bundle_select                        // Bundle selection: bundle["type"]
      | bundle_any                           // any(bundle) for anything comparisons
      | bundle_all                           // all(bundle) for everything comparisons
-     | READ_KW "(" NAME ")"
-     | WRITE_KW "(" expr "," NAME ["," WHEN_KW "=" write_when] ")"
+     | memory_read                          // mem.read() method
+     | memory_write                         // mem.write(value) method
+     | memory_write_when                    // mem.write(value, when=cond) method
      | brace_literal                        // Either dict { k: v } or bundle { elem, elem }
-       | call_expr                            // General function calls after specific forms
-       | method_call
-       | lvalue                               // Simple identifiers last
-       | "(" expr ")"
+     | call_expr                            // General function calls after specific forms
+     | method_call
+     | lvalue                               // Simple identifiers last
+     | "(" expr ")"
 
-write_when: expr
+// Memory method calls (must come before generic method_call to take precedence)
+memory_read: NAME "." "read" "(" ")"
+memory_write: NAME "." "write" "(" expr ")"
+memory_write_when: NAME "." "write" "(" expr "," WHEN_KW "=" expr ")"
 
 call_expr: NAME "(" [arglist] ")"
 method_call: NAME "." NAME "(" [arglist] ")"

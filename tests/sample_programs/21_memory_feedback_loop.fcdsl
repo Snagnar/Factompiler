@@ -10,14 +10,14 @@
 Memory counter: "signal-A";
 
 # Capture the freshly initialized state.
-Signal current_count = read(counter);
+Signal current_count = counter.read();
 
 # Constant-folded literal yields a +1 step ( (5 * 2) - 9 -> 1 ).
 Signal increment_step = ("signal-A", (5 * 2) - 9);
 
 # First increment of the counter; emits an unconditional feedback write.
 Signal next_count = current_count + increment_step;
-write(next_count, counter);
+counter.write(next_count);
 
 # Duplicate expression to exercise common subexpression elimination.
 Signal mirror_next = current_count + increment_step;

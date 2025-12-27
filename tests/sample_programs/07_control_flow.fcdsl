@@ -25,7 +25,7 @@ Signal priority_value =
 # State-based decisions
 Memory decision_state: "signal-0";
 
-Signal state = read(decision_state);
+Signal state = decision_state.read();
 
 Signal next_state = 
     (state == 0 && sensor_a > 0) * 1 +
@@ -33,7 +33,7 @@ Signal next_state =
     (state == 2 && sensor_c > 0) * 0 +
     (state * (sensor_a == 0 && sensor_b == 0 && sensor_c == 0));
 
-write(next_state, decision_state, when=1);
+decision_state.write(next_state);
 
 # Output based on state and sensors
 Signal output_value = 

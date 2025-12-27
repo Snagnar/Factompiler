@@ -98,9 +98,9 @@ Memory item_history: "signal-0";
 
 
 # Update production state based on conditions
-Signal state_change = item_count > read(item_history);
-write(state_change && 1 || 0, production_state, when=1);
-write(item_count | "signal-0", item_history, when=1);
+Signal state_change = item_count > item_history.read();
+production_state.write(state_change && 1 || 0);
+item_history.write(item_count | "signal-0");
 
 # =============================================================================
 # COMPLEX CONDITIONAL LOGIC

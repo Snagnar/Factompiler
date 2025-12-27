@@ -2,13 +2,13 @@
 # Tests that multiple memories work correctly with arithmetic feedback optimization
 
 Memory counter1: "signal-A";
-write(read(counter1) + 1, counter1);
+counter1.write(counter1.read() + 1);
 
 Memory counter2: "signal-B";
-write(read(counter2) + 2, counter2);
+counter2.write(counter2.read() + 2);
 
 Memory counter3: "signal-C";
-write((read(counter3) + read(counter1)) % 10, counter3);
+counter3.write((counter3.read() + counter1.read()) % 10);
 
 Entity lamp1 = place("small-lamp", 0, 0);
-lamp1.enable = read(counter1) > 5;
+lamp1.enable = counter1.read() > 5;

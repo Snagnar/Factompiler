@@ -16,7 +16,7 @@ Signal step_size = 1;  # Change this value to adjust speed (1=fastest, higher=sl
 
 Memory hue: "signal-H";
 # 1530 = 6 * 255 to cover full HSV cycle in finer steps
-write((read(hue) + step_size) % 1530, hue);
+hue.write((hue.read() + step_size) % 1530);
 
 # ============================================================
 # HSV to RGB Conversion (with S=1, V=1 always)
@@ -30,7 +30,7 @@ write((read(hue) + step_size) % 1530, hue);
 #   Sector 5 (H:300-359): R=255, G=0, B=falling
 # ============================================================
 
-Signal h = read(hue);
+Signal h = hue.read();
 
 # Calculate sector (0-5) and position within sector (0-254)
 Signal sector = h / 255;

@@ -1,0 +1,46 @@
+# import "memory_patterns.fcdsl";
+# import "math.fcdsl";
+
+# int period = 255;
+# Signal step = ("signal-A", 1);
+# Memory counter: "signal-A";
+
+# counter.write((counter.read() + step) % (2 * period));
+
+# # compute a rising and falling signal that goes from 0 -> 100 -> 0 
+# Signal s = abs(counter.read() - period);
+
+
+# Signal output = hysteresis(s, 20, 70);
+
+# Entity lamp = place("small-lamp", 0, 0);
+# lamp.enable = output > 0;
+
+# Entity period_lamp = place("small-lamp", 2, 0, {use_colors: 1, always_on: 1, color_mode: 1});
+# period_lamp.r = s | "signal-red";
+# period_lamp.g = s | "signal-green";
+# period_lamp.b = s | "signal-blue";
+
+# # Signal a = ("signal-A", -100);
+
+# # Signal b = abs(a);
+
+int low_threshold = 30;
+int high_threshold = 70;
+Signal input = ("signal-A", 0);
+
+Memory state: "signal-H";
+
+Signal below_low = input < low_threshold;
+Signal above_high = input > high_threshold;
+
+Signal high = ("signal-H", 1);
+Signal low = ("signal-H", 0);
+
+# Set state to 1 when below low threshold
+state.write(high, when=below_low);
+# Reset state to 0 when above high threshold
+state.write(low, when=above_high);
+
+Entity lamp = place("small-lamp", 0, 0);
+lamp.enable = state.read() > 0;

@@ -226,12 +226,13 @@ class IR_MemWrite(IREffect):
 
     def __init__(
         self,
+        node_id: str,
         memory_id: str,
         data_signal: ValueRef,
         write_enable: ValueRef,
         source_ast: Optional[ASTNode] = None,
     ) -> None:
-        super().__init__(f"mem_write_{memory_id}", source_ast)
+        super().__init__(node_id, source_ast)
         self.memory_id = memory_id
         self.data_signal = data_signal
         self.write_enable = write_enable

@@ -72,7 +72,7 @@ class TestLowerer:
 
         code = """
         Memory counter: "iron-plate";
-        write(read(counter) + 1, counter);
+        counter.write(counter.read() + 1);
         """
 
         program = parser.parse(code)

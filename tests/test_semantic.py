@@ -74,12 +74,12 @@ class TestSemanticAnalyzer:
         )
 
     def test_write_with_enable_signal_passes(self, parser):
-        """Verify semantic analysis accepts write(value, memory, when=signal)."""
+        """Verify semantic analysis accepts memory.write(value, when=signal)."""
 
         code = """
     Memory counter: "signal-A";
         Signal enable = 1;
-        write(read(counter) + 1, counter, when=enable);
+        counter.write(counter.read() + 1, when=enable);
         """
 
         program = parser.parse(code)

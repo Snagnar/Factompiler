@@ -6,9 +6,9 @@ from typing import Optional, Set
 """Import preprocessing utilities for the Factorio Circuit DSL."""
 
 if "FACTORIO_IMPORT_PATH" not in os.environ:
-    os.environ["FACTORIO_IMPORT_PATH"] = ".;tests/sample_programs" + str(
+    os.environ["FACTORIO_IMPORT_PATH"] = ".;tests/sample_programs;" + str(
         Path(__file__).resolve().parent.parent.parent
-    )
+    ) + ";" + str(Path(__file__).parent.parent.parent.parent / "lib")
 
 
 def resolve_import_path(import_path: str, base_path: Optional[Path] = None) -> Path:

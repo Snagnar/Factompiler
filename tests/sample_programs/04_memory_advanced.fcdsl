@@ -28,22 +28,22 @@ Memory tick_counter: "signal-0";
 
 # Scenario 1: Write only if current value is zero (initialization check)
 # CORRECT PATTERN: Read current value, write new value if condition met, otherwise write current value back
-Signal current_iron = read(iron_storage);
+Signal current_iron = iron_storage.read();
 Signal iron_input = 50 | "iron-plate";
 Signal should_write_iron = (current_iron == 0);  # 1 if true, 0 if false
-write(iron_input, iron_storage, when=should_write_iron);  # Writes 50 if storage is 0, otherwise holds
+iron_storage.write(iron_input, when=should_write_iron);  # Writes 50 if storage is 0, otherwise holds
 
 # Scenario 2: Write only if input exceeds threshold
 Signal copper_input = 75 | "copper-plate";
 Signal should_store_copper = copper_input > 100;  # Boolean: 1 if true, 0 if false
-Signal copper_current = read(copper_storage);
-write(copper_input, copper_storage, when=should_store_copper);  # Writes input if > 100, otherwise holds
+Signal copper_current = copper_storage.read();
+copper_storage.write(copper_input, when=should_store_copper);  # Writes input if > 100, otherwise holds
 
 # Scenario 3: Conditional increment - add to counter only if condition met
-Signal current_count = read(tick_counter);
+Signal current_count = tick_counter.read();
 Signal enable_counting = 1;  # This could be from any condition
 Signal new_count = current_count + (enable_counting | "signal-0");
-write(new_count, tick_counter, when=enable_counting);  # Only writes when counting is enabled
+tick_counter.write(new_count, when=enable_counting);  # Only writes when counting is enabled
 
 # =============================================================================
 # COMPLEX CONDITIONAL WRITES - Multiple Conditions
@@ -53,20 +53,20 @@ write(new_count, tick_counter, when=enable_counting);  # Only writes when counti
 # 1. Current level is low (< 500), AND
 # 2. Pump is active (simulated), AND
 # 3. Input is available
-Signal current_water = read(water_level);
+Signal current_water = water_level.read();
 Signal water_is_low = current_water < 500;
 Signal pump_active = 1;  # Simulated
 Signal water_input = 200 | "water";
 Signal should_refill = water_is_low && pump_active;
 Signal water_refill_value = current_water + water_input;
-write(water_refill_value, water_level, when=should_refill);
+water_level.write(water_refill_value, when=should_refill);
 
 # =============================================================================
 # MEMORY-BASED STATE MACHINE
 # =============================================================================
 
 # State machine: 0 = idle, 1 = processing, 2 = complete, 3 = error
-Signal current_state = read(system_state);
+Signal current_state = system_state.read();
 
 # Transitions based on conditions
 Signal has_input = iron_input > 0;
@@ -86,7 +86,7 @@ Signal next_state =
     (any_to_error * 3) +                  # Go to state 3
     (!(idle_to_processing || processing_to_complete || complete_to_idle || any_to_error)) * current_state) | "signal-S";  # Stay in current state
 
-write(next_state, system_state, when=1);
+system_state.write(next_state);
 
 # =============================================================================
 # STORING MULTIPLE VALUES - Using Different Memory Cells
@@ -95,13 +95,13 @@ write(next_state, system_state, when=1);
 Memory max_iron_seen: "iron-plate";
 Memory min_copper_seen: "copper-plate";
 
-Signal current_max = read(max_iron_seen);
+Signal current_max = max_iron_seen.read();
 Signal should_update_max = iron_input > current_max;
-write(iron_input, max_iron_seen, when=should_update_max);
+max_iron_seen.write(iron_input, when=should_update_max);
 
-Signal current_min = read(min_copper_seen);
+Signal current_min = min_copper_seen.read();
 Signal should_update_min = copper_input < current_min;
-write(copper_input, min_copper_seen, when=should_update_min);
+min_copper_seen.write(copper_input, when=should_update_min);
 
 # =============================================================================
 # CLEARING/RESETTING MEMORY
@@ -110,17 +110,17 @@ write(copper_input, min_copper_seen, when=should_update_min);
 Signal reset_signal = 0;  # Set to 1 to trigger reset
 
 # Write cleared values back when reset is triggered
-write(0 | "iron-plate", iron_storage, when=reset_signal);
-write(0 | "copper-plate", copper_storage, when=reset_signal);
+iron_storage.write(0 | "iron-plate", when=reset_signal);
+copper_storage.write(0 | "copper-plate", when=reset_signal);
 
 # =============================================================================
 # READING AND COMBINING MEMORY VALUES
 # =============================================================================
 
 # Read all storage values
-Signal total_iron = read(iron_storage);
-Signal total_copper = read(copper_storage);
-Signal total_water = read(water_level);
+Signal total_iron = iron_storage.read();
+Signal total_copper = copper_storage.read();
+Signal total_water = water_level.read();
 
 # Combine for summary signal
 Signal total_resources = (total_iron | "signal-R") + (total_copper | "signal-R") + (total_water / 10 | "signal-R");
@@ -130,11 +130,11 @@ Signal total_resources = (total_iron | "signal-R") + (total_copper | "signal-R")
 # =============================================================================
 
 Signal should_swap = 0;  # Condition to swap iron and copper storage
-Signal iron_after_swap = (should_swap * (read(copper_storage) | "iron-plate") + (!should_swap) * read(iron_storage));
-Signal copper_after_swap = (should_swap * (read(iron_storage) | "copper-plate") + (!should_swap) * read(copper_storage));
+Signal iron_after_swap = (should_swap * (copper_storage.read() | "iron-plate") + (!should_swap) * iron_storage.read());
+Signal copper_after_swap = (should_swap * (iron_storage.read() | "copper-plate") + (!should_swap) * copper_storage.read());
 
-write(iron_after_swap, iron_storage, when=should_swap);
-write(copper_after_swap, copper_storage, when=should_swap);
+iron_storage.write(iron_after_swap, when=should_swap);
+copper_storage.write(copper_after_swap, when=should_swap);
 
 # =============================================================================
 # OUTPUT SIGNALS - Based on Memory State

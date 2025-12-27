@@ -7,14 +7,14 @@ func delay_signal(Signal signal, int delay_ticks) {
     Memory tick_counter: "signal-0";
 
             
-    Signal ticks = read(tick_counter);
+    Signal ticks = tick_counter.read();
     Signal should_update = (ticks % delay_ticks) == 0;
     
-    Signal current_delayed = read(delayed_value);
+    Signal current_delayed = delayed_value.read();
     Signal new_delayed = should_update * signal + (1 - should_update) * current_delayed;
     
-    write(new_delayed, delayed_value, when=1);
-    write(ticks + 1, tick_counter, when=1);
+    delayed_value.write(new_delayed);
+    tick_counter.write(ticks + 1);
     
     return current_delayed;
 }
@@ -24,7 +24,7 @@ func accumulate_clamped(Signal signal, int min_val, int max_val) {
     Memory accumulator: "signal-0";
 
         
-    Signal current = read(accumulator);
+    Signal current = accumulator.read();
     Signal new_val = current + signal;
     
     # Clamp between min and max
@@ -32,7 +32,7 @@ func accumulate_clamped(Signal signal, int min_val, int max_val) {
                   (new_val > max_val) * max_val +
                   ((new_val >= min_val) && (new_val <= max_val)) * new_val;
     
-    write(clamped, accumulator, when=1);
+    accumulator.write(clamped);
     return clamped;
 }
 
@@ -41,7 +41,7 @@ func rate_limiter(Signal signal, int max_change_per_tick) {
     Memory last_value: "signal-0";
 
         
-    Signal last = read(last_value);
+    Signal last = last_value.read();
     Signal change = signal - last;
     Signal abs_change = (change >= 0) * change + (change < 0) * (-change);
     
@@ -50,7 +50,7 @@ func rate_limiter(Signal signal, int max_change_per_tick) {
                         (abs_change <= max_change_per_tick) * change;
     
     Signal new_value = last + limited_change;
-    write(new_value, last_value, when=1);
+    last_value.write(new_value);
     
     return new_value;
 }

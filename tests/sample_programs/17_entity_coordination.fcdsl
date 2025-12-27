@@ -20,11 +20,11 @@ Memory pattern_counter: "signal-0";
 Memory sync_counter: "signal-0";
 
 
-Signal pattern_tick = read(pattern_counter);
-Signal sync_tick = read(sync_counter);
+Signal pattern_tick = pattern_counter.read();
+Signal sync_tick = sync_counter.read();
 
-write((pattern_tick + 1) % 20, pattern_counter, when=1);
-write(sync_tick + 1, sync_counter, when=1);
+pattern_counter.write((pattern_tick + 1) % 20);
+sync_counter.write(sync_tick + 1);
 
 # Pattern 0: All synchronized
 Signal pattern0_enable = master_enable && ((pattern_tick % 10) < 5);

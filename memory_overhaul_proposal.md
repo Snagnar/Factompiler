@@ -1,750 +1,661 @@
-# Memory System Specification (Revised)
+# Memory System Overhaul: Method-Based Syntax
 
-## Overview
+**Date: December 2025**
 
-Memory in the DSL is treated as a **first-class entity type** with methods and properties specific to each memory implementation. Different memory types provide different control semantics and access patterns optimized for specific use cases.
+This document specifies the migration from function-based memory syntax to method-based syntax for improved consistency and readability.
 
 ---
 
-## Memory Declaration Syntax
+## Table of Contents
+
+1. [Syntax Change Overview](#syntax-change-overview)
+2. [Implementation Changes](#implementation-changes)
+3. [Documentation Updates](#documentation-updates)
+4. [Standard Library](#standard-library)
+5. [Test Cases](#test-cases)
+6. [Implementation Checklist](#implementation-checklist)
+
+---
+
+## Syntax Change Overview
+
+### Current Syntax (Being Replaced)
 
 ```fcdsl
-Memory name: (signal_type, memory_type) [= initial_value] [properties];
+Memory counter: "signal-A";
+Signal current = read(counter);
+write(current + 1, counter);
+write(value, buffer, when=trigger);
 ```
 
+### New Syntax (Method-Based)
+
+```fcdsl
+Memory counter: "signal-A";
+Signal current = counter.read();
+counter.write(current + 1);
+counter.write(value, when=trigger);
+```
+
+### Why This Change?
+
+1. **Consistency**: Entity properties already use dot notation (`lamp.enable = x`)
+2. **Readability**: `counter.write(x)` reads more naturally than `write(x, counter)`
+3. **Discoverability**: Method syntax makes it clear what operations are available on memory
+
+### Behavior Summary
+
+| Usage Pattern | Behavior | Combinators |
+|---------------|----------|-------------|
+| `mem.write(mem.read() + x)` | Arithmetic feedback | 1 (optimized) |
+| `mem.write(value)` | Unconditional write | 1-2 |
+| `mem.write(value, when=cond)` | Conditional write (SR latch) | 2 |
+
+### Complete Examples
+
+```fcdsl
+# Counter - increments every tick
+Memory tick: "signal-T";
+tick.write(tick.read() + 1);
+
+# Modulo counter (clock) - wraps every 600 ticks
+Memory clock: "signal-C";
+clock.write((clock.read() + 1) % 600);
+
+# Conditional capture - stores value only when triggered
+Memory snapshot: "signal-S";
+Signal trigger = (clock.read() % 100) == 0;
+snapshot.write(sensor_value, when=trigger);
+
+# State machine - update state only on valid transitions
+Memory state: "signal-S";
+Signal transition_valid = (state.read() == 0) && (start_signal > 0);
+state.write(1, when=transition_valid);
+```
+
+---
+
+## Implementation Changes
+
+### 1. Grammar Changes
+
+**File:** [dsl_compiler/grammar/fcdsl.lark](dsl_compiler/grammar/fcdsl.lark)
+
+**Remove** from `primary`:
+```lark
+     | READ_KW "(" NAME ")"
+     | WRITE_KW "(" expr "," NAME ["," WHEN_KW "=" write_when] ")"
+```
+
+**Remove** these tokens:
+```lark
+READ_KW: "read"
+WRITE_KW: "write"
+WHEN_KW: "when"
+```
+
+**Add** `WHEN_KW` back only for method syntax:
+```lark
+WHEN_KW: "when"
+```
+
+**Modify** `method_call` rule (currently handles entity methods):
+```lark
+method_call: NAME "." NAME "(" [arglist] ")"
+           | NAME "." "read" "(" ")"                           -> memory_read
+           | NAME "." "write" "(" expr ")"                     -> memory_write
+           | NAME "." "write" "(" expr "," WHEN_KW "=" expr ")" -> memory_write_when
+```
+
+### 2. Parser/Transformer Changes
+
+**File:** [dsl_compiler/src/parsing/transformer.py](dsl_compiler/src/parsing/transformer.py)
+
+Replace handlers for the old `read()`/`write()` syntax:
+
+```python
+def memory_read(self, items):
+    """Handle mem.read() method call."""
+    memory_name = str(items[0])
+    return ReadExpr(memory_name, line=..., column=...)
+
+def memory_write(self, items):
+    """Handle mem.write(value) method call."""
+    memory_name = str(items[0])
+    value = items[1]
+    return WriteExpr(value, memory_name, when=None, line=..., column=...)
+
+def memory_write_when(self, items):
+    """Handle mem.write(value, when=cond) method call."""
+    memory_name = str(items[0])
+    value = items[1]
+    condition = items[2]
+    return WriteExpr(value, memory_name, when=condition, line=..., column=...)
+```
+
+### 3. AST Nodes (No Change)
+
+The existing `ReadExpr` and `WriteExpr` nodes in [expressions.py](dsl_compiler/src/ast/expressions.py) remain unchanged:
+
+```python
+class ReadExpr(Expr):
+    """memory.read() expression"""
+    memory_name: str
+
+class WriteExpr(Expr):
+    """memory.write(value, when=condition) statement"""
+    value: Expr
+    memory_name: str
+    when: Optional[Expr]  # None for unconditional
+```
+
+### 4. Semantic Analysis (Minor Changes)
+
+**File:** [dsl_compiler/src/semantic/analyzer.py](dsl_compiler/src/semantic/analyzer.py)
+
+The semantic analysis for `ReadExpr` and `WriteExpr` remains the same since the AST nodes haven't changed. However, update error messages to reflect new syntax:
+
+```python
+# Old:
+f"Undefined memory '{expr.memory_name}' in read()"
+# New:
+f"Undefined memory '{expr.memory_name}' in .read()"
+```
+
+### 5. Lowering (No Change)
+
+**File:** [dsl_compiler/src/lowering/memory_lowerer.py](dsl_compiler/src/lowering/memory_lowerer.py)
+
+No changes needed. `lower_read_expr()` and `lower_write_expr()` work the same since the AST nodes are unchanged.
+
+### 6. Layout/Memory Builder (No Change)
+
+**File:** [dsl_compiler/src/layout/memory_builder.py](dsl_compiler/src/layout/memory_builder.py)
+
+No changes needed. The IR nodes (`IR_MemCreate`, `IR_MemRead`, `IR_MemWrite`) are unchanged.
+
+---
+
+## Documentation Updates
+
+### LANGUAGE_SPEC.md Updates
+
+**File:** [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md)
+
+**Section: Memory System** (around line 779)
+
+Replace:
+
+```markdown
+#### Reading Memory
+
+\`\`\`fcdsl
+Signal current = read(counter);
+\`\`\`
+
+This connects to the memory's output (the hold gate in the SR latch).
+
+#### Writing Memory
+
+\`\`\`fcdsl
+write(value_expr, memory_name, when=enable_signal);
+\`\`\`
+
 **Parameters:**
-- `name`: Identifier for the memory cell
-- `signal_type`: String literal signal type (e.g., `"signal-A"`, `"iron-plate"`)
-- `memory_type`: Memory implementation type (see below)
-- `initial_value` (optional): Starting value (default: 0)
-- `properties` (optional): Type-specific configuration
+- `value_expr`: Expression to store (must match memory's signal type)
+- `memory_name`: Target memory cell
+- `when` (optional): Signal controlling the write (default: `1` = always write)
 
 **Examples:**
 
-```fcdsl
-Memory counter: ("signal-A", always_write) = 0;
-Memory state: ("signal-S", conditional);
-Memory power_ctrl: ("signal-P", sr_latch) {priority: "set"};
-Memory history: ("iron-plate", delay) {depth: 10};
-```
-
----
-
-## Memory Types
-
-### 1. `always_write` - Unconditional Feedback
-
-**Description:** Writes every tick. Optimized to arithmetic combinator with self-feedback loop.
-
-**Use Cases:** Counters, accumulators, pattern generators
-
-**Declaration:**
-```fcdsl
-Memory name: (signal_type, always_write) = initial_value;
-```
-
-**Methods:**
-
-#### `.write(signal)`
-Unconditionally writes the signal value every tick.
-
-```fcdsl
-Memory counter: ("signal-A", always_write) = 0;
-counter.write(counter.read() + 1);  # Increment every tick
-```
-
-#### `.read()`
-Returns the current stored value as a Signal.
-
-```fcdsl
-Signal current = counter.read();
-```
-
-**Implementation:**
-- Single arithmetic combinator with RED wire self-feedback
-- Initial value from constant combinator (first tick only)
-
-**Example:**
-```fcdsl
-Memory tick: ("signal-T", always_write) = 0;
-tick.write(tick.read() + 1);
-
-Signal blink = (tick.read() % 60) < 30;
-```
-
----
-
-### 2. `conditional` - Conditional Write (D-Latch)
-
-**Description:** Writes only when condition is true, otherwise holds previous value. Implements the D flip-flop/latch semantics.
-
-**Use Cases:** State capture, conditional updates, gated storage
-
-**Declaration:**
-```fcdsl
-Memory name: (signal_type, conditional) = initial_value;
-```
-
-**Methods:**
-
-#### `.write(signal, when)`
-Writes signal when condition is true (> 0), holds previous value when false (== 0).
-
-```fcdsl
-Memory buffer: ("iron-plate", conditional) = 0;
-Signal should_update = demand > supply;
-buffer.write(new_value, when=should_update);
-```
-
-#### `.read()`
-Returns the current stored value.
-
-```fcdsl
-Signal stored = buffer.read();
-```
-
-**Implementation:**
-- Write gate: `if (signal-W > 0) then output everything`
-- Hold gate: `if (signal-W == 0) then output everything` (self-loop)
-- Control signal routed on GREEN wire, data on RED wire
-
-**Example:**
-```fcdsl
-Memory snapshot: ("signal-data", conditional);
-Signal capture_trigger = (tick.read() % 100) == 0;
-snapshot.write(sensor_reading, when=capture_trigger);
-```
-
----
-
-### 3. `sr_latch` - Set-Reset Latch
-
-**Description:** Binary memory with separate set and reset controls. Can output both Q and !Q.
-
-**Use Cases:** Power control, state machines, hysteresis, binary flags
-
-**Declaration:**
-```fcdsl
-Memory name: (signal_type, sr_latch) = initial_value {
-    priority: "set" | "reset" | "none"  # default: "none"
-};
-```
-
-**Properties:**
-
-#### `priority`
-Defines behavior when both set and reset are active simultaneously:
-- `"set"`: Set takes priority, output goes to 1
-- `"reset"`: Reset takes priority, output goes to 0
-- `"none"`: Undefined behavior (warning issued)
-
-**Methods:**
-
-#### `.set(when)`
-Sets output to 1 when condition is true.
-
-```fcdsl
-Memory power: ("signal-P", sr_latch) {priority: "set"};
-power.set(when=accumulator_low);
-```
-
-#### `.reset(when)`
-Resets output to 0 when condition is true.
-
-```fcdsl
-power.reset(when=accumulator_charged);
-```
-
-#### `.read()`
-Returns Q output (1 or 0).
-
-```fcdsl
-Signal is_on = power.read();
-```
-
-#### `.read_inv()`
-Returns !Q output (inverted, 0 or 1).
-
-```fcdsl
-Signal is_off = power.read_inv();
-```
-
-**Implementation:**
-- Set gate: `if (signal-S > 0) then output signal-Q = 1`
-- Reset gate: `if (signal-R > 0) then output signal-Q = 0`
-- Hold gate: `if (signal-S == 0 && signal-R == 0) then output signal-Q`
-- Priority handling via combinator ordering
-
-**Example:**
-```fcdsl
-Memory backup_power: ("signal-B", sr_latch) = 0 {priority: "reset"};
-
-Signal low_charge = accumulator < 20;
-Signal high_charge = accumulator > 90;
-
-backup_power.set(when=low_charge);
-backup_power.reset(when=high_charge);
-
-Entity steam_engine = place("steam-engine", 0, 0);
-steam_engine.enable = backup_power.read();
-```
-
----
-
-### 4. `toggle` - Toggle Flip-Flop (T-FF)
-
-**Description:** Toggles between 0 and 1 on each trigger pulse. Requires edge detection.
-
-**Use Cases:** Binary state toggling, alternating patterns, clock division
-
-**Declaration:**
-```fcdsl
-Memory name: (signal_type, toggle) = initial_value;
-```
-
-**Methods:**
-
-#### `.toggle(when)`
-Toggles state (0→1 or 1→0) on rising edge of condition.
-
-```fcdsl
-Memory flipper: ("signal-F", toggle) = 0;
-Signal button_pressed = button > 0;
-flipper.toggle(when=button_pressed);
-```
-
-#### `.read()`
-Returns current state (0 or 1).
-
-```fcdsl
-Signal state = flipper.read();
-```
-
-**Implementation:**
-- Edge detector: Rising edge of condition signal
-- XOR logic: `new_state = current_state XOR pulse`
-- Conditional memory to hold state
-
-**Example:**
-```fcdsl
-Memory alternate: ("signal-A", toggle) = 0;
-Signal pulse = (tick.read() % 10) == 0;
-alternate.toggle(when=pulse);
-
-Entity lamp1 = place("small-lamp", 0, 0);
-Entity lamp2 = place("small-lamp", 2, 0);
-
-lamp1.enable = alternate.read();
-lamp2.enable = alternate.read_inv();  # Compile error: toggle doesn't have read_inv()
-
-# Fix:
-lamp2.enable = (alternate.read() == 0);
-```
-
----
-
-### 5. `counter` - Specialized Counter
-
-**Description:** Optimized for increment/decrement operations with optional wraparound.
-
-**Use Cases:** Counting events, timers, modulo counters, index tracking
-
-**Declaration:**
-```fcdsl
-Memory name: (signal_type, counter) = initial_value {
-    wrap_at: integer | null  # default: null (no wrap)
-};
-```
-
-**Properties:**
-
-#### `wrap_at`
-If set, counter wraps using modulo: `count % wrap_at`
-
-**Methods:**
-
-#### `.increment(when)`
-Adds 1 when condition is true.
-
-```fcdsl
-Memory event_count: ("signal-E", counter) = 0;
-event_count.increment(when=event_detected);
-```
-
-#### `.decrement(when)`
-Subtracts 1 when condition is true.
-
-```fcdsl
-event_count.decrement(when=event_cleared);
-```
-
-#### `.reset(when)`
-Resets to initial value when condition is true.
-
-```fcdsl
-event_count.reset(when=system_restart);
-```
-
-#### `.set(value, when)`
-Sets to specific value when condition is true.
-
-```fcdsl
-event_count.set(100, when=initialize);
-```
-
-#### `.read()`
-Returns current count.
-
-```fcdsl
-Signal count = event_count.read();
-```
-
-**Implementation:**
-- Conditional memory with compound expressions
-- Modulo operation applied if `wrap_at` is set
-
-**Example:**
-```fcdsl
-Memory timer: ("signal-T", counter) = 0 {wrap_at: 3600};
-timer.increment(when=1);  # Always increment (every tick)
-
-Signal seconds = timer.read() / 60;
-Signal minutes = (timer.read() / 3600) % 60;
-```
-
-**Advanced Example:**
-```fcdsl
-Memory ring_buffer_idx: ("signal-I", counter) = 0 {wrap_at: 16};
-
-Signal write_pulse = new_data_available;
-Signal read_pulse = consumer_ready;
-
-ring_buffer_idx.increment(when=write_pulse);
-ring_buffer_idx.decrement(when=read_pulse);
-
-Signal index = ring_buffer_idx.read();
-```
-
----
-
-### 6. `delay` - Delay Line / Shift Register
-
-**Description:** Stores signal history, allowing reads from N ticks in the past.
-
-**Use Cases:** Temporal buffering, moving averages, synchronization, pipeline delays
-
-**Declaration:**
-```fcdsl
-Memory name: (signal_type, delay) {
-    depth: integer  # Required, number of ticks to store
-};
-```
-
-**Properties:**
-
-#### `depth`
-Number of historical values to retain (1 to 100).
-
-**Methods:**
-
-#### `.push(signal)`
-Stores a new value and shifts history back by one tick.
-
-```fcdsl
-Memory history: ("signal-H", delay) {depth: 10};
-history.push(sensor_reading);
-```
-
-#### `.read(offset=0)`
-Reads value from `offset` ticks ago:
-- `offset=0`: Current tick's pushed value
-- `offset=1`: Previous tick's value
-- `offset=N`: N ticks ago
-
-```fcdsl
-Signal current = history.read(0);
-Signal prev = history.read(1);
-Signal old = history.read(5);
-```
-
-#### `.read()` (shorthand)
-Equivalent to `.read(offset=1)` - previous tick's value.
-
-```fcdsl
-Signal delayed = history.read();  # 1 tick ago
-```
-
-**Implementation:**
-- Chain of `depth` conditional memory cells
-- Each cell: `cell[i].write(cell[i-1].read(), when=1)`
-- First cell writes the pushed signal
-
-**Example:**
-```fcdsl
-Memory signal_delay: ("iron-plate", delay) {depth: 5};
-signal_delay.push(current_production);
-
-Signal delayed_production = signal_delay.read();  # 1 tick ago
-Signal old_production = signal_delay.read(5);      # 5 ticks ago
-
-Signal delta = current_production - delayed_production;
-```
-
-**Moving Average Example:**
-```fcdsl
-Memory samples: ("signal-S", delay) {depth: 10};
-samples.push(sensor_value);
-
-Signal sum = samples.read(0) + samples.read(1) + samples.read(2)
-           + samples.read(3) + samples.read(4) + samples.read(5)
-           + samples.read(6) + samples.read(7) + samples.read(8)
-           + samples.read(9);
-
-Signal average = sum / 10;
-```
-
----
-
-## Common Patterns
-
-### Pattern 1: Conditional Counter
-
-```fcdsl
-Memory count: ("signal-C", conditional) = 0;
-Signal should_count = sensor > threshold;
-count.write(count.read() + 1, when=should_count);
-```
-
-vs specialized counter:
-
-```fcdsl
-Memory count: ("signal-C", counter) = 0;
-Signal should_count = sensor > threshold;
-count.increment(when=should_count);
-```
-
-### Pattern 2: State Machine with SR Latch
-
-```fcdsl
-Memory running: ("signal-R", sr_latch) = 0 {priority: "set"};
-Memory error: ("signal-E", sr_latch) = 0 {priority: "reset"};
-
-Signal start_button = button == 1;
-Signal stop_button = button == 2;
-Signal fault_detected = temperature > 100;
-
-running.set(when=start_button);
-running.reset(when=stop_button || fault_detected);
-
-error.set(when=fault_detected);
-error.reset(when=start_button);
-
-Entity machine = place("assembling-machine-1", 0, 0);
-machine.enable = running.read() && !error.read();
-```
-
-### Pattern 3: Debouncing with Delay
-
-```fcdsl
-Memory button_history: ("signal-B", delay) {depth: 5};
-button_history.push(button_raw);
-
-# Button is stable if all 5 samples are the same
-Signal stable = (button_history.read(0) == button_history.read(1))
-             && (button_history.read(1) == button_history.read(2))
-             && (button_history.read(2) == button_history.read(3))
-             && (button_history.read(3) == button_history.read(4));
-
-Signal debounced_button = stable * button_history.read(0);
-```
-
-### Pattern 4: Toggle for Alternating Sequences
-
-```fcdsl
-Memory phase: ("signal-P", toggle) = 0;
-
-Signal cycle_complete = (tick.read() % 100) == 0;
-phase.toggle(when=cycle_complete);
-
-Entity pump1 = place("pump", 0, 0);
-Entity pump2 = place("pump", 3, 0);
-
-pump1.enable = phase.read();
-pump2.enable = (phase.read() == 0);
-```
-
----
-
-## Type Selection Guide
-
-| Use Case | Recommended Type | Why |
-|----------|------------------|-----|
-| Simple counter | `always_write` or `counter` | Unconditional, every tick |
-| Conditional update | `conditional` | Explicit control over when to write |
-| Power management | `sr_latch` | Set on low power, reset on full charge |
-| Binary toggle | `toggle` | Flip state on button press |
-| Event counting | `counter` | Dedicated increment/decrement/reset |
-| Signal history | `delay` | Temporal buffering, averaging |
-| Circular index | `counter` with `wrap_at` | Automatic modulo |
-| State machine | `sr_latch` or `conditional` | Depends on control logic |
-
----
-
-## Memory Properties (Read-Only)
-
-All memory types support introspection:
-
-```fcdsl
-Signal type = counter.signal_type;      # Returns "signal-A" (as signal)
-Signal initial = counter.initial_value; # Returns initial value
-Signal mem_type = counter.memory_type;  # Returns type enum (for debugging)
-```
-
----
-
-## Compilation Behavior
-
-### Entity Count Estimates
-
-| Memory Type | Typical Combinator Count |
-|-------------|-------------------------|
-| `always_write` | 1 arithmetic |
-| `conditional` | 2 deciders (write + hold gate) |
-| `sr_latch` | 3-4 deciders (set, reset, hold, priority) |
-| `toggle` | 3-4 combinators (edge detect + XOR) |
-| `counter` | 2-4 combinators (depends on operations) |
-| `delay` with depth N | N conditional memories |
-
-### Optimization Notes
-
-1. **always_write**: Optimized to single arithmetic combinator with self-feedback
-2. **conditional**: Uses standard SR latch topology (write gate → hold gate with self-loop)
-3. **sr_latch**: May inline priority logic if only one control is used
-4. **counter** with `wrap_at`: Applies modulo only if property is set
-5. **delay**: Chain is optimized if only reading offset=1 (last value)
-
----
-
-## Error Handling
-
-### Type Mismatches
-
-```fcdsl
-Memory state: ("signal-A", sr_latch);
-state.write(value, when=condition);  # ERROR: sr_latch doesn't have .write()
-# Use: state.set() or state.reset()
-```
-
-### Invalid Properties
-
-```fcdsl
-Memory count: ("signal-C", always_write) {wrap_at: 100};
-# ERROR: always_write doesn't support 'wrap_at' property
-# Use: counter type instead
-```
-
-### Signal Type Consistency
-
-```fcdsl
-Memory buffer: ("iron-plate", conditional);
-Signal copper = ("copper-plate", 50);
-buffer.write(copper, when=1);
-# WARNING: Type mismatch: buffer expects 'iron-plate', got 'copper-plate'
-```
-
-### Method Availability
-
-```fcdsl
-Memory toggle: ("signal-T", toggle);
-Signal inverted = toggle.read_inv();
-# ERROR: toggle type doesn't support read_inv() method
-# Use: (toggle.read() == 0) instead
-```
-
----
-
-## Reserved Signals
-
-Memory types reserve specific virtual signals:
-
-| Signal | Reserved For | Used By |
-|--------|-------------|---------|
-| `signal-W` | Write enable | `conditional` |
-| `signal-S` | Set control | `sr_latch` |
-| `signal-R` | Reset control | `sr_latch` |
-| `signal-T` | Toggle pulse | `toggle` |
-| `signal-I[0-N]` | Delay chain indices | `delay` |
-
-**CRITICAL:** Never use these signals for user data when using corresponding memory types.
-
----
-
-## Migration from Old Syntax
-
-### Old `write()` / `read()` Functions
-
-**Old:**
-```fcdsl
-Memory counter: "signal-A" = 0;
+\`\`\`fcdsl
+# Unconditional write (every tick)
 write(read(counter) + 1, counter);
-Signal value = read(counter);
+
+# Conditional write
+Signal should_update = input > threshold;
+write(new_value, buffer, when=should_update);
+\`\`\`
 ```
 
-**New:**
-```fcdsl
-Memory counter: ("signal-A", always_write) = 0;
+With:
+
+```markdown
+#### Reading Memory
+
+\`\`\`fcdsl
+Signal current = counter.read();
+\`\`\`
+
+Returns the current stored value as a Signal with the memory's declared type.
+
+#### Writing Memory
+
+\`\`\`fcdsl
+memory.write(value_expr);                  # Unconditional
+memory.write(value_expr, when=condition);  # Conditional
+\`\`\`
+
+**Parameters:**
+- `value_expr`: Expression to store (must match memory's signal type)
+- `when` (optional): Condition controlling the write (default: always write)
+
+**Examples:**
+
+\`\`\`fcdsl
+# Unconditional write (every tick)
 counter.write(counter.read() + 1);
-Signal value = counter.read();
+
+# Conditional write
+Signal should_update = input > threshold;
+buffer.write(new_value, when=should_update);
+\`\`\`
 ```
 
-### Old `when=once` Initialization
+**Section: Quick Start** (around line 54)
 
-**Old:**
+Replace:
+
+```markdown
+Memory counter: "signal-A";
+write(read(counter) + 1, counter);
+
+Signal blink = (read(counter) % 10) < 5;
+```
+
+With:
+
+```markdown
+Memory counter: "signal-A";
+counter.write(counter.read() + 1);
+
+Signal blink = (counter.read() % 10) < 5;
+```
+
+### doc/04_memory.md Updates
+
+**File:** [doc/04_memory.md](doc/04_memory.md)
+
+**Section: Reading and Writing Memory**
+
+Replace all function-based syntax with method syntax throughout the file:
+
+```markdown
+### Reading: The `.read()` Method
+
+Read the current value stored in memory:
+
+\`\`\`fcdsl
+Memory counter: "signal-A";
+
+Signal current_value = counter.read();
+\`\`\`
+
+`.read()` returns a signal with the memory's type and its stored value.
+
+### Writing: The `.write()` Method
+
+Store a new value in memory:
+
+\`\`\`fcdsl
+memory.write(value);                  # Write every tick
+memory.write(value, when=condition);  # Write only when condition > 0
+\`\`\`
+
+Parameters:
+- **value** – The value to store (must match memory's signal type)
+- **when** (optional) – Condition for when to write (default: always)
+```
+
+**Section: Common Memory Patterns**
+
+Update all examples. For instance, Counter:
+
+```markdown
+### Counter
+
+The classic increment-every-tick counter:
+
+\`\`\`fcdsl
+Memory counter: "signal-A";
+counter.write(counter.read() + 1);
+\`\`\`
+```
+
+Wrapping Counter:
+
+```markdown
+### Wrapping Counter
+
+Count up to a limit, then reset:
+
+\`\`\`fcdsl
+Memory counter: "signal-A";
+int max_value = 60;
+
+counter.write((counter.read() + 1) % max_value);
+# Counts 0, 1, 2, ..., 59, 0, 1, 2, ...
+\`\`\`
+```
+
+Sample and Hold:
+
+```markdown
+### Sample and Hold
+
+Capture a value when triggered:
+
+\`\`\`fcdsl
+Memory captured: "signal-A";
+Signal input = ("signal-input", 0);
+Signal trigger = ("signal-trigger", 0);
+
+captured.write(input, when=trigger > 0);
+
+Signal output = captured.read();
+\`\`\`
+```
+
+Toggle:
+
+```markdown
+### Toggle (Flip-Flop)
+
+Switch between 0 and 1:
+
+\`\`\`fcdsl
+Memory toggle: "signal-A";
+Signal button = ("signal-button", 0);
+
+Signal new_state = 1 - toggle.read();
+toggle.write(new_state, when=button > 0);
+
+Signal output = toggle.read();
+\`\`\`
+```
+
+### Sample Programs Updates
+
+**Directory:** [tests/sample_programs/](tests/sample_programs/)
+
+Update all sample programs using memory. Examples:
+
+**04_basic_memory.fcdsl:**
 ```fcdsl
 Memory counter: "signal-A";
-write(("signal-A", 0), counter, when=once);
+Signal step_size = 1;
+
+counter.write((counter.read() + step_size) % 10);
+
+Signal pulse = counter.read() == 0;
+
+Entity pulse_lamp = place("small-lamp", 0, 0);
+pulse_lamp.enable = pulse;
 ```
 
-**New:**
-```fcdsl
-Memory counter: ("signal-A", conditional) = 0;
-# Initialization is automatic
-```
+**04_memory.fcdsl**, **21_memory_feedback_loop.fcdsl**, etc. - all need updating.
 
-### Old Conditional Write
+---
 
-**Old:**
-```fcdsl
-Memory buffer: "iron-plate" = 0;
-Signal condition = sensor > 100;
-write(new_value, buffer, when=condition);
-```
+## Standard Library
 
-**New:**
+**File:** `lib/memory_patterns.fcdsl` (new file)
+
 ```fcdsl
-Memory buffer: ("iron-plate", conditional) = 0;
-Signal condition = sensor > 100;
-buffer.write(new_value, when=condition);
+# =============================================================================
+# Memory Patterns Standard Library
+# =============================================================================
+# Common memory patterns using the method-based syntax.
+# Import with: import "lib/memory_patterns.fcdsl";
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Hysteresis (Schmitt Trigger)
+# -----------------------------------------------------------------------------
+# Returns 1 when input drops below low_threshold.
+# Stays 1 until input rises above high_threshold.
+#
+# Example:
+#   Signal backup_on = hysteresis(accumulator_charge, 20, 70);
+#   steam_engine.enable = backup_on;
+#
+func hysteresis(Signal input, int low_threshold, int high_threshold) {
+    Memory state: "signal-H";
+    
+    Signal should_set = input < low_threshold;
+    Signal should_reset = input > high_threshold;
+    
+    # Compute new state: set wins over hold, reset wins over all
+    Signal new_state = (should_reset == 0) * (
+        should_set + (should_set == 0) * state.read()
+    );
+    
+    state.write(new_state);
+    return state.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# Rising Edge Detector
+# -----------------------------------------------------------------------------
+# Outputs 1 for one tick when input transitions from 0 to non-zero.
+#
+func edge_rising(Signal input) {
+    Memory prev: "signal-P";
+    Signal is_rising = (input > 0) * (prev.read() == 0);
+    prev.write(input > 0);
+    return is_rising;
+}
+
+
+# -----------------------------------------------------------------------------
+# Falling Edge Detector
+# -----------------------------------------------------------------------------
+# Outputs 1 for one tick when input transitions from non-zero to 0.
+#
+func edge_falling(Signal input) {
+    Memory prev: "signal-P";
+    Signal is_falling = (input == 0) * (prev.read() > 0);
+    prev.write(input > 0);
+    return is_falling;
+}
+
+
+# -----------------------------------------------------------------------------
+# Toggle (T Flip-Flop)
+# -----------------------------------------------------------------------------
+# Alternates between 0 and 1 each time trigger goes high.
+#
+func toggle(Signal trigger) {
+    Memory state: "signal-T";
+    Signal edge = edge_rising(trigger);
+    
+    Signal new_state = (edge > 0) * (1 - state.read()) 
+                     + (edge == 0) * state.read();
+    
+    state.write(new_state);
+    return state.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# Sample and Hold
+# -----------------------------------------------------------------------------
+# Captures input value when trigger goes high, holds until next trigger.
+#
+func sample_hold(Signal input, Signal trigger) {
+    Memory held: "signal-S";
+    Signal edge = edge_rising(trigger);
+    held.write(input, when=edge);
+    return held.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# Pulse Stretcher
+# -----------------------------------------------------------------------------
+# Extends a 1-tick pulse to last for 'duration' ticks.
+#
+func pulse_stretch(Signal input, int duration) {
+    Memory countdown: "signal-C";
+    
+    Signal triggered = input > 0;
+    Signal next_count = triggered * duration 
+                      + (triggered == 0) * (countdown.read() - 1);
+    Signal clamped = (next_count > 0) * next_count;
+    
+    countdown.write(clamped);
+    return (countdown.read() > 0) + triggered;
+}
+
+
+# -----------------------------------------------------------------------------
+# Modulo Counter (Clock)
+# -----------------------------------------------------------------------------
+# Counter that wraps at specified value.
+#
+func clock(int period) {
+    Memory tick: "signal-T";
+    tick.write((tick.read() + 1) % period);
+    return tick.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# Debounce
+# -----------------------------------------------------------------------------
+# Requires input to be stable for 'ticks' before changing output.
+#
+func debounce(Signal input, int ticks) {
+    Memory stable_value: "signal-S";
+    Memory counter: "signal-C";
+    
+    Signal matches_stored = input == stable_value.read();
+    
+    counter.write(0, when=matches_stored == 0);
+    counter.write(counter.read() + 1, when=matches_stored);
+    
+    Signal reached_threshold = counter.read() >= ticks;
+    stable_value.write(input, when=reached_threshold);
+    
+    return stable_value.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# Rate Limiter
+# -----------------------------------------------------------------------------
+# Outputs input value, but limits how fast it can change per tick.
+#
+func rate_limit(Signal input, int max_change) {
+    Memory current: "signal-R";
+    
+    Signal delta = input - current.read();
+    Signal clamped_delta = (delta > max_change) * max_change
+                         + (delta < (0 - max_change)) * (0 - max_change)
+                         + (delta >= (0 - max_change)) * (delta <= max_change) * delta;
+    
+    current.write(current.read() + clamped_delta);
+    return current.read();
+}
+
+
+# -----------------------------------------------------------------------------
+# Exponential Moving Average
+# -----------------------------------------------------------------------------
+# Using integer math: alpha = alpha_num / alpha_denom
+#
+func ema(Signal input, int alpha_num, int alpha_denom) {
+    Memory avg: "signal-E";
+    
+    Signal delta = input - avg.read();
+    Signal adjustment = (delta * alpha_num) / alpha_denom;
+    
+    avg.write(avg.read() + adjustment);
+    return avg.read();
+}
 ```
 
 ---
 
-## Grammar Extensions
+## Test Cases
 
-### Memory Declaration
-
-```lark
-mem_decl: "Memory" NAME ":" "(" STRING "," mem_type ")" ["=" expr] [mem_properties] ";"
-
-mem_type: "always_write"
-        | "conditional"
-        | "sr_latch"
-        | "toggle"
-        | "counter"
-        | "delay"
-
-mem_properties: "{" mem_prop ("," mem_prop)* "}"
-
-mem_prop: "priority" ":" STRING          # For sr_latch
-        | "wrap_at" ":" INT              # For counter
-        | "depth" ":" INT                # For delay
-```
-
-### Memory Method Calls
-
-```lark
-expr: expr "." method_call
-
-method_call: "read" "(" [method_args] ")"
-           | "read_inv" "(" ")"
-           | "write" "(" expr ["," "when" "=" expr] ")"
-           | "set" "(" "when" "=" expr ")"
-           | "reset" "(" "when" "=" expr ")"
-           | "toggle" "(" "when" "=" expr ")"
-           | "increment" "(" "when" "=" expr ")"
-           | "decrement" "(" "when" "=" expr ")"
-           | "push" "(" expr ")"
-
-method_args: "offset" "=" INT
-           | expr "," "when" "=" expr
-```
-
----
-
-## Complete Example: Production Line Controller
+### Test 1: Basic Counter
 
 ```fcdsl
-# Clock for synchronization
-Memory tick: ("signal-T", always_write) = 0;
-tick.write(tick.read() + 1);
-
-# Production state machine
-Memory producing: ("signal-P", sr_latch) = 0 {priority: "set"};
-Memory error_state: ("signal-E", sr_latch) = 0 {priority: "reset"};
-
-# Input monitoring with delay for stability
-Memory demand_history: ("signal-D", delay) {depth: 5};
-demand_history.push(demand_signal);
-
-Signal stable_demand = demand_history.read(0);
-Signal demand_rising = stable_demand > demand_history.read(5);
-
-# Counter for production cycles
-Memory cycles: ("signal-C", counter) = 0 {wrap_at: 1000};
-
-# Control logic
-Signal start_condition = stable_demand > 100 && !error_state.read();
-Signal stop_condition = stable_demand < 50;
-Signal error_detected = temperature > 150;
-
-producing.set(when=start_condition);
-producing.reset(when=stop_condition || error_detected);
-
-error_state.set(when=error_detected);
-error_state.reset(when=reset_button);
-
-# Increment cycle counter when producing
-cycles.increment(when=producing.read());
-
-# Output to machines
-Entity assembler1 = place("assembling-machine-3", 0, 0);
-Entity assembler2 = place("assembling-machine-3", 5, 0);
-Entity warning_lamp = place("small-lamp", -3, 0);
-
-assembler1.enable = producing.read();
-assembler2.enable = producing.read() && (cycles.read() > 10);
-warning_lamp.enable = error_state.read();
+Memory counter: "signal-A";
+counter.write(counter.read() + 1);
+Signal output = counter.read();
 ```
 
+**Expected:** Optimizes to 1 arithmetic combinator with self-feedback.
+
+### Test 2: Conditional Write
+
+```fcdsl
+Memory buffer: "signal-B";
+Signal trigger = ("signal-T", 0);
+Signal data = ("signal-D", 0);
+
+buffer.write(data, when=trigger);
+Signal output = buffer.read();
+```
+
+**Expected:** 2 decider combinators (SR latch), GREEN wire for signal-W, RED for data.
+
+### Test 3: Multiple Conditional Writes
+
+```fcdsl
+Memory state: "signal-S";
+Signal set_trigger = ("signal-1", 0);
+Signal reset_trigger = ("signal-2", 0);
+
+state.write(1, when=set_trigger);
+state.write(0, when=reset_trigger);
+
+Signal output = state.read();
+```
+
+**Expected:** Both writes compile, last true condition wins each tick.
+
+### Test 4: Complex Feedback Chain
+
+```fcdsl
+Memory pattern: "signal-D";
+Signal step1 = pattern.read() + 1;
+Signal step2 = step1 * 3;
+Signal step3 = step2 % 17;
+pattern.write(step3);
+Signal output = pattern.read();
+```
+
+**Expected:** Multi-combinator feedback chain with optimization.
+
 ---
 
-## Future Extensions
+## Implementation Checklist
 
-### Potential Additional Memory Types
+### Grammar ([fcdsl.lark](dsl_compiler/grammar/fcdsl.lark))
+- [ ] Remove `READ_KW "(" NAME ")"` from primary
+- [ ] Remove `WRITE_KW "(" expr "," NAME ... ")"` from primary
+- [ ] Add `memory_read`, `memory_write`, `memory_write_when` rules to method_call
 
-1. **`addressable`** - Array-like memory with dynamic indexing
-2. **`fifo`** / **`lifo`** - Queue/stack semantics
-3. **`multi_signal`** - Store multiple signal types in one cell
-4. **`clocked`** - Synchronous memory with explicit clock input
+### Parser ([transformer.py](dsl_compiler/src/parsing/transformer.py))
+- [ ] Add `memory_read` handler
+- [ ] Add `memory_write` handler  
+- [ ] Add `memory_write_when` handler
+- [ ] Remove old `read_expr` / `write_expr` handlers
 
-### Potential Additional Methods
+### Documentation
+- [ ] Update [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) Memory System section
+- [ ] Update [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) Quick Start example
+- [ ] Rewrite [doc/04_memory.md](doc/04_memory.md) with new syntax
+- [ ] Update all sample programs in [tests/sample_programs/](tests/sample_programs/)
 
-1. `.snapshot()` - Capture current value atomically
-2. `.compare_and_swap(expected, new)` - Atomic update
-3. `.clear()` - Reset to zero/default
-4. `.freeze()` - Make read-only for debugging
+### Standard Library
+- [ ] Create `lib/memory_patterns.fcdsl`
 
----
-
-## Summary
-
-This revised memory system provides:
-
-✅ **Type safety** - Each memory type has well-defined methods  
-✅ **Clarity** - Method names clearly indicate operation semantics  
-✅ **Flexibility** - Six specialized types cover all common patterns  
-✅ **Consistency** - Follows entity-like property access pattern  
-✅ **Optimization** - Compiler can optimize based on declared type  
-✅ **Extensibility** - Easy to add new memory types without breaking existing code
-
-The entity-style syntax `memory.method()` aligns with how entities work (`lamp.enable = ...`) and makes memory a first-class component in circuit design.
+### Tests
+- [ ] Update existing memory tests for new syntax
+- [ ] Verify optimization still triggers
+- [ ] Add parser tests for new grammar rules

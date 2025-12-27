@@ -123,8 +123,8 @@ Signal train_contents = train_station.train_contents;
 # Memory for state tracking
 Memory entity_counter: "signal-0";
 
-write(read(entity_counter) + 1, entity_counter, when=1);
-Signal counter_out = read(entity_counter);
+entity_counter.write(entity_counter.read() + 1);
+Signal counter_out = entity_counter.read();
 
 # Complex control logic
 Signal enable_production = (input_signal > 100) && (counter_out < 1000);

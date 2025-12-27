@@ -193,8 +193,8 @@ class IRBuilder:
         source_ast: Optional[ASTNode] = None,
     ) -> IR_MemWrite:
         """Write to a memory cell."""
-
-        op = IR_MemWrite(memory_id, data_signal, write_enable, source_ast)
+        node_id = self.next_id(f"mem_write_{memory_id}")
+        op = IR_MemWrite(node_id, memory_id, data_signal, write_enable, source_ast)
         self.add_operation(op)
         return op
 

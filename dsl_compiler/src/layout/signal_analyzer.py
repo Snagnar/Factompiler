@@ -82,7 +82,9 @@ class SignalAnalyzer:
         usage: Dict[str, SignalUsageEntry] = {}
 
         # Build a map from node_id to operation for quick lookup
-        op_by_id: Dict[str, IRNode] = {op.node_id: op for op in ir_operations}
+        # Store as instance variable for use in materialization decisions
+        self._op_by_id: Dict[str, IRNode] = {op.node_id: op for op in ir_operations}
+        op_by_id = self._op_by_id
 
         # Build alias map: source_id -> set of variable names that reference it
         # Skip entries whose producer has suppress_materialization (e.g., entity placeholders)
