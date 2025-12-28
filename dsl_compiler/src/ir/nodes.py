@@ -1,5 +1,6 @@
 from __future__ import annotations
 from abc import ABC
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Union
 from dsl_compiler.src.ast.statements import ASTNode
 
@@ -131,21 +132,80 @@ class IR_Arith(IRValue):
         )
 
 
+@dataclass
+class DeciderCondition:
+    """Single condition row in a decider combinator (Factorio 2.0 multi-condition support).
+
+    Represents one row in a decider combinator's condition block. Multiple conditions
+    can be combined with AND/OR logic using compare_type.
+
+    Wire filtering allows specifying which wire colors to read each signal from,
+    essential for latches where feedback and external signals must be separated.
+    """
+
+    comparator: str = ">"
+    """Comparison operator: =, !=, <, <=, >, >="""
+
+    first_signal: str = ""
+    """Left-hand signal name (e.g., 'signal-S')"""
+
+    first_constant: Optional[int] = None
+    """Left-hand constant value (alternative to first_signal)"""
+
+    first_signal_wires: Optional[Set[str]] = None
+    """Wire colors to read first_signal from: {'red'}, {'green'}, or None for both"""
+
+    second_signal: str = ""
+    """Right-hand signal name (e.g., 'signal-R')"""
+
+    second_constant: Optional[int] = None
+    """Right-hand constant value (alternative to second_signal)"""
+
+    second_signal_wires: Optional[Set[str]] = None
+    """Wire colors to read second_signal from: {'red'}, {'green'}, or None for both"""
+
+    compare_type: str = "or"
+    """How to combine with previous condition: 'or' or 'and'"""
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        left = self.first_signal or str(self.first_constant)
+        right = self.second_signal or str(self.second_constant)
+        return f"({left} {self.comparator} {right})"
+
+
 class IR_Decider(IRValue):
-    """Decider combinator operation."""
+    """Decider combinator operation.
+
+    Supports both single-condition mode (legacy) and multi-condition mode (Factorio 2.0).
+    When conditions list is non-empty, it takes precedence over the legacy fields.
+    """
 
     def __init__(
         self, node_id: str, output_type: str, source_ast: Optional[ASTNode] = None
     ) -> None:
         super().__init__(node_id, output_type, source_ast)
+        # Legacy single-condition fields (for backwards compatibility)
         self.test_op: str = "=="
         self.left: ValueRef = 0
         self.right: ValueRef = 0
         self.output_value: Union[ValueRef, int] = 1
         self.copy_count_from_input: bool = False
 
+        # Factorio 2.0 multi-condition support
+        self.conditions: List[DeciderCondition] = []
+        """List of conditions for multi-condition mode. If non-empty, overrides legacy fields."""
+
     def __str__(self) -> str:  # pragma: no cover - debug helper
         copy_mode = " COPY" if self.copy_count_from_input else ""
+        if self.conditions:
+            cond_str = " ".join(
+                f"{c.compare_type.upper()} {c}" if i > 0 else str(c)
+                for i, c in enumerate(self.conditions)
+            )
+            return (
+                f"IR_Decider({self.node_id}: {self.output_type} = "
+                f"if({cond_str}) then {self.output_value}{copy_mode})"
+            )
         return (
             "IR_Decider("
             f"{self.node_id}: {self.output_type} = if({self.left} {self.test_op} {self.right}) "
@@ -204,21 +264,36 @@ class IR_EntityPropRead(IRValue):
         )
 
 
+# Memory type constants
+MEMORY_TYPE_STANDARD = "standard"
+MEMORY_TYPE_RS_LATCH = "rs_latch"
+MEMORY_TYPE_SR_LATCH = "sr_latch"
+
+
 class IR_MemCreate(IREffect):
-    """Memory cell creation."""
+    """Memory cell creation.
+
+    Supports three memory types:
+    - standard: Write-gated latch (2 decider combinators)
+    - rs_latch: Reset-priority latch (1 decider, S > R condition)
+    - sr_latch: Set-priority latch / hysteresis (1 decider, multi-condition)
+    """
 
     def __init__(
         self,
         memory_id: str,
         signal_type: str,
         source_ast: Optional[ASTNode] = None,
+        memory_type: str = MEMORY_TYPE_STANDARD,
     ) -> None:
         super().__init__(f"mem_create_{memory_id}", source_ast)
         self.memory_id = memory_id
         self.signal_type = signal_type
+        self.memory_type = memory_type
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
-        return f"IR_MemCreate({self.memory_id}: {self.signal_type})"
+        type_suffix = f" ({self.memory_type})" if self.memory_type != MEMORY_TYPE_STANDARD else ""
+        return f"IR_MemCreate({self.memory_id}: {self.signal_type}{type_suffix})"
 
 
 class IR_MemWrite(IREffect):
@@ -226,19 +301,51 @@ class IR_MemWrite(IREffect):
 
     def __init__(
         self,
-        node_id: str,
         memory_id: str,
         data_signal: ValueRef,
         write_enable: ValueRef,
         source_ast: Optional[ASTNode] = None,
     ) -> None:
-        super().__init__(node_id, source_ast)
+        super().__init__(f"mem_write_{memory_id}", source_ast)
         self.memory_id = memory_id
         self.data_signal = data_signal
         self.write_enable = write_enable
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         return f"IR_MemWrite({self.memory_id} <- {self.data_signal} when {self.write_enable})"
+
+
+class IR_LatchWrite(IREffect):
+    """Latch write operation.
+
+    Creates a single-combinator latch with set/reset behavior:
+    - SR latch (set priority): condition S >= R, outputs when set >= reset
+    - RS latch (reset priority): condition S > R, outputs when set > reset
+
+    The latch_type field determines the priority:
+    - MEMORY_TYPE_SR_LATCH: set wins on tie (S >= R)
+    - MEMORY_TYPE_RS_LATCH: reset wins on tie (S > R)
+    """
+
+    def __init__(
+        self,
+        memory_id: str,
+        value: ValueRef,
+        set_signal: ValueRef,
+        reset_signal: ValueRef,
+        latch_type: str,  # MEMORY_TYPE_SR_LATCH or MEMORY_TYPE_RS_LATCH
+        source_ast: Optional[ASTNode] = None,
+    ) -> None:
+        super().__init__(f"latch_write_{memory_id}", source_ast)
+        self.memory_id = memory_id
+        self.value = value
+        self.set_signal = set_signal
+        self.reset_signal = reset_signal
+        self.latch_type = latch_type
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        priority = "SR" if self.latch_type == MEMORY_TYPE_SR_LATCH else "RS"
+        return f"IR_LatchWrite({self.memory_id} <- {self.value}, {priority}, set={self.set_signal}, reset={self.reset_signal})"
 
 
 class IR_PlaceEntity(IREffect):
@@ -288,12 +395,18 @@ __all__ = [
     "IREffect",
     "IR_Const",
     "IR_Arith",
+    "DeciderCondition",
     "IR_Decider",
     "IR_WireMerge",
     "IR_MemRead",
     "IR_EntityPropRead",
     "IR_MemCreate",
     "IR_MemWrite",
+    "IR_LatchWrite",
     "IR_PlaceEntity",
     "IR_EntityPropWrite",
+    # Memory type constants
+    "MEMORY_TYPE_STANDARD",
+    "MEMORY_TYPE_RS_LATCH",
+    "MEMORY_TYPE_SR_LATCH",
 ]

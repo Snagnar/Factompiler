@@ -27,6 +27,7 @@ from dsl_compiler.src.ir.builder import (
 from dsl_compiler.src.ir.nodes import (
     IR_EntityPropWrite,
     IR_EntityPropRead,
+    IR_LatchWrite,
 )
 
 
@@ -160,6 +161,8 @@ class EntityPlacer:
             self.memory_builder.handle_read(op, self.signal_graph)
         elif isinstance(op, IR_MemWrite):
             self.memory_builder.handle_write(op, self.signal_graph)
+        elif isinstance(op, IR_LatchWrite):
+            self.memory_builder.handle_latch_write(op, self.signal_graph)
         elif isinstance(op, IR_PlaceEntity):
             self._place_user_entity(op)
         elif isinstance(op, IR_EntityPropWrite):

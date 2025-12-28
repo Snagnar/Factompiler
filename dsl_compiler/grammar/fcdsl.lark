@@ -75,6 +75,8 @@ statement: decl_stmt ";"                    -> decl_stmt
 
 decl_stmt: type_name NAME "=" expr
 
+// Memory declaration with optional type annotation
+// Memory counter: "signal-A";
 mem_decl: MEMORY_KW NAME [":" STRING]
 
 type_name: INT_KW | SIGNAL_KW | SIGNALTYPE_KW | ENTITY_KW | BUNDLE_KW
@@ -88,6 +90,8 @@ expr_stmt: expr
 return_stmt: "return" expr
 
 import_stmt: "import" STRING ["as" NAME]
+
+
 
 // ---------------------------------
 // For loops
@@ -157,6 +161,7 @@ primary: literal
      | memory_read                          // mem.read() method
      | memory_write                         // mem.write(value) method
      | memory_write_when                    // mem.write(value, when=cond) method
+     | memory_latch_write                   // mem.write(value, set=s, reset=r) latch method
      | brace_literal                        // Either dict { k: v } or bundle { elem, elem }
      | call_expr                            // General function calls after specific forms
      | method_call
@@ -167,6 +172,17 @@ primary: literal
 memory_read: NAME "." "read" "(" ")"
 memory_write: NAME "." "write" "(" expr ")"
 memory_write_when: NAME "." "write" "(" expr "," WHEN_KW "=" expr ")"
+
+// Latch write: mem.write(value, set=s, reset=r) for SR latch (set priority)
+//              mem.write(value, reset=r, set=s) for RS latch (reset priority)
+// The ORDER of set/reset determines priority (first one wins in conflict)
+SET_KW: "set"
+RESET_KW: "reset"
+memory_latch_write: NAME "." "write" "(" expr "," latch_kwargs ")"
+
+// Two orderings for set/reset - order determines priority
+latch_kwargs: SET_KW "=" expr "," RESET_KW "=" expr    -> latch_set_reset
+            | RESET_KW "=" expr "," SET_KW "=" expr    -> latch_reset_set
 
 call_expr: NAME "(" [arglist] ")"
 method_call: NAME "." NAME "(" [arglist] ")"

@@ -95,7 +95,11 @@ ValueInfo = Union[SignalValue, IntValue, FunctionValue, EntityValue, VoidValue, 
 
 @dataclass
 class MemoryInfo:
-    """Type information captured for memory declarations."""
+    """Type information captured for memory declarations.
+    
+    The memory type (standard vs latch) is determined by how it's written to,
+    not by the declaration. This allows flexible usage of memory cells.
+    """
 
     name: str
     symbol: Any

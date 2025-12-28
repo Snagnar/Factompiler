@@ -56,13 +56,25 @@ class ReadExpr(Expr):
 
 
 class WriteExpr(Expr):
-    """write(value, memory_name, when=enable)"""
+    """Memory write expression.
+
+    Supports two modes:
+    - Standard write: write(value, when=enable) - write-gated latch
+    - Latch write: write(value, set=s, reset=r) - single combinator latch
+
+    For latch mode, set_priority determines the conflict resolution:
+    - True (SR latch): set wins when both conditions true
+    - False (RS latch): reset wins when both conditions true
+    """
 
     def __init__(
         self,
         value: "Expr",
         memory_name: str,
         when: Optional["Expr"] = None,
+        set_signal: Optional["Expr"] = None,
+        reset_signal: Optional["Expr"] = None,
+        set_priority: bool = True,  # True = SR (set priority), False = RS (reset priority)
         *,
         line: int = 0,
         column: int = 0,
@@ -71,6 +83,13 @@ class WriteExpr(Expr):
         self.value = value
         self.memory_name = memory_name
         self.when = when
+        self.set_signal = set_signal
+        self.reset_signal = reset_signal
+        self.set_priority = set_priority
+
+    def is_latch_write(self) -> bool:
+        """Returns True if this is a latch write (set/reset mode)."""
+        return self.set_signal is not None and self.reset_signal is not None
 
 
 class ProjectionExpr(Expr):

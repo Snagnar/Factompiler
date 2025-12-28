@@ -307,3 +307,4 @@ class StatementLowerer:
                               if k in saved_entity_refs_keys}
             self.parent.signal_refs = new_signal_refs
             self.parent.entity_refs = new_entity_refs
+

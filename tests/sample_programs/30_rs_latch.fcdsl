@@ -1,0 +1,27 @@
+# RS Latch (Reset-priority) test
+# When set > reset, output is 1
+# When reset >= set, output is 0
+# The order of arguments (reset= before set=) determines RS priority
+
+# External input signals (would come from circuit network)
+# Note: Set signal MUST match memory signal type for feedback to work
+Signal trigger_set = ("signal-S", 0);
+Signal trigger_reset = ("signal-R", 0);
+
+# Create a memory cell using signal-S (matches set signal type)
+# The latch output signal type MUST be the same as the set signal
+# for the self-feedback mechanism to work correctly
+Memory latch_state: "signal-S";
+
+# Configure as RS latch: reset=, set= order means reset has priority
+# When S > R, outputs S = 1 (the constant)
+# The green wire feedback carries S=1 back to input, maintaining latch state
+# Using value 42 will create a multiplier combinator (latch outputs 1, multiplier scales to 42)
+latch_state.write(42, reset=trigger_reset, set=trigger_set);
+
+# Read the current state - returns 0 or 42
+Signal current = latch_state.read();
+
+# Output on lamp for external use
+Entity lamp1 = place("small-lamp", 0, 0);
+lamp1.enable = current > 0;

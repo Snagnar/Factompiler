@@ -1,0 +1,14 @@
+# Minimal test for conditional memory writes
+# A counter increments every tick
+# A checkpoint memory only updates when counter is divisible by 4
+# Expected behavior: checkpoint holds values 0, 4, 8, 12, 16, ...
+
+Memory counter: "signal-A";
+Memory checkpoint: "signal-B";
+
+counter.write(counter.read() + 1);
+Signal condition = counter.read() % 4;
+checkpoint.write(checkpoint.read() + 1, when=condition == 0);
+
+Signal fast = counter.read();
+Signal slow = checkpoint.read();

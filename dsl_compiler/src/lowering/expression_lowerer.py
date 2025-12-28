@@ -77,6 +77,10 @@ class ExpressionLowerer:
     def diagnostics(self):
         return self.parent.diagnostics
 
+    def _error(self, message: str, node: Optional["ASTNode"] = None) -> None:
+        """Delegate error reporting to parent lowerer."""
+        self.parent._error(message, node)
+
     def _resolve_signal_type(
         self, type_ref: "str | SignalTypeAccess", expr: Expr
     ) -> Optional[str]:

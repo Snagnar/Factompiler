@@ -225,6 +225,135 @@ minimum.write(new_min);
 initialized.write(1, when=is_first);
 ```
 
+## SR/RS Latches (Binary State Memory)
+
+Sometimes you need memory that's either "on" or "off" – controlled by separate **set** and **reset** triggers. This is called a **latch** or **flip-flop**.
+
+Common use cases:
+- Hysteresis control (prevent rapid on/off cycling)
+- Alarm systems (stays on until manually reset)
+- State machines (track which mode you're in)
+
+### The Latch Write Syntax
+
+```fcdsl
+memory.write(value, set=set_condition, reset=reset_condition);
+```
+
+- **value**: What to output when the latch is ON (usually 1)
+- **set=**: Condition that turns the latch ON
+- **reset=**: Condition that turns the latch OFF
+
+**The order of `set=` and `reset=` matters!** It determines what happens when both conditions are true at the same time.
+
+### SR Latch (Set Priority)
+
+When you put `set=` **first**, the set condition wins ties:
+
+```fcdsl
+Memory state: "signal-S";
+state.write(1, set=turn_on, reset=turn_off);  # set= first → set priority
+```
+
+- If only `turn_on` is true → latch turns ON
+- If only `turn_off` is true → latch turns OFF  
+- If BOTH are true → latch **stays ON** (set wins)
+
+### RS Latch (Reset Priority)
+
+When you put `reset=` **first**, the reset condition wins ties:
+
+```fcdsl
+Memory state: "signal-S";
+state.write(1, reset=turn_off, set=turn_on);  # reset= first → reset priority
+```
+
+- If only `turn_on` is true → latch turns ON
+- If only `turn_off` is true → latch turns OFF
+- If BOTH are true → latch **stays OFF** (reset wins)
+
+> **[IMAGE PLACEHOLDER]**: Diagram comparing SR and RS latch behavior when both inputs are active.
+
+### Practical Example: Hysteresis Control
+
+**The Problem:** You want to turn on backup steam power when accumulators drop below 20%, and turn it off when they're above 80%. But if you just use a threshold, the power will flicker on and off rapidly right around 20%.
+
+**The Solution:** Use a latch to create **hysteresis** – a gap between the on and off thresholds.
+
+```fcdsl
+# Signal from accumulator (0-100%)
+Signal battery = ("signal-A", 0);  # Wire from accumulator
+
+# SR latch for steam power
+Memory steam_enabled: "signal-S";
+steam_enabled.write(1, 
+    set=battery < 20,     # Turn ON when battery drops below 20%
+    reset=battery >= 80   # Turn OFF when battery reaches 80%
+);
+
+# Control the power switch
+Entity steam_switch = place("power-switch", 0, 0);
+steam_switch.enable = steam_enabled.read() > 0;
+```
+
+**How it works:**
+1. Battery is at 100% → both conditions false → latch holds OFF
+2. Battery drains to 50% → both conditions false → latch holds OFF
+3. Battery drains to 19% → set triggers → latch turns ON, steam starts
+4. Steam power charges battery to 40% → both conditions false → **latch stays ON**
+5. Battery reaches 80% → reset triggers → latch turns OFF, steam stops
+6. Cycle repeats when battery drains again
+
+The latch "remembers" that steam is on, even as the battery level changes. This prevents the flickering that would happen with a simple threshold.
+
+> **[IMAGE PLACEHOLDER]**: Graph showing battery level over time, with hysteresis band between 20% and 80%, showing how steam turns on and off at the edges without flickering.
+
+### Choosing SR vs RS
+
+**Use SR (set priority) when "on" is the safe default:**
+- Emergency systems that should stay active
+- Alarms that shouldn't be silenced automatically
+- Production that shouldn't stop unexpectedly
+
+**Use RS (reset priority) when "off" is the safe default:**
+- Power systems that shouldn't run unnecessarily
+- Machines that could cause damage if left on
+- Cost-critical operations
+
+In the steam power example above, either works fine. SR means steam stays on in edge cases (wastes a bit of fuel), RS means steam stays off (slightly riskier for brownouts).
+
+### Output Values
+
+Latches can output any value, not just 1:
+
+```fcdsl
+# Binary output (most common)
+state.write(1, set=on_trigger, reset=off_trigger);
+
+# Custom value (adds a multiplier combinator)
+speed.write(100, set=fast_mode, reset=slow_mode);
+
+# Signal value (dynamic output)
+output.write(speed_setting, set=enabled, reset=disabled);
+```
+
+When you use a value other than 1, the compiler adds an extra combinator to scale the binary latch output.
+
+### Advanced: Signal Type Casting
+
+When your set/reset signals use different types than the memory, the compiler automatically handles the conversion:
+
+```fcdsl
+Memory pump_on: "signal-P";
+Signal button_s = ("signal-S", 0);  # Different type
+Signal button_r = ("signal-R", 0);  # Different type
+
+# Compiler automatically casts inputs to work with signal-P memory
+pump_on.write(1, set=button_s > 0, reset=button_r > 0);
+```
+
+This is handled transparently – you don't need to worry about the internal details.
+
 ## Multiple Memories
 
 You can declare as many memory cells as you need:
@@ -458,6 +587,10 @@ Signal output = average | "signal-output";
 - Declare with `Memory name: "type";`
 - Use `memory.read()` to get the current value
 - Use `memory.write(value)` or `memory.write(value, when=condition)` to store values
+- Use `memory.write(value, set=..., reset=...)` for **latches** (binary on/off state)
+  - `set=` first → SR latch (set priority)
+  - `reset=` first → RS latch (reset priority)
+- Latches are perfect for **hysteresis** control (like turn on at 20%, off at 80%)
 - All writes to a memory must use the same signal type
 - The `signal-W` signal is reserved for internal use
 - The compiler optimizes common patterns (counters, feedback loops)

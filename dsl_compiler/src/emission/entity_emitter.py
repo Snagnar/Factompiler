@@ -1,9 +1,10 @@
 from __future__ import annotations
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List, Set
 import copy
 from draftsman.classes.entity import Entity  # type: ignore[import-not-found]
 from draftsman.entity import new_entity  # type: ignore[import-not-found]
 from draftsman.entity import DeciderCombinator, ArithmeticCombinator, ConstantCombinator  # type: ignore[import-not-found]
+from draftsman.signatures import CircuitNetworkSelection  # type: ignore[import-not-found]
 from draftsman.data import items, fluids  # type: ignore[import-not-found]
 from dsl_compiler.src.layout.layout_plan import EntityPlacement
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
@@ -185,7 +186,19 @@ class PlanEntityEmitter:
     def _configure_decider(
         self, entity: DeciderCombinator, props: Dict[str, Any]
     ) -> None:
-        """Configure a decider combinator from placement properties."""
+        """Configure a decider combinator from placement properties.
+
+        Supports both legacy single-condition mode and Factorio 2.0 multi-condition mode.
+        Multi-condition mode is used when 'conditions' or 'multi_conditions' key is present in props.
+        """
+        # Check for multi-condition mode (Factorio 2.0)
+        # 'conditions' is from IR layer, 'multi_conditions' is from memory_builder for SR latches
+        conditions_list = props.get("conditions") or props.get("multi_conditions")
+        if conditions_list:
+            self._configure_decider_multi_condition(entity, props, conditions_list)
+            return
+
+        # Legacy single-condition mode
         operation = props.get("operation", "=")
         left_operand = props.get("left_operand")
         right_operand = props.get("right_operand")
@@ -221,6 +234,82 @@ class PlanEntityEmitter:
 
         entity.outputs = [DeciderCombinator.Output(**output_kwargs)]
 
+    def _configure_decider_multi_condition(
+        self,
+        entity: DeciderCombinator,
+        props: Dict[str, Any],
+        conditions_list: List[Dict[str, Any]],
+    ) -> None:
+        """Configure a decider combinator with multiple conditions (Factorio 2.0).
+
+        Each condition dict can have:
+        - comparator: Comparison operator (default: ">")
+        - first_signal: Left-hand signal name
+        - first_constant: Left-hand constant (alternative to first_signal)
+        - first_signal_wires: Set of wire colors to read first_signal from
+        - second_signal: Right-hand signal name
+        - second_constant: Right-hand constant (alternative to second_signal)
+        - second_signal_wires: Set of wire colors to read second_signal from
+        - compare_type: "or" or "and" (how to combine with previous condition)
+        """
+        draftsman_conditions = []
+
+        for cond in conditions_list:
+            cond_kwargs: Dict[str, Any] = {
+                "comparator": cond.get("comparator", ">"),
+                "compare_type": cond.get("compare_type", "or"),
+            }
+
+            # Handle first operand (left side)
+            first_signal = cond.get("first_signal")
+            first_constant = cond.get("first_constant")
+            first_wires = cond.get("first_signal_wires")
+
+            if first_signal:
+                cond_kwargs["first_signal"] = first_signal
+                if first_wires:
+                    cond_kwargs["first_signal_networks"] = self._wires_to_network_selection(first_wires)
+            elif first_constant is not None:
+                cond_kwargs["first_signal"] = "signal-0"
+                cond_kwargs["constant"] = first_constant
+
+            # Handle second operand (right side)
+            second_signal = cond.get("second_signal")
+            second_constant = cond.get("second_constant")
+            second_wires = cond.get("second_signal_wires")
+
+            if second_signal:
+                cond_kwargs["second_signal"] = second_signal
+                if second_wires:
+                    cond_kwargs["second_signal_networks"] = self._wires_to_network_selection(second_wires)
+            elif second_constant is not None:
+                cond_kwargs["constant"] = second_constant
+
+            draftsman_conditions.append(DeciderCombinator.Condition(**cond_kwargs))
+
+        entity.conditions = draftsman_conditions
+
+        # Configure output
+        output_signal = props.get("output_signal")
+        output_value = props.get("output_value", 1)
+        copy_count = props.get("copy_count_from_input", False)
+
+        output_kwargs: Dict[str, Any] = {
+            "signal": output_signal,
+            "copy_count_from_input": copy_count,
+        }
+        if not copy_count and isinstance(output_value, int):
+            output_kwargs["constant"] = output_value
+
+        entity.outputs = [DeciderCombinator.Output(**output_kwargs)]
+
+    def _wires_to_network_selection(self, wires: Set[str]) -> CircuitNetworkSelection:
+        """Convert a set of wire colors to a CircuitNetworkSelection."""
+        return CircuitNetworkSelection(
+            red="red" in wires,
+            green="green" in wires,
+        )
+
     def _configure_arithmetic(
         self, entity: ArithmeticCombinator, props: Dict[str, Any]
     ) -> None:
@@ -242,8 +331,9 @@ class PlanEntityEmitter:
         entity.operation = operation
         entity.output_signal = output_signal
 
-        entity.first_operand_wires = left_operand_wires
-        entity.second_operand_wires = right_operand_wires
+        # Convert wire sets to CircuitNetworkSelection
+        entity.first_operand_wires = self._wires_to_network_selection(left_operand_wires)
+        entity.second_operand_wires = self._wires_to_network_selection(right_operand_wires)
 
     def _configure_constant(
         self, entity: ConstantCombinator, props: Dict[str, Any]

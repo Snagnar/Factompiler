@@ -107,7 +107,7 @@ class DSLTransformer(Transformer):
         raise ValueError(f"Unexpected decl_stmt structure: {items}")
 
     def mem_decl(self, items) -> Statement:
-        """mem_decl: (Memory|mem) NAME [":" STRING]"""
+        """mem_decl: MEMORY_KW NAME [":" STRING]"""
         if not items:
             raise ValueError("mem_decl requires a name")
 
@@ -634,6 +634,43 @@ class DSLTransformer(Transformer):
         condition = self._unwrap_tree(items[3])
         write_node = WriteExpr(value=value, memory_name=memory_name, when=condition)
         return self._set_position(write_node, items[0])
+
+    def memory_latch_write(self, items) -> WriteExpr:
+        """memory_latch_write: NAME "." "write" "(" expr "," latch_kwargs ")"
+        
+        Items: [NAME, expr, (set_expr, reset_expr, set_priority)]
+        """
+        memory_name = str(items[0])
+        value = self._unwrap_tree(items[1])
+        set_expr, reset_expr, set_priority = items[2]
+        write_node = WriteExpr(
+            value=value,
+            memory_name=memory_name,
+            set_signal=set_expr,
+            reset_signal=reset_expr,
+            set_priority=set_priority,
+        )
+        return self._set_position(write_node, items[0])
+
+    def latch_set_reset(self, items) -> tuple:
+        """latch_kwargs: SET_KW "=" expr "," RESET_KW "=" expr -> latch_set_reset
+        
+        SR latch (set priority) - set comes first.
+        Items: [SET_KW, expr, RESET_KW, expr]
+        """
+        set_expr = self._unwrap_tree(items[1])
+        reset_expr = self._unwrap_tree(items[3])
+        return (set_expr, reset_expr, True)  # set_priority=True (SR latch)
+
+    def latch_reset_set(self, items) -> tuple:
+        """latch_kwargs: RESET_KW "=" expr "," SET_KW "=" expr -> latch_reset_set
+        
+        RS latch (reset priority) - reset comes first.
+        Items: [RESET_KW, expr, SET_KW, expr]
+        """
+        reset_expr = self._unwrap_tree(items[1])
+        set_expr = self._unwrap_tree(items[3])
+        return (set_expr, reset_expr, False)  # set_priority=False (RS latch)
 
     def arglist(self, items) -> List[Expr]:
         """arglist: expr ("," expr)*"""

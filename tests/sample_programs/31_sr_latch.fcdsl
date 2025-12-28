@@ -1,0 +1,29 @@
+# SR Latch (Set-priority) test
+# When set >= reset, output is 1
+# When reset > set, output is 0
+# The order of arguments (set= before reset=) determines SR priority
+
+# External input signals (would come from circuit network)
+# Note: Set signal MUST match memory signal type for feedback to work
+Signal trigger = ("signal-R", 0);
+Signal triggerr = ("signal-I", 0);
+Signal input = ("signal-I", 3000);
+
+# Create a memory cell using signal-S (matches set signal type)
+# The latch output signal type MUST be the same as the set signal
+# for the self-feedback mechanism to work correctly
+Memory latch_state: "signal-S";
+
+# Configure as SR latch: set=, reset= order means set has priority
+# When S >= R, outputs S = 1 (the constant)
+# The green wire feedback carries S=1 back to input, maintaining latch state
+latch_state.write(input | "signal-S", set=trigger, reset=triggerr);
+# latch_state.write(input | "signal-S", set=trigger < 30, reset=trigger > 70);
+
+# Read the current state
+Signal current = latch_state.read();
+
+
+# Output on lamp for external use
+Entity lamp1 = place("small-lamp", 0, 0);
+lamp1.enable = current > 0;

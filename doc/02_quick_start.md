@@ -181,6 +181,29 @@ inserter.enable = should_run;
 
 > **[IMAGE PLACEHOLDER]**: Screenshot showing an inserter connected to a chest via circuit wire.
 
+## Example: Smart Power Backup (Hysteresis)
+
+One of the most practical circuits: backup power that turns on when accumulators are low, and stays on until they're full – without flickering on and off.
+
+```fcdsl
+# steam_backup.fcdsl
+
+# Signal from accumulator (0-100%)
+Signal battery = ("signal-A", 0);  # Wire from your accumulator
+
+# Latch: turns ON when battery < 20%, OFF when battery >= 80%
+Memory steam_enabled: "signal-S";
+steam_enabled.write(1, set=battery < 20, reset=battery >= 80);
+
+# Control a power switch
+Entity steam_switch = place("power-switch", 0, 0);
+steam_switch.enable = steam_enabled.read() > 0;
+```
+
+This uses a **latch** – a special kind of memory that remembers its on/off state. The `set=` condition turns it on, and `reset=` turns it off. The gap between 20% and 80% prevents flickering.
+
+See [Memory](04_memory.md) for more on latches and hysteresis patterns.
+
 ## Useful Compiler Options
 
 ### See What's Happening (Debug Mode)
@@ -225,97 +248,30 @@ Outputs the raw blueprint JSON instead of the encoded string. Useful for debuggi
 
 ---
 
-## Frequently Asked Questions
+## Common Questions
 
-### General Questions
+**What version of Factorio does this work with?**
+Factompiler generates blueprints for Factorio 2.0 and later.
 
-**Q: What version of Factorio does this work with?**
+**What's the difference between `int` and `Signal`?**
+- `int` is a compile-time constant – just a number, no combinator created
+- `Signal` is a Factorio signal – creates a constant combinator outputting a value
 
-A: Factompiler generates blueprints compatible with Factorio 2.0 and later. Some entity features (like selector combinators) are 2.0-specific.
+**My circuit doesn't work when I paste it!**
+Check: (1) power pole nearby, (2) external signals wired in, (3) give it a tick to initialize.
 
-**Q: Can I use this with mods?**
+**The compiler says "signal-W is reserved"**
+`signal-W` is used internally for memory. Use a different signal.
 
-A: The compiler uses Factorio's base game entities. Modded entities are not directly supported, though you might be able to place them manually and wire them to compiled circuits.
-
-**Q: What file extension should I use?**
-
-A: We use `.fcdsl` (Factorio Circuit DSL), but any text file will work.
-
-### Troubleshooting
-
-**Q: I get "Unknown signal type" warnings**
-
-A: Make sure you're using valid Factorio signal names. Common ones include:
-- Virtual signals: `signal-A` through `signal-Z`, `signal-0` through `signal-9`
-- Item signals: `iron-plate`, `copper-plate`, `electronic-circuit`, etc.
-- Fluid signals: `water`, `petroleum-gas`, etc.
-
-**Q: My circuit doesn't work when I paste it**
-
-A: Check for:
-1. Power connections – place a power pole nearby
-2. Missing input signals – some examples assume you'll wire in external signals
-3. Tick timing – some circuits need a moment to initialize
-
-**Q: The compiler says "signal-W is reserved"**
-
-A: The signal `signal-W` is used internally for memory write-enable logic. Use a different signal name for your code.
-
-**Q: Why is my blueprint so large?**
-
-A: The compiler generates all necessary combinators. Complex expressions create more combinators. You can use `--no-optimize` to see the unoptimized output, but the optimized version is usually smaller.
-
-### Language Questions
-
-**Q: Can I use loops?**
-
-A: Yes! Factompiler supports `for` loops that are unrolled at compile time. This is perfect for creating arrays of entities:
+**Can I use loops?**
+Yes! `for` loops are unrolled at compile time:
 
 ```fcdsl
-# Create 5 lamps in a row
 for i in 0..5 {
     Entity lamp = place("small-lamp", i * 2, 0);
     lamp.enable = count > 0;
 }
 ```
-
-You can also use step values and list iteration:
-
-```fcdsl
-# Every other position
-for j in 0..10 step 2 {
-    Entity lamp = place("small-lamp", j, 0);
-}
-
-# Specific values
-for x in [1, 3, 7, 15] {
-    Entity lamp = place("small-lamp", x, 0);
-}
-```
-
-See [Signals and Types](03_signals_and_types.md) for full for loop documentation.
-
-**Q: What's the difference between `int` and `Signal`?**
-
-A: 
-- `int` is a plain compile-time number. It doesn't exist in the circuit.
-- `Signal` is a Factorio signal that flows through circuit networks.
-
-For example: `int count = 5` just means "5" wherever you use `count`. `Signal count = 5` creates a constant combinator outputting a signal with value 5.
-
-**Q: How do I make a signal wait for another signal?**
-
-A: Use memory with a conditional write:
-
-```fcdsl
-Memory buffer: "signal-A";
-buffer.write(input_signal, when=trigger > 0);
-Signal output = buffer.read();
-```
-
-**Q: Can I create multiple blueprints from one file?**
-
-A: Not currently. Each file compiles to one blueprint.
 
 ---
 
@@ -323,10 +279,10 @@ A: Not currently. Each file compiles to one blueprint.
 
 You've got the basics down! Here's where to go next:
 
-- **[Signals and Types](03_signals_and_types.md)** – Understand the type system and signal routing
-- **[Memory](04_memory.md)** – Build stateful circuits with counters, buffers, and state machines
-- **[Entities](05_entities.md)** – Control all kinds of Factorio entities
-- **[Functions](06_functions.md)** – Write reusable circuit components
+- **[Signals and Types](03_signals_and_types.md)** – Understand the type system, bundles, and for loops
+- **[Memory](04_memory.md)** – Counters, latches, hysteresis patterns
+- **[Entities](05_entities.md)** – Control lamps, inserters, trains, and more
+- **[Functions](06_functions.md)** – Reusable circuit components and imports
 
 ---
 

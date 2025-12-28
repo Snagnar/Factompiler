@@ -62,7 +62,12 @@ class AssignStmt(Statement):
 
 
 class MemDecl(Statement):
-    """Memory declaration: Memory name [: "signal-type"];"""
+    """Memory declaration: Memory name [: "signal-type"];
+
+    The memory type (standard vs latch) is determined by how it's written to:
+    - Standard write: mem.write(value, when=cond) - 2 decider latch
+    - Latch write: mem.write(value, set=s, reset=r) - 1 decider latch
+    """
 
     def __init__(
         self,
@@ -166,3 +171,5 @@ class ForStmt(Statement):
                 result.append(i)
                 i += step
         return result
+
+

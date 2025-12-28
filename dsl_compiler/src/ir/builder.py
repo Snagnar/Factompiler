@@ -18,6 +18,7 @@ from .nodes import (
     IR_MemWrite,
     IR_PlaceEntity,
     IR_WireMerge,
+    MEMORY_TYPE_STANDARD,
     SignalRef,
     BundleRef,
     ValueRef,
@@ -168,10 +169,11 @@ class IRBuilder:
         memory_id: str,
         signal_type: str,
         source_ast: Optional[ASTNode] = None,
+        memory_type: str = MEMORY_TYPE_STANDARD,
     ) -> None:
         """Create a memory cell declaration."""
 
-        op = IR_MemCreate(memory_id, signal_type, source_ast)
+        op = IR_MemCreate(memory_id, signal_type, source_ast, memory_type)
         self.add_operation(op)
 
     def memory_read(
@@ -192,9 +194,34 @@ class IRBuilder:
         write_enable: ValueRef,
         source_ast: Optional[ASTNode] = None,
     ) -> IR_MemWrite:
-        """Write to a memory cell."""
-        node_id = self.next_id(f"mem_write_{memory_id}")
-        op = IR_MemWrite(node_id, memory_id, data_signal, write_enable, source_ast)
+        """Write to a memory cell (standard write-gated latch)."""
+
+        op = IR_MemWrite(memory_id, data_signal, write_enable, source_ast)
+        self.add_operation(op)
+        return op
+
+    def latch_write(
+        self,
+        memory_id: str,
+        value: ValueRef,
+        set_signal: ValueRef,
+        reset_signal: ValueRef,
+        latch_type: str,
+        source_ast: Optional[ASTNode] = None,
+    ) -> Any:
+        """Write to a memory cell using latch mode (single combinator).
+        
+        Args:
+            memory_id: The memory cell ID
+            value: The value to output when latch is ON
+            set_signal: Signal that turns latch ON
+            reset_signal: Signal that turns latch OFF
+            latch_type: MEMORY_TYPE_SR_LATCH or MEMORY_TYPE_RS_LATCH
+            source_ast: Source AST node for diagnostics
+        """
+        from .nodes import IR_LatchWrite
+        
+        op = IR_LatchWrite(memory_id, value, set_signal, reset_signal, latch_type, source_ast)
         self.add_operation(op)
         return op
 

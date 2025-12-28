@@ -92,6 +92,9 @@ class SemanticAnalyzer(ASTVisitor):
         self.signal_debug_info: Dict[str, SignalDebugInfo] = {}
         self.memory_types: Dict[str, MemoryInfo] = {}
         self.expr_types: Dict[int, ValueInfo] = {}
+        
+        # Track memory cells that have been written to (only one write per memory allowed)
+        self._memory_write_locations: Dict[str, ASTNode] = {}
 
         self._analyzing_functions: set[str] = (
             set()
@@ -128,6 +131,42 @@ class SemanticAnalyzer(ASTVisitor):
     def allocate_implicit_type(self) -> SignalTypeInfo:
         """Allocate a new implicit virtual signal type."""
         return self.signal_registry.allocate_implicit_type()
+
+    def _get_memory_write_help(self) -> str:
+        """Return comprehensive help text about memory write syntax."""
+        return """
+Memory cells support three write modes:
+
+1. STANDARD WRITE (write-gated latch):
+   Memory mem: "signal-X";
+   mem.write(value);              // Unconditional write
+   mem.write(value, when=cond);   // Conditional write (when cond > 0)
+   
+   Creates a 2-combinator circuit: write-gate + hold-latch.
+   Value is written every tick while condition is true.
+
+2. RS LATCH (reset priority):
+   Memory mem: "signal-X";
+   mem.write(value, reset=r, set=s);   // Note: reset= FIRST
+   
+   Single decider combinator. Outputs value when S > R.
+   When both set and reset are active, reset wins (turns OFF).
+   The 'set=' and 'reset=' arguments must be signal expressions.
+
+3. SR LATCH (set priority):
+   Memory mem: "signal-X";  
+   mem.write(value, set=s, reset=r);   // Note: set= FIRST
+   
+   Single decider combinator with multi-condition.
+   When both set and reset are active, set wins (stays ON).
+   The 'set=' and 'reset=' arguments must be signal expressions.
+
+The order of set=/reset= determines priority:
+  - set= first → SR latch (set priority)
+  - reset= first → RS latch (reset priority)
+
+You cannot mix 'when=' with 'set=/reset=' arguments.
+"""
 
     def _resolve_physical_signal_name(self, signal_key: Optional[str]) -> Optional[str]:
         if not signal_key:
@@ -337,6 +376,41 @@ class SemanticAnalyzer(ASTVisitor):
         elif isinstance(expr, WriteExpr):
             value_type = self.get_expr_type(expr.value)
 
+            # Validate latch write arguments
+            if expr.is_latch_write():
+                set_type = self.get_expr_type(expr.set_signal)
+                reset_type = self.get_expr_type(expr.reset_signal)
+                
+                # Validate set signal is a signal expression
+                if not isinstance(set_type, SignalValue):
+                    self.diagnostics.error(
+                        f"Latch 'set=' argument must be a signal expression, got {type(set_type).__name__}. "
+                        f"Example: mem.write(1, set=trigger_signal, reset=clear_signal)"
+                        + self._get_memory_write_help(),
+                        stage="semantic",
+                        node=expr,
+                    )
+                
+                # Validate reset signal is a signal expression
+                if not isinstance(reset_type, SignalValue):
+                    self.diagnostics.error(
+                        f"Latch 'reset=' argument must be a signal expression, got {type(reset_type).__name__}. "
+                        f"Example: mem.write(1, set=trigger_signal, reset=clear_signal)"
+                        + self._get_memory_write_help(),
+                        stage="semantic",
+                        node=expr,
+                    )
+                
+                # Check for mixed arguments (when= with set=/reset=)
+                if expr.when is not None:
+                    self.diagnostics.error(
+                        "Cannot mix 'when=' with 'set=/reset=' arguments in memory write. "
+                        "Use 'when=' for conditional writes, OR 'set=/reset=' for latches, not both."
+                        + self._get_memory_write_help(),
+                        stage="semantic",
+                        node=expr,
+                    )
+
             if expr.when is not None:
                 enable_type = self.get_expr_type(expr.when)
             else:
@@ -363,6 +437,22 @@ class SemanticAnalyzer(ASTVisitor):
                     node=expr,
                 )
                 return SignalValue(signal_type=self.allocate_implicit_type())
+
+            # Check for multiple writes to the same memory within the same scope
+            # Use scope id + memory name as key to allow same-named memories in different scopes
+            scope_qualified_name = f"{id(self.current_scope)}:{expr.memory_name}"
+            if scope_qualified_name in self._memory_write_locations:
+                prev_node = self._memory_write_locations[scope_qualified_name]
+                prev_line = getattr(prev_node, 'line', '?')
+                self.diagnostics.error(
+                    f"Multiple writes to memory '{expr.memory_name}' not allowed. "
+                    f"Each memory cell can only have one write() call. "
+                    f"Previous write was at line {prev_line}.",
+                    stage="semantic",
+                    node=expr,
+                )
+            else:
+                self._memory_write_locations[scope_qualified_name] = expr
 
             if expr.when is not None and not isinstance(
                 enable_type, (SignalValue, IntValue)

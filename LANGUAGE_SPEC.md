@@ -815,6 +815,95 @@ The `when` parameter controls the `signal-W` write enable:
 
 If omitted, `when=1` (always write) is used as the default.
 
+### SR/RS Latches (Set/Reset Memory)
+
+For binary state control with explicit set and reset triggers, use the latch write syntax:
+
+```fcdsl
+memory.write(value, set=set_condition, reset=reset_condition);
+```
+
+**Parameters:**
+- `value`: The value to output when latched ON (typically 1, or any constant/signal)
+- `set=`: Condition that turns the latch ON
+- `reset=`: Condition that turns the latch OFF
+
+**Priority is determined by argument order:**
+- `set=..., reset=...` → **SR latch** (set priority: set wins ties)
+- `reset=..., set=...` → **RS latch** (reset priority: reset wins ties)
+
+#### RS Latch (Reset Priority)
+
+When both set AND reset are active simultaneously, the latch **resets** (outputs 0):
+
+```fcdsl
+Memory pump_on: "signal-P";
+Signal low_tank = tank_level < 20;
+Signal high_tank = tank_level >= 80;
+
+# RS latch: reset= comes first → reset priority
+pump_on.write(1, reset=high_tank, set=low_tank);
+
+Entity pump = place("pump", 0, 0);
+pump.enable = pump_on.read() > 0;
+```
+
+Uses single-condition decider: `Set > Reset`. Compiles to 1 combinator.
+
+#### SR Latch (Set Priority)
+
+When both set AND reset are active simultaneously, the latch **stays ON**:
+
+```fcdsl
+Memory pump_on: "signal-P";
+Signal low_tank = tank_level < 20;
+Signal high_tank = tank_level >= 80;
+
+# SR latch: set= comes first → set priority
+pump_on.write(1, set=low_tank, reset=high_tank);
+```
+
+Uses multi-condition decider with wire filtering. Compiles to 1 combinator.
+
+#### Hysteresis Control
+
+Latches are ideal for **hysteresis** – preventing rapid on/off cycling around a threshold.
+
+**Example: Backup Steam Power**
+
+Turn on steam generators when accumulators drop below 20%, keep running until they reach 80%:
+
+```fcdsl
+Signal accum = ("signal-A", 0);  # From accumulator
+Memory steam_on: "signal-S";
+
+steam_on.write(1, set=accum < 20, reset=accum >= 80);
+
+Entity steam_switch = place("power-switch", 0, 0);
+steam_switch.enable = steam_on.read() > 0;
+```
+
+The latch prevents flickering: once ON, it stays ON until the high threshold is reached.
+
+#### Output Values
+
+Latches output the specified value when ON, 0 when OFF:
+
+```fcdsl
+# Output 1 when latched (binary)
+pump.write(1, set=low, reset=high);
+
+# Output 100 when latched (adds a multiplier combinator)
+pump.write(100, set=low, reset=high);
+
+# Output a signal value when latched
+pump.write(speed_setting, set=low, reset=high);
+```
+
+**Implementation:**
+- `value=1` → 1 combinator (latch only)
+- `value≠1` → 2 combinators (latch + multiplier)
+
 ### Memory Implementation Details
 
 #### Write-Gated Latch Architecture (Standard)
