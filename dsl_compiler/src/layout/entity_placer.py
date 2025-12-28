@@ -270,7 +270,20 @@ class EntityPlacer:
         self._add_signal_sink(op.right, op.node_id)
 
     def _place_decider(self, op: IR_Decider) -> None:
-        """Place decider combinator."""
+        """Place decider combinator.
+        
+        Handles both single-condition mode (legacy) and multi-condition mode
+        (condition folding optimization or SR latches).
+        """
+        if op.conditions:
+            # Multi-condition mode
+            self._place_multi_condition_decider(op)
+        else:
+            # Legacy single-condition mode
+            self._place_single_condition_decider(op)
+
+    def _place_single_condition_decider(self, op: IR_Decider) -> None:
+        """Place a single-condition decider combinator (legacy mode)."""
         left_pos = self._get_placement_position(op.left)
         right_pos = self._get_placement_position(op.right)
         output_pos = self._get_placement_position(op.output_value)
@@ -311,6 +324,95 @@ class EntityPlacer:
         self.signal_graph.set_source(op.node_id, op.node_id)
         self._add_signal_sink(op.left, op.node_id)
         self._add_signal_sink(op.right, op.node_id)
+        if not isinstance(op.output_value, int):
+            self._add_signal_sink(op.output_value, op.node_id)
+
+    def _place_multi_condition_decider(self, op: IR_Decider) -> None:
+        """Place a multi-condition decider combinator.
+        
+        Handles conditions from:
+        1. IR-time construction (condition folding): Uses first_operand/second_operand ValueRefs
+        2. Layout-time construction (SR latches): Uses first_signal/second_signal strings
+        """
+        from dsl_compiler.src.ir.nodes import SignalRef
+        
+        # Track all input operands for signal graph
+        all_operands = []
+        
+        # Build conditions list for the placement properties
+        conditions_list = []
+        for cond in op.conditions:
+            cond_dict = {
+                "comparator": cond.comparator,
+                "compare_type": cond.compare_type,
+            }
+            
+            # Handle first operand - check ValueRef first, then string fallback
+            if cond.first_operand is not None:
+                # IR-time: ValueRef needs resolution
+                if isinstance(cond.first_operand, int):
+                    cond_dict["first_constant"] = cond.first_operand
+                else:
+                    first_op = self.signal_analyzer.get_operand_for_combinator(
+                        cond.first_operand
+                    )
+                    cond_dict["first_signal"] = first_op
+                    all_operands.append(cond.first_operand)
+            elif cond.first_signal:
+                # Layout-time: string already resolved
+                cond_dict["first_signal"] = cond.first_signal
+                if cond.first_signal_wires:
+                    cond_dict["first_signal_wires"] = cond.first_signal_wires
+            elif cond.first_constant is not None:
+                cond_dict["first_constant"] = cond.first_constant
+            
+            # Handle second operand
+            if cond.second_operand is not None:
+                # IR-time: ValueRef needs resolution
+                if isinstance(cond.second_operand, int):
+                    cond_dict["second_constant"] = cond.second_operand
+                else:
+                    second_op = self.signal_analyzer.get_operand_for_combinator(
+                        cond.second_operand
+                    )
+                    cond_dict["second_signal"] = second_op
+                    all_operands.append(cond.second_operand)
+            elif cond.second_signal:
+                # Layout-time: string already resolved
+                cond_dict["second_signal"] = cond.second_signal
+                if cond.second_signal_wires:
+                    cond_dict["second_signal_wires"] = cond.second_signal_wires
+            elif cond.second_constant is not None:
+                cond_dict["second_constant"] = cond.second_constant
+            
+            conditions_list.append(cond_dict)
+        
+        # Resolve output
+        usage = self.signal_usage.get(op.node_id)
+        output_signal = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
+        output_value = self.signal_analyzer.get_operand_for_combinator(op.output_value)
+        
+        self.plan.create_and_add_placement(
+            ir_node_id=op.node_id,
+            entity_type="decider-combinator",
+            position=None,
+            footprint=(1, 2),
+            role="decider",
+            debug_info=self._build_debug_info(op),
+            conditions=conditions_list,
+            output_signal=output_signal,
+            output_value=output_value,
+            copy_count_from_input=op.copy_count_from_input,
+        )
+        
+        # Signal graph: this node is source of its output
+        self.signal_graph.set_source(op.node_id, op.node_id)
+        
+        # All operands from conditions are sinks
+        for operand in all_operands:
+            self._add_signal_sink(operand, op.node_id)
+        
+        # Output value if it's a signal
         if not isinstance(op.output_value, int):
             self._add_signal_sink(op.output_value, op.node_id)
 

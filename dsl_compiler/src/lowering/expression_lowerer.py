@@ -246,6 +246,14 @@ class ExpressionLowerer:
                 self._attach_expr_context(result.source_id, expr)
                 return result
 
+        # CONDITION FOLDING OPTIMIZATION: Try to fold logical chains BEFORE
+        # lowering sub-expressions. This must happen early because once we lower
+        # sub-expressions, we've already created individual decider IR nodes.
+        if expr.op in LOGICAL_OPS:
+            folded_decider = self._try_fold_logical_chain(expr)
+            if folded_decider is not None:
+                return folded_decider
+
         # Not a constant expression, lower sub-expressions to IR
         left_ref = self.lower_expr(expr.left)
         right_ref = self.lower_expr(expr.right)
@@ -521,6 +529,129 @@ class ExpressionLowerer:
                     return self._is_boolean_producer(op.left)
 
         return False
+
+    # =========================================================================
+    # CONDITION FOLDING OPTIMIZATION
+    # =========================================================================
+    # These methods implement folding of logical AND/OR chains of simple
+    # comparisons into a single multi-condition decider combinator.
+    #
+    # Example: (a > 0) && (b < 10) becomes one decider with two conditions
+    # instead of three combinators (two deciders + one arithmetic multiplier).
+    # =========================================================================
+
+    def _try_fold_logical_chain(self, expr: BinaryOp) -> Optional[SignalRef]:
+        """Try to fold a logical AND/OR chain into a single multi-condition decider.
+
+        Returns a SignalRef if folding succeeded, None otherwise.
+        Folding succeeds when all operands in the chain are simple comparisons.
+        """
+        comparisons = self._collect_comparison_chain(expr, expr.op)
+        if not comparisons:
+            return None  # Can't fold, fall back to standard lowering
+
+        # All comparisons in the chain are foldable - proceed with optimization
+        combine_type = "and" if expr.op == "&&" else "or"
+        return self._create_folded_decider(comparisons, combine_type, expr)
+
+    def _collect_comparison_chain(
+        self, expr: Expr, logical_op: str
+    ) -> Optional[List[BinaryOp]]:
+        """Collect all simple comparisons in a logical chain.
+
+        For (a > 0) && (b > 0) && (c > 0), returns [a > 0, b > 0, c > 0].
+        Returns None if ANY operand is not a simple comparison (can't fold).
+
+        Args:
+            expr: The expression to analyze
+            logical_op: The logical operator we're chaining ("&&" or "||")
+
+        Returns:
+            List of comparison BinaryOp nodes, or None if chain can't be folded.
+        """
+        if isinstance(expr, BinaryOp) and expr.op == logical_op:
+            # Recursive case: nested logical op of same type
+            left_chain = self._collect_comparison_chain(expr.left, logical_op)
+            right_chain = self._collect_comparison_chain(expr.right, logical_op)
+
+            if left_chain is None or right_chain is None:
+                return None  # Mixed chain, can't fold
+            return left_chain + right_chain
+
+        elif isinstance(expr, BinaryOp) and expr.op in COMPARISON_OPS:
+            # Base case: simple comparison - check operands are simple
+            if self._is_simple_operand(expr.left) and self._is_simple_operand(
+                expr.right
+            ):
+                return [expr]
+
+        return None  # Not foldable
+
+    def _is_simple_operand(self, expr: Expr) -> bool:
+        """Check if an operand is simple enough to be in a multi-condition decider.
+
+        Simple operands can be lowered to a single signal reference or constant
+        without creating additional combinator logic. This includes:
+        - Number literals (5, 10, -3)
+        - Signal literals (("signal-A", 0))
+        - Identifiers referring to signals/ints (variable references)
+        - any(bundle) or all(bundle) function calls
+
+        Non-simple operands (arithmetic expressions, nested comparisons, etc.)
+        would require separate combinators and thus can't be folded.
+        """
+        if isinstance(expr, NumberLiteral):
+            return True
+        if isinstance(expr, SignalLiteral):
+            return True
+        if isinstance(expr, IdentifierExpr):
+            # Variable references are simple - they just reference existing signals
+            return True
+        if isinstance(expr, (BundleAnyExpr, BundleAllExpr)):
+            # any/all on bundles produce signal-anything/everything
+            return True
+        return False
+
+    def _create_folded_decider(
+        self, comparisons: List[BinaryOp], combine_type: str, expr: BinaryOp
+    ) -> SignalRef:
+        """Create a multi-condition decider from a list of comparison expressions.
+
+        Each comparison is a BinaryOp with op in COMPARISON_OPS.
+        We lower their operands individually and build a multi-condition IR node.
+
+        Args:
+            comparisons: List of comparison BinaryOp nodes to fold
+            combine_type: "and" or "or" for how to combine conditions
+            expr: Original logical expression (for type info and source location)
+
+        Returns:
+            SignalRef pointing to the folded decider's output
+        """
+        result_type = self.semantic.get_expr_type(expr)
+        output_type = (
+            get_signal_type_name(result_type) or self.ir_builder.allocate_implicit_type()
+        )
+
+        # Register the output signal type
+        self.parent.ensure_signal_registered(output_type)
+
+        conditions = []
+        for comp in comparisons:
+            # Lower each comparison's operands
+            left_ref = self.lower_expr(comp.left)
+            right_ref = self.lower_expr(comp.right)
+            conditions.append((comp.op, left_ref, right_ref))
+
+        result = self.ir_builder.decider_multi(
+            conditions=conditions,
+            combine_type=combine_type,
+            output_value=1,
+            output_type=output_type,
+            source_ast=expr,
+        )
+        self._attach_expr_context(result.source_id, expr)
+        return result
 
     def _fold_binary_constant(
         self, op: str, left: int, right: int, node: Expr

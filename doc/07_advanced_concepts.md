@@ -82,7 +82,35 @@ Only **one** arithmetic combinator is created, and all three variables reference
 - Same operands, same operator
 - Applied during IR generation
 
+### Condition Folding
+
+Logical chains of comparisons are folded into single multi-condition decider combinators:
+
+```fcdsl
+Signal a = ("signal-A", 0);
+Signal b = ("signal-B", 0);
+Signal c = ("signal-C", 0);
+
+# Before optimization: 2 deciders + 1 arithmetic combinator
+# After optimization: 1 multi-condition decider
+Signal result = (a > 5) && (b < 10) && (c == 3);
+```
+
+This takes advantage of Factorio 2.0's multi-condition decider combinators.
+
+**When condition folding applies:**
+- Two or more comparisons chained with `&&` (AND)
+- Two or more comparisons chained with `||` (OR)
+- Comparison operands are "simple" (signals or constants)
+- All comparisons use the same logical operator (all AND or all OR)
+
+**When it doesn't apply:**
+- Mixed `&&` and `||`: `(a > 0) && (b > 0) || (c > 0)`
+- Complex operands: `((a + b) > 0) && (c > 0)`
+- Non-comparison operands: `a && b` (booleanizes a and b separately)
+
 ### Constant Folding
+
 
 Arithmetic in literals is evaluated at compile time:
 
@@ -793,7 +821,7 @@ Compiled blueprints include combinators that need power:
 ## Summary
 
 - **Understand the pipeline** to predict compiler behavior
-- **Optimizations are automatic**: CSE, constant folding, wire merge
+- **Optimizations are automatic**: CSE, condition folding, constant folding, wire merge
 - **Wire colors** prevent signal collisions; memory uses red for data, green for control
 - **Design patterns**: edge detection, state machines, timers, multiplexers
 - **Bundle patterns**: parallel scaling, resource monitoring, threshold checking with `any()`/`all()`

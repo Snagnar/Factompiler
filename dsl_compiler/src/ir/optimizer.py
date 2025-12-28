@@ -92,6 +92,17 @@ class ConstantPropagationOptimizer:
                             changed = True
 
                 elif isinstance(op, IR_Decider):
+                    # Handle multi-condition deciders (from condition folding)
+                    if op.conditions:
+                        # Multi-condition deciders use ValueRef operands stored in conditions
+                        # Skip constant folding for now - these are more complex to evaluate
+                        # and the inputs are often runtime signals, not compile-time constants
+                        #
+                        # TODO: Could fold if ALL conditions can be evaluated at compile time,
+                        # but this is rare and the complexity isn't worth it for now.
+                        continue
+                    
+                    # Legacy single-condition mode
                     # Skip folding if any operand is user-declared
                     if self._is_user_declared_operand(op.left, const_map):
                         continue
@@ -339,6 +350,31 @@ class CSEOptimizer:
             return f"arith:{op.op}:{left_key}:{right_key}:{op.output_type}"
 
         if isinstance(op, IR_Decider):
+            # Multi-condition mode
+            if op.conditions:
+                cond_keys = []
+                for c in op.conditions:
+                    # Handle both ValueRef-based and string-based operands
+                    if c.first_operand is not None:
+                        first_key = self._value_key(c.first_operand)
+                    elif c.first_signal:
+                        first_key = f"str:{c.first_signal}"
+                    else:
+                        first_key = f"int:{c.first_constant}"
+                    
+                    if c.second_operand is not None:
+                        second_key = self._value_key(c.second_operand)
+                    elif c.second_signal:
+                        second_key = f"str:{c.second_signal}"
+                    else:
+                        second_key = f"int:{c.second_constant}"
+                    
+                    cond_keys.append(f"{c.comparator}:{first_key}:{second_key}:{c.compare_type}")
+                
+                output_key = self._value_key(op.output_value)
+                return f"decider_multi:{':'.join(cond_keys)}:{output_key}:{op.output_type}"
+            
+            # Legacy single-condition mode
             left_key = self._value_key(op.left)
             right_key = self._value_key(op.right)
             output_key = self._value_key(op.output_value)
@@ -372,9 +408,16 @@ class CSEOptimizer:
                 op.left = self._update_value(op.left)
                 op.right = self._update_value(op.right)
             elif isinstance(op, IR_Decider):
+                # Update legacy single-condition fields
                 op.left = self._update_value(op.left)
                 op.right = self._update_value(op.right)
                 op.output_value = self._update_value(op.output_value)
+                # Update multi-condition operands
+                for cond in op.conditions:
+                    if cond.first_operand is not None:
+                        cond.first_operand = self._update_value(cond.first_operand)
+                    if cond.second_operand is not None:
+                        cond.second_operand = self._update_value(cond.second_operand)
             elif isinstance(op, IR_MemWrite):
                 op.data_signal = self._update_value(op.data_signal)
                 op.write_enable = self._update_value(op.write_enable)

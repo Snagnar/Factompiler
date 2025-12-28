@@ -1389,6 +1389,33 @@ Signal y = a + b;  # Reuses x's combinator
 
 The IR optimizer detects that both expressions are identical and makes `y` reference `x`'s output instead of creating a duplicate combinator.
 
+### Condition Folding
+
+Logical AND/OR chains of comparisons are folded into a single multi-condition decider combinator:
+
+```fcdsl
+Signal a = ("signal-A", 0);
+Signal b = ("signal-B", 0);
+Signal c = ("signal-C", 0);
+
+# Without optimization: 2 deciders + 1 arithmetic = 3 combinators
+# With optimization: 1 multi-condition decider
+Signal result = (a > 5) && (b < 10) && (c == 3);
+```
+
+**Foldable patterns:**
+- Two or more comparisons chained with `&&` (AND)
+- Two or more comparisons chained with `||` (OR)
+- Signal vs constant comparisons (`a > 5`)
+- Signal vs signal comparisons (`a > b`)
+
+**Non-foldable patterns (use traditional lowering):**
+- Mixed `&&` and `||` operators: `(a > 0) && (b > 0) || (c > 0)`
+- Complex operands requiring computation: `((a + b) > 0) && (c > 0)`
+- Non-comparison operands: `a && b` (where `a` and `b` are signals)
+
+This optimization takes advantage of Factorio 2.0's multi-condition decider combinators, which can evaluate up to 8 conditions in a single entity.
+
 ### Wire Merge Optimization
 
 When adding **simple sources** (constants, entity outputs, other wire merges) on the same channel, the compiler skips creating an arithmetic combinator and wires them directly:

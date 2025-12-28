@@ -22,6 +22,7 @@ from .nodes import (
     SignalRef,
     BundleRef,
     ValueRef,
+    DeciderCondition,
 )
 
 
@@ -146,6 +147,51 @@ class IRBuilder:
         decider_op.right = right
         decider_op.output_value = output_value
         decider_op.copy_count_from_input = copy_count_from_input
+        self.add_operation(decider_op)
+        return SignalRef(output_type, node_id, source_ast=source_ast)
+
+    def decider_multi(
+        self,
+        conditions: List[tuple],
+        combine_type: str,
+        output_value: Union[ValueRef, int],
+        output_type: str,
+        source_ast: Optional[ASTNode] = None,
+        copy_count_from_input: bool = False,
+    ) -> SignalRef:
+        """Create a multi-condition decider combinator.
+
+        This is used for condition folding optimization where multiple comparisons
+        in a logical AND/OR chain are combined into a single decider.
+
+        Args:
+            conditions: List of (comparator, left_operand, right_operand) tuples.
+                       Each tuple represents one condition row.
+            combine_type: How conditions are combined ("and" or "or").
+                         All conditions use the same combine type.
+            output_value: Value to output when combined condition is true.
+            output_type: Signal type for output.
+            source_ast: Source AST node for debugging.
+            copy_count_from_input: If True, copy signal value instead of constant.
+
+        Returns:
+            SignalRef pointing to the output of this decider.
+        """
+        node_id = self.next_id("decider")
+        decider_op = IR_Decider(node_id, output_type, source_ast)
+        decider_op.output_value = output_value
+        decider_op.copy_count_from_input = copy_count_from_input
+
+        for i, (comparator, left, right) in enumerate(conditions):
+            cond = DeciderCondition(
+                comparator=comparator,
+                # First condition's compare_type is ignored by Factorio
+                compare_type=combine_type if i > 0 else "or",
+                first_operand=left,
+                second_operand=right,
+            )
+            decider_op.conditions.append(cond)
+
         self.add_operation(decider_op)
         return SignalRef(output_type, node_id, source_ast=source_ast)
 

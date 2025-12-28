@@ -1,0 +1,8 @@
+# Test 0: Wire separation behavior
+# Tests: Multiple connections to the same signal, wire separation
+
+Signal input1 = 50 | "signal-A";
+Signal input2 = 30 | "signal-B";
+Signal input3 = 20 | "signal-C";
+
+Signal total_A = (input1 == 50) && (input2 == 30) && (input3 == 20);

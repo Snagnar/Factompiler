@@ -1,0 +1,80 @@
+# Condition Folding Test Program
+# Tests the optimization that folds multiple comparisons into one decider combinator
+
+# ============================================================================
+# SECTION 1: Basic AND folding
+# ============================================================================
+
+# Test 1: Simple AND of two comparisons - should be 1 decider
+Signal a = ("signal-A", 1);
+Signal b = ("signal-B", 1);
+Signal and_two = (a > 0) && (b > 0);
+
+# Test 2: AND of three comparisons - should be 1 decider with 3 conditions
+Signal c = ("signal-C", 1);
+Signal and_three = (a > 0) && (b > 0) && (c > 0);
+
+# Test 3: AND with different comparison operators
+Signal and_mixed_ops = (a > 5) && (b < 10) && (c == 3);
+
+# ============================================================================
+# SECTION 2: Basic OR folding
+# ============================================================================
+
+# Test 4: Simple OR of two comparisons - should be 1 decider
+Signal or_two = (a > 0) || (b > 0);
+
+# Test 5: OR of three comparisons - should be 1 decider with 3 conditions
+Signal or_three = (a > 0) || (b > 0) || (c > 0);
+
+# ============================================================================
+# SECTION 3: Signal vs Signal comparisons
+# ============================================================================
+
+# Test 6: Signal vs Signal in AND
+Signal sig_vs_sig_and = (a > b) && (b < c);
+
+# Test 7: Signal vs Signal in OR
+Signal sig_vs_sig_or = (a == b) || (b != c);
+
+# ============================================================================
+# SECTION 4: Non-foldable cases (should fall back to old behavior)
+# ============================================================================
+
+# Test 8: Non-comparison operand - can't fold
+# This should use the != 0 booleanization approach
+Signal x = ("signal-X", 5);
+Signal y = ("signal-Y", 3);
+Signal non_fold_and = x && y;  # x and y are signals, not comparisons
+
+# Test 9: Non-comparison operand in OR
+Signal non_fold_or = x || y;
+
+# ============================================================================
+# SECTION 5: Complex operands (arithmetic in comparison)
+# ============================================================================
+
+# Test 10: Arithmetic in comparison - should NOT fold (operands not simple)
+# (a + b) is not a simple operand
+Signal complex_left = ((a + b) > 0) && (c > 0);
+
+# ============================================================================
+# SECTION 6: Mixed AND/OR (should NOT fold)
+# ============================================================================
+
+# Test 11: Mixed AND and OR - can't fold, different logical operators
+Signal mixed_logic = (a > 0) && (b > 0) || (c > 0);
+
+# ============================================================================
+# SECTION 7: Verification with lamps
+# ============================================================================
+
+int lamp_y = -5;
+
+# Verify AND folding works correctly
+Entity lamp_and = place("small-lamp", 0, lamp_y);
+lamp_and.enable = and_two > 0;
+
+# Verify OR folding works correctly
+Entity lamp_or = place("small-lamp", 2, lamp_y);
+lamp_or.enable = or_two > 0;

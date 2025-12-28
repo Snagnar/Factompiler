@@ -141,13 +141,19 @@ class DeciderCondition:
 
     Wire filtering allows specifying which wire colors to read each signal from,
     essential for latches where feedback and external signals must be separated.
+    
+    Supports two modes:
+    1. String-based (layout-time): Uses first_signal/second_signal strings.
+       Used by memory_builder for SR latches where signal names are known.
+    2. ValueRef-based (IR-time): Uses first_operand/second_operand ValueRefs.
+       Used by condition folding optimization during lowering.
     """
 
     comparator: str = ">"
     """Comparison operator: =, !=, <, <=, >, >="""
 
     first_signal: str = ""
-    """Left-hand signal name (e.g., 'signal-S')"""
+    """Left-hand signal name (e.g., 'signal-S') - for layout-time construction"""
 
     first_constant: Optional[int] = None
     """Left-hand constant value (alternative to first_signal)"""
@@ -156,7 +162,7 @@ class DeciderCondition:
     """Wire colors to read first_signal from: {'red'}, {'green'}, or None for both"""
 
     second_signal: str = ""
-    """Right-hand signal name (e.g., 'signal-R')"""
+    """Right-hand signal name (e.g., 'signal-R') - for layout-time construction"""
 
     second_constant: Optional[int] = None
     """Right-hand constant value (alternative to second_signal)"""
@@ -166,10 +172,24 @@ class DeciderCondition:
 
     compare_type: str = "or"
     """How to combine with previous condition: 'or' or 'and'"""
+    
+    # ValueRef-based operands for IR-time construction (condition folding)
+    # When set, these take precedence over string-based operands
+    first_operand: Optional[Any] = None  # ValueRef - uses Any to avoid circular import
+    """Left operand as ValueRef - for IR-time construction. Takes precedence over first_signal."""
+    
+    second_operand: Optional[Any] = None  # ValueRef - uses Any to avoid circular import
+    """Right operand as ValueRef - for IR-time construction. Takes precedence over second_signal."""
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
-        left = self.first_signal or str(self.first_constant)
-        right = self.second_signal or str(self.second_constant)
+        if self.first_operand is not None:
+            left = str(self.first_operand)
+        else:
+            left = self.first_signal or str(self.first_constant)
+        if self.second_operand is not None:
+            right = str(self.second_operand)
+        else:
+            right = self.second_signal or str(self.second_constant)
         return f"({left} {self.comparator} {right})"
 
 
