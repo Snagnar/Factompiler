@@ -12,3 +12,9 @@ checkpoint.write(checkpoint.read() + 1, when=condition == 0);
 
 Signal fast = counter.read();
 Signal slow = checkpoint.read();
+
+Entity lamp1 = place("small-lamp", 0, 0);
+lamp1.enable = fast % 2 == 0;
+
+Entity lamp2 = place("small-lamp", 0, 4);
+lamp2.enable = slow % 2 == 0;

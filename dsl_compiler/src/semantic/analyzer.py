@@ -20,6 +20,7 @@ from dsl_compiler.src.ast.expressions import (
     BundleAnyExpr,
     BundleAllExpr,
     SignalTypeAccess,
+    EntityOutputExpr,
 )
 from dsl_compiler.src.ast.literals import (
     DictLiteral,
@@ -56,6 +57,7 @@ from dsl_compiler.src.common.source_location import (
 from .symbol_table import SymbolTable, Symbol, SymbolType, SemanticError
 from .type_system import (
     BundleValue,
+    DynamicBundleValue,
     EntityValue,
     FunctionValue,
     IntValue,
@@ -613,7 +615,8 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 return SignalValue(signal_type=signal_type, count_expr=expr.value)
             else:
                 if isinstance(expr.value, NumberLiteral):
-                    return IntValue()
+                    # Preserve the literal value for compile-time constant propagation
+                    return IntValue(value=expr.value.value)
                 else:
                     signal_type = self.allocate_implicit_type()
                     return SignalValue(signal_type=signal_type, count_expr=expr.value)
@@ -678,6 +681,9 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
         elif isinstance(expr, BundleAllExpr):
             return self._infer_bundle_all_type(expr)
+
+        elif isinstance(expr, EntityOutputExpr):
+            return self._infer_entity_output_type(expr)
 
         else:
             self.diagnostics.error(
@@ -1282,14 +1288,35 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
         return VoidValue()
 
+    def _resolve_for_loop_constant(self, name: str) -> int:
+        """Resolve a variable name to its compile-time constant integer value.
+        
+        Used for resolving for loop range bounds that use variable references.
+        """
+        symbol = self.current_scope.lookup(name)
+        if symbol is None:
+            raise ValueError(f"Variable '{name}' is not defined")
+        if not isinstance(symbol.value_type, IntValue):
+            raise ValueError(
+                f"Variable '{name}' must be an int for use in for loop range, "
+                f"got {type(symbol.value_type).__name__}"
+            )
+        if symbol.value_type.value is None:
+            raise ValueError(
+                f"Variable '{name}' must have a compile-time constant value "
+                f"for use in for loop range"
+            )
+        return symbol.value_type.value
+
     def visit_ForStmt(self, node: ForStmt) -> None:
         """Analyze a for loop statement.
         
         For loops are compile-time constructs that get unrolled.
         The iterator variable is an immutable int with a known literal value.
         """
-        # Validate step is not zero for range iterators
-        if node.step is not None and node.step == 0:
+        # Validate step is not zero for range iterators  
+        # (only check if step is a literal int, not a variable)
+        if node.step is not None and isinstance(node.step, int) and node.step == 0:
             self.diagnostics.error(
                 "For loop step cannot be zero",
                 stage="semantic",
@@ -1297,8 +1324,10 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             )
             return
 
-        # Get all iteration values
-        iteration_values = node.get_iteration_values()
+        # Get all iteration values with constant resolver
+        iteration_values = node.get_iteration_values(
+            constant_resolver=self._resolve_for_loop_constant
+        )
 
         # For each iteration, create a new scope and analyze the body
         for value in iteration_values:
@@ -1544,6 +1573,12 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             )
             return SignalValue(signal_type=self.allocate_implicit_type())
 
+        # For dynamic bundles (e.g., entity.output), we can't validate signal types
+        # at compile time - they're determined at runtime
+        if isinstance(bundle_type, DynamicBundleValue):
+            signal_type_info = self.make_signal_type_info(expr.signal_type)
+            return SignalValue(signal_type=signal_type_info)
+
         if expr.signal_type not in bundle_type.signal_types:
             available = ", ".join(sorted(bundle_type.signal_types)) or "(empty bundle)"
             self.diagnostics.error(
@@ -1593,6 +1628,35 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
         # all() returns a signal for use in comparisons
         return SignalValue(signal_type=self.allocate_implicit_type())
+
+    def _infer_entity_output_type(self, expr: EntityOutputExpr) -> DynamicBundleValue:
+        """Infer type for entity.output expression.
+        
+        Returns DynamicBundleValue since the actual signals depend on runtime state
+        (e.g., chest contents, train cargo).
+        """
+        entity_name = expr.entity_name
+        
+        # Look up the entity in the symbol table
+        symbol = self.current_scope.lookup(entity_name)
+        if symbol is None:
+            self.diagnostics.error(
+                f"Unknown entity '{entity_name}' in .output expression",
+                stage="semantic",
+                node=expr,
+            )
+            return DynamicBundleValue(source_entity_id=entity_name)
+        
+        if symbol.symbol_type != SymbolType.ENTITY:
+            self.diagnostics.error(
+                f"'{entity_name}' is not an entity; cannot access .output property",
+                stage="semantic",
+                node=expr,
+            )
+            return DynamicBundleValue(source_entity_id=entity_name)
+        
+        # Return a DynamicBundleValue - signal types are determined at runtime
+        return DynamicBundleValue(source_entity_id=entity_name)
 
     def generic_visit(self, node: ASTNode) -> Any:
         """Default visitor - traverse children."""

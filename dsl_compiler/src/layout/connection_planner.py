@@ -3,7 +3,7 @@ import math
 from dataclasses import dataclass, field
 from collections import Counter
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
-from dsl_compiler.src.ir.builder import SignalRef
+from dsl_compiler.src.ir.builder import SignalRef, BundleRef
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.common.constants import CompilerConfig, DEFAULT_CONFIG
 from .tile_grid import TileGrid
@@ -615,6 +615,7 @@ class ConnectionPlanner:
         entities: Dict[str, Any],
         wire_merge_junctions: Optional[Dict[str, Any]] = None,
         locked_colors: Optional[Dict[Tuple[str, str], str]] = None,
+        merge_membership: Optional[Dict[str, set]] = None,
     ) -> None:
         """Compute all wire connections with color assignments."""
         self._register_power_poles_as_relays()
@@ -632,19 +633,8 @@ class ConnectionPlanner:
 
         base_edges = collect_circuit_edges(signal_graph, self.signal_usage, entities)
         expanded_edges = self._expand_merge_edges(
-            base_edges, wire_merge_junctions, entities
+            base_edges, wire_merge_junctions, entities, signal_graph
         )
-
-        wire_merge_sinks = set()
-        if wire_merge_junctions:
-            for _, merge_info in wire_merge_junctions.items():
-                for edge in expanded_edges:
-                    if edge.source_entity_id in [
-                        ref.source_id
-                        for ref in merge_info.get("inputs", [])
-                        if hasattr(ref, "source_id")
-                    ]:
-                        wire_merge_sinks.add(edge.sink_entity_id)
 
         filtered_edges = []
         for edge in expanded_edges:
@@ -681,39 +671,48 @@ class ConnectionPlanner:
                 f"({len(non_feedback_edges)} edges remaining)"
             )
 
-        # Wire merge inputs intentionally combine the same signal on the same wire
-        non_merge_edges = [
-            edge
-            for edge in non_feedback_edges
-            if edge.sink_entity_id not in wire_merge_sinks
-        ]
+        # Compute edge-level locked colors for sources that participate in multiple merges
+        # This ensures that edges from the same source to different merge chains use different colors
+        edge_locked_colors = self._compute_edge_locked_colors(
+            non_feedback_edges, merge_membership or {}, signal_graph
+        )
+        
+        # Combine with caller-provided locked colors
+        all_locked_colors = dict(locked_colors or {})
+        all_locked_colors.update(edge_locked_colors)
 
-        if len(non_feedback_edges) != len(non_merge_edges):
-            self.diagnostics.info(
-                f"Filtered {len(non_feedback_edges) - len(non_merge_edges)} wire merge edges from wire coloring "
-                f"({len(non_merge_edges)} edges remaining for conflict resolution)"
-            )
-
-        coloring_result = plan_wire_colors(non_merge_edges, locked_colors)
+        coloring_result = plan_wire_colors(non_feedback_edges, all_locked_colors)
         self._node_color_assignments = coloring_result.assignments
         self._coloring_conflicts = coloring_result.conflicts
         self._coloring_success = coloring_result.is_bipartite
 
+        # Build edge-level color map
+        # First, use node-level assignments as default, then apply edge-level overrides
         edge_color_map: Dict[Tuple[str, str, str], str] = {}
-        for edge in non_merge_edges:
+        for edge in non_feedback_edges:
             if not edge.source_entity_id:
                 continue
+            
+            edge_key = (edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name)
+            
+            # Check for edge-level locked color first (based on merge origin)
+            if edge.originating_merge_id:
+                # Use (source, merge_id) as key for edge-level locks
+                edge_lock_key = (edge.source_entity_id, edge.originating_merge_id)
+                if edge_lock_key in edge_locked_colors:
+                    edge_color_map[edge_key] = edge_locked_colors[edge_lock_key]
+                    continue
+            
+            # Fall back to node-level assignment
             node_key = (edge.source_entity_id, edge.resolved_signal_name)
             color = self._node_color_assignments.get(node_key, WIRE_COLORS[0])
-            edge_color_map[
-                (edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name)
-            ] = color
+            edge_color_map[edge_key] = color
 
         self._edge_color_map = edge_color_map
 
         # Compute network IDs for relay isolation
         # Edges in the same connected component (per wire color) can share relays
-        self._compute_network_ids(non_merge_edges)
+        self._compute_network_ids(non_feedback_edges)
 
         self._log_color_summary()
         self._log_unresolved_conflicts()
@@ -755,11 +754,141 @@ class ConnectionPlanner:
         edge_key = (source_entity_id, sink_entity_id, signal_name)
         return self._edge_network_ids.get(edge_key, 0)
 
+    def _compute_edge_locked_colors(
+        self,
+        edges: Sequence[CircuitEdge],
+        merge_membership: Dict[str, set],
+        signal_graph: Any = None,
+    ) -> Dict[Tuple[str, str], str]:
+        """Compute edge-level locked colors for sources participating in multiple merges.
+        
+        When a source entity participates in multiple independent merges, the edges
+        from that source to different merge chains need to use different wire colors
+        to keep the networks separated - BUT only when those different paths would
+        arrive at the SAME final entity.
+        
+        For example, in a balanced loader:
+        - Chest1 output participates in both 'total' merge (all chests → combinator)
+          and 'input1' merge (chest1 + neg_avg → inserter1)
+        - Chest1's signal arrives at inserter1 via two paths:
+          1. chest1 → combinator → inserter1 (computes negative average)
+          2. chest1 → inserter1 (direct individual content)
+        - These paths MUST use different colors to prevent double-counting
+        
+        But for the combinator output:
+        - It participates in merge_65..merge_70 (6 inserter input merges)
+        - Each goes to a DIFFERENT inserter - no shared destination
+        - Same color is fine for all (no conflict)
+        
+        Args:
+            edges: All circuit edges after merge expansion
+            merge_membership: Maps source_id -> set of merge_ids the source belongs to
+            signal_graph: Signal graph for resolving IR node IDs to entity IDs
+            
+        Returns:
+            Dict mapping (actual_entity_id, merge_id) -> wire color
+        """
+        locked: Dict[Tuple[str, str], str] = {}
+        
+        # Build a reverse map: for each edge, map (source_entity, merge_id) to edges
+        edge_source_merges: Dict[Tuple[str, str], List[CircuitEdge]] = {}
+        for edge in edges:
+            if edge.originating_merge_id and edge.source_entity_id:
+                key = (edge.source_entity_id, edge.originating_merge_id)
+                edge_source_merges.setdefault(key, []).append(edge)
+        
+        # Build map of merge_id -> set of source entity IDs (to detect transitive conflicts)
+        merge_to_sources: Dict[str, set] = {}
+        for edge in edges:
+            if edge.originating_merge_id and edge.source_entity_id:
+                merge_to_sources.setdefault(edge.originating_merge_id, set()).add(
+                    edge.source_entity_id
+                )
+        
+        # Build map of merge_id -> set of sink entity IDs
+        merge_to_sinks: Dict[str, set] = {}
+        for edge in edges:
+            if edge.originating_merge_id:
+                merge_to_sinks.setdefault(edge.originating_merge_id, set()).add(
+                    edge.sink_entity_id
+                )
+        
+        # Find sources that participate in multiple merges
+        for source_id, merge_ids in merge_membership.items():
+            if len(merge_ids) <= 1:
+                continue
+            
+            # Resolve the source_id (which might be an IR node ID like entity_output_ir_43)
+            # to the actual entity ID (like entity_ir_31)
+            actual_source_id = source_id
+            if signal_graph is not None:
+                resolved = signal_graph.get_source(source_id)
+                if resolved:
+                    actual_source_id = resolved
+            
+            # Find which merges this source has edges for
+            source_merge_edges: Dict[str, List[CircuitEdge]] = {}
+            for merge_id in merge_ids:
+                key = (actual_source_id, merge_id)
+                if key in edge_source_merges:
+                    source_merge_edges[merge_id] = edge_source_merges[key]
+            
+            if len(source_merge_edges) <= 1:
+                continue
+            
+            # Check for transitive conflict:
+            # If one merge's sink is a source in another merge, there's a path conflict
+            # This means the source's signal can arrive at a final entity via two paths
+            merge_list = sorted(source_merge_edges.keys())
+            has_conflict = False
+            for i, m1 in enumerate(merge_list):
+                sinks1 = merge_to_sinks.get(m1, set())
+                for m2 in merge_list[i+1:]:
+                    sources2 = merge_to_sources.get(m2, set())
+                    # If m1's sink is a source in m2, there's a transitive path
+                    if sinks1 & sources2:
+                        has_conflict = True
+                        self.diagnostics.info(
+                            f"Transitive conflict detected: {actual_source_id} in {m1} (sink {sinks1}) "
+                            f"feeds into source of {m2} (sources {sources2 & sinks1})"
+                        )
+                        break
+                    # Check the reverse direction too
+                    sinks2 = merge_to_sinks.get(m2, set())
+                    sources1 = merge_to_sources.get(m1, set())
+                    if sinks2 & sources1:
+                        has_conflict = True
+                        self.diagnostics.info(
+                            f"Transitive conflict detected (reverse): {actual_source_id} in {m2} (sink {sinks2}) "
+                            f"feeds into source of {m1} (sources {sources1 & sinks2})"
+                        )
+                        break
+                if has_conflict:
+                    break
+            
+            if not has_conflict:
+                # No transitive conflict - skip color locking for this source
+                continue
+            
+            # Assign alternating colors to different merges
+            # Use sorted order for determinism
+            for i, merge_id in enumerate(merge_list):
+                color = WIRE_COLORS[i % 2]  # red for index 0, green for index 1, ...
+                locked[(actual_source_id, merge_id)] = color
+                
+            self.diagnostics.info(
+                f"Locked wire colors for {actual_source_id} (from {source_id}) across {len(merge_list)} merges: "
+                + ", ".join(f"{m}={locked.get((actual_source_id, m), '?')}" for m in merge_list)
+            )
+        
+        return locked
+
     def _expand_merge_edges(
         self,
         edges: Sequence[CircuitEdge],
         wire_merge_junctions: Optional[Dict[str, Any]],
         entities: Dict[str, Any],
+        signal_graph: Any = None,
     ) -> List[CircuitEdge]:
         if not wire_merge_junctions:
             return list(edges)
@@ -775,10 +904,25 @@ class ConnectionPlanner:
                 expanded.append(edge)
                 continue
 
+            # Track that this edge came from expanding a merge
+            originating_merge_id = source_id
+
             for source_ref in merge_info.get("inputs", []):
-                if not isinstance(source_ref, SignalRef):
+                # Handle both SignalRef and BundleRef
+                if isinstance(source_ref, SignalRef):
+                    ir_source_id = source_ref.source_id
+                elif isinstance(source_ref, BundleRef):
+                    ir_source_id = source_ref.source_id
+                else:
                     continue
-                actual_source_id = source_ref.source_id
+                
+                # Resolve IR node ID to actual entity ID using signal graph
+                actual_source_id = ir_source_id
+                if signal_graph is not None:
+                    entity_id = signal_graph.get_source(ir_source_id)
+                    if entity_id:
+                        actual_source_id = entity_id
+                    
                 source_entity_type = None
                 placement = entities.get(actual_source_id)
                 if placement is not None:
@@ -797,6 +941,7 @@ class ConnectionPlanner:
                         source_entity_type=source_entity_type,
                         sink_entity_type=edge.sink_entity_type,
                         sink_role=edge.sink_role,
+                        originating_merge_id=originating_merge_id,
                     )
                 )
 

@@ -53,6 +53,7 @@ class LayoutPlanner:
         self.signal_graph: Any = None
         self._memory_modules: Dict[str, Any] = {}
         self._wire_merge_junctions: Dict[str, Any] = {}
+        self._merge_membership: Dict[str, set] = {}
 
     def plan_layout(
         self,
@@ -134,6 +135,7 @@ class LayoutPlanner:
         self.signal_graph = placer.signal_graph
         self._memory_modules = placer._memory_modules
         self._wire_merge_junctions = placer._wire_merge_junctions
+        self._merge_membership = placer.get_merge_membership()
 
     def _optimize_positions(self) -> None:
         """Optimize entity positions using force-directed layout."""
@@ -186,6 +188,7 @@ class LayoutPlanner:
             self.layout_plan.entity_placements,
             wire_merge_junctions=self._wire_merge_junctions,
             locked_colors=locked_colors,
+            merge_membership=self._merge_membership,
         )
 
         self._inject_wire_colors_into_placements()

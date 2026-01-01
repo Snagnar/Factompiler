@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Callable, List, Optional, Union
 from .base import ASTNode
 from .expressions import Expr
 from .literals import LValue
@@ -129,14 +129,20 @@ class ForStmt(Statement):
     """for variable in iterator { body }
     
     Represents a compile-time for loop that is fully unrolled.
+    
+    Range bounds (start, stop, step) can be:
+    - int: A literal integer value
+    - str: A variable name that references a compile-time constant int
+    
+    These must be resolved before calling get_iteration_values().
     """
 
     def __init__(
         self,
         iterator_name: str,
-        start: Optional[int],
-        stop: Optional[int],
-        step: Optional[int],
+        start: Optional[Union[int, str]],
+        stop: Optional[Union[int, str]],
+        step: Optional[Union[int, str]],
         values: Optional[List[int]],
         body: List["Statement"],
         line: int = 0,
@@ -144,30 +150,47 @@ class ForStmt(Statement):
     ) -> None:
         super().__init__(line, column)
         self.iterator_name = iterator_name
-        self.start = start  # Start value for range (inclusive), None for list
-        self.stop = stop    # Stop value for range (exclusive), None for list
-        self.step = step    # Step value for range, None for list
+        self.start = start  # Start value for range (inclusive), None for list, can be var name
+        self.stop = stop    # Stop value for range (exclusive), None for list, can be var name
+        self.step = step    # Step value for range, None for list, can be var name
         self.values = values  # List of values for list iterator, None for range
         self.body = body
 
-    def get_iteration_values(self) -> List[int]:
-        """Returns the sequence of values the iterator takes."""
+    def get_iteration_values(self, constant_resolver: Optional[Callable[[str], int]] = None) -> List[int]:
+        """Returns the sequence of values the iterator takes.
+        
+        Args:
+            constant_resolver: Optional callable that resolves variable names to their
+                              compile-time constant int values. Required if any bounds
+                              are variable references (strings).
+        """
         if self.values is not None:
             return list(self.values)
+        
+        # Resolve bounds
+        def resolve(value: Union[int, str]) -> int:
+            if isinstance(value, int):
+                return value
+            if constant_resolver is None:
+                raise ValueError(f"Variable '{value}' in for loop range requires a constant resolver")
+            return constant_resolver(value)
+        
+        start = resolve(self.start)
+        stop = resolve(self.stop)
+        step = resolve(self.step) if self.step is not None else None
+        
         # Range iteration
         result = []
-        if self.step is None:
-            step = 1 if self.start < self.stop else -1
-        else:
-            step = self.step
+        if step is None:
+            step = 1 if start < stop else -1
         if step > 0:
-            i = self.start
-            while i < self.stop:
+            i = start
+            while i < stop:
                 result.append(i)
                 i += step
         elif step < 0:
-            i = self.start
-            while i > self.stop:
+            i = start
+            while i > stop:
                 result.append(i)
                 i += step
         return result

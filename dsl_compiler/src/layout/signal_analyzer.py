@@ -19,6 +19,7 @@ from dsl_compiler.src.ir.builder import (
     IR_PlaceEntity,
     IR_WireMerge,
     SignalRef,
+    BundleRef,
 )
 from dsl_compiler.src.ir.nodes import IR_EntityPropWrite
 
@@ -113,6 +114,9 @@ class SignalAnalyzer:
             if isinstance(ref, SignalRef):
                 entry = ensure_entry(ref.source_id, ref.signal_type)
                 entry.consumers.add(consumer_id)
+            elif isinstance(ref, BundleRef):
+                entry = ensure_entry(ref.source_id)
+                entry.consumers.add(consumer_id)
             elif isinstance(ref, (list, tuple)):
                 for item in ref:
                     record_consumer(item, consumer_id)
@@ -171,6 +175,11 @@ class SignalAnalyzer:
             elif isinstance(op, IR_EntityPropWrite):
                 record_consumer(op.value, op.node_id)
                 record_export(op.value, f"entity:{op.entity_id}.{op.property_name}")
+                # Handle inlined bundle conditions - the bundle is consumed by the entity
+                if hasattr(op, 'inline_bundle_condition') and op.inline_bundle_condition:
+                    input_source = op.inline_bundle_condition.get("input_source")
+                    if input_source:
+                        record_consumer(input_source, op.entity_id)
             elif isinstance(op, IR_WireMerge):
                 record_consumer(op.sources, op.node_id)
 

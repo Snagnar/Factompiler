@@ -90,7 +90,24 @@ class BundleValue:
     signal_types: Set[str] = field(default_factory=set)  # Set of signal type names
 
 
-ValueInfo = Union[SignalValue, IntValue, FunctionValue, EntityValue, VoidValue, BundleValue]
+@dataclass
+class DynamicBundleValue(BundleValue):
+    """Bundle with runtime-determined signal types.
+    
+    Used for entity outputs where the actual signals depend on runtime state
+    (e.g., chest contents, train cargo). Signal types are unknown at compile
+    time.
+    
+    Example:
+        Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
+        Bundle contents = chest.output;  # DynamicBundleValue - types unknown
+    """
+    
+    source_entity_id: str = ""
+    is_dynamic: bool = True
+
+
+ValueInfo = Union[SignalValue, IntValue, FunctionValue, EntityValue, VoidValue, BundleValue, DynamicBundleValue]
 
 
 @dataclass

@@ -24,6 +24,7 @@ from dsl_compiler.src.ast.expressions import (
     BundleAnyExpr,
     BundleAllExpr,
     SignalTypeAccess,
+    EntityOutputExpr,
 )
 from dsl_compiler.src.ast.literals import (
     DictLiteral,
@@ -38,10 +39,11 @@ from dsl_compiler.src.ir.builder import (
     BundleRef,
     ValueRef,
 )
-from dsl_compiler.src.ir.nodes import IR_EntityPropRead, IR_Decider, IR_Arith, IR_Const
+from dsl_compiler.src.ir.nodes import IR_EntityPropRead, IR_EntityOutput, IR_Decider, IR_Arith, IR_Const
 from dsl_compiler.src.semantic.symbol_table import SymbolType
 from dsl_compiler.src.semantic.type_system import (
     BundleValue,
+    DynamicBundleValue,
     IntValue,
     SignalValue,
     ValueInfo,
@@ -166,6 +168,7 @@ class ExpressionLowerer:
             BundleSelectExpr: self.lower_bundle_select,
             BundleAnyExpr: self.lower_bundle_any,
             BundleAllExpr: self.lower_bundle_all,
+            EntityOutputExpr: self.lower_entity_output,
         }
 
         if type(expr) in handlers:
@@ -1006,8 +1009,6 @@ class ExpressionLowerer:
 
         # Case 2: All computed - wire merge
         if computed_refs and not constant_signals:
-            # For now, return the first ref - proper wire merge would combine them
-            # In Factorio, signals on the same wire naturally merge
             if len(computed_refs) == 1:
                 ref = computed_refs[0]
                 if isinstance(ref, BundleRef):
@@ -1015,24 +1016,19 @@ class ExpressionLowerer:
                 # Single signal, wrap in BundleRef
                 if isinstance(ref, SignalRef):
                     return BundleRef({ref.signal_type}, ref.source_id, source_ast=expr)
-            # Multiple computed signals - they'll be on the same wire
-            # Create a wire merge of all computed signals
-            source_ids = set()
-            for ref in computed_refs:
-                if isinstance(ref, (SignalRef, BundleRef)):
-                    source_ids.add(ref.source_id)
-            # Return a BundleRef pointing to the merged sources
-            # For simplicity, use the first source - proper wiring handles the rest
-            first_source = computed_refs[0]
-            if isinstance(first_source, (SignalRef, BundleRef)):
-                return BundleRef(all_signal_types, first_source.source_id, source_ast=expr)
+            
+            # Multiple computed sources - create proper IR_WireMerge
+            merge_ref = self.ir_builder.wire_merge(computed_refs, "bundle", expr)
+            return BundleRef(all_signal_types, merge_ref.source_id, source_ast=expr)
 
-        # Case 3: Mixed - constant combinator + wire merge of computed
+        # Case 3: Mixed - constant combinator + wire merge with computed
         const_ref = self.ir_builder.bundle_const(constant_signals, expr)
         all_signal_types.update(constant_signals.keys())
 
-        # The constant combinator output will be on the same wire as computed signals
-        return BundleRef(all_signal_types, const_ref.source_id, source_ast=expr)
+        # Merge constant combinator output with computed refs
+        all_sources = [const_ref] + computed_refs
+        merge_ref = self.ir_builder.wire_merge(all_sources, "bundle", expr)
+        return BundleRef(all_signal_types, merge_ref.source_id, source_ast=expr)
 
     def lower_bundle_select(self, expr: BundleSelectExpr) -> SignalRef:
         """Lower bundle selection bundle['signal-type'].
@@ -1088,6 +1084,37 @@ class ExpressionLowerer:
             return self.ir_builder.const(
                 self.ir_builder.allocate_implicit_type(), 0, expr
             )
+
+    def lower_entity_output(self, expr: EntityOutputExpr) -> BundleRef:
+        """Lower entity.output expression to an IR_EntityOutput node.
+
+        Entity outputs allow reading the circuit network output of entities
+        like chests (item counts) or tanks (fluid levels) as a Bundle.
+
+        The actual signal types are determined at runtime by the entity's contents,
+        so we return a BundleRef with an empty signal type set (dynamic).
+        """
+        entity_name = expr.entity_name
+
+        # Look up the entity to verify it exists
+        if entity_name not in self.parent.entity_refs:
+            self._error(f"Unknown entity '{entity_name}'", expr)
+            return BundleRef(set(), "error", source_ast=expr)
+
+        entity_id = self.parent.entity_refs[entity_name]
+
+        # Create the IR_EntityOutput node
+        node_id = f"entity_output_{self.ir_builder.next_id()}"
+        entity_output_op = IR_EntityOutput(
+            node_id=node_id,
+            entity_id=entity_id,
+            source_ast=expr,
+        )
+        self.ir_builder.add_operation(entity_output_op)
+
+        # Return a BundleRef with empty signal types (dynamic bundle)
+        # The layout planner will handle wiring to the entity's output
+        return BundleRef(set(), node_id, source_ast=expr)
 
     def _lower_bundle_op(self, expr: BinaryOp, bundle_type: BundleValue) -> BundleRef:
         """Lower Bundle OP operand to an arithmetic combinator using 'each'.

@@ -1,0 +1,83 @@
+# Balanced Train Loader
+# =====================
+#
+# This demonstrates the balanced loader pattern using DSL features:
+# - entity.output to read chest contents as Bundle
+# - Bundle arithmetic (Each / -N) for negative average
+# - all(bundle) inlining to entity conditions
+# - Wire color automatic inference for merge conflicts
+
+int NUM_CHESTS = 6;
+
+for i in 0..NUM_CHESTS {
+    place("express-transport-belt", i, 0);
+    place("fast-inserter", i, 1, {direction: 0});
+}
+for i in 0..NUM_CHESTS step 2 {
+    place("straight-rail", i, 4, {direction: 4});
+}
+
+# ============================================================================
+# PLACE CHESTS FOR WAGON - Fixed positions for visual clarity
+# ============================================================================
+Entity c1 = place("steel-chest", 0, 2);
+Entity c2 = place("steel-chest", 1, 2);
+Entity c3 = place("steel-chest", 2, 2);
+Entity c4 = place("steel-chest", 3, 2);
+Entity c5 = place("steel-chest", 4, 2);
+Entity c6 = place("steel-chest", 5, 2);
+
+# ============================================================================
+# BUNDLE OPERATIONS: Sum and Negative Average
+# ============================================================================
+
+# Read chest contents as Bundles using entity.output
+Bundle contents1 = c1.output;
+Bundle contents2 = c2.output;
+Bundle contents3 = c3.output;
+Bundle contents4 = c4.output;
+Bundle contents5 = c5.output;
+Bundle contents6 = c6.output;
+
+# Sum all chest contents by combining into one bundle
+# Wire merge automatically connects all sources
+# Bundle total = {contents1, contents2};
+Bundle total = {contents1, contents2, contents3, contents4, contents5, contents6};
+
+# Calculate negative average using Bundle arithmetic
+# This compiles to: Each / -6 = Each
+Bundle neg_avg = total / -NUM_CHESTS;
+
+# ============================================================================
+# INSERTERS WITH BALANCED ENABLE CONDITIONS
+# Let layout engine position inserters to avoid too many fixed positions
+# ============================================================================
+
+Entity ins1 = place("fast-inserter", 0, 3, {direction: 0});
+Entity ins2 = place("fast-inserter", 1, 3, {direction: 0});
+Entity ins3 = place("fast-inserter", 2, 3, {direction: 0});
+Entity ins4 = place("fast-inserter", 3, 3, {direction: 0});
+Entity ins5 = place("fast-inserter", 4, 3, {direction: 0});
+Entity ins6 = place("fast-inserter", 5, 3, {direction: 0});
+
+# Create per-inserter input bundles:
+# Each inserter sees its own chest + the negative average
+# This creates the "diff" that determines if chest is below average
+Bundle input1 = {contents1, neg_avg};
+Bundle input2 = {contents2, neg_avg};
+Bundle input3 = {contents3, neg_avg};
+Bundle input4 = {contents4, neg_avg};
+Bundle input5 = {contents5, neg_avg};
+Bundle input6 = {contents6, neg_avg};
+
+# Enable condition: all(diff) < 1 means chest is at or below average
+# This is inlined directly to the inserter's circuit condition using signal-everything
+# NOTE: Wire color conflicts are handled automatically:
+# - contents1 contributes to both "total" (via contents1) and "input1"
+# - Compiler detects this and assigns different wire colors
+ins1.enable = all(input1) < 1;
+ins2.enable = all(input2) < 1;
+ins3.enable = all(input3) < 1;
+ins4.enable = all(input4) < 1;
+ins5.enable = all(input5) < 1;
+ins6.enable = all(input6) < 1;

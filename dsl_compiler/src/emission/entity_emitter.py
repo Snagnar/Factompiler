@@ -403,6 +403,37 @@ class PlanEntityEmitter:
                         }
                     continue
 
+                if prop_type == "inline_bundle_condition":
+                    # Handle inlined all()/any() bundle conditions
+                    signal_name = prop_data.get("signal")  # signal-everything or signal-anything
+                    comparator = prop_data.get("operator")
+                    constant = prop_data.get("constant")
+
+                    signal_dict = {"name": signal_name, "type": "virtual"}
+
+                    if hasattr(entity, "circuit_enabled"):
+                        entity.circuit_enabled = True
+                        if hasattr(entity, "set_circuit_condition"):
+                            entity.set_circuit_condition(signal_dict, comparator, constant)
+                        else:
+                            if not hasattr(entity, "control_behavior"):
+                                entity.control_behavior = {}
+                            entity.control_behavior["circuit_condition"] = {
+                                "first_signal": signal_dict,
+                                "comparator": comparator,
+                                "constant": constant,
+                            }
+                    else:
+                        if not hasattr(entity, "control_behavior"):
+                            entity.control_behavior = {}
+                        entity.control_behavior["circuit_enabled"] = True
+                        entity.control_behavior["circuit_condition"] = {
+                            "first_signal": signal_dict,
+                            "comparator": comparator,
+                            "constant": constant,
+                        }
+                    continue
+
                 if prop_type == "signal":
                     signal_ref = prop_data["signal_ref"]
 

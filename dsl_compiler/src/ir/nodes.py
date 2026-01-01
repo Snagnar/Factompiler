@@ -284,6 +284,28 @@ class IR_EntityPropRead(IRValue):
         )
 
 
+class IR_EntityOutput(IRValue):
+    """Read entity's circuit output as bundle.
+    
+    Represents reading all signals an entity outputs to the circuit network.
+    For chests: all items stored
+    For tanks: fluid amount
+    For train stops with read_from_train: train contents
+    
+    In layout planning, this creates a virtual signal source at the entity
+    rather than creating a new combinator.
+    """
+    
+    def __init__(
+        self, node_id: str, entity_id: str, source_ast: Optional[ASTNode] = None
+    ) -> None:
+        super().__init__(node_id, "bundle", source_ast)
+        self.entity_id = entity_id
+    
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"IR_EntityOutput({self.node_id}: bundle = {self.entity_id}.output)"
+
+
 # Memory type constants
 MEMORY_TYPE_STANDARD = "standard"
 MEMORY_TYPE_RS_LATCH = "rs_latch"
@@ -399,6 +421,8 @@ class IR_EntityPropWrite(IREffect):
         self.entity_id = entity_id
         self.property_name = property_name
         self.value = value
+        # Optional: inline bundle condition for all()/any() inlining
+        self.inline_bundle_condition: Optional[Dict[str, Any]] = None
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         return (
@@ -420,6 +444,7 @@ __all__ = [
     "IR_WireMerge",
     "IR_MemRead",
     "IR_EntityPropRead",
+    "IR_EntityOutput",
     "IR_MemCreate",
     "IR_MemWrite",
     "IR_LatchWrite",

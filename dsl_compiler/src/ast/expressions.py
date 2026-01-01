@@ -272,3 +272,27 @@ class SignalTypeAccess(Expr):
         super().__init__(line, column, raw_text=raw_text)
         self.object_name = object_name
         self.property_name = property_name
+
+
+class EntityOutputExpr(Expr):
+    """Access to entity's circuit output: entity.output
+    
+    Represents reading the circuit network signals that an entity outputs.
+    For chests: all items in the chest as a bundle
+    For tanks: fluid amount as a signal
+    For train stops with read_from_train: train contents as a bundle
+    
+    Example:
+        Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
+        Bundle contents = chest.output;  # All items in chest as bundle
+    """
+
+    def __init__(
+        self,
+        entity_name: str,
+        line: int = 0,
+        column: int = 0,
+        raw_text: Optional[str] = None,
+    ) -> None:
+        super().__init__(line, column, raw_text=raw_text)
+        self.entity_name = entity_name

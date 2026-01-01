@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from lark import Transformer, Tree, Token
 
@@ -44,6 +44,7 @@ from dsl_compiler.src.ast.expressions import (
     BundleAnyExpr,
     BundleAllExpr,
     SignalTypeAccess,
+    EntityOutputExpr,
 )
 
 
@@ -348,33 +349,47 @@ class DSLTransformer(Transformer):
             return items[0]
         return items[0]
 
+    def range_bound(self, items):
+        """range_bound: NUMBER | NAME
+        
+        Returns either an int (for NUMBER) or a string (for NAME variable reference).
+        """
+        item = items[0]
+        if isinstance(item, Token):
+            if item.type == "NUMBER":
+                return self._parse_number(item.value)
+            elif item.type == "NAME":
+                return str(item.value)
+        # Fallback for already-transformed items
+        if isinstance(item, int):
+            return item
+        if isinstance(item, str):
+            return item
+        raise ValueError(f"Unexpected range_bound item: {item}")
+
     def range_iterator(self, items) -> dict:
-        """range_iterator: NUMBER RANGE_OP NUMBER [STEP_KW NUMBER]"""
-        # Extract numbers - filter out operators and keywords
-        numbers = []
-        has_step = False
-        step_value = 1
+        """range_iterator: range_bound RANGE_OP range_bound [STEP_KW range_bound]"""
+        # Extract bounds - can be int or str (variable name)
+        bounds = []
+        step_value: Union[int, str] = 1
         
         i = 0
         while i < len(items):
             item = items[i]
             if isinstance(item, Token):
-                if item.type == "NUMBER":
-                    numbers.append(self._parse_number(item.value))
-                elif item.type == "STEP_KW":
-                    has_step = True
-                    # Next token should be the step value
+                if item.type == "STEP_KW":
+                    # Next item should be the step value
                     if i + 1 < len(items):
-                        next_item = items[i + 1]
-                        if isinstance(next_item, Token) and next_item.type == "NUMBER":
-                            step_value = self._parse_number(next_item.value)
-                            i += 1
+                        step_value = items[i + 1]
+                        i += 1
+            elif isinstance(item, (int, str)):
+                bounds.append(item)
             i += 1
 
-        if len(numbers) < 2:
+        if len(bounds) < 2:
             raise ValueError(f"Range iterator requires start and stop: {items}")
 
-        return {"start": numbers[0], "stop": numbers[1], "step": step_value}
+        return {"start": bounds[0], "stop": bounds[1], "step": step_value}
 
     def list_iterator(self, items) -> dict:
         """list_iterator: "[" [NUMBER ("," NUMBER)*] "]" """
@@ -835,6 +850,12 @@ class DSLTransformer(Transformer):
                 )
 
             if isinstance(item, PropertyAccess):
+                # Check for entity.output - creates EntityOutputExpr
+                if item.property_name == "output":
+                    return EntityOutputExpr(
+                        entity_name=item.object_name,
+                        raw_text=getattr(item, "raw_text", None),
+                    )
                 return PropertyAccessExpr(
                     object_name=item.object_name,
                     property_name=item.property_name,

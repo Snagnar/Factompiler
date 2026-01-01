@@ -8,4 +8,49 @@ Signal input4 = 20 | "signal-A";
 
 Signal total_A = input1 + input2 + input3;
 
-# Signal output = (input1 == 50) && (input2 == 20);
+# # Test 0: Wire separation behavior
+# # Tests: Multiple connections to the same signal, wire separation
+
+# Signal input8 = 50 | "signal-A";
+# Signal input9 = 30 | "signal-A";
+# Signal input10 = 20 | "signal-A";
+
+# Signal total_B = input8 * input9 * input10;
+
+# # condition fold
+# Signal input5 = 50 | "signal-A";
+# Signal input6 = 30 | "signal-B";
+# Signal input7 = 20 | "signal-C";
+
+# Signal total_C = (input5 == 50) && (input6 == 30) && (input7 == 20);
+
+
+# # Test 0: MST fan-in behavior
+# Signal in_0 = 2;
+# Signal in_1 = 2;
+# Signal in_2 = 2;
+# Signal in_3 = 2;
+# Signal in_4 = 2;
+# Signal in_5 = 2;
+# Signal in_6 = 2;
+# Signal in_7 = 2;
+# Signal in_8 = 2;
+# Signal in_9 = 2;
+
+# Signal total = in_0 * in_1 * in_2 * in_3 * in_4 * in_5 * in_6 * in_7 * in_8 * in_9;
+
+# # Test 0: MST fan-out behavior
+# Signal a = 5;
+
+# Signal result = a * a;
+
+# Signal out_0 = result;
+# Signal out_1 = result;
+# Signal out_2 = result;
+# Signal out_3 = result;
+# Signal out_4 = result;
+# Signal out_5 = result;
+# Signal out_6 = result;
+# Signal out_7 = result;
+# Signal out_8 = result;
+# Signal out_9 = result;

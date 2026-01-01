@@ -1070,6 +1070,32 @@ Signal lamp_status = lamp.enable;  # Read entity state
 
 Property reads create signals that track the entity's current state.
 
+#### Reading Entity Circuit Output
+
+Entities like chests, tanks, and storage units output their contents as circuit signals. Access this using the `.output` property:
+
+```fcdsl
+Entity chest = place("steel-chest", 0, 0);
+Bundle contents = chest.output;  # All item signals from chest
+
+# Use the bundle for operations
+Signal iron = contents["iron-plate"];
+Signal total = any(contents);
+Bundle doubled = contents * 2;
+
+# Control other entities based on chest contents
+Entity lamp = place("small-lamp", 2, 0);
+lamp.enable = all(contents) > 100;  # Light when all items > 100
+```
+
+**Supported Entities:**
+- `steel-chest`, `iron-chest`, `wooden-chest` - Item counts
+- `storage-tank` - Fluid levels
+- `roboport` - Logistics network contents
+- Any entity with circuit network output
+
+The `.output` property returns a **dynamic Bundle** whose signals are determined at runtime by the entity's contents.
+
 ### Inline Comparison Optimization
 
 For simple comparisons, the compiler **inlines** them into the entity's circuit condition:
@@ -1085,6 +1111,25 @@ Instead of creating a separate decider combinator, the compiler configures the l
 - Property is `enable`
 - Value is a simple comparison (`signal OP constant`)
 - Comparison isn't used elsewhere
+
+#### Bundle Condition Inlining
+
+When using `all()` or `any()` in an enable condition, the compiler inlines the check directly into the entity's circuit condition:
+
+```fcdsl
+Entity chest = place("steel-chest", 0, 0);
+Entity lamp = place("small-lamp", 2, 0);
+
+Bundle items = chest.output;
+lamp.enable = all(items) > 100;  # Inlined: signal-everything > 100
+```
+
+Instead of creating a decider combinator with `signal-everything`, the lamp's circuit condition is set directly to use `signal-everything > 100`. This saves one combinator.
+
+**When This Applies:**
+- Property is `enable`
+- Value is `all(bundle) OP constant` or `any(bundle) OP constant`
+- Comparison operator is: `<`, `<=`, `>`, `>=`, `==`, `!=`
 
 ### Common Entity Properties
 
@@ -1349,6 +1394,22 @@ Signal c = a * b;
 ```
 
 If both `a` and `b` feed into the same combinator on the same wire color, they'd merge and just add up. The compiler detects this and assigns different colors (red for `a`, green for `b`) to keep them separate so that the multiplication can be executed correctly.
+
+**Merge Conflict Detection:**
+
+The compiler also detects more complex conflicts involving bundle merges. When the same source participates in multiple independent merges that both connect to the same sink:
+
+```fcdsl
+Bundle sum = {c1.output, c2.output, c3.output};  # Merge M1
+Bundle neg_avg = sum / -3;
+Bundle input1 = {neg_avg, c1.output};  # Merge M2 - c1 appears in both!
+
+# At inserter: needs both neg_avg AND c1.output
+# But c1.output contributes to BOTH merges
+# Compiler detects this and assigns different colors
+```
+
+Without color separation, `c1.output` would be double-counted. The compiler tracks merge membership and automatically locks conflicting paths to different wire colors.
 
 ### Edge Layout Conventions
 

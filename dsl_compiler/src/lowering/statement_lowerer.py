@@ -21,10 +21,15 @@ from dsl_compiler.src.ast.statements import (
     ForStmt,
 )
 from dsl_compiler.src.ast.expressions import (
+    BinaryOp,
+    BundleAnyExpr,
+    BundleAllExpr,
     CallExpr,
+    SignalLiteral,
 )
 from dsl_compiler.src.ast.literals import (
     Identifier,
+    NumberLiteral,
     PropertyAccess,
 )
 
@@ -190,6 +195,20 @@ class StatementLowerer:
                 self.parent.annotate_signal_ref(stmt.target.name, value_ref, stmt)
                 return
 
+        # Early check for inlinable bundle conditions on entity.enable
+        # This avoids creating unnecessary decider combinators
+        if isinstance(stmt.target, PropertyAccess):
+            entity_name = stmt.target.object_name
+            prop_name = stmt.target.property_name
+            if (
+                entity_name in self.parent.entity_refs
+                and prop_name == "enable"
+                and self._is_inlinable_bundle_condition(stmt.value)
+            ):
+                entity_id = self.parent.entity_refs[entity_name]
+                self._lower_inlined_bundle_condition(entity_id, stmt.value, stmt, None)
+                return
+
         self.parent.push_expr_context(target_name, stmt)
         value_ref = self.parent.expr_lowerer.lower_expr(stmt.value)
         self.parent.pop_expr_context()
@@ -253,6 +272,8 @@ class StatementLowerer:
             prop_name = stmt.target.property_name
             if entity_name in self.parent.entity_refs:
                 entity_id = self.parent.entity_refs[entity_name]
+
+                # Note: Inlinable bundle conditions are handled early to avoid creating deciders
                 prop_write_op = IR_EntityPropWrite(entity_id, prop_name, value_ref)
                 self.ir_builder.add_operation(prop_write_op)
 
@@ -274,6 +295,21 @@ class StatementLowerer:
             stmt,
         )
 
+    def _resolve_constant(self, name: str) -> int:
+        """Resolve a variable name to its compile-time constant integer value.
+        
+        Used for resolving for loop range bounds that use variable references.
+        """
+        if name not in self.parent.signal_refs:
+            raise ValueError(f"Variable '{name}' is not defined")
+        value = self.parent.signal_refs[name]
+        if not isinstance(value, int):
+            raise ValueError(
+                f"Variable '{name}' must be a compile-time integer constant "
+                f"for use in for loop range, got {type(value).__name__}"
+            )
+        return value
+
     def lower_for_stmt(self, stmt: ForStmt) -> None:
         """Lower a for loop by unrolling all iterations.
         
@@ -283,7 +319,7 @@ class StatementLowerer:
         3. Lowers all body statements
         4. Restores signal_refs to remove body-scoped variables
         """
-        iteration_values = stmt.get_iteration_values()
+        iteration_values = stmt.get_iteration_values(constant_resolver=self._resolve_constant)
 
         for value in iteration_values:
             # Save current signal_refs state to implement scope isolation
@@ -308,3 +344,81 @@ class StatementLowerer:
             self.parent.signal_refs = new_signal_refs
             self.parent.entity_refs = new_entity_refs
 
+    def _is_inlinable_bundle_condition(self, expr: Any) -> bool:
+        """Check if expression is all(bundle) OP const or any(bundle) OP const.
+
+        These patterns can be inlined directly to entity circuit conditions
+        using signal-everything or signal-anything.
+        """
+        if not isinstance(expr, BinaryOp):
+            return False
+        if expr.op not in ("<", "<=", ">", ">=", "==", "!="):
+            return False
+        if not isinstance(expr.left, (BundleAnyExpr, BundleAllExpr)):
+            return False
+        # Right side must be a constant integer
+        return self._is_constant(expr.right)
+
+    def _is_constant(self, expr: Any) -> bool:
+        """Check if expression is a compile-time constant."""
+        if isinstance(expr, NumberLiteral):
+            return True
+        if isinstance(expr, SignalLiteral):
+            # SignalLiteral with no type and a NumberLiteral value is effectively a constant
+            if expr.signal_type is None and isinstance(expr.value, NumberLiteral):
+                return True
+        if isinstance(expr, Identifier):
+            # Check if it's a compile-time constant in symbol table
+            symbol = self.semantic.symbol_table.lookup(expr.name)
+            if symbol and isinstance(symbol.value_type, IntValue):
+                return True
+        return False
+
+    def _extract_constant(self, expr: Any) -> int:
+        """Extract constant value from an expression."""
+        if isinstance(expr, NumberLiteral):
+            return expr.value
+        if isinstance(expr, SignalLiteral):
+            # SignalLiteral with NumberLiteral value
+            if isinstance(expr.value, NumberLiteral):
+                return expr.value.value
+        if isinstance(expr, Identifier):
+            # Try to get value from signal_refs (compile-time constant)
+            ref = self.parent.signal_refs.get(expr.name)
+            if isinstance(ref, int):
+                return ref
+            # Fall back to symbol table
+            symbol = self.semantic.symbol_table.lookup(expr.name)
+            if symbol and hasattr(symbol.value_type, "value"):
+                return symbol.value_type.value
+        raise ValueError(f"Cannot extract constant from {expr}")
+
+    def _lower_inlined_bundle_condition(
+        self, entity_id: str, expr: BinaryOp, stmt: AssignStmt, value_ref: ValueRef
+    ) -> None:
+        """Inline all(bundle) < N directly to entity condition.
+
+        Instead of creating a decider combinator, we set the entity's circuit
+        condition directly to use signal-everything or signal-anything.
+        """
+        func_name = "all" if isinstance(expr.left, BundleAllExpr) else "any"
+        special_signal = (
+            "signal-everything" if func_name == "all" else "signal-anything"
+        )
+
+        # Lower the bundle argument to get the source connection
+        bundle_arg = expr.left.bundle
+        bundle_ref = self.parent.expr_lowerer.lower_expr(bundle_arg)
+
+        # Get the constant value
+        constant = self._extract_constant(expr.right)
+
+        # Create property write with inline bundle condition metadata
+        prop_write_op = IR_EntityPropWrite(entity_id, "enable", value_ref)
+        prop_write_op.inline_bundle_condition = {
+            "signal": special_signal,
+            "operator": expr.op,
+            "constant": constant,
+            "input_source": bundle_ref,
+        }
+        self.ir_builder.add_operation(prop_write_op)

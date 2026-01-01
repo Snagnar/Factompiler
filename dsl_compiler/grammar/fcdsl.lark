@@ -99,8 +99,13 @@ import_stmt: "import" STRING ["as" NAME]
 for_stmt: FOR_KW NAME IN_KW for_iterator "{" statement* "}"
 
 for_iterator: range_iterator | list_iterator
-range_iterator: NUMBER RANGE_OP NUMBER [STEP_KW NUMBER]
+// Allow expressions (including variable references) for range bounds
+// These must be compile-time constant expressions
+range_iterator: range_bound RANGE_OP range_bound [STEP_KW range_bound]
 list_iterator: "[" [NUMBER ("," NUMBER)*] "]"
+
+// Range bounds can be a number literal or a simple name (variable reference)
+range_bound: NUMBER | NAME
 
 // ---------------------------------
 // Functions

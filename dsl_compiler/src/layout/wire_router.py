@@ -20,6 +20,7 @@ class CircuitEdge:
     source_entity_type: Optional[str] = None
     sink_entity_type: Optional[str] = None
     sink_role: Optional[str] = None
+    originating_merge_id: Optional[str] = None  # Track which merge this edge came from
 
 
 @dataclass
@@ -130,25 +131,44 @@ def plan_wire_colors(
         node_key = (edge.source_entity_id, edge.resolved_signal_name)
         graph.setdefault(node_key, set())
 
-    sink_groups: Dict[Tuple[str, str], List[Tuple[str, str]]] = defaultdict(list)
+    # Group edges by (sink_id, resolved_signal_name)
+    # Each group entry is (node_key, originating_merge_id)
+    sink_groups: Dict[Tuple[str, str], List[Tuple[Tuple[str, str], Optional[str]]]] = defaultdict(list)
     for edge in edges:
         if not edge.source_entity_id:
             continue
         node_key = (edge.source_entity_id, edge.resolved_signal_name)
-        sink_groups[(edge.sink_entity_id, edge.resolved_signal_name)].append(node_key)
+        sink_groups[(edge.sink_entity_id, edge.resolved_signal_name)].append(
+            (node_key, edge.originating_merge_id)
+        )
 
     # Sort for deterministic iteration order
-    for (sink_id, resolved_name), nodes in sorted(sink_groups.items()):
-        unique_nodes = list(dict.fromkeys(nodes))
-        if len(unique_nodes) <= 1:
+    for (sink_id, resolved_name), nodes_with_merge in sorted(sink_groups.items()):
+        # Deduplicate by node_key, keeping first occurrence
+        seen_nodes = {}
+        for node_key, merge_id in nodes_with_merge:
+            if node_key not in seen_nodes:
+                seen_nodes[node_key] = merge_id
+        
+        unique_entries = list(seen_nodes.items())
+        if len(unique_entries) <= 1:
             continue
 
-        for idx in range(len(unique_nodes)):
-            for jdx in range(idx + 1, len(unique_nodes)):
-                a = unique_nodes[idx]
-                b = unique_nodes[jdx]
+        # Only create conflict edges between nodes from DIFFERENT merges
+        # Nodes with the same originating_merge_id are intentionally merging
+        for idx in range(len(unique_entries)):
+            a, merge_a = unique_entries[idx]
+            for jdx in range(idx + 1, len(unique_entries)):
+                b, merge_b = unique_entries[jdx]
                 if a == b:
                     continue
+                
+                # If both edges come from the same merge (or both have no merge),
+                # they should be on the same wire - no conflict edge needed
+                if merge_a is not None and merge_a == merge_b:
+                    continue
+                
+                # Different merges or mixed merge/non-merge: potential conflict
                 graph[a].add(b)
                 graph[b].add(a)
                 pair = tuple(sorted((a, b)))
@@ -222,3 +242,46 @@ def plan_wire_colors(
     return ColoringResult(
         assignments=assignments, conflicts=conflicts, is_bipartite=is_bipartite
     )
+
+
+def detect_merge_color_conflicts(
+    merge_membership: Dict[str, Set[str]],
+    signal_graph: Any,
+) -> Dict[Tuple[str, str], str]:
+    """Detect paths that need locked colors due to merge conflicts.
+
+    When a signal source participates in multiple independent wire merges
+    that both connect to the same final sink, they must use different wire colors
+    to prevent double-counting.
+
+    Args:
+        merge_membership: Maps source_id -> set of merge_ids the source belongs to
+        signal_graph: Signal graph for finding downstream sinks
+
+    Returns:
+        Dict mapping (source_id, merge_id) -> locked color
+    """
+    from itertools import combinations
+
+    locked_colors: Dict[Tuple[str, str], str] = {}
+
+    # For each source that's in multiple merges
+    for source_id, merge_ids in merge_membership.items():
+        if len(merge_ids) <= 1:
+            continue
+
+        # Check each pair of merges containing this source
+        for merge_a, merge_b in combinations(sorted(merge_ids), 2):
+            # Get sinks that receive from each merge
+            sinks_a = set(signal_graph.get_sinks(merge_a)) if signal_graph else set()
+            sinks_b = set(signal_graph.get_sinks(merge_b)) if signal_graph else set()
+
+            # If both merges connect to the same sink, need different colors
+            common_sinks = sinks_a & sinks_b
+            if common_sinks:
+                # Lock merge_a to red, merge_b to green
+                # Use (merge_id, source_id) as key since that's what affects the wire color
+                locked_colors[(merge_a, source_id)] = "red"
+                locked_colors[(merge_b, source_id)] = "green"
+
+    return locked_colors

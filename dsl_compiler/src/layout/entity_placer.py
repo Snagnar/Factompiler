@@ -22,12 +22,14 @@ from dsl_compiler.src.ir.builder import (
     IR_PlaceEntity,
     IR_WireMerge,
     SignalRef,
+    BundleRef,
     ValueRef,
 )
 from dsl_compiler.src.ir.nodes import (
     IR_EntityPropWrite,
     IR_EntityPropRead,
     IR_LatchWrite,
+    IR_EntityOutput,
 )
 
 
@@ -56,6 +58,7 @@ class EntityPlacer:
         self._wire_merge_junctions: Dict[str, Dict[str, Any]] = {}
         self._entity_property_signals: Dict[str, str] = {}
         self._ir_nodes: Dict[str, IRNode] = {}  # Track all IR nodes by ID for lookups
+        self._merge_membership: Dict[str, set] = {}  # source_id -> set of merge_ids
 
     def _build_debug_info(
         self, op: IRNode, role_override: Optional[str] = None
@@ -169,6 +172,8 @@ class EntityPlacer:
             self._place_entity_prop_write(op)
         elif isinstance(op, IR_EntityPropRead):
             self._place_entity_prop_read(op)
+        elif isinstance(op, IR_EntityOutput):
+            self._place_entity_output(op)
         elif isinstance(op, IR_WireMerge):
             self._place_wire_merge(op)
         else:
@@ -477,6 +482,25 @@ class EntityPlacer:
         if "property_writes" not in placement.properties:
             placement.properties["property_writes"] = {}
 
+        # Handle inline bundle condition (all()/any() inlining)
+        if hasattr(op, "inline_bundle_condition") and op.inline_bundle_condition:
+            cond = op.inline_bundle_condition
+            placement.properties["property_writes"][op.property_name] = {
+                "type": "inline_bundle_condition",
+                "signal": cond["signal"],
+                "operator": cond["operator"],
+                "constant": cond["constant"],
+            }
+            # Track wire connection from bundle source to entity
+            input_source = cond.get("input_source")
+            if isinstance(input_source, (SignalRef, BundleRef)):
+                self._add_signal_sink(input_source, op.entity_id)
+            self.diagnostics.info(
+                f"Inlined bundle condition ({cond['signal']}) into "
+                f"{op.entity_id}.{op.property_name}"
+            )
+            return
+
         # Try to inline simple comparisons
         if isinstance(op.value, SignalRef) and op.property_name == "enable":
             inline_data = self._try_inline_comparison(op.value)
@@ -579,8 +603,19 @@ class EntityPlacer:
         self._entity_property_signals[op.node_id] = signal_name
         self.signal_graph.set_source(op.node_id, op.entity_id)
 
+    def _place_entity_output(self, op: "IR_EntityOutput") -> None:
+        """Handle entity output reads (e.g., chest.output, tank.output).
+
+        Entity outputs expose the circuit network output of entities like chests
+        (item counts) or tanks (fluid levels) as a Bundle. This doesn't create
+        any new entities - it just establishes that the IR node reads from
+        the entity's circuit output.
+        """
+        # Track that this node reads from the entity's circuit output
+        self.signal_graph.set_source(op.node_id, op.entity_id)
+
     def _place_wire_merge(self, op: IR_WireMerge) -> None:
-        """Handle wire merge operations."""
+        """Handle wire merge operations with membership tracking."""
         # Wire merges don't create entities, they just affect wiring topology
         # Record the merge junction for later wire planning
         self._wire_merge_junctions[op.node_id] = {
@@ -588,10 +623,22 @@ class EntityPlacer:
             "output_id": op.node_id,
         }
 
+        # Track which sources belong to this merge for wire color conflict detection
+        for source in op.sources:
+            if isinstance(source, (SignalRef, BundleRef)):
+                source_id = source.source_id
+                if source_id not in self._merge_membership:
+                    self._merge_membership[source_id] = set()
+                self._merge_membership[source_id].add(op.node_id)
+
         # Track signal graph: merge creates a new source from multiple inputs
         self.signal_graph.set_source(op.node_id, op.node_id)
         for input_sig in op.sources:
             self._add_signal_sink(input_sig, op.node_id)
+
+    def get_merge_membership(self) -> Dict[str, set]:
+        """Return merge membership info for wire color conflict detection."""
+        return self._merge_membership
 
     def _get_placement_position(self, value_ref: ValueRef) -> Optional[Tuple[int, int]]:
         """Get position of entity producing this value."""
@@ -607,6 +654,9 @@ class EntityPlacer:
             if source_usage and not source_usage.should_materialize:
                 return
 
+            self.signal_graph.add_sink(value_ref.source_id, consumer_id)
+        elif isinstance(value_ref, BundleRef):
+            # For bundles, connect from the bundle's source (usually a wire merge)
             self.signal_graph.add_sink(value_ref.source_id, consumer_id)
 
     def cleanup_unused_entities(self) -> None:
