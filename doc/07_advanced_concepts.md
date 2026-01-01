@@ -213,6 +213,46 @@ For memory circuits:
 
 This separation is critical for correct latch operation.
 
+### Transitive Merge Conflicts
+
+A more complex wire conflict occurs in patterns like the **MadZuri balanced loader**, where the same source participates in multiple merges that eventually connect to the same sink.
+
+**The Pattern:**
+
+```fcdsl
+# 6 chests storing items
+Bundle chests = {c1.output, c2.output, c3.output, c4.output, c5.output, c6.output};
+
+# Total of all chests → combinator computes negative average
+Signal total = chests;
+Bundle neg_avg = total / -6;
+
+# Each inserter sees: its own chest + negative average
+# Inserter 1's input: c1.output + neg_avg
+Bundle in1 = {neg_avg, c1.output};
+# ... similar for inserters 2-6
+```
+
+**The Problem:**
+
+The signal from `c1.output` arrives at inserter1 via **two paths**:
+1. **Direct path:** `c1.output` → inserter1 (individual chest content)
+2. **Indirect path:** `c1.output` → combinator → `neg_avg` → inserter1 (via the average)
+
+If both paths used the same wire color, `c1.output` would be **double-counted** at the inserter.
+
+**The Solution:**
+
+The compiler detects these **transitive conflicts** by tracking:
+- Which sources participate in which merges (merge membership)
+- Which merge sinks become sources for other merges (transitive paths)
+
+When a source appears in multiple merges with a transitive relationship, the compiler assigns different wire colors:
+- `c1.output` → combinator: **RED wire** (contributes to average)
+- `c1.output` → inserter1: **GREEN wire** (individual content)
+
+This ensures each chest's content is counted exactly once in the inserter's comparison.
+
 ### Debugging Wire Issues
 
 If your circuit behaves unexpectedly, check for:

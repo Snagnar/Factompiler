@@ -238,6 +238,42 @@ Signal lamp_status = lamp.enable;  # Read back the enable state
 
 This is useful for creating feedback loops or monitoring entity state.
 
+### Reading Entity Contents (`.output`)
+
+Entities like chests, tanks, and storage units output their contents as circuit signals. Access this with the `.output` property:
+
+```fcdsl
+Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
+Bundle contents = chest.output;  # All item signals from the chest
+```
+
+The `.output` property returns a **Bundle** containing all signals the entity outputs. For chests, this is the count of each item type. The signal types are dynamic—determined at runtime by what's stored in the chest.
+
+**Common uses:**
+- Monitoring inventory levels
+- Balancing item distribution across chests
+- Controlling production based on storage
+
+**Example: Balanced Loader Pattern**
+
+```fcdsl
+# Read all chest contents
+Entity c1 = place("steel-chest", 0, 0, {read_contents: 1});
+Entity c2 = place("steel-chest", 1, 0, {read_contents: 1});
+Entity c3 = place("steel-chest", 2, 0, {read_contents: 1});
+
+# Sum contents and compute negative average
+Bundle total = {c1.output, c2.output, c3.output};
+Bundle neg_avg = total / -3;
+
+# Each inserter compares its chest to average
+Entity i1 = place("fast-inserter", 0, 1);
+Bundle in1 = {neg_avg, c1.output};
+i1.enable = in1 < 0;  # Enable if below average
+```
+
+The compiler automatically handles wire color conflicts when the same source (like `c1.output`) appears in multiple signal paths. See [Advanced Concepts](07_advanced_concepts.md) for details.
+
 ## Entity Property Inlining
 
 When you assign a simple comparison to `enable`, the compiler **inlines** it into the entity's circuit condition:

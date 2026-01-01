@@ -1395,21 +1395,30 @@ Signal c = a * b;
 
 If both `a` and `b` feed into the same combinator on the same wire color, they'd merge and just add up. The compiler detects this and assigns different colors (red for `a`, green for `b`) to keep them separate so that the multiplication can be executed correctly.
 
-**Merge Conflict Detection:**
+**Merge Conflict Detection (Transitive Conflicts):**
 
-The compiler also detects more complex conflicts involving bundle merges. When the same source participates in multiple independent merges that both connect to the same sink:
+The compiler detects complex conflicts involving bundle merges. When the same source participates in multiple merges with a **transitive relationship** (one merge's output feeds into another merge), the paths need different wire colors:
 
 ```fcdsl
-Bundle sum = {c1.output, c2.output, c3.output};  # Merge M1
-Bundle neg_avg = sum / -3;
-Bundle input1 = {neg_avg, c1.output};  # Merge M2 - c1 appears in both!
+Bundle sum = {c1.output, c2.output, c3.output};  # Merge M1: all chests
+Bundle neg_avg = sum / -3;                        # Computes negative average
+Bundle input1 = {neg_avg, c1.output};             # Merge M2: avg + chest1
 
-# At inserter: needs both neg_avg AND c1.output
-# But c1.output contributes to BOTH merges
-# Compiler detects this and assigns different colors
+# c1.output reaches input1 via TWO paths:
+# 1. Direct: c1 → input1 (individual content)
+# 2. Indirect: c1 → sum → neg_avg → input1 (contributes to average)
 ```
 
-Without color separation, `c1.output` would be double-counted. The compiler tracks merge membership and automatically locks conflicting paths to different wire colors.
+Without color separation, `c1.output` would be **double-counted**—once directly, once through the average. The compiler tracks:
+
+1. **Merge membership**: Which sources participate in which merges
+2. **Transitive paths**: Whether a merge's sink is a source in another merge
+
+When a transitive conflict is detected, the compiler assigns:
+- `c1.output → combinator` (merge M1): **RED wire**
+- `c1.output → inserter1` (merge M2): **GREEN wire**
+
+This pattern is commonly used in **balanced loaders** (MadZuri pattern) where each inserter needs to compare its individual chest against the average of all chests.
 
 ### Edge Layout Conventions
 
@@ -1743,6 +1752,45 @@ Signal running = (current_state == 1) | "signal-running";
 Signal stopped = (current_state == 2) | "signal-stopped";
 Signal error = (current_state == 3) | "signal-error";
 ```
+
+### Balanced Train Loader (MadZuri Pattern)
+
+A classic Factorio circuit pattern that balances item distribution across multiple chests. Each inserter is enabled only when its chest contains fewer items than the average:
+
+```fcdsl
+# Place chests along the train cargo wagons
+Entity c1 = place("steel-chest", 0, 0);
+Entity c2 = place("steel-chest", 1, 0);
+Entity c3 = place("steel-chest", 2, 0);
+
+# Place inserters to load/unload the chests
+Entity i1 = place("fast-inserter", 0, 1);
+Entity i2 = place("fast-inserter", 1, 1);
+Entity i3 = place("fast-inserter", 2, 1);
+
+# Sum all chest contents and compute negative average
+Bundle total = {c1.output, c2.output, c3.output};
+Bundle neg_avg = total / -3;  # Negative of the average
+
+# Each inserter receives: its own chest + negative average
+# Result is positive only if chest is below average
+Bundle in1 = {neg_avg, c1.output};  # c1.output - avg
+Bundle in2 = {neg_avg, c2.output};  # c2.output - avg
+Bundle in3 = {neg_avg, c3.output};  # c3.output - avg
+
+# Enable inserter only when chest is below average (all item types)
+i1.enable = in1 < 0;  # Multi-signal comparison
+i2.enable = in2 < 0;
+i3.enable = in3 < 0;
+```
+
+The compiler automatically detects the **transitive conflict** where each chest's signal appears in both:
+1. The `total` merge (contributing to the average)
+2. Its individual `in1/in2/in3` merge (direct comparison)
+
+Different wire colors are assigned to prevent double-counting:
+- Chest → combinator (total): RED wire
+- Chest → own inserter: GREEN wire
 
 ### Filter and Accumulator
 
