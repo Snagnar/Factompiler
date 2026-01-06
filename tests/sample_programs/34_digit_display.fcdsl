@@ -1,0 +1,114 @@
+# Multi-Digit 7-Segment Display using Magic Number Bit-Shift Technique
+# =====================================================================
+#
+# Displays a 3-digit number (0-999) using the efficient bit-shift technique.
+#
+# Per digit, this creates:
+# - 1 constant combinator (magic numbers)
+# - 1 arithmetic combinator (parallel left-shift)
+# - 17 lamps
+#
+# Additional combinators for digit extraction:
+# - 2 arithmetic combinators per digit (divide and modulo)
+
+# Magic numbers for each segment (truth tables encoded in 32-bit signed integers)
+int MAGIC_A = -1212153856;  # Top
+int MAGIC_B = -104857600;   # Upper right
+int MAGIC_C = -541065216;   # Lower right
+int MAGIC_D = -1228931072;  # Bottom
+int MAGIC_E = -1568669696;  # Lower left
+int MAGIC_F = -1900019712;  # Upper left
+int MAGIC_G = 1052770304;   # Middle
+
+# ============================================
+# Function: Create one 7-segment digit display
+# ============================================
+# Parameters:
+#   base_x - X coordinate of top-left corner
+#   base_y - Y coordinate of top-left corner  
+#   digit_signal - Signal containing digit value (0-9)
+# Magic number bundle for this digit
+Bundle magic = {
+    ("signal-A", MAGIC_A),
+    ("signal-B", MAGIC_B),
+    ("signal-C", MAGIC_C),
+    ("signal-D", MAGIC_D),
+    ("signal-E", MAGIC_E),
+    ("signal-F", MAGIC_F),
+    ("signal-G", MAGIC_G)
+};
+
+func create_digit_display(int base_x, int base_y, Signal digit_signal) {
+    
+    # Left shift all magic numbers by digit value
+    Bundle shifted = magic << digit_signal;
+    
+    # Segment A - top (3 lamps)
+    for x in 0..3 {
+        Entity lamp = place("small-lamp", base_x + x, base_y);
+        lamp.enable = shifted["signal-A"] < 0;
+    }
+    
+    # Segment F - upper left (2 lamps)
+    for y in 1..3 {
+        Entity lamp = place("small-lamp", base_x, base_y + y);
+        lamp.enable = shifted["signal-F"] < 0;
+    }
+    
+    # Segment B - upper right (2 lamps)
+    for y in 1..3 {
+        Entity lamp = place("small-lamp", base_x + 2, base_y + y);
+        lamp.enable = shifted["signal-B"] < 0;
+    }
+    
+    # Segment G - middle (3 lamps)
+    for x in 0..3 {
+        Entity lamp = place("small-lamp", base_x + x, base_y + 3);
+        lamp.enable = shifted["signal-G"] < 0;
+    }
+    
+    # Segment E - lower left (2 lamps)
+    for y in 4..6 {
+        Entity lamp = place("small-lamp", base_x, base_y + y);
+        lamp.enable = shifted["signal-E"] < 0;
+    }
+    
+    # Segment C - lower right (2 lamps)
+    for y in 4..6 {
+        Entity lamp = place("small-lamp", base_x + 2, base_y + y);
+        lamp.enable = shifted["signal-C"] < 0;
+    }
+    
+    # Segment D - bottom (3 lamps)
+    for x in 0..3 {
+        Entity lamp = place("small-lamp", base_x + x, base_y + 6);
+        lamp.enable = shifted["signal-D"] < 0;
+    }
+}
+
+# ============================================
+# Main: 3-Digit Display
+# ============================================
+
+# Input number to display (0-999)
+# Wire your input signal here
+Signal update_speed = ("signal-V", 4);
+
+Memory counter: "signal-O";
+
+counter.write((counter.read() + 1));  # Increment value for demonstration
+
+Memory show_value: "signal-V";
+show_value.write((show_value.read() + 1) % 1000, when=((counter.read() % update_speed) == 0));  # Update every 'update_speed' ticks
+
+
+# Extract individual digits using division and modulo
+Signal ones = show_value.read() % 10;
+Signal tens = (show_value.read() / 10) % 10;
+Signal hundreds = (show_value.read() / 100) % 10;
+
+# Create the 3-digit display
+# Each digit is 3 tiles wide + 1 tile spacing = 4 tiles per digit
+create_digit_display(0, 0, hundreds);   # Hundreds place (leftmost)
+create_digit_display(8, 0, tens);       # Tens place
+create_digit_display(16, 0, ones);       # Ones place (rightmost)
