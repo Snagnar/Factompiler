@@ -961,6 +961,36 @@ class ExpressionLowerer:
     # Bundle lowering methods
     # -------------------------------------------------------------------------
 
+    def _resolve_constant_symbol(self, name: str) -> Optional[int]:
+        """Resolve a symbol name to a constant integer value if possible.
+        
+        Used by ConstantFolder to resolve identifier references during
+        constant extraction.
+        
+        Returns:
+            The constant integer value if the symbol is a compile-time constant,
+            or None if the symbol is not defined or not a constant.
+        """
+        from dsl_compiler.src.semantic.type_system import IntValue
+        
+        # First check param_values (for function parameters during inlining)
+        if name in self.parent.param_values:
+            val = self.parent.param_values[name]
+            if isinstance(val, int):
+                return val
+            return None
+        
+        # Look up in semantic symbol table
+        symbol = self.semantic.current_scope.lookup(name)
+        if symbol is None:
+            return None
+        
+        # Check if it's an IntValue with a known constant value
+        if isinstance(symbol.value_type, IntValue) and symbol.value_type.value is not None:
+            return symbol.value_type.value
+        
+        return None
+
     def lower_bundle_literal(self, expr: BundleLiteral) -> BundleRef:
         """Lower a bundle literal { signal1, signal2, ... } to IR.
 
@@ -984,7 +1014,9 @@ class ExpressionLowerer:
                     # Check if it's a constant signal literal
                     if isinstance(element, SignalLiteral) and element.signal_type:
                         const_value = ConstantFolder.extract_constant_int(
-                            element.value, self.diagnostics
+                            element.value, 
+                            self.diagnostics,
+                            symbol_resolver=self._resolve_constant_symbol
                         )
                         if const_value is not None:
                             constant_signals[signal_name] = const_value

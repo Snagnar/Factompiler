@@ -10,10 +10,16 @@ from dsl_compiler.src.ast.statements import (
 )
 from dsl_compiler.src.ast.expressions import (
     BinaryOp,
+    IdentifierExpr,
     SignalLiteral,
     UnaryOp,
 )
 from dsl_compiler.src.ast.literals import NumberLiteral
+
+from typing import Callable
+
+# Type alias for symbol resolver callback
+SymbolResolver = Callable[[str], Optional[int]]
 
 
 class ConstantFolder:
@@ -127,14 +133,24 @@ class ConstantFolder:
         cls,
         expr: Expr,
         diagnostics: Any = None,
+        symbol_resolver: Optional[SymbolResolver] = None,
     ) -> Optional[int]:
         """Attempt to evaluate an expression to an integer constant.
 
         Recursively evaluates constant expressions at compile time, including:
         - NumberLiteral: immediate integer values
         - SignalLiteral with NumberLiteral value
+        - IdentifierExpr: resolved via symbol_resolver if provided
         - UnaryOp: +/- on constant expressions
         - BinaryOp: arithmetic/bitwise/comparison on constant expressions
+
+        Args:
+            expr: The expression to evaluate
+            diagnostics: Optional diagnostics for reporting warnings
+            symbol_resolver: Optional callback to resolve identifier names to
+                constant int values. If provided and an IdentifierExpr is
+                encountered, this callback will be called with the identifier
+                name and should return the constant value or None.
 
         Returns None if any part of the expression is not a compile-time constant.
         """
@@ -142,14 +158,20 @@ class ConstantFolder:
         if isinstance(expr, NumberLiteral):
             return expr.value
 
+        if isinstance(expr, IdentifierExpr):
+            if symbol_resolver is not None:
+                return symbol_resolver(expr.name)
+            return None
+
         if isinstance(expr, SignalLiteral):
             inner = expr.value
             if isinstance(inner, NumberLiteral):
                 return inner.value
-            return None
+            # Try to resolve inner expression (e.g., identifier reference)
+            return cls.extract_constant_int(inner, diagnostics, symbol_resolver)
 
         if isinstance(expr, UnaryOp):
-            inner_val = cls.extract_constant_int(expr.expr, diagnostics)
+            inner_val = cls.extract_constant_int(expr.expr, diagnostics, symbol_resolver)
             if inner_val is None:
                 return None
             if expr.op == "+":
@@ -159,8 +181,8 @@ class ConstantFolder:
             return None
 
         if isinstance(expr, BinaryOp):
-            left_const = cls.extract_constant_int(expr.left, diagnostics)
-            right_const = cls.extract_constant_int(expr.right, diagnostics)
+            left_const = cls.extract_constant_int(expr.left, diagnostics, symbol_resolver)
+            right_const = cls.extract_constant_int(expr.right, diagnostics, symbol_resolver)
             if left_const is None or right_const is None:
                 return None
             return cls.fold_binary_operation(

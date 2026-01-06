@@ -144,6 +144,7 @@ class LayoutPlanner:
             entity_placements=self.layout_plan.entity_placements,
             diagnostics=self.diagnostics,
             config=self.config,
+            wire_merge_junctions=self._wire_merge_junctions,
         )
         optimized_positions = layout_engine.optimize(
             time_limit_seconds=self.config.layout_solver_time_limit
@@ -455,11 +456,11 @@ class LayoutPlanner:
                 left_signal_id = placement.properties.get("left_operand_signal_id")
                 right_signal_id = placement.properties.get("right_operand_signal_id")
                 right_operand = placement.properties.get("right_operand")
-                
+
                 # Lock the right operand source to green wire
                 if right_signal_id and isinstance(right_operand, str):
                     # Get the source entity for the right operand
-                    if hasattr(right_signal_id, 'source_id'):
+                    if hasattr(right_signal_id, "source_id"):
                         source_id = right_signal_id.source_id
                         locked[(source_id, right_operand)] = "green"
                         self.diagnostics.info(

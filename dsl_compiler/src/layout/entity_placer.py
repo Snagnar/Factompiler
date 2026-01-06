@@ -276,7 +276,7 @@ class EntityPlacer:
 
     def _place_decider(self, op: IR_Decider) -> None:
         """Place decider combinator.
-        
+
         Handles both single-condition mode (legacy) and multi-condition mode
         (condition folding optimization or SR latches).
         """
@@ -334,16 +334,16 @@ class EntityPlacer:
 
     def _place_multi_condition_decider(self, op: IR_Decider) -> None:
         """Place a multi-condition decider combinator.
-        
+
         Handles conditions from:
         1. IR-time construction (condition folding): Uses first_operand/second_operand ValueRefs
         2. Layout-time construction (SR latches): Uses first_signal/second_signal strings
         """
         from dsl_compiler.src.ir.nodes import SignalRef
-        
+
         # Track all input operands for signal graph
         all_operands = []
-        
+
         # Build conditions list for the placement properties
         conditions_list = []
         for cond in op.conditions:
@@ -351,7 +351,7 @@ class EntityPlacer:
                 "comparator": cond.comparator,
                 "compare_type": cond.compare_type,
             }
-            
+
             # Handle first operand - check ValueRef first, then string fallback
             if cond.first_operand is not None:
                 # IR-time: ValueRef needs resolution
@@ -370,7 +370,7 @@ class EntityPlacer:
                     cond_dict["first_signal_wires"] = cond.first_signal_wires
             elif cond.first_constant is not None:
                 cond_dict["first_constant"] = cond.first_constant
-            
+
             # Handle second operand
             if cond.second_operand is not None:
                 # IR-time: ValueRef needs resolution
@@ -389,14 +389,14 @@ class EntityPlacer:
                     cond_dict["second_signal_wires"] = cond.second_signal_wires
             elif cond.second_constant is not None:
                 cond_dict["second_constant"] = cond.second_constant
-            
+
             conditions_list.append(cond_dict)
-        
+
         # Resolve output
         usage = self.signal_usage.get(op.node_id)
         output_signal = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
         output_value = self.signal_analyzer.get_operand_for_combinator(op.output_value)
-        
+
         self.plan.create_and_add_placement(
             ir_node_id=op.node_id,
             entity_type="decider-combinator",
@@ -409,14 +409,14 @@ class EntityPlacer:
             output_value=output_value,
             copy_count_from_input=op.copy_count_from_input,
         )
-        
+
         # Signal graph: this node is source of its output
         self.signal_graph.set_source(op.node_id, op.node_id)
-        
+
         # All operands from conditions are sinks
         for operand in all_operands:
             self._add_signal_sink(operand, op.node_id)
-        
+
         # Output value if it's a signal
         if not isinstance(op.output_value, int):
             self._add_signal_sink(op.output_value, op.node_id)
@@ -624,12 +624,21 @@ class EntityPlacer:
         }
 
         # Track which sources belong to this merge for wire color conflict detection
+        # IMPORTANT: Track by ACTUAL entity ID, not IR node ID, to detect when the
+        # same physical entity's output is used in multiple different wire merges.
+        # This is essential for balanced loader patterns where a chest output is used
+        # both in a "total" merge (all chests together) and individual "diff" merges.
         for source in op.sources:
             if isinstance(source, (SignalRef, BundleRef)):
                 source_id = source.source_id
-                if source_id not in self._merge_membership:
-                    self._merge_membership[source_id] = set()
-                self._merge_membership[source_id].add(op.node_id)
+                # Resolve IR node ID to actual entity ID using signal graph
+                actual_entity_id = self.signal_graph.get_source(source_id)
+                if actual_entity_id is None:
+                    actual_entity_id = source_id
+
+                if actual_entity_id not in self._merge_membership:
+                    self._merge_membership[actual_entity_id] = set()
+                self._merge_membership[actual_entity_id].add(op.node_id)
 
         # Track signal graph: merge creates a new source from multiple inputs
         self.signal_graph.set_source(op.node_id, op.node_id)

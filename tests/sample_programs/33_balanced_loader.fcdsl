@@ -1,83 +1,71 @@
-# Balanced Train Loader
-# =====================
+# ============================================================
+# Balanced Chest Loader/Unloader (4 chests)
+# Uses MadZuri pattern for perfectly even item distribution
+# ============================================================
 #
-# This demonstrates the balanced loader pattern using DSL features:
-# - entity.output to read chest contents as Bundle
-# - Bundle arithmetic (Each / -N) for negative average
-# - all(bundle) inlining to entity conditions
-# - Wire color automatic inference for merge conflicts
+# LAYOUT:
+#   y = -2  : Input belts (items arrive here)
+#   y = -1  : Loading inserters (belt → chest)
+#   y = 0   : Steel chests
+#   y = 1   : Unloading inserters (chest → belt)
+#   y = 2   : Output belts (items leave here)
+#
+# ============================================================
 
-int NUM_CHESTS = 6;
+int NUM_CHESTS = 4;
 
-for i in 0..NUM_CHESTS {
-    place("express-transport-belt", i, 0);
-    place("fast-inserter", i, 1, {direction: 0});
+# === INPUT BELTS (items flow east along this row) ===
+for x in 0..NUM_CHESTS {
+    Entity belt = place("transport-belt", x, -2, {direction: 4});
 }
-for i in 0..NUM_CHESTS step 2 {
-    place("straight-rail", i, 4, {direction: 4});
+
+# === OUTPUT BELTS (items flow east along this row) ===
+for x in 0..NUM_CHESTS {
+    Entity belt = place("transport-belt", x, 2, {direction: 4});
 }
 
-# ============================================================================
-# PLACE CHESTS FOR WAGON - Fixed positions for visual clarity
-# ============================================================================
-Entity c1 = place("steel-chest", 0, 2);
-Entity c2 = place("steel-chest", 1, 2);
-Entity c3 = place("steel-chest", 2, 2);
-Entity c4 = place("steel-chest", 3, 2);
-Entity c5 = place("steel-chest", 4, 2);
-Entity c6 = place("steel-chest", 5, 2);
+# === CHESTS ===
+Entity chest1 = place("steel-chest", 0, 0);
+Entity chest2 = place("steel-chest", 1, 0);
+Entity chest3 = place("steel-chest", 2, 0);
+Entity chest4 = place("steel-chest", 3, 0);
 
-# ============================================================================
-# BUNDLE OPERATIONS: Sum and Negative Average
-# ============================================================================
+# === CIRCUIT LOGIC (MadZuri Pattern) ===
 
-# Read chest contents as Bundles using entity.output
-Bundle contents1 = c1.output;
-Bundle contents2 = c2.output;
-Bundle contents3 = c3.output;
-Bundle contents4 = c4.output;
-Bundle contents5 = c5.output;
-Bundle contents6 = c6.output;
+# Step 1: Sum all chest contents via wire merge
+Bundle total = {chest1.output, chest2.output, chest3.output, chest4.output};
 
-# Sum all chest contents by combining into one bundle
-# Wire merge automatically connects all sources
-# Bundle total = {contents1, contents2};
-Bundle total = {contents1, contents2, contents3, contents4, contents5, contents6};
-
-# Calculate negative average using Bundle arithmetic
-# This compiles to: Each / -6 = Each
+# Step 2: Compute negative average (divide by -N)
 Bundle neg_avg = total / -NUM_CHESTS;
 
-# ============================================================================
-# INSERTERS WITH BALANCED ENABLE CONDITIONS
-# Let layout engine position inserters to avoid too many fixed positions
-# ============================================================================
+# Step 3: For each chest, compute (contents - average)
+Bundle diff1 = {neg_avg, chest1.output};
+Bundle diff2 = {neg_avg, chest2.output};
+Bundle diff3 = {neg_avg, chest3.output};
+Bundle diff4 = {neg_avg, chest4.output};
 
-Entity ins1 = place("fast-inserter", 0, 3, {direction: 0});
-Entity ins2 = place("fast-inserter", 1, 3, {direction: 0});
-Entity ins3 = place("fast-inserter", 2, 3, {direction: 0});
-Entity ins4 = place("fast-inserter", 3, 3, {direction: 0});
-Entity ins5 = place("fast-inserter", 4, 3, {direction: 0});
-Entity ins6 = place("fast-inserter", 5, 3, {direction: 0});
+# === LOADING INSERTERS (direction 8 = SOUTH: picks from north/belt, drops to south/chest) ===
+Entity load1 = place("fast-inserter", 0, -1, {direction: 0});
+Entity load2 = place("fast-inserter", 1, -1, {direction: 0});
+Entity load3 = place("fast-inserter", 2, -1, {direction: 0});
+Entity load4 = place("fast-inserter", 3, -1, {direction: 0});
 
-# Create per-inserter input bundles:
-# Each inserter sees its own chest + the negative average
-# This creates the "diff" that determines if chest is below average
-Bundle input1 = {contents1, neg_avg};
-Bundle input2 = {contents2, neg_avg};
-Bundle input3 = {contents3, neg_avg};
-Bundle input4 = {contents4, neg_avg};
-Bundle input5 = {contents5, neg_avg};
-Bundle input6 = {contents6, neg_avg};
+# Enable loading when chest is BELOW average (needs more items)
+# Using all() so that empty chests (no signals) are vacuously TRUE and get loaded
+load1.enable = all(diff1) < 0;
+load2.enable = all(diff2) < 0;
+load3.enable = all(diff3) < 0;
+load4.enable = all(diff4) < 0;
 
-# Enable condition: all(diff) < 1 means chest is at or below average
-# This is inlined directly to the inserter's circuit condition using signal-everything
-# NOTE: Wire color conflicts are handled automatically:
-# - contents1 contributes to both "total" (via contents1) and "input1"
-# - Compiler detects this and assigns different wire colors
-ins1.enable = all(input1) < 1;
-ins2.enable = all(input2) < 1;
-ins3.enable = all(input3) < 1;
-ins4.enable = all(input4) < 1;
-ins5.enable = all(input5) < 1;
-ins6.enable = all(input6) < 1;
+# === UNLOADING INSERTERS (direction 8 = SOUTH: picks from north/chest, drops to south/belt) ===
+Entity unload1 = place("fast-inserter", 0, 1, {direction: 0});
+Entity unload2 = place("fast-inserter", 1, 1, {direction: 0});
+Entity unload3 = place("fast-inserter", 2, 1, {direction: 0});
+Entity unload4 = place("fast-inserter", 3, 1, {direction: 0});
+
+# Enable unloading when chest is ABOVE average (has excess items)
+# Using any() so that empty chests (no signals) are FALSE and don't unload
+unload1.enable = any(diff1) > 0;
+unload2.enable = any(diff2) > 0;
+unload3.enable = any(diff3) > 0;
+unload4.enable = any(diff4) > 0;

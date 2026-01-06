@@ -51,11 +51,13 @@ class IntegerLayoutEngine:
         diagnostics: ProgramDiagnostics,
         constraints: Optional[LayoutConstraints] = None,
         config: CompilerConfig = DEFAULT_CONFIG,
+        wire_merge_junctions: Optional[Dict[str, Dict]] = None,
     ):
         self.signal_graph = signal_graph
         self.entity_placements = entity_placements
         self.diagnostics = diagnostics
         self.config = config
+        self.wire_merge_junctions = wire_merge_junctions or {}
         if constraints is not None:
             self.constraints = constraints
         else:
@@ -79,12 +81,56 @@ class IntegerLayoutEngine:
         self._extract_footprints()
 
     def _build_connectivity(self) -> None:
-        """Build connectivity as list of (source_id, sink_id) pairs."""
+        """Build connectivity as list of (source_id, sink_id) pairs.
+
+        Wire merge nodes are expanded: if a source feeds into a wire merge,
+        edges are created from that source to all sinks of the wire merge.
+        This ensures the layout optimizer considers the full wire merge topology.
+        """
         self.connections = []
 
+        # First, build a map of wire merge node -> its sinks
+        wire_merge_sinks: Dict[str, List[str]] = {}
         for signal_id, source_id, sink_id in self.signal_graph.iter_source_sink_pairs():
+            if source_id in self.wire_merge_junctions:
+                if source_id not in wire_merge_sinks:
+                    wire_merge_sinks[source_id] = []
+                if sink_id in self.entity_ids:
+                    wire_merge_sinks[source_id].append(sink_id)
+
+        # Also build a map of wire merge node -> its sources (actual entity IDs)
+        wire_merge_sources: Dict[str, List[str]] = {}
+        for merge_id, merge_info in self.wire_merge_junctions.items():
+            inputs = merge_info.get("inputs", [])
+            sources = []
+            for input_ref in inputs:
+                # Handle both SignalRef and BundleRef
+                if hasattr(input_ref, "source_id"):
+                    ir_source_id = input_ref.source_id
+                    # Resolve IR node ID to actual entity ID using signal graph
+                    actual_entity_id = self.signal_graph.get_source(ir_source_id)
+                    if actual_entity_id is None:
+                        actual_entity_id = ir_source_id
+                    if actual_entity_id in self.entity_ids:
+                        sources.append(actual_entity_id)
+            wire_merge_sources[merge_id] = sources
+
+        for signal_id, source_id, sink_id in self.signal_graph.iter_source_sink_pairs():
+            # Case 1: Both source and sink are real entities
             if source_id in self.entity_ids and sink_id in self.entity_ids:
                 self.connections.append((source_id, sink_id))
+
+            # Case 2: Source feeds into a wire merge (sink is wire merge node)
+            elif source_id in self.entity_ids and sink_id in self.wire_merge_junctions:
+                # Connect source to all sinks of the wire merge
+                for actual_sink in wire_merge_sinks.get(sink_id, []):
+                    self.connections.append((source_id, actual_sink))
+
+            # Case 3: Wire merge feeds into a sink
+            elif source_id in self.wire_merge_junctions and sink_id in self.entity_ids:
+                # Connect all wire merge inputs to this sink
+                for actual_source in wire_merge_sources.get(source_id, []):
+                    self.connections.append((actual_source, sink_id))
 
         # Deduplicate and sort for deterministic iteration order
         self.connections = sorted(set(self.connections))
@@ -382,10 +428,13 @@ class IntegerLayoutEngine:
         - All inputs share Y = Y_input_line (a variable)
         - All outputs share Y = Y_output_line (a variable)
         - All intermediates have Y strictly between these lines
-        - Horizontal ordering preserves definition order (no overlaps)
         - Optimizer minimizes bounding box, naturally placing:
           * Y_input_line at minimum feasible Y
           * Y_output_line at maximum feasible Y
+
+        NOTE: We do NOT add X-ordering constraints here. The AddNoOverlap2D
+        constraint already prevents overlaps, so the optimizer is free to
+        reorder entities horizontally to minimize wire length.
 
         Args:
             model: CP-SAT constraint model
@@ -460,38 +509,22 @@ class IntegerLayoutEngine:
                 f"Edge layout: enforcing minimum gap of {min_gap} between input/output lines"
             )
 
+        # Constrain inputs to share Y = Y_input_line
+        # NOTE: No X-ordering - AddNoOverlap2D handles collision prevention,
+        # and the optimizer will find the best horizontal arrangement.
         if input_entities and Y_input_line is not None:
             for entity_id in input_entities:
                 _, y = positions[entity_id]
                 model.Add(y == Y_input_line)
 
-            for i in range(len(input_entities) - 1):
-                curr_id = input_entities[i]
-                next_id = input_entities[i + 1]
-
-                curr_x, _ = positions[curr_id]
-                next_x, _ = positions[next_id]
-
-                curr_width = self.footprints.get(curr_id, (1, 1))[0]
-
-                model.Add(next_x >= curr_x + curr_width)
-
+        # Constrain outputs to share Y = Y_output_line
+        # NOTE: No X-ordering - same rationale as inputs.
         if output_entities and Y_output_line is not None:
             for entity_id in output_entities:
                 _, y = positions[entity_id]
                 model.Add(y == Y_output_line)
 
-            for i in range(len(output_entities) - 1):
-                curr_id = output_entities[i]
-                next_id = output_entities[i + 1]
-
-                curr_x, _ = positions[curr_id]
-                next_x, _ = positions[next_id]
-
-                curr_width = self.footprints.get(curr_id, (1, 1))[0]
-
-                model.Add(next_x >= curr_x + curr_width)
-
+        # Constrain intermediates to be between input and output lines
         for entity_id in intermediate_entities:
             _, y = positions[entity_id]
             height = self.footprints.get(entity_id, (1, 1))[1]
