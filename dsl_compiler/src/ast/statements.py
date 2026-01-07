@@ -173,8 +173,8 @@ class ForStmt(Statement):
                 )
             return constant_resolver(value)
 
-        start = resolve(self.start)
-        stop = resolve(self.stop)
+        start = resolve(self.start) if self.start is not None else 0
+        stop = resolve(self.stop) if self.stop is not None else 0
         step = resolve(self.step) if self.step is not None else None
 
         # Range iteration

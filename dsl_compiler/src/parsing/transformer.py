@@ -98,9 +98,11 @@ class DSLTransformer(Transformer):
             value = self._unwrap_tree(items[2])
             type_name = raw_type
 
-            return self._set_position(
+            result = self._set_position(
                 DeclStmt(type_name=type_name, name=name, value=value), items[1]
             )
+            assert isinstance(result, Statement)
+            return result
         raise ValueError(f"Unexpected decl_stmt structure: {items}")
 
     def mem_decl(self, items) -> Statement:

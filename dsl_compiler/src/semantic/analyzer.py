@@ -174,7 +174,8 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             return None
         mapped = self.signal_type_map.get(signal_key)
         if isinstance(mapped, dict):
-            return mapped.get("name", signal_key)
+            result = mapped.get("name", signal_key)
+            return str(result) if result is not None else signal_key
         if isinstance(mapped, str):
             return mapped
         return signal_key

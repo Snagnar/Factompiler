@@ -48,7 +48,7 @@ def _resolve_entity_type(placement: Any) -> str | None:
 
     entity_type = getattr(placement, "entity_type", None)
     if entity_type:
-        return entity_type
+        return str(entity_type)
 
     entity = getattr(placement, "entity", None)
     if entity is not None:
@@ -171,7 +171,8 @@ def plan_wire_colors(
                 # Different merges or mixed merge/non-merge: potential conflict
                 graph[a].add(b)
                 graph[b].add(a)
-                pair = tuple(sorted((a, b)))
+                sorted_pair = sorted((a, b))
+                pair: tuple[tuple[str, str], tuple[str, str]] = (sorted_pair[0], sorted_pair[1])
                 edge_sinks[pair].add(sink_id)
 
     assignments: dict[tuple[str, str], str] = {}
@@ -220,20 +221,28 @@ def plan_wire_colors(
                 if neighbor_existing:
                     if neighbor_existing != neighbor_desired:
                         is_bipartite = False
-                        pair = tuple(sorted((node, neighbor)))
-                        if pair not in conflict_pairs_recorded:
-                            conflict_pairs_recorded.add(pair)
-                            sinks = edge_sinks.get(pair, set())
-                            conflicts.append(ConflictEdge(nodes=pair, sinks=set(sinks)))
+                        sorted_pair3 = sorted((node, neighbor))
+                        pair3: tuple[tuple[str, str], tuple[str, str]] = (
+                            sorted_pair3[0],
+                            sorted_pair3[1],
+                        )
+                        if pair3 not in conflict_pairs_recorded:
+                            conflict_pairs_recorded.add(pair3)
+                            sinks = edge_sinks.get(pair3, set())
+                            conflicts.append(ConflictEdge(nodes=pair3, sinks=set(sinks)))
                     continue
 
                 if neighbor_locked and neighbor_locked == desired_color:
                     is_bipartite = False
-                    pair = tuple(sorted((node, neighbor)))
-                    if pair not in conflict_pairs_recorded:
-                        conflict_pairs_recorded.add(pair)
-                        sinks = edge_sinks.get(pair, set())
-                        conflicts.append(ConflictEdge(nodes=pair, sinks=set(sinks)))
+                    sorted_pair4 = sorted((node, neighbor))
+                    pair4: tuple[tuple[str, str], tuple[str, str]] = (
+                        sorted_pair4[0],
+                        sorted_pair4[1],
+                    )
+                    if pair4 not in conflict_pairs_recorded:
+                        conflict_pairs_recorded.add(pair4)
+                        sinks = edge_sinks.get(pair4, set())
+                        conflicts.append(ConflictEdge(nodes=pair4, sinks=set(sinks)))
 
                 queue.append((neighbor, neighbor_desired))
 

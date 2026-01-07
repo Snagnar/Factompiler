@@ -48,7 +48,7 @@ def preprocess_imports(
             if import_path.suffix != ".facto":
                 import_path = import_path.with_suffix(".facto")
 
-            file_path = resolve_import_path(import_path, base_path)
+            file_path = resolve_import_path(str(import_path), base_path)
             if file_path in processed_files:
                 processed_lines.append(f"# Skipped circular import: {import_path}")
                 continue

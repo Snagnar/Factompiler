@@ -36,7 +36,8 @@ class ConstantPropagationOptimizer:
             while node_id in self.replacements:
                 node_id = self.replacements[node_id]
             if node_id in const_map:
-                return const_map[node_id].debug_metadata.get("user_declared", False)
+                result = const_map[node_id].debug_metadata.get("user_declared", False)
+                return bool(result)
         return False
 
     def optimize(self, ir_operations: list[IRNode]) -> list[IRNode]:
@@ -201,7 +202,8 @@ class ConstantPropagationOptimizer:
                     return None
                 if right < 0:
                     return 0
-                return left**right
+                result = left**right
+                return int(result) if isinstance(result, (int, float)) else None
             elif op == "<<":
                 if right < 0 or right >= 32:
                     return 0

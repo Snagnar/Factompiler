@@ -158,7 +158,11 @@ class PowerPlanner:
         spacing = 2.0 * supply_radius
 
         prototype = str(config["prototype"])
-        footprint = tuple(int(v) for v in config.get("footprint", (1, 1)))
+        footprint_raw = config.get("footprint", (1, 1))
+        if not isinstance(footprint_raw, (tuple, list)) or len(footprint_raw) != 2:
+            footprint: tuple[int, int] = (1, 1)
+        else:
+            footprint = (int(footprint_raw[0]), int(footprint_raw[1]))
 
         # Start at negative offset to ensure coverage of entities at (0,0)+
         base_offset = -spacing / 2.0 + footprint[0] / 2.0

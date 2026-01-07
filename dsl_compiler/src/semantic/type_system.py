@@ -4,17 +4,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dsl_compiler.src.ast.statements import ASTNode, Expr
+from dsl_compiler.src.common.signal_registry import SignalTypeInfo
 
 """Type system primitives used by semantic analysis."""
-
-
-@dataclass
-class SignalTypeInfo:
-    """Information about a signal type."""
-
-    name: str  # e.g. "iron-plate", "signal-A", "__v1"
-    is_implicit: bool = False  # True for compiler-allocated virtual signals
-    is_virtual: bool = False  # True for Factorio virtual signals
 
 
 @dataclass

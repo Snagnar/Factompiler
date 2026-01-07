@@ -22,7 +22,7 @@ class DSLParser:
             grammar_path = Path(__file__).resolve().parent.parent.parent / "grammar" / "facto.lark"
 
         self.grammar_path = grammar_path
-        self.parser = None
+        self.parser: Lark | None = None
         self.transformer = DSLTransformer()
         self._load_grammar()
 
@@ -68,6 +68,8 @@ class DSLParser:
                 base_path = Path("tests/sample_programs").resolve()
 
             preprocessed_code = preprocess_imports(source_code, base_path)
+            if self.parser is None:
+                raise RuntimeError("Parser not initialized")
             ast = self.parser.parse(preprocessed_code)
             self._attach_source_file(ast, filename)
 

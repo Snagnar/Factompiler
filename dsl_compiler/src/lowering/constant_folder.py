@@ -73,7 +73,8 @@ class ConstantFolder:
                     )
                 return 0
             try:
-                return left**right
+                result = left**right
+                return int(result) if isinstance(result, (int, float)) else 0
             except (OverflowError, ValueError):
                 if diagnostics is not None:
                     diagnostics.warning(
