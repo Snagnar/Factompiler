@@ -2,11 +2,12 @@
 Tests for bundle feature - Signal Bundles.
 """
 import pytest
+
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.ir.nodes import IR_Arith, IR_Const, IR_Decider
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
-from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.semantic.type_system import BundleValue, SignalValue
-from dsl_compiler.src.ir.nodes import IR_Const, IR_Arith, IR_Decider
 from tests.test_helpers import lower_program
 
 
@@ -54,7 +55,7 @@ class TestBundleParsing:
         Signal x = any(b) > 0;
         '''
         program = parser.parse(code)
-        from dsl_compiler.src.ast.expressions import BundleAnyExpr, BinaryOp
+        from dsl_compiler.src.ast.expressions import BinaryOp, BundleAnyExpr
         binary_op = program.statements[1].value
         assert isinstance(binary_op, BinaryOp)
         assert isinstance(binary_op.left, BundleAnyExpr)
@@ -66,7 +67,7 @@ class TestBundleParsing:
         Signal x = all(b) > 0;
         '''
         program = parser.parse(code)
-        from dsl_compiler.src.ast.expressions import BundleAllExpr, BinaryOp
+        from dsl_compiler.src.ast.expressions import BinaryOp, BundleAllExpr
         binary_op = program.statements[1].value
         assert isinstance(binary_op, BinaryOp)
         assert isinstance(binary_op.left, BundleAllExpr)
@@ -93,7 +94,7 @@ class TestBundleSemantics:
         code = 'Bundle b = { ("iron-plate", 100), ("copper-plate", 80) };'
         program = parser.parse(code)
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
         assert not diagnostics.has_errors(), diagnostics.get_messages()
@@ -111,7 +112,7 @@ class TestBundleSemantics:
         '''
         program = parser.parse(code)
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
         assert not diagnostics.has_errors(), diagnostics.get_messages()
@@ -133,7 +134,7 @@ class TestBundleSemantics:
         '''
         program = parser.parse(code)
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
         assert not diagnostics.has_errors(), diagnostics.get_messages()
@@ -149,7 +150,7 @@ class TestBundleSemantics:
         '''
         program = parser.parse(code)
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
         assert not diagnostics.has_errors(), diagnostics.get_messages()
@@ -165,7 +166,7 @@ class TestBundleSemantics:
         '''
         program = parser.parse(code)
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
         assert not diagnostics.has_errors(), diagnostics.get_messages()
@@ -182,7 +183,7 @@ class TestBundleSemantics:
         '''
         program = parser.parse(code)
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
 
         try:
             analyzer.visit(program)
@@ -205,7 +206,7 @@ class TestBundleLowering:
 
     @pytest.fixture
     def analyzer(self, diagnostics):
-        return SemanticAnalyzer(diagnostics, strict_types=False)
+        return SemanticAnalyzer(diagnostics)
 
     def test_bundle_literal_creates_multi_signal_const(self, parser, analyzer, diagnostics):
         """Bundle literal with constants should create multi-signal IR_Const."""

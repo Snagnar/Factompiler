@@ -1,22 +1,24 @@
 from __future__ import annotations
+
 import math
-from dataclasses import dataclass, field
 from collections import Counter
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
-from dsl_compiler.src.ir.builder import SignalRef, BundleRef
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from typing import Any
+
+from dsl_compiler.src.common.constants import DEFAULT_CONFIG, CompilerConfig
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
-from dsl_compiler.src.common.constants import CompilerConfig, DEFAULT_CONFIG
-from .tile_grid import TileGrid
+from dsl_compiler.src.ir.builder import BundleRef, SignalRef
+
 from .layout_plan import LayoutPlan, WireConnection
 from .signal_analyzer import SignalUsageEntry
-
+from .tile_grid import TileGrid
 from .wire_router import (
-    CircuitEdge,
     WIRE_COLORS,
+    CircuitEdge,
     collect_circuit_edges,
     plan_wire_colors,
 )
-
 
 """Connection planning for wire routing."""
 
@@ -34,11 +36,11 @@ class RelayNode:
     - Signals going to DIFFERENT sinks are on DIFFERENT networks (must not share relay)
     """
 
-    position: Tuple[float, float]
+    position: tuple[float, float]
     entity_id: str
     pole_type: str
-    networks_red: Set[int] = field(default_factory=set)  # Network IDs on red wire
-    networks_green: Set[int] = field(default_factory=set)  # Network IDs on green wire
+    networks_red: set[int] = field(default_factory=set)  # Network IDs on red wire
+    networks_green: set[int] = field(default_factory=set)  # Network IDs on green wire
 
     def can_route_network(self, network_id: int, wire_color: str) -> bool:
         """Check if this relay can route the given network on the given color.
@@ -80,7 +82,7 @@ class RelayNetwork:
         self.diagnostics = diagnostics
         self.config = config
         self.relay_search_radius = relay_search_radius
-        self.relay_nodes: Dict[Tuple[int, int], RelayNode] = {}
+        self.relay_nodes: dict[tuple[int, int], RelayNode] = {}
         self._relay_counter = 0
 
     @property
@@ -89,7 +91,7 @@ class RelayNetwork:
         return max(1.0, float(self.max_span) - self.config.wire_span_safety_margin)
 
     def add_relay_node(
-        self, position: Tuple[float, float], entity_id: str, pole_type: str
+        self, position: tuple[float, float], entity_id: str, pole_type: str
     ) -> RelayNode:
         """Add a pole to the relay network."""
         # Use floor to get consistent tile positions
@@ -105,8 +107,8 @@ class RelayNetwork:
         return node
 
     def find_relay_near(
-        self, position: Tuple[float, float], max_distance: float
-    ) -> Optional[RelayNode]:
+        self, position: tuple[float, float], max_distance: float
+    ) -> RelayNode | None:
         """Find the closest existing relay pole within max_distance, or None."""
         best_node = None
         best_dist = float("inf")
@@ -119,14 +121,12 @@ class RelayNetwork:
 
     def route_signal(
         self,
-        source_pos: Tuple[float, float],
-        sink_pos: Tuple[float, float],
+        source_pos: tuple[float, float],
+        sink_pos: tuple[float, float],
         signal_name: str,
         wire_color: str,
         network_id: int = 0,
-    ) -> Optional[
-        List[Tuple[str, str]]
-    ]:  # Returns list of (entity_id, wire_color) or None on failure
+    ) -> list[tuple[str, str]] | None:  # Returns list of (entity_id, wire_color) or None on failure
         """
         Find or create relay path from source to sink.
         Returns list of (entity_id, wire_color) pairs representing the routing path.
@@ -172,12 +172,12 @@ class RelayNetwork:
 
     def _find_path_through_existing_relays(
         self,
-        source_pos: Tuple[float, float],
-        sink_pos: Tuple[float, float],
+        source_pos: tuple[float, float],
+        sink_pos: tuple[float, float],
         span_limit: float,
         wire_color: str,
         network_id: int,
-    ) -> Optional[List[Tuple[str, str]]]:
+    ) -> list[tuple[str, str]] | None:
         """Try to find a path through existing relays using A*.
 
         Returns:
@@ -186,7 +186,7 @@ class RelayNetwork:
         import heapq
 
         # Build graph of all reachable nodes from source
-        nodes: Dict[str, Tuple[float, float]] = {}
+        nodes: dict[str, tuple[float, float]] = {}
         nodes["__source__"] = source_pos
         nodes["__sink__"] = sink_pos
         for node in self.relay_nodes.values():
@@ -234,13 +234,13 @@ class RelayNetwork:
 
     def _plan_and_create_relay_path(
         self,
-        source_pos: Tuple[float, float],
-        sink_pos: Tuple[float, float],
+        source_pos: tuple[float, float],
+        sink_pos: tuple[float, float],
         span_limit: float,
         signal_name: str,
         wire_color: str,
         network_id: int,
-    ) -> Optional[List[Tuple[str, str]]]:
+    ) -> list[tuple[str, str]] | None:
         """Plan relay positions along source-sink line and create them.
 
         Uses a greedy approach: starting from source, place relays at regular
@@ -255,7 +255,7 @@ class RelayNetwork:
         # Calculate number of relays needed
         num_relays = max(1, int(math.ceil(distance / step_size)) - 1)
 
-        path: List[Tuple[str, str]] = []
+        path: list[tuple[str, str]] = []
         current_pos = source_pos
 
         for i in range(
@@ -325,14 +325,14 @@ class RelayNetwork:
 
     def _find_or_create_relay_near(
         self,
-        ideal_pos: Tuple[float, float],
-        source_pos: Tuple[float, float],
-        sink_pos: Tuple[float, float],
+        ideal_pos: tuple[float, float],
+        source_pos: tuple[float, float],
+        sink_pos: tuple[float, float],
         span_limit: float,
         signal_name: str,
         wire_color: str,
         network_id: int,
-    ) -> Optional[RelayNode]:
+    ) -> RelayNode | None:
         """Find an existing relay or create a new one near the ideal position.
 
         When searching for positions, prioritizes positions that:
@@ -371,12 +371,12 @@ class RelayNetwork:
 
     def _create_relay_directed(
         self,
-        ideal_pos: Tuple[float, float],
-        source_pos: Tuple[float, float],
-        sink_pos: Tuple[float, float],
+        ideal_pos: tuple[float, float],
+        source_pos: tuple[float, float],
+        sink_pos: tuple[float, float],
         span_limit: float,
         signal_name: str,
-    ) -> Optional[RelayNode]:
+    ) -> RelayNode | None:
         """Create a new relay, prioritizing positions toward the sink.
 
         Unlike the previous ring search, this method scores candidate positions
@@ -392,7 +392,7 @@ class RelayNetwork:
             return self._finalize_relay_creation(tile_pos, signal_name, ideal_pos)
 
         # Collect all candidate positions within search radius
-        candidates: List[Tuple[float, Tuple[int, int]]] = []  # (score, position)
+        candidates: list[tuple[float, tuple[int, int]]] = []  # (score, position)
         search_radius = 6  # tiles
 
         for dx in range(-search_radius, search_radius + 1):
@@ -440,9 +440,9 @@ class RelayNetwork:
 
     def _finalize_relay_creation(
         self,
-        tile_pos: Tuple[int, int],
+        tile_pos: tuple[int, int],
         signal_name: str,
-        ideal_pos: Tuple[float, float],
+        ideal_pos: tuple[float, float],
     ) -> RelayNode:
         """Finalize relay creation with entity placement."""
         self._relay_counter += 1
@@ -472,7 +472,7 @@ class RelayNetwork:
 
         return relay_node
 
-    def _get_relay_node_by_id(self, relay_id: str) -> Optional[RelayNode]:
+    def _get_relay_node_by_id(self, relay_id: str) -> RelayNode | None:
         """Get a relay node by its entity ID."""
         for node in self.relay_nodes.values():
             if node.entity_id == relay_id:
@@ -496,11 +496,11 @@ class ConnectionPlanner:
     def __init__(
         self,
         layout_plan: LayoutPlan,
-        signal_usage: Dict[str, SignalUsageEntry],
+        signal_usage: dict[str, SignalUsageEntry],
         diagnostics: ProgramDiagnostics,
         tile_grid: TileGrid,
         max_wire_span: float = 9.0,
-        power_pole_type: Optional[str] = None,
+        power_pole_type: str | None = None,
         config: CompilerConfig = DEFAULT_CONFIG,
         use_mst_optimization: bool = True,
     ) -> None:
@@ -513,20 +513,20 @@ class ConnectionPlanner:
         self.use_mst_optimization = use_mst_optimization
         self.config = config
 
-        self._circuit_edges: List[CircuitEdge] = []
-        self._node_color_assignments: Dict[Tuple[str, str], str] = {}
-        self._edge_color_map: Dict[Tuple[str, str, str], str] = {}
+        self._circuit_edges: list[CircuitEdge] = []
+        self._node_color_assignments: dict[tuple[str, str], str] = {}
+        self._edge_color_map: dict[tuple[str, str, str], str] = {}
         self._coloring_conflicts = []
         self._coloring_success = True
         self._relay_counter = 0
 
-        self._memory_modules: Dict[str, Any] = {}
+        self._memory_modules: dict[str, Any] = {}
 
-        self._edge_wire_colors: Dict[Tuple[str, str, str], str] = {}
+        self._edge_wire_colors: dict[tuple[str, str, str], str] = {}
 
         # Network IDs for relay isolation - computed from edge connectivity
         # Edges in the same network can share relays on the same wire color
-        self._edge_network_ids: Dict[Tuple[str, str, str], int] = {}
+        self._edge_network_ids: dict[tuple[str, str, str], int] = {}
 
         # Calculate relay search radius based on power pole grid spacing
         # For a grid with spacing S, the max distance from any point to nearest
@@ -582,7 +582,7 @@ class ConnectionPlanner:
         # This ensures signals from different sources never share relays
 
         next_network_id = 1
-        source_color_to_network: Dict[Tuple[str, str], int] = {}
+        source_color_to_network: dict[tuple[str, str], int] = {}
 
         for edge in edges:
             if not edge.source_entity_id:
@@ -612,10 +612,10 @@ class ConnectionPlanner:
     def plan_connections(
         self,
         signal_graph: Any,
-        entities: Dict[str, Any],
-        wire_merge_junctions: Optional[Dict[str, Any]] = None,
-        locked_colors: Optional[Dict[Tuple[str, str], str]] = None,
-        merge_membership: Optional[Dict[str, set]] = None,
+        entities: dict[str, Any],
+        wire_merge_junctions: dict[str, Any] | None = None,
+        locked_colors: dict[tuple[str, str], str] | None = None,
+        merge_membership: dict[str, set] | None = None,
     ) -> None:
         """Compute all wire connections with color assignments."""
         self._register_power_poles_as_relays()
@@ -676,7 +676,7 @@ class ConnectionPlanner:
         edge_locked_colors = self._compute_edge_locked_colors(
             non_feedback_edges, merge_membership or {}, signal_graph
         )
-        
+
         # Combine with caller-provided locked colors
         all_locked_colors = dict(locked_colors or {})
         all_locked_colors.update(edge_locked_colors)
@@ -688,13 +688,13 @@ class ConnectionPlanner:
 
         # Build edge-level color map
         # First, use node-level assignments as default, then apply edge-level overrides
-        edge_color_map: Dict[Tuple[str, str, str], str] = {}
+        edge_color_map: dict[tuple[str, str, str], str] = {}
         for edge in non_feedback_edges:
             if not edge.source_entity_id:
                 continue
-            
+
             edge_key = (edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name)
-            
+
             # Check for edge-level locked color first (based on merge origin)
             if edge.originating_merge_id:
                 # Use (source, merge_id) as key for edge-level locks
@@ -702,7 +702,7 @@ class ConnectionPlanner:
                 if edge_lock_key in edge_locked_colors:
                     edge_color_map[edge_key] = edge_locked_colors[edge_lock_key]
                     continue
-            
+
             # Fall back to node-level assignment
             node_key = (edge.source_entity_id, edge.resolved_signal_name)
             color = self._node_color_assignments.get(node_key, WIRE_COLORS[0])
@@ -757,9 +757,9 @@ class ConnectionPlanner:
     def _compute_edge_locked_colors(
         self,
         edges: Sequence[CircuitEdge],
-        merge_membership: Dict[str, set],
+        merge_membership: dict[str, set],
         signal_graph: Any = None,
-    ) -> Dict[Tuple[str, str], str]:
+    ) -> dict[tuple[str, str], str]:
         """Compute edge-level locked colors for sources participating in multiple merges.
         
         When a source entity participates in multiple independent merges, the edges
@@ -788,36 +788,36 @@ class ConnectionPlanner:
         Returns:
             Dict mapping (actual_entity_id, merge_id) -> wire color
         """
-        locked: Dict[Tuple[str, str], str] = {}
-        
+        locked: dict[tuple[str, str], str] = {}
+
         # Build a reverse map: for each edge, map (source_entity, merge_id) to edges
-        edge_source_merges: Dict[Tuple[str, str], List[CircuitEdge]] = {}
+        edge_source_merges: dict[tuple[str, str], list[CircuitEdge]] = {}
         for edge in edges:
             if edge.originating_merge_id and edge.source_entity_id:
                 key = (edge.source_entity_id, edge.originating_merge_id)
                 edge_source_merges.setdefault(key, []).append(edge)
-        
+
         # Build map of merge_id -> set of source entity IDs (to detect transitive conflicts)
-        merge_to_sources: Dict[str, set] = {}
+        merge_to_sources: dict[str, set] = {}
         for edge in edges:
             if edge.originating_merge_id and edge.source_entity_id:
                 merge_to_sources.setdefault(edge.originating_merge_id, set()).add(
                     edge.source_entity_id
                 )
-        
+
         # Build map of merge_id -> set of sink entity IDs
-        merge_to_sinks: Dict[str, set] = {}
+        merge_to_sinks: dict[str, set] = {}
         for edge in edges:
             if edge.originating_merge_id:
                 merge_to_sinks.setdefault(edge.originating_merge_id, set()).add(
                     edge.sink_entity_id
                 )
-        
+
         # Find sources that participate in multiple merges
         for source_id, merge_ids in merge_membership.items():
             if len(merge_ids) <= 1:
                 continue
-            
+
             # Resolve the source_id (which might be an IR node ID like entity_output_ir_43)
             # to the actual entity ID (like entity_ir_31)
             actual_source_id = source_id
@@ -825,17 +825,17 @@ class ConnectionPlanner:
                 resolved = signal_graph.get_source(source_id)
                 if resolved:
                     actual_source_id = resolved
-            
+
             # Find which merges this source has edges for
-            source_merge_edges: Dict[str, List[CircuitEdge]] = {}
+            source_merge_edges: dict[str, list[CircuitEdge]] = {}
             for merge_id in merge_ids:
                 key = (actual_source_id, merge_id)
                 if key in edge_source_merges:
                     source_merge_edges[merge_id] = edge_source_merges[key]
-            
+
             if len(source_merge_edges) <= 1:
                 continue
-            
+
             # Check for transitive conflict:
             # If one merge's sink is a source in another merge, there's a path conflict
             # This means the source's signal can arrive at a final entity via two paths
@@ -865,35 +865,35 @@ class ConnectionPlanner:
                         break
                 if has_conflict:
                     break
-            
+
             if not has_conflict:
                 # No transitive conflict - skip color locking for this source
                 continue
-            
+
             # Assign alternating colors to different merges
             # Use sorted order for determinism
             for i, merge_id in enumerate(merge_list):
                 color = WIRE_COLORS[i % 2]  # red for index 0, green for index 1, ...
                 locked[(actual_source_id, merge_id)] = color
-                
+
             self.diagnostics.info(
                 f"Locked wire colors for {actual_source_id} (from {source_id}) across {len(merge_list)} merges: "
                 + ", ".join(f"{m}={locked.get((actual_source_id, m), '?')}" for m in merge_list)
             )
-        
+
         return locked
 
     def _expand_merge_edges(
         self,
         edges: Sequence[CircuitEdge],
-        wire_merge_junctions: Optional[Dict[str, Any]],
-        entities: Dict[str, Any],
+        wire_merge_junctions: dict[str, Any] | None,
+        entities: dict[str, Any],
         signal_graph: Any = None,
-    ) -> List[CircuitEdge]:
+    ) -> list[CircuitEdge]:
         if not wire_merge_junctions:
             return list(edges)
 
-        expanded: List[CircuitEdge] = []
+        expanded: list[CircuitEdge] = []
         for edge in edges:
             if edge.sink_entity_id in wire_merge_junctions:
                 continue
@@ -909,20 +909,18 @@ class ConnectionPlanner:
 
             for source_ref in merge_info.get("inputs", []):
                 # Handle both SignalRef and BundleRef
-                if isinstance(source_ref, SignalRef):
-                    ir_source_id = source_ref.source_id
-                elif isinstance(source_ref, BundleRef):
+                if isinstance(source_ref, SignalRef) or isinstance(source_ref, BundleRef):
                     ir_source_id = source_ref.source_id
                 else:
                     continue
-                
+
                 # Resolve IR node ID to actual entity ID using signal graph
                 actual_source_id = ir_source_id
                 if signal_graph is not None:
                     entity_id = signal_graph.get_source(ir_source_id)
                     if entity_id:
                         actual_source_id = entity_id
-                    
+
                 source_entity_type = None
                 placement = entities.get(actual_source_id)
                 if placement is not None:
@@ -1003,9 +1001,9 @@ class ConnectionPlanner:
                 self.diagnostics.info(f"Added self-feedback to {entity_id}")
 
     def _log_multi_source_conflicts(
-        self, edges: Sequence[CircuitEdge], entities: Dict[str, Any]
+        self, edges: Sequence[CircuitEdge], entities: dict[str, Any]
     ) -> None:
-        conflict_map: Dict[str, Dict[str, set[str]]] = {}
+        conflict_map: dict[str, dict[str, set[str]]] = {}
 
         for edge in edges:
             if not edge.source_entity_id:
@@ -1071,7 +1069,7 @@ class ConnectionPlanner:
                 f"'{resolved_signal}' across sinks [{sink_desc}]; falling back to single-channel wiring for involved entities ({source_desc})."
             )
 
-    def _get_connection_side(self, entity_id: str, is_source: bool) -> Optional[str]:
+    def _get_connection_side(self, entity_id: str, is_source: bool) -> str | None:
         """Determine if entity needs 'input'/'output' side specified.
 
         Args:
@@ -1180,7 +1178,7 @@ class ConnectionPlanner:
         """
 
         # Step 1: Group edges by (signal_name, wire_color)
-        signal_groups: Dict[Tuple[str, str], List[Tuple[CircuitEdge, str]]] = {}
+        signal_groups: dict[tuple[str, str], list[tuple[CircuitEdge, str]]] = {}
 
         for edge in self._circuit_edges:
             if not edge.source_entity_id or not edge.sink_entity_id:
@@ -1228,7 +1226,7 @@ class ConnectionPlanner:
             bidirectional_pairs = self._find_bidirectional_pairs(edges)
 
             # Group edges by source
-            by_source: Dict[str, List[CircuitEdge]] = {}
+            by_source: dict[str, list[CircuitEdge]] = {}
             for edge in edges:
                 if edge.source_entity_id not in by_source:
                     by_source[edge.source_entity_id] = []
@@ -1284,7 +1282,7 @@ class ConnectionPlanner:
                 f"{direct_routed_count} direct edges"
             )
 
-    def _find_bidirectional_pairs(self, edges: List[CircuitEdge]) -> set:
+    def _find_bidirectional_pairs(self, edges: list[CircuitEdge]) -> set:
         """Find all bidirectional edge pairs (A→B and B→A both exist).
 
         Returns:
@@ -1317,7 +1315,7 @@ class ConnectionPlanner:
         self._route_connection_with_relays(edge, wire_color, source_side, sink_side)
 
     def _apply_mst_to_source_fanout(
-        self, source_id: str, sink_ids: List[str], signal_name: str, wire_color: str
+        self, source_id: str, sink_ids: list[str], signal_name: str, wire_color: str
     ) -> bool:
         """Apply MST optimization to a source's fanout to multiple sinks.
 
@@ -1410,8 +1408,8 @@ class ConnectionPlanner:
         return all_succeeded
 
     def _build_minimum_spanning_tree(
-        self, entity_ids: List[str]
-    ) -> List[Tuple[str, str]]:
+        self, entity_ids: list[str]
+    ) -> list[tuple[str, str]]:
         """Build minimum spanning tree over entities using Prim's algorithm.
 
         Args:
@@ -1424,7 +1422,7 @@ class ConnectionPlanner:
             return []
 
         # Collect positions for entities that have valid placements
-        positions: Dict[str, Tuple[float, float]] = {}
+        positions: dict[str, tuple[float, float]] = {}
         for entity_id in entity_ids:
             placement = self.layout_plan.get_placement(entity_id)
             if placement and placement.position:
@@ -1436,10 +1434,10 @@ class ConnectionPlanner:
 
         # Prim's algorithm: greedily grow MST from first entity (should be source)
         in_tree = {valid_entities[0]}
-        mst_edges: List[Tuple[str, str]] = []
+        mst_edges: list[tuple[str, str]] = []
 
         while len(in_tree) < len(valid_entities):
-            best_edge: Optional[Tuple[str, str]] = None
+            best_edge: tuple[str, str] | None = None
             best_distance = float("inf")
 
             # Find shortest edge from tree to non-tree vertex
@@ -1472,8 +1470,8 @@ class ConnectionPlanner:
         entity_b: str,
         signal_name: str,
         wire_color: str,
-        side_a: Optional[str],
-        side_b: Optional[str],
+        side_a: str | None,
+        side_b: str | None,
         network_id: int = 0,
     ) -> bool:
         """Create wire connection for MST edge, with relay poles if needed.
@@ -1530,9 +1528,9 @@ class ConnectionPlanner:
         sink_id: str,
         signal_name: str,
         wire_color: str,
-        relay_path: List[Tuple[str, str]],
-        source_side: Optional[str] = None,
-        sink_side: Optional[str] = None,
+        relay_path: list[tuple[str, str]],
+        source_side: str | None = None,
+        sink_side: str | None = None,
     ) -> None:
         """Create wire connections through a relay path.
 
@@ -1595,8 +1593,8 @@ class ConnectionPlanner:
         self,
         edge: CircuitEdge,
         wire_color: str,
-        source_side: Optional[str] = None,
-        sink_side: Optional[str] = None,
+        source_side: str | None = None,
+        sink_side: str | None = None,
     ) -> None:
         """Route a connection with relays if needed using shared relay infrastructure."""
         source = self.layout_plan.get_placement(edge.source_entity_id)
@@ -1691,7 +1689,7 @@ class ConnectionPlanner:
                 f"Blueprint complexity required {relay_count} wire relay pole(s) to route signals"
             )
 
-    def edge_color_map(self) -> Dict[Tuple[str, str, str], str]:
+    def edge_color_map(self) -> dict[tuple[str, str, str], str]:
         """Expose raw edge→color assignments."""
 
         return dict(self._edge_color_map)

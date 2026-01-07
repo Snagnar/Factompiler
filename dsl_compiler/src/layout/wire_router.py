@@ -1,12 +1,14 @@
 from __future__ import annotations
+
 from collections import defaultdict, deque
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any
 
 """Wire routing and color assignment algorithms."""
 
 
-WIRE_COLORS: Tuple[str, str] = ("red", "green")
+WIRE_COLORS: tuple[str, str] = ("red", "green")
 
 
 @dataclass(frozen=True)
@@ -15,30 +17,30 @@ class CircuitEdge:
 
     logical_signal_id: str
     resolved_signal_name: str
-    source_entity_id: Optional[str]
+    source_entity_id: str | None
     sink_entity_id: str
-    source_entity_type: Optional[str] = None
-    sink_entity_type: Optional[str] = None
-    sink_role: Optional[str] = None
-    originating_merge_id: Optional[str] = None  # Track which merge this edge came from
+    source_entity_type: str | None = None
+    sink_entity_type: str | None = None
+    sink_role: str | None = None
+    originating_merge_id: str | None = None  # Track which merge this edge came from
 
 
 @dataclass
 class ConflictEdge:
     """Edge between two conflict nodes that must not share a wire color."""
 
-    nodes: Tuple[Tuple[str, str], Tuple[str, str]]
-    sinks: Set[str] = field(default_factory=set)
+    nodes: tuple[tuple[str, str], tuple[str, str]]
+    sinks: set[str] = field(default_factory=set)
 
 
 @dataclass
 class ColoringResult:
-    assignments: Dict[Tuple[str, str], str]
-    conflicts: List[ConflictEdge]
+    assignments: dict[tuple[str, str], str]
+    conflicts: list[ConflictEdge]
     is_bipartite: bool
 
 
-def _resolve_entity_type(placement: Any) -> Optional[str]:
+def _resolve_entity_type(placement: Any) -> str | None:
     """Best-effort extraction of an entity type from a placement object."""
 
     if placement is None:
@@ -61,12 +63,12 @@ def _resolve_entity_type(placement: Any) -> Optional[str]:
 
 def collect_circuit_edges(
     signal_graph: Any,
-    signal_usage: Dict[str, Any],
-    entities: Dict[str, Any],
-) -> List[CircuitEdge]:
+    signal_usage: dict[str, Any],
+    entities: dict[str, Any],
+) -> list[CircuitEdge]:
     """Compute all source→sink edges with resolved signal metadata."""
 
-    edges: List[CircuitEdge] = []
+    edges: list[CircuitEdge] = []
 
     for (
         logical_id,
@@ -80,9 +82,9 @@ def collect_circuit_edges(
             else logical_id
         )
 
-        source_entity_type: Optional[str] = None
-        sink_entity_type: Optional[str] = None
-        sink_role: Optional[str] = None
+        source_entity_type: str | None = None
+        sink_entity_type: str | None = None
+        sink_role: str | None = None
 
         if source_entity_id:
             source_placement = entities.get(source_entity_id)
@@ -113,14 +115,14 @@ def collect_circuit_edges(
 
 def plan_wire_colors(
     edges: Sequence[CircuitEdge],
-    locked_colors: Optional[Dict[Tuple[str, str], str]] = None,
+    locked_colors: dict[tuple[str, str], str] | None = None,
 ) -> ColoringResult:
     """Assign red/green colors to signal sources using conflict-aware coloring."""
 
     locked = locked_colors or {}
 
-    graph: Dict[Tuple[str, str], Set[Tuple[str, str]]] = defaultdict(set)
-    edge_sinks: Dict[Tuple[Tuple[str, str], Tuple[str, str]], Set[str]] = defaultdict(
+    graph: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
+    edge_sinks: dict[tuple[tuple[str, str], tuple[str, str]], set[str]] = defaultdict(
         set
     )
 
@@ -133,7 +135,7 @@ def plan_wire_colors(
 
     # Group edges by (sink_id, resolved_signal_name)
     # Each group entry is (node_key, originating_merge_id)
-    sink_groups: Dict[Tuple[str, str], List[Tuple[Tuple[str, str], Optional[str]]]] = defaultdict(list)
+    sink_groups: dict[tuple[str, str], list[tuple[tuple[str, str], str | None]]] = defaultdict(list)
     for edge in edges:
         if not edge.source_entity_id:
             continue
@@ -149,7 +151,7 @@ def plan_wire_colors(
         for node_key, merge_id in nodes_with_merge:
             if node_key not in seen_nodes:
                 seen_nodes[node_key] = merge_id
-        
+
         unique_entries = list(seen_nodes.items())
         if len(unique_entries) <= 1:
             continue
@@ -162,21 +164,21 @@ def plan_wire_colors(
                 b, merge_b = unique_entries[jdx]
                 if a == b:
                     continue
-                
+
                 # If both edges come from the same merge (or both have no merge),
                 # they should be on the same wire - no conflict edge needed
                 if merge_a is not None and merge_a == merge_b:
                     continue
-                
+
                 # Different merges or mixed merge/non-merge: potential conflict
                 graph[a].add(b)
                 graph[b].add(a)
                 pair = tuple(sorted((a, b)))
                 edge_sinks[pair].add(sink_id)
 
-    assignments: Dict[Tuple[str, str], str] = {}
-    conflicts: List[ConflictEdge] = []
-    conflict_pairs_recorded: Set[Tuple[Tuple[str, str], Tuple[str, str]]] = set()
+    assignments: dict[tuple[str, str], str] = {}
+    conflicts: list[ConflictEdge] = []
+    conflict_pairs_recorded: set[tuple[tuple[str, str], tuple[str, str]]] = set()
     is_bipartite = True
 
     pending_nodes = set(graph.keys()) | set(locked.keys())
@@ -187,7 +189,7 @@ def plan_wire_colors(
             continue
 
         start_color = locked.get(start_node, WIRE_COLORS[0])
-        queue: deque[Tuple[Tuple[str, str], str]] = deque()
+        queue: deque[tuple[tuple[str, str], str]] = deque()
         queue.append((start_node, start_color))
 
         while queue:
@@ -245,9 +247,9 @@ def plan_wire_colors(
 
 
 def detect_merge_color_conflicts(
-    merge_membership: Dict[str, Set[str]],
+    merge_membership: dict[str, set[str]],
     signal_graph: Any,
-) -> Dict[Tuple[str, str], str]:
+) -> dict[tuple[str, str], str]:
     """Detect paths that need locked colors due to merge conflicts.
 
     When a signal source participates in multiple independent wire merges
@@ -263,7 +265,7 @@ def detect_merge_color_conflicts(
     """
     from itertools import combinations
 
-    locked_colors: Dict[Tuple[str, str], str] = {}
+    locked_colors: dict[tuple[str, str], str] = {}
 
     # For each source that's in multiple merges
     for source_id, merge_ids in merge_membership.items():

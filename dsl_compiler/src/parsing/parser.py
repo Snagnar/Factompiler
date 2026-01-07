@@ -1,23 +1,26 @@
 from __future__ import annotations
+
 from pathlib import Path
-from typing import Optional
+
 from lark import Lark
 from lark.exceptions import LexError, ParseError
+
 from dsl_compiler.src.ast.statements import ASTNode, Program
+
 from .preprocessor import preprocess_imports
 from .transformer import DSLTransformer
 
-"""Parser entry point for the Factorio Circuit DSL."""
+"""Parser entry point for the Facto language."""
 
 
 class DSLParser:
-    """Main parser class for the Factorio Circuit DSL."""
+    """Main parser class for the Facto language."""
 
-    def __init__(self, grammar_path: Optional[Path] = None):
+    def __init__(self, grammar_path: Path | None = None):
         """Initialize parser with grammar file."""
         if grammar_path is None:
             grammar_path = (
-                Path(__file__).resolve().parent.parent.parent / "grammar" / "fcdsl.lark"
+                Path(__file__).resolve().parent.parent.parent / "grammar" / "facto.lark"
             )
 
         self.grammar_path = grammar_path
@@ -28,7 +31,7 @@ class DSLParser:
     def _load_grammar(self) -> None:
         """Load and compile the Lark grammar."""
         try:
-            with open(self.grammar_path, "r") as handle:
+            with open(self.grammar_path) as handle:
                 grammar_text = handle.read()
 
             self.parser = Lark(
@@ -85,7 +88,7 @@ class DSLParser:
     def parse_file(self, file_path: Path) -> Program:
         """Parse a DSL file into an AST."""
         try:
-            with open(file_path, "r") as handle:
+            with open(file_path) as handle:
                 source_code = handle.read()
             return self.parse(source_code, str(file_path))
         except FileNotFoundError as exc:

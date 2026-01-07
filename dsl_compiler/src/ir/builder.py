@@ -1,15 +1,16 @@
-"""IR builder utilities for constructing Factorio Circuit DSL IR."""
+"""IR builder utilities for constructing Facto IR."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from dsl_compiler.src.ast.statements import ASTNode
 from dsl_compiler.src.common.signal_registry import SignalTypeRegistry
 
 from .nodes import (
-    IRNode,
-    IRValue,
+    MEMORY_TYPE_STANDARD,
+    BundleRef,
+    DeciderCondition,
     IR_Arith,
     IR_Const,
     IR_Decider,
@@ -18,28 +19,27 @@ from .nodes import (
     IR_MemWrite,
     IR_PlaceEntity,
     IR_WireMerge,
-    MEMORY_TYPE_STANDARD,
+    IRNode,
+    IRValue,
     SignalRef,
-    BundleRef,
     ValueRef,
-    DeciderCondition,
 )
 
 
 class IRBuilder:
     """Builder for constructing IR from AST nodes."""
 
-    def __init__(self, signal_registry: Optional[SignalTypeRegistry] = None) -> None:
-        self.operations: List[IRNode] = []
+    def __init__(self, signal_registry: SignalTypeRegistry | None = None) -> None:
+        self.operations: list[IRNode] = []
         self.node_counter = 0
         if signal_registry is None:
             self.signal_registry = SignalTypeRegistry()
         else:
             self.signal_registry = signal_registry
-        self._operation_index: Dict[str, IRNode] = {}
+        self._operation_index: dict[str, IRNode] = {}
 
     @property
-    def signal_type_map(self) -> Dict[str, Any]:
+    def signal_type_map(self) -> dict[str, Any]:
         """Get signal type map from registry."""
         return self.signal_registry.get_all_mappings()
 
@@ -56,7 +56,7 @@ class IRBuilder:
         self._operation_index[op.node_id] = op
         return op
 
-    def get_operation(self, node_id: str) -> Optional[IRNode]:
+    def get_operation(self, node_id: str) -> IRNode | None:
         """Retrieve an operation previously registered with the builder."""
 
         return self._operation_index.get(node_id)
@@ -65,9 +65,9 @@ class IRBuilder:
         self,
         signal: ValueRef,
         *,
-        label: Optional[str] = None,
-        source_ast: Optional[ASTNode] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        label: str | None = None,
+        source_ast: ASTNode | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Attach debug metadata to the producing IR node backing a signal."""
         if not isinstance(signal, SignalRef):
@@ -90,7 +90,7 @@ class IRBuilder:
             signal.debug_metadata.update(metadata)
 
     def const(
-        self, signal_type: str, value: int, source_ast: Optional[ASTNode] = None
+        self, signal_type: str, value: int, source_ast: ASTNode | None = None
     ) -> SignalRef:
         """Create a constant signal value."""
 
@@ -106,7 +106,7 @@ class IRBuilder:
         left: ValueRef,
         right: ValueRef,
         output_type: str,
-        source_ast: Optional[ASTNode] = None,
+        source_ast: ASTNode | None = None,
     ) -> SignalRef:
         """Create an arithmetic operation."""
 
@@ -123,9 +123,9 @@ class IRBuilder:
         test_op: str,
         left: ValueRef,
         right: ValueRef,
-        output_value: Union[ValueRef, int],
+        output_value: ValueRef | int,
         output_type: str,
-        source_ast: Optional[ASTNode] = None,
+        source_ast: ASTNode | None = None,
         copy_count_from_input: bool = False,
     ) -> SignalRef:
         """Create a decider combinator operation.
@@ -152,11 +152,11 @@ class IRBuilder:
 
     def decider_multi(
         self,
-        conditions: List[tuple],
+        conditions: list[tuple],
         combine_type: str,
-        output_value: Union[ValueRef, int],
+        output_value: ValueRef | int,
         output_type: str,
-        source_ast: Optional[ASTNode] = None,
+        source_ast: ASTNode | None = None,
         copy_count_from_input: bool = False,
     ) -> SignalRef:
         """Create a multi-condition decider combinator.
@@ -197,9 +197,9 @@ class IRBuilder:
 
     def wire_merge(
         self,
-        sources: List[ValueRef],
+        sources: list[ValueRef],
         output_type: str,
-        source_ast: Optional[ASTNode] = None,
+        source_ast: ASTNode | None = None,
     ) -> SignalRef:
         """Create a virtual wire merge combining multiple sources."""
 
@@ -214,7 +214,7 @@ class IRBuilder:
         self,
         memory_id: str,
         signal_type: str,
-        source_ast: Optional[ASTNode] = None,
+        source_ast: ASTNode | None = None,
         memory_type: str = MEMORY_TYPE_STANDARD,
     ) -> None:
         """Create a memory cell declaration."""
@@ -223,7 +223,7 @@ class IRBuilder:
         self.add_operation(op)
 
     def memory_read(
-        self, memory_id: str, signal_type: str, source_ast: Optional[ASTNode] = None
+        self, memory_id: str, signal_type: str, source_ast: ASTNode | None = None
     ) -> SignalRef:
         """Read from a memory cell."""
 
@@ -238,7 +238,7 @@ class IRBuilder:
         memory_id: str,
         data_signal: ValueRef,
         write_enable: ValueRef,
-        source_ast: Optional[ASTNode] = None,
+        source_ast: ASTNode | None = None,
     ) -> IR_MemWrite:
         """Write to a memory cell (standard write-gated latch)."""
 
@@ -253,7 +253,7 @@ class IRBuilder:
         set_signal: ValueRef,
         reset_signal: ValueRef,
         latch_type: str,
-        source_ast: Optional[ASTNode] = None,
+        source_ast: ASTNode | None = None,
     ) -> Any:
         """Write to a memory cell using latch mode (single combinator).
         
@@ -266,7 +266,7 @@ class IRBuilder:
             source_ast: Source AST node for diagnostics
         """
         from .nodes import IR_LatchWrite
-        
+
         op = IR_LatchWrite(memory_id, value, set_signal, reset_signal, latch_type, source_ast)
         self.add_operation(op)
         return op
@@ -275,10 +275,10 @@ class IRBuilder:
         self,
         entity_id: str,
         prototype: str,
-        x: Union[int, ValueRef],
-        y: Union[int, ValueRef],
-        properties: Optional[Dict[str, Any]] = None,
-        source_ast: Optional[ASTNode] = None,
+        x: int | ValueRef,
+        y: int | ValueRef,
+        properties: dict[str, Any] | None = None,
+        source_ast: ASTNode | None = None,
     ) -> None:
         """Emit an entity placement."""
 
@@ -292,8 +292,8 @@ class IRBuilder:
 
     def bundle_const(
         self,
-        signals: Dict[str, int],
-        source_ast: Optional[ASTNode] = None,
+        signals: dict[str, int],
+        source_ast: ASTNode | None = None,
     ) -> BundleRef:
         """Create a constant combinator with multiple signals (bundle).
 
@@ -316,7 +316,7 @@ class IRBuilder:
         op: str,
         bundle: BundleRef,
         operand: ValueRef,
-        source_ast: Optional[ASTNode] = None,
+        source_ast: ASTNode | None = None,
     ) -> BundleRef:
         """Create an arithmetic operation on a bundle using 'each'.
 
@@ -335,16 +335,16 @@ class IRBuilder:
         arith_op.op = op
         arith_op.left = SignalRef("signal-each", bundle.source_id)
         arith_op.right = operand
-        
+
         # If the right operand is a signal (not a constant), we need wire separation
         # to prevent the scalar signal from being processed by "each"
         if isinstance(operand, SignalRef):
             arith_op.needs_wire_separation = True
-            
+
         self.add_operation(arith_op)
         return BundleRef(bundle.signal_types.copy(), node_id, source_ast=source_ast)
 
-    def get_ir(self) -> List[IRNode]:
+    def get_ir(self) -> list[IRNode]:
         """Return a copy of the currently built IR operations."""
 
         return self.operations.copy()

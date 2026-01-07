@@ -1,16 +1,15 @@
 """Entity data extraction from draftsman."""
 
-from draftsman.data import entities as entity_data
-
-from typing import Tuple
 import math
+
+from draftsman.data import entities as entity_data
 
 
 class EntityDataHelper:
     """Helper to extract entity information from draftsman data."""
 
     @staticmethod
-    def get_footprint(prototype: str) -> Tuple[int, int]:
+    def get_footprint(prototype: str) -> tuple[int, int]:
         """Get entity footprint size dynamically from draftsman.
 
         Args:

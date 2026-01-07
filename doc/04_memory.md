@@ -12,7 +12,7 @@ Memory creates a **feedback loop** – a circuit that feeds its output back to i
 
 Declare a memory cell with the `Memory` keyword:
 
-```fcdsl
+```facto
 Memory counter: "signal-A";    # Explicit type
 Memory buffer;                 # Type inferred from first write
 ```
@@ -21,7 +21,7 @@ Memory buffer;                 # Type inferred from first write
 
 **Explicit types** (recommended) make your code clear:
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 Memory item_count: "iron-plate";
 Memory state: "signal-S";
@@ -29,7 +29,7 @@ Memory state: "signal-S";
 
 **Implicit types** are inferred from the first write:
 
-```fcdsl
+```facto
 Memory buffer;  # Type unknown until first write
 
 Signal iron = ("iron-plate", 50);
@@ -44,7 +44,7 @@ While convenient, implicit types can be confusing. We recommend always specifyin
 
 Read the current value stored in memory:
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 
 Signal current_value = counter.read();
@@ -56,7 +56,7 @@ Signal current_value = counter.read();
 
 Store a new value in memory:
 
-```fcdsl
+```facto
 memory.write(value);                  # Unconditional
 memory.write(value, when=condition);  # Conditional
 ```
@@ -69,7 +69,7 @@ Parameters:
 
 Write every tick:
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 counter.write(counter.read() + 1);  # Increment every tick
 ```
@@ -80,7 +80,7 @@ When `when` is omitted, the write happens every single tick.
 
 Write only when a condition is met:
 
-```fcdsl
+```facto
 Memory buffer: "signal-A";
 Signal trigger = ("signal-T", 0);  # Wire this from your factory
 
@@ -95,7 +95,7 @@ The value is written only when `trigger > 0`. Otherwise, the previous value is h
 
 The classic increment-every-tick counter:
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 counter.write(counter.read() + 1);
 ```
@@ -112,7 +112,7 @@ counter.write(counter.read() + 1);
 
 Count up to a limit, then reset:
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 int max_value = 60;  # Reset after reaching 60
 
@@ -129,7 +129,7 @@ Use this for:
 
 Capture a value when triggered:
 
-```fcdsl
+```facto
 Memory captured: "signal-A";
 Signal input = ("signal-input", 0);     # External signal
 Signal trigger = ("signal-trigger", 0); # Capture when > 0
@@ -148,7 +148,7 @@ When `trigger` is 0, the memory holds its previous value. When `trigger` becomes
 
 Switch between 0 and 1:
 
-```fcdsl
+```facto
 Memory toggle: "signal-A";
 Signal button = ("signal-button", 0);  # Pulse input
 
@@ -167,7 +167,7 @@ Press once to turn on, press again to turn off.
 
 Sum values over time:
 
-```fcdsl
+```facto
 Memory total: "signal-A";
 Signal incoming = ("iron-plate", 0);  # Items passing by
 
@@ -182,7 +182,7 @@ Each tick, the incoming value is added to the total.
 
 Only accumulate when a condition is met:
 
-```fcdsl
+```facto
 Memory total: "iron-plate";
 Signal incoming = ("iron-plate", 0);
 Signal should_count = ("signal-enable", 0);
@@ -194,7 +194,7 @@ total.write(total.read() + incoming, when=should_count > 0);
 
 Remember the highest value seen:
 
-```fcdsl
+```facto
 Memory maximum: "signal-A";
 Signal input = ("signal-input", 0);
 
@@ -207,7 +207,7 @@ maximum.write(new_max);
 
 ### Minimum Tracker (with initialization)
 
-```fcdsl
+```facto
 Memory minimum: "signal-A";
 Memory initialized: "signal-I";
 Signal input = ("signal-input", 0);
@@ -236,7 +236,7 @@ Common use cases:
 
 ### The Latch Write Syntax
 
-```fcdsl
+```facto
 memory.write(value, set=set_condition, reset=reset_condition);
 ```
 
@@ -250,7 +250,7 @@ memory.write(value, set=set_condition, reset=reset_condition);
 
 When you put `set=` **first**, the set condition wins ties:
 
-```fcdsl
+```facto
 Memory state: "signal-S";
 state.write(1, set=turn_on, reset=turn_off);  # set= first → set priority
 ```
@@ -263,7 +263,7 @@ state.write(1, set=turn_on, reset=turn_off);  # set= first → set priority
 
 When you put `reset=` **first**, the reset condition wins ties:
 
-```fcdsl
+```facto
 Memory state: "signal-S";
 state.write(1, reset=turn_off, set=turn_on);  # reset= first → reset priority
 ```
@@ -280,7 +280,7 @@ state.write(1, reset=turn_off, set=turn_on);  # reset= first → reset priority
 
 **The Solution:** Use a latch to create **hysteresis** – a gap between the on and off thresholds.
 
-```fcdsl
+```facto
 # Signal from accumulator (0-100%)
 Signal battery = ("signal-A", 0);  # Wire from accumulator
 
@@ -326,7 +326,7 @@ In the steam power example above, either works fine. SR means steam stays on in 
 
 Latches can output any value, not just 1:
 
-```fcdsl
+```facto
 # Binary output (most common)
 state.write(1, set=on_trigger, reset=off_trigger);
 
@@ -343,7 +343,7 @@ When you use a value other than 1, the compiler adds an extra combinator to scal
 
 When your set/reset signals use different types than the memory, the compiler automatically handles the conversion:
 
-```fcdsl
+```facto
 Memory pump_on: "signal-P";
 Signal button_s = ("signal-S", 0);  # Different type
 Signal button_r = ("signal-R", 0);  # Different type
@@ -358,7 +358,7 @@ This is handled transparently – you don't need to worry about the internal det
 
 You can declare as many memory cells as you need:
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 Memory previous: "signal-B";
 Memory accumulator: "signal-C";
@@ -381,7 +381,7 @@ Each memory cell is independent and can hold different signal types.
 
 Every write to a memory cell must use the same signal type:
 
-```fcdsl
+```facto
 Memory buffer: "iron-plate";
 
 Signal iron = ("iron-plate", 50);
@@ -393,7 +393,7 @@ buffer.write(copper);  # ERROR - type mismatch!
 
 If you need to store different types, use projection:
 
-```fcdsl
+```facto
 Memory buffer: "iron-plate";
 
 Signal copper = ("copper-plate", 30);
@@ -404,7 +404,7 @@ buffer.write(copper | "iron-plate");  # OK - projected to correct type
 
 The signal `signal-W` is used internally for memory write-enable logic. You cannot use it in your code:
 
-```fcdsl
+```facto
 Signal bad = ("signal-W", 5);  # COMPILE ERROR!
 ```
 
@@ -442,7 +442,7 @@ Data ─────────► │  Write Gate    │ ──┬──► Ou
 
 For unconditional writes (no `when` parameter), the compiler can optimize to a simpler form:
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 counter.write(counter.read() + 1);
 ```
@@ -471,13 +471,13 @@ The combinator's output feeds back to its own input, creating a self-incrementin
 
 ### Mistake 1: Forgetting to Read
 
-```fcdsl
+```facto
 # WRONG - this just stores 1 forever
 Memory counter: "signal-A";
 counter.write(1);
 ```
 
-```fcdsl
+```facto
 # CORRECT - increment based on current value
 Memory counter: "signal-A";
 counter.write(counter.read() + 1);
@@ -485,7 +485,7 @@ counter.write(counter.read() + 1);
 
 ### Mistake 2: Type Mismatch
 
-```fcdsl
+```facto
 Memory buffer: "signal-A";
 Signal value = ("signal-B", 50);  # Different type!
 
@@ -493,31 +493,31 @@ buffer.write(value);  # Warning or error
 ```
 
 Fix with projection:
-```fcdsl
+```facto
 buffer.write(value | "signal-A");  # OK
 ```
 
 ### Mistake 3: Using signal-W
 
-```fcdsl
+```facto
 Memory write_count: "signal-W";  # ERROR - reserved!
 ```
 
 Use a different signal:
-```fcdsl
+```facto
 Memory write_count: "signal-V";  # OK
 ```
 
 ### Mistake 4: Complex Conditional Logic
 
-```fcdsl
+```facto
 # This works but creates many combinators
 Memory value: "signal-A";
 value.write(some_complex_expression, when=(a > b) && (c < d) || (e == f));
 ```
 
 Sometimes it's cleaner to pre-compute the condition:
-```fcdsl
+```facto
 Signal should_write = (a > b) && (c < d) || (e == f);
 value.write(some_complex_expression, when=should_write);
 ```
@@ -526,7 +526,7 @@ value.write(some_complex_expression, when=should_write);
 
 A clock that cycles through binary patterns:
 
-```fcdsl
+```facto
 # Binary counter for 4 lamps (0-15)
 Memory counter: "signal-A";
 counter.write((counter.read() + 1) % 16);
@@ -557,7 +557,7 @@ lamp3.enable = bit3 > 0;
 
 Smooth out a noisy signal with a 4-sample moving average:
 
-```fcdsl
+```facto
 # Store the last 4 values
 Memory sample1: "signal-A";
 Memory sample2: "signal-A";

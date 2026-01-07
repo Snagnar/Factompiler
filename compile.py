@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
 """
-Factorio Circuit DSL Compiler
+Factompiler - Facto Language Compiler
 
 Usage:
-    python compile.py input.fcdsl                    # Print blueprint to stdout
-    python compile.py input.fcdsl -o output.blueprint # Save blueprint to file
-    python compile.py input.fcdsl --strict           # Enable strict type checking
-    python compile.py input.fcdsl --power-poles      # Add medium power poles
-    python compile.py input.fcdsl --power-poles big  # Add big power poles
+    python compile.py input.facto                    # Print blueprint to stdout
+    python compile.py input.facto -o output.blueprint # Save blueprint to file
+    python compile.py input.facto --power-poles      # Add medium power poles
+    python compile.py input.facto --power-poles big  # Add big power poles
 """
 
-import sys
-import click
-from pathlib import Path
 import logging
+import sys
+from pathlib import Path
 
+import click
+
+from dsl_compiler.src.common.constants import DEFAULT_CONFIG, CompilerConfig
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.emission.emitter import BlueprintEmitter
+from dsl_compiler.src.ir.optimizer import ConstantPropagationOptimizer, CSEOptimizer
+from dsl_compiler.src.layout.planner import LayoutPlanner
+from dsl_compiler.src.lowering.lowerer import ASTLowerer
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import (
     SemanticAnalyzer,
 )
-from dsl_compiler.src.lowering.lowerer import ASTLowerer
-from dsl_compiler.src.layout.planner import LayoutPlanner
-from dsl_compiler.src.emission.emitter import BlueprintEmitter
-from dsl_compiler.src.ir.optimizer import CSEOptimizer, ConstantPropagationOptimizer
-from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
-from dsl_compiler.src.common.constants import CompilerConfig, DEFAULT_CONFIG
 
 
 def validate_power_poles(ctx, param, value):
@@ -41,7 +41,6 @@ def validate_power_poles(ctx, param, value):
 
 def compile_dsl_file(
     input_path: Path,
-    strict_types: bool = False,
     program_name: str = None,
     optimize: bool = True,
     log_level: str = "error",
@@ -50,11 +49,10 @@ def compile_dsl_file(
     config: CompilerConfig = DEFAULT_CONFIG,
 ) -> tuple[bool, str, list]:
     """
-    Compile a DSL file to blueprint string.
+    Compile a Facto source file to blueprint string.
 
     Args:
-        input_path: Path to the .fcdsl source file
-        strict_types: Enable strict type checking
+        input_path: Path to the .facto source file
         program_name: Name for the blueprint (default: derived from filename)
         optimize: Enable IR optimizations and MST wire optimization
         log_level: Logging verbosity level
@@ -87,7 +85,7 @@ def compile_dsl_file(
         return False, "Parsing failed", diagnostics.get_messages()
 
     # Semantic analysis
-    analyzer = SemanticAnalyzer(strict_types=strict_types, diagnostics=diagnostics)
+    analyzer = SemanticAnalyzer(diagnostics=diagnostics)
     analyzer.visit(program)
     if diagnostics.has_errors():
         return False, "Semantic analysis failed", diagnostics.get_messages()
@@ -162,10 +160,7 @@ def setup_logging(level: str) -> None:
     type=click.Path(path_type=Path),
     help="Output file for the blueprint (default: stdout)",
 )
-@click.option("--strict", is_flag=True, help="Enable strict type checking")
-@click.option(
-    "--name", type=str, help="Blueprint name (default: derived from input filename)"
-)
+@click.option("--name", type=str, help="Blueprint name (default: derived from input filename)")
 @click.option(
     "--log-level",
     type=click.Choice(["debug", "info", "warning", "error"], case_sensitive=False),
@@ -173,9 +168,6 @@ def setup_logging(level: str) -> None:
     help="Set the logging level",
 )
 @click.option("--no-optimize", is_flag=True, help="Disable IR optimizations")
-@click.option(
-    "--explain", is_flag=True, help="Add extended explanations to diagnostics"
-)
 @click.option(
     "--power-poles",
     is_flag=False,
@@ -192,26 +184,21 @@ def setup_logging(level: str) -> None:
 def main(
     input_file,
     output,
-    strict,
     name,
     log_level,
     no_optimize,
-    explain,
     power_poles,
     json,
 ):
-    """Compile Factorio Circuit DSL files to blueprint format."""
+    """Compile Facto source files to blueprint format."""
     setup_logging(log_level)
 
     if log_level == "debug" or log_level == "info":
         click.echo(f"Compiling {input_file}...")
-        if strict:
-            click.echo("Using strict type checking mode.")
 
     # Compile
     success, result, diagnostic_messages = compile_dsl_file(
         input_file,
-        strict_types=strict,
         program_name=name,
         optimize=not no_optimize,
         power_pole_type=power_poles,
@@ -252,8 +239,8 @@ if __name__ == "__main__":
 
 
 """
-The bash command to iterate over all .fcdsl files in the 'examples' directory and compile them using this script would be:
-for file in examples/*.fcdsl; do
-    python compile.py "$file" -o "${file%.fcdsl}.blueprint"
+The bash command to iterate over all .facto files in the 'examples' directory and compile them using this script would be:
+for file in examples/*.facto; do
+    python compile.py "$file" -o "${file%.facto}.blueprint"
 done
 """

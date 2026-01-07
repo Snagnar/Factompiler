@@ -1,25 +1,25 @@
 """
-Test helper utilities for the Factorio Circuit DSL compiler tests.
+Test helper utilities for the Facto compiler tests.
 
 Provides convenience functions for common test patterns.
 """
 
-from typing import Dict, List, Tuple, Any
+from typing import Any
 
 from draftsman.blueprintable import Blueprint
 
 from dsl_compiler.src.ast.statements import Program
-from dsl_compiler.src.ir.nodes import IRNode
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
-from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
-from dsl_compiler.src.lowering.lowerer import ASTLowerer
-from dsl_compiler.src.layout.planner import LayoutPlanner
 from dsl_compiler.src.emission.emitter import BlueprintEmitter
+from dsl_compiler.src.ir.nodes import IRNode
+from dsl_compiler.src.layout.planner import LayoutPlanner
+from dsl_compiler.src.lowering.lowerer import ASTLowerer
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 
 
 def lower_program(
     program: Program, semantic_analyzer: SemanticAnalyzer
-) -> Tuple[List[IRNode], ProgramDiagnostics, Dict[str, Any]]:
+) -> tuple[list[IRNode], ProgramDiagnostics, dict[str, Any]]:
     """Lower a semantic-analyzed program to IR.
 
     Args:
@@ -36,12 +36,12 @@ def lower_program(
 
 
 def emit_blueprint(
-    ir_operations: List[IRNode],
+    ir_operations: list[IRNode],
     label: str = "DSL Generated",
-    signal_type_map: Dict[str, Any] = None,
+    signal_type_map: dict[str, Any] = None,
     *,
     power_pole_type: str = None,
-) -> Tuple[Blueprint, ProgramDiagnostics]:
+) -> tuple[Blueprint, ProgramDiagnostics]:
     """Convert IR operations to Factorio blueprint.
 
     Args:
@@ -86,12 +86,12 @@ def emit_blueprint(
 
 
 def emit_blueprint_string(
-    ir_operations: List[IRNode],
+    ir_operations: list[IRNode],
     label: str = "DSL Generated",
-    signal_type_map: Dict[str, Any] = None,
+    signal_type_map: dict[str, Any] = None,
     *,
     power_pole_type: str = None,
-) -> Tuple[str, ProgramDiagnostics]:
+) -> tuple[str, ProgramDiagnostics]:
     """Convert IR operations to Factorio blueprint string.
 
     Args:

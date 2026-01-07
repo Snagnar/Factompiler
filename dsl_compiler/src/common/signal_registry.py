@@ -7,7 +7,7 @@ This is the ONLY format used. All code must handle dict values.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Any, Tuple
+from typing import Any
 
 from draftsman.data import signals as signal_data
 
@@ -21,7 +21,7 @@ class SignalTypeInfo:
     is_virtual: bool = False  # True for Factorio virtual signals
 
 
-def is_valid_factorio_signal(signal_name: str) -> Tuple[bool, Optional[str]]:
+def is_valid_factorio_signal(signal_name: str) -> tuple[bool, str | None]:
     """Check if a signal name exists in Factorio's signal database.
 
     Args:
@@ -60,7 +60,7 @@ class SignalTypeRegistry:
     """
 
     def __init__(self):
-        self._type_map: Dict[str, Any] = {}
+        self._type_map: dict[str, Any] = {}
         self._implicit_counter = 0
 
     def register(
@@ -100,7 +100,7 @@ class SignalTypeRegistry:
         implicit_name = self.allocate_implicit()
         return SignalTypeInfo(name=implicit_name, is_implicit=True, is_virtual=True)
 
-    def resolve(self, signal_key: str) -> Optional[Dict[str, str]]:
+    def resolve(self, signal_key: str) -> dict[str, str] | None:
         """Get the Factorio signal information for a DSL signal key.
 
         Args:
@@ -111,7 +111,7 @@ class SignalTypeRegistry:
         """
         return self._type_map.get(signal_key)
 
-    def get_all_mappings(self) -> Dict[str, Any]:
+    def get_all_mappings(self) -> dict[str, Any]:
         """Get the signal type mappings dictionary.
 
         Note: This returns the actual internal dictionary, not a copy,

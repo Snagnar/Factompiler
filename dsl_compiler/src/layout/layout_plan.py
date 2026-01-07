@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any
 
 from dsl_compiler.src.common.constants import DEFAULT_CONFIG
 
@@ -12,11 +12,11 @@ class EntityPlacement:
 
     ir_node_id: str
     entity_type: str  # draftsman entity type
-    position: Optional[Tuple[float, float]] = (
+    position: tuple[float, float] | None = (
         None  # None until positioned by force-directed layout
     )
-    properties: Dict[str, Any] = field(default_factory=dict)
-    role: Optional[str] = None
+    properties: dict[str, Any] = field(default_factory=dict)
+    role: str | None = None
 
 
 @dataclass
@@ -27,8 +27,8 @@ class WireConnection:
     sink_entity_id: str
     signal_name: str
     wire_color: str  # "red" or "green"
-    source_side: Optional[str] = None  # "input" or "output" for dual-sided
-    sink_side: Optional[str] = None
+    source_side: str | None = None  # "input" or "output" for dual-sided
+    sink_side: str | None = None
 
 
 @dataclass
@@ -37,18 +37,18 @@ class PowerPolePlacement:
 
     pole_id: str
     pole_type: str
-    position: Tuple[int, int]
+    position: tuple[int, int]
 
 
 @dataclass
 class LayoutPlan:
     """Complete physical layout plan for blueprint emission."""
 
-    entity_placements: Dict[str, EntityPlacement] = field(default_factory=dict)
+    entity_placements: dict[str, EntityPlacement] = field(default_factory=dict)
 
-    wire_connections: List[WireConnection] = field(default_factory=list)
+    wire_connections: list[WireConnection] = field(default_factory=list)
 
-    power_poles: List[PowerPolePlacement] = field(default_factory=list)
+    power_poles: list[PowerPolePlacement] = field(default_factory=list)
 
     blueprint_label: str = field(
         default_factory=lambda: DEFAULT_CONFIG.default_blueprint_label
@@ -57,7 +57,7 @@ class LayoutPlan:
         default_factory=lambda: DEFAULT_CONFIG.default_blueprint_description
     )
 
-    def get_placement(self, ir_node_id: str) -> Optional[EntityPlacement]:
+    def get_placement(self, ir_node_id: str) -> EntityPlacement | None:
         """Get placement for an IR node."""
 
         return self.entity_placements.get(ir_node_id)
@@ -81,10 +81,10 @@ class LayoutPlan:
         self,
         ir_node_id: str,
         entity_type: str,
-        position: Optional[Tuple[float, float]] = None,
-        footprint: Tuple[int, int] = (1, 1),
+        position: tuple[float, float] | None = None,
+        footprint: tuple[int, int] = (1, 1),
         role: str = "combinator",
-        debug_info: Optional[Dict[str, Any]] = None,
+        debug_info: dict[str, Any] | None = None,
         **extra_properties: Any,
     ) -> EntityPlacement:
         """Create an EntityPlacement and add it to the plan.

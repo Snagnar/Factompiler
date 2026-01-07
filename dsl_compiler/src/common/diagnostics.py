@@ -1,8 +1,8 @@
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Any
 from pathlib import Path
+from typing import Any
 
 """Unified diagnostic collection for the entire compiler pipeline."""
 
@@ -25,8 +25,8 @@ class Diagnostic:
     stage: str  # parsing, semantic, lowering, layout, emission
     line: int = 0
     column: int = 0
-    source_file: Optional[str] = None
-    node: Optional[Any] = None  # ASTNode reference if available
+    source_file: str | None = None
+    node: Any | None = None  # ASTNode reference if available
 
 
 class ProgramDiagnostics:
@@ -43,7 +43,7 @@ class ProgramDiagnostics:
     """
 
     def __init__(self, log_level: str = "info", raise_errors: bool = False):
-        self.diagnostics: List[Diagnostic] = []
+        self.diagnostics: list[Diagnostic] = []
         self.log_level = log_level
         self.raise_errors = raise_errors
         self._error_count = 0
@@ -56,8 +56,8 @@ class ProgramDiagnostics:
         stage: str | None = None,
         line: int = 0,
         column: int = 0,
-        source_file: Optional[str] = None,
-        node: Optional[Any] = None,
+        source_file: str | None = None,
+        node: Any | None = None,
     ) -> None:
         """Add an informational message (shown in verbose mode)."""
         logging.info(f"[{stage or self.default_stage}] {message}")
@@ -71,8 +71,8 @@ class ProgramDiagnostics:
         stage: str | None = None,
         line: int = 0,
         column: int = 0,
-        source_file: Optional[str] = None,
-        node: Optional[Any] = None,
+        source_file: str | None = None,
+        node: Any | None = None,
     ) -> None:
         """Add a warning (always shown, doesn't stop compilation)."""
         logging.warning(f"[{stage or self.default_stage}] {message}")
@@ -87,8 +87,8 @@ class ProgramDiagnostics:
         stage: str | None = None,
         line: int = 0,
         column: int = 0,
-        source_file: Optional[str] = None,
-        node: Optional[Any] = None,
+        source_file: str | None = None,
+        node: Any | None = None,
     ) -> None:
         """Add an error (always shown, stops compilation)."""
         logging.error(f"[{stage or self.default_stage}] {message}")
@@ -106,8 +106,8 @@ class ProgramDiagnostics:
         stage: str | None,
         line: int,
         column: int,
-        source_file: Optional[str],
-        node: Optional[Any],
+        source_file: str | None,
+        node: Any | None,
     ) -> None:
         """Internal method to add a diagnostic."""
         if node is not None and line == 0:
@@ -156,7 +156,7 @@ class ProgramDiagnostics:
 
     def get_messages(
         self, min_severity: DiagnosticSeverity = DiagnosticSeverity.WARNING
-    ) -> List[str]:
+    ) -> list[str]:
         """Get formatted messages at or above the specified severity level."""
         messages = []
         for diag in self.diagnostics:

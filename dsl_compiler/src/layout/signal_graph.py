@@ -1,6 +1,6 @@
 from __future__ import annotations
+
 from collections import defaultdict
-from typing import Dict, List, Optional, Set
 
 """Signal connectivity graph for layout planning."""
 
@@ -13,8 +13,8 @@ class SignalGraph:
     """
 
     def __init__(self) -> None:
-        self._sources: Dict[str, List[str]] = defaultdict(list)  # ✅ Changed to List
-        self._sinks: Dict[str, List[str]] = defaultdict(list)
+        self._sources: dict[str, list[str]] = defaultdict(list)  # ✅ Changed to List
+        self._sinks: dict[str, list[str]] = defaultdict(list)
 
     def set_source(self, signal_id: str, entity_id: str) -> None:
         """Mark ``entity_id`` as a producer for ``signal_id``.
@@ -25,7 +25,7 @@ class SignalGraph:
         if entity_id not in sources:
             sources.append(entity_id)
 
-    def get_source(self, signal_id: str) -> Optional[str]:
+    def get_source(self, signal_id: str) -> str | None:
         """Return the first producer entity id for ``signal_id`` if known.
 
         ✅ NOTE: For signals with multiple sources (like memory feedback),
@@ -48,12 +48,12 @@ class SignalGraph:
         if entity_id in sinks:
             sinks.remove(entity_id)
 
-    def iter_sinks(self, signal_id: str) -> List[str]:
+    def iter_sinks(self, signal_id: str) -> list[str]:
         """Return a snapshot of sink ids for ``signal_id``."""
 
         return list(self._sinks.get(signal_id, []))
 
-    def signals(self) -> Set[str]:
+    def signals(self) -> set[str]:
         """Return the set of all tracked signal identifiers."""
 
         return set(self._sinks.keys()) | set(self._sources.keys())

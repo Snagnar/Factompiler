@@ -1,8 +1,16 @@
 from __future__ import annotations
-from typing import Dict, List, Optional, Set
-from .nodes import IRNode, IR_Arith, IR_Decider, IR_MemWrite, IR_Const, IR_EntityPropWrite, SignalRef
 
-"""IR optimization passes for the Factorio Circuit DSL."""
+from .nodes import (
+    IR_Arith,
+    IR_Const,
+    IR_Decider,
+    IR_EntityPropWrite,
+    IR_MemWrite,
+    IRNode,
+    SignalRef,
+)
+
+"""IR optimization passes for the Facto."""
 
 
 class ConstantPropagationOptimizer:
@@ -16,11 +24,11 @@ class ConstantPropagationOptimizer:
     """
 
     def __init__(self) -> None:
-        self.constants: Dict[str, int] = {}  # node_id -> constant value
-        self.replacements: Dict[str, str] = {}  # old_id -> new_id
-        self.dead_nodes: Set[str] = set()  # nodes to remove
+        self.constants: dict[str, int] = {}  # node_id -> constant value
+        self.replacements: dict[str, str] = {}  # old_id -> new_id
+        self.dead_nodes: set[str] = set()  # nodes to remove
 
-    def _is_user_declared_operand(self, value, const_map: Dict[str, IR_Const]) -> bool:
+    def _is_user_declared_operand(self, value, const_map: dict[str, IR_Const]) -> bool:
         """Check if an operand references a user-declared constant."""
         if isinstance(value, SignalRef):
             node_id = value.source_id
@@ -31,7 +39,7 @@ class ConstantPropagationOptimizer:
                 return const_map[node_id].debug_metadata.get("user_declared", False)
         return False
 
-    def optimize(self, ir_operations: List[IRNode]) -> List[IRNode]:
+    def optimize(self, ir_operations: list[IRNode]) -> list[IRNode]:
         """Perform constant propagation and folding."""
 
         # Build a map of all constants and their node IDs
@@ -68,11 +76,11 @@ class ConstantPropagationOptimizer:
                                 op.node_id + "_folded", op.output_type, op.source_ast
                             )
                             new_const.value = folded
-                            
+
                             # Propagate suppress_materialization flag from original op
                             if op.debug_metadata.get("suppress_materialization"):
                                 new_const.debug_metadata["suppress_materialization"] = True
-                            
+
                             const_map[new_const.node_id] = new_const
 
                             # Replace this operation with the constant
@@ -101,7 +109,7 @@ class ConstantPropagationOptimizer:
                         # TODO: Could fold if ALL conditions can be evaluated at compile time,
                         # but this is rare and the complexity isn't worth it for now.
                         continue
-                    
+
                     # Legacy single-condition mode
                     # Skip folding if any operand is user-declared
                     if self._is_user_declared_operand(op.left, const_map):
@@ -130,11 +138,11 @@ class ConstantPropagationOptimizer:
                                 op.node_id + "_folded", op.output_type, op.source_ast
                             )
                             new_const.value = final_value
-                            
+
                             # Propagate suppress_materialization flag from original op
                             if op.debug_metadata.get("suppress_materialization"):
                                 new_const.debug_metadata["suppress_materialization"] = True
-                            
+
                             const_map[new_const.node_id] = new_const
 
                             self.replacements[op.node_id] = new_const.node_id
@@ -170,7 +178,7 @@ class ConstantPropagationOptimizer:
 
         return result
 
-    def _get_const_value(self, value, const_map: Dict[str, IR_Const]) -> Optional[int]:
+    def _get_const_value(self, value, const_map: dict[str, IR_Const]) -> int | None:
         """Extract constant value from a ValueRef."""
         if isinstance(value, int):
             return value
@@ -184,7 +192,7 @@ class ConstantPropagationOptimizer:
                 return const_map[node_id].value
         return None
 
-    def _fold_arithmetic(self, op: str, left: int, right: int) -> Optional[int]:
+    def _fold_arithmetic(self, op: str, left: int, right: int) -> int | None:
         """Fold an arithmetic operation on two constants."""
         try:
             if op == "+":
@@ -222,7 +230,7 @@ class ConstantPropagationOptimizer:
             return None
         return None
 
-    def _fold_comparison(self, op: str, left: int, right: int) -> Optional[bool]:
+    def _fold_comparison(self, op: str, left: int, right: int) -> bool | None:
         """Evaluate a comparison operation on two constants.
 
         Returns True/False for the comparison result, or None if the operator
@@ -243,7 +251,7 @@ class ConstantPropagationOptimizer:
         return None
 
     def _maybe_mark_dead(
-        self, node_id: str, const_map: Dict[str, IR_Const], all_ops: List[IRNode]
+        self, node_id: str, const_map: dict[str, IR_Const], all_ops: list[IRNode]
     ) -> None:
         """Mark a constant as dead if it has no other consumers.
 
@@ -284,7 +292,7 @@ class ConstantPropagationOptimizer:
             return value.source_id == target_id
         return False
 
-    def _update_references(self, operations: List[IRNode]) -> List[IRNode]:
+    def _update_references(self, operations: list[IRNode]) -> list[IRNode]:
         """Update all SignalRef references to use replacement nodes."""
         for op in operations:
             if isinstance(op, IR_Arith):
@@ -319,13 +327,13 @@ class CSEOptimizer:
     """Common subexpression elimination for IR nodes."""
 
     def __init__(self) -> None:
-        self.expr_cache: Dict[str, str] = {}
-        self.replacements: Dict[str, str] = {}
+        self.expr_cache: dict[str, str] = {}
+        self.replacements: dict[str, str] = {}
 
-    def optimize(self, ir_operations: List[IRNode]) -> List[IRNode]:
+    def optimize(self, ir_operations: list[IRNode]) -> list[IRNode]:
         """Eliminate redundant arithmetic and decider operations."""
 
-        optimized: List[IRNode] = []
+        optimized: list[IRNode] = []
 
         for op in ir_operations:
             if isinstance(op, (IR_Arith, IR_Decider)):
@@ -361,19 +369,19 @@ class CSEOptimizer:
                         first_key = f"str:{c.first_signal}"
                     else:
                         first_key = f"int:{c.first_constant}"
-                    
+
                     if c.second_operand is not None:
                         second_key = self._value_key(c.second_operand)
                     elif c.second_signal:
                         second_key = f"str:{c.second_signal}"
                     else:
                         second_key = f"int:{c.second_constant}"
-                    
+
                     cond_keys.append(f"{c.comparator}:{first_key}:{second_key}:{c.compare_type}")
-                
+
                 output_key = self._value_key(op.output_value)
                 return f"decider_multi:{':'.join(cond_keys)}:{output_key}:{op.output_type}"
-            
+
             # Legacy single-condition mode
             left_key = self._value_key(op.left)
             right_key = self._value_key(op.right)
@@ -402,7 +410,7 @@ class CSEOptimizer:
 
         return repr(value)
 
-    def _update_references(self, operations: List[IRNode]) -> List[IRNode]:
+    def _update_references(self, operations: list[IRNode]) -> list[IRNode]:
         for op in operations:
             if isinstance(op, IR_Arith):
                 op.left = self._update_value(op.left)

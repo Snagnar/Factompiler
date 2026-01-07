@@ -1,17 +1,20 @@
 from __future__ import annotations
+
 import os
 from pathlib import Path
-from typing import Optional, Set
 
-"""Import preprocessing utilities for the Factorio Circuit DSL."""
+"""Import preprocessing utilities for the Facto language."""
 
 if "FACTORIO_IMPORT_PATH" not in os.environ:
-    os.environ["FACTORIO_IMPORT_PATH"] = ".;tests/sample_programs;" + str(
-        Path(__file__).resolve().parent.parent.parent
-    ) + ";" + str(Path(__file__).parent.parent.parent.parent / "lib")
+    os.environ["FACTORIO_IMPORT_PATH"] = (
+        ".;tests/sample_programs;"
+        + str(Path(__file__).resolve().parent.parent.parent)
+        + ";"
+        + str(Path(__file__).parent.parent.parent.parent / "lib")
+    )
 
 
-def resolve_import_path(import_path: str, base_path: Optional[Path] = None) -> Path:
+def resolve_import_path(import_path: str, base_path: Path | None = None) -> Path:
     """Resolve the full path of an import statement."""
     import_path_obj = Path(import_path)
     base_paths = os.environ["FACTORIO_IMPORT_PATH"].split(";")
@@ -26,8 +29,8 @@ def resolve_import_path(import_path: str, base_path: Optional[Path] = None) -> P
 
 def preprocess_imports(
     source_code: str,
-    base_path: Optional[Path] = None,
-    processed_files: Optional[Set[Path]] = None,
+    base_path: Path | None = None,
+    processed_files: set[Path] | None = None,
 ) -> str:
     """Inline imports by recursively expanding `import "...";` statements."""
     if processed_files is None:
@@ -42,8 +45,8 @@ def preprocess_imports(
         if stripped.startswith('import "') and stripped.endswith('";'):
             raw_import_path = stripped[8:-2]
             import_path = Path(raw_import_path)
-            if import_path.suffix != ".fcdsl":
-                import_path = import_path.with_suffix(".fcdsl")
+            if import_path.suffix != ".facto":
+                import_path = import_path.with_suffix(".facto")
 
             file_path = resolve_import_path(import_path, base_path)
             if file_path in processed_files:
@@ -52,7 +55,7 @@ def preprocess_imports(
 
             if file_path.exists():
                 processed_files.add(file_path)
-                with open(file_path, "r", encoding="utf-8") as handle:
+                with open(file_path, encoding="utf-8") as handle:
                     imported_content = handle.read()
 
                 imported_content = preprocess_imports(

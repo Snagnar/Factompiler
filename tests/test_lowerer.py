@@ -5,16 +5,17 @@ Tests for lowerer.py - IR lowering functionality.
 import os
 
 import pytest
+
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.ir.nodes import (
     IR_Arith,
     IR_Const,
     IR_MemWrite,
     SignalRef,
 )
-from tests.test_helpers import lower_program
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
-from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from tests.test_helpers import lower_program
 
 
 class TestLowerer:
@@ -30,7 +31,7 @@ class TestLowerer:
 
     @pytest.fixture
     def analyzer(self, diagnostics):
-        return SemanticAnalyzer(diagnostics, strict_types=False)
+        return SemanticAnalyzer(diagnostics)
 
     def test_basic_lowering(self, parser, analyzer, diagnostics):
         """Test basic lowering to IR."""
@@ -46,28 +47,24 @@ class TestLowerer:
         """Test lowering on sample files."""
 
         sample_files = [
-            "tests/sample_programs/01_basic_arithmetic.fcdsl",
-            "tests/sample_programs/04_memory.fcdsl",
+            "tests/sample_programs/01_basic_arithmetic.facto",
+            "tests/sample_programs/04_memory.facto",
         ]
 
         for file_path in sample_files:
             if os.path.exists(file_path):
-                with open(file_path, "r") as f:
+                with open(file_path) as f:
                     code = f.read()
                 program = parser.parse(code)
                 diagnostics = ProgramDiagnostics()
-                analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+                analyzer = SemanticAnalyzer(diagnostics)
                 analyzer.visit(program)
-                ir_operations, lower_diags, signal_map = lower_program(
-                    program, analyzer
-                )
+                ir_operations, lower_diags, signal_map = lower_program(program, analyzer)
 
                 assert isinstance(ir_operations, list)
                 assert len(ir_operations) > 0
 
-    def test_write_without_when_uses_signal_w_enable(
-        self, parser, analyzer, diagnostics
-    ):
+    def test_write_without_when_uses_signal_w_enable(self, parser, analyzer, diagnostics):
         """Ensure lowering injects a signal-W enable when none is provided."""
 
         code = """

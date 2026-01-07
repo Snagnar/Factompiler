@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Union
+
 from dsl_compiler.src.ast.statements import ASTNode, Expr
 
 """Type system primitives used by semantic analysis."""
@@ -20,7 +22,7 @@ class SignalValue:
     """A single-channel signal value."""
 
     signal_type: SignalTypeInfo
-    count_expr: Optional[Expr] = None  # Expression computing the signal count
+    count_expr: Expr | None = None  # Expression computing the signal count
 
 
 @dataclass
@@ -28,14 +30,14 @@ class SignalDebugInfo:
     """Metadata describing a logical signal in the source program."""
 
     identifier: str
-    signal_key: Optional[str]
-    factorio_signal: Optional[str]
+    signal_key: str | None
+    factorio_signal: str | None
     source_node: ASTNode
-    declared_type: Optional[str] = None
-    location: Optional[str] = None
-    category: Optional[str] = None
+    declared_type: str | None = None
+    location: str | None = None
+    category: str | None = None
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "name": self.identifier,
             "signal_key": self.signal_key,
@@ -51,23 +53,23 @@ class SignalDebugInfo:
 class IntValue:
     """A plain integer value."""
 
-    value: Optional[int] = None  # None for computed values
+    value: int | None = None  # None for computed values
 
 
 @dataclass
 class FunctionValue:
     """Value type for functions."""
 
-    param_types: List["ValueInfo"] = field(default_factory=list)
-    return_type: "ValueInfo" = field(default_factory=lambda: IntValue())
+    param_types: list[ValueInfo] = field(default_factory=list)
+    return_type: ValueInfo = field(default_factory=lambda: IntValue())
 
 
 @dataclass
 class EntityValue:
     """An entity reference value."""
 
-    entity_id: Optional[str] = None
-    prototype: Optional[str] = None
+    entity_id: str | None = None
+    prototype: str | None = None
 
 
 @dataclass
@@ -87,7 +89,7 @@ class BundleValue:
     "anything" or "everything" virtual signals.
     """
 
-    signal_types: Set[str] = field(default_factory=set)  # Set of signal type names
+    signal_types: set[str] = field(default_factory=set)  # Set of signal type names
 
 
 @dataclass
@@ -102,7 +104,7 @@ class DynamicBundleValue(BundleValue):
         Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
         Bundle contents = chest.output;  # DynamicBundleValue - types unknown
     """
-    
+
     source_entity_id: str = ""
     is_dynamic: bool = True
 
@@ -120,12 +122,12 @@ class MemoryInfo:
 
     name: str
     symbol: Any
-    signal_type: Optional[str] = None
-    signal_info: Optional[SignalTypeInfo] = None
+    signal_type: str | None = None
+    signal_info: SignalTypeInfo | None = None
     explicit: bool = False
 
 
-def get_signal_type_name(value_type: ValueInfo) -> Optional[str]:
+def get_signal_type_name(value_type: ValueInfo) -> str | None:
     """Extract signal type name from ValueInfo if it's a SignalValue.
 
     Args:

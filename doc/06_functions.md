@@ -6,7 +6,7 @@ As your circuits grow more complex, you'll want to reuse common patterns. Functi
 
 Use the `func` keyword to define a function:
 
-```fcdsl
+```facto
 func function_name(Type1 param1, Type2 param2) {
     # Function body
     return expression;
@@ -15,7 +15,7 @@ func function_name(Type1 param1, Type2 param2) {
 
 ### A Simple Example
 
-```fcdsl
+```facto
 func double(Signal x) {
     return x * 2;
 }
@@ -40,7 +40,7 @@ Functions can take three types of parameters:
 
 Functions can return signals or entities:
 
-```fcdsl
+```facto
 # Returns a Signal
 func clamp(Signal value, int min_val, int max_val) {
     Signal result = (value < min_val) * min_val
@@ -58,11 +58,11 @@ func make_lamp(int x, int y) {
 
 ## How Functions Work: Inlining
 
-**Important:** Functions in Factompiler are **always inlined** at their call sites. They're not "called" in the traditional sense – their code is copied and substituted wherever they're used.
+**Important:** Functions in Facto are **always inlined** at their call sites. They're not "called" in the traditional sense – their code is copied and substituted wherever they're used.
 
 This means:
 
-```fcdsl
+```facto
 func double(Signal x) {
     return x * 2;
 }
@@ -82,7 +82,7 @@ Each call site gets its own copy of the function's logic. This is great for circ
 
 Restrict a value to a range:
 
-```fcdsl
+```facto
 func clamp(Signal value, int min_val, int max_val) {
     Signal too_low = value < min_val;
     Signal too_high = value > max_val;
@@ -101,7 +101,7 @@ Signal safe_input = clamp(raw_input, 0, 100);  # Keep in 0-100 range
 
 Choose between two values based on a condition:
 
-```fcdsl
+```facto
 func select(Signal condition, Signal if_true, Signal if_false) {
     return (condition != 0) * if_true + (condition == 0) * if_false;
 }
@@ -113,7 +113,7 @@ Signal status = select(temperature > threshold, 1, 0);
 
 ### Absolute Value
 
-```fcdsl
+```facto
 func abs(Signal value) {
     Signal is_negative = value < 0;
     return is_negative * (0 - value) + (!is_negative) * value;
@@ -127,7 +127,7 @@ Signal distance = abs(diff);
 
 Use `.type` to write functions that preserve input signal types:
 
-```fcdsl
+```facto
 func add_offset(Signal value, int offset) {
     # Create offset with same type as value
     Signal typed_offset = offset | value.type;
@@ -144,7 +144,7 @@ This is particularly useful for generic utility functions that should work with 
 
 Returns -1, 0, or 1 based on sign:
 
-```fcdsl
+```facto
 func sign(Signal value) {
     Signal positive = (value > 0) * 1;
     Signal negative = (value < 0) * -1;
@@ -154,7 +154,7 @@ func sign(Signal value) {
 
 ### Minimum and Maximum
 
-```fcdsl
+```facto
 func min(Signal a, Signal b) {
     Signal a_smaller = a < b;
     return a_smaller * a + (!a_smaller) * b;
@@ -173,7 +173,7 @@ Signal high = max(sensor1, sensor2);
 
 Functions can create and configure entities:
 
-```fcdsl
+```facto
 func place_colored_lamp(int x, int y, Signal r, Signal g, Signal b) {
     Entity lamp = place("small-lamp", x, y, {
         use_colors: 1,
@@ -196,7 +196,7 @@ Entity blue_lamp = place_colored_lamp(4, 0, 0, 0, 255);
 
 Functions can also modify entities passed as parameters:
 
-```fcdsl
+```facto
 func configure_status_lamp(Entity lamp, Signal status) {
     lamp.r = (status == 0) * 255;   # Red when 0
     lamp.g = (status == 1) * 255;   # Green when 1
@@ -214,7 +214,7 @@ configure_status_lamp(lamp2, machine2_status);
 
 Functions can declare local memory, but remember: **each call creates a separate instance**.
 
-```fcdsl
+```facto
 func counter() {
     Memory count: "signal-A";
     count.write(count.read() + 1);
@@ -231,7 +231,7 @@ This is useful when you want multiple independent instances of the same stateful
 
 Creating multiple independent counters:
 
-```fcdsl
+```facto
 func make_blinker(int period) {
     Memory tick: "signal-T";
     tick.write((tick.read() + 1) % period);
@@ -252,7 +252,7 @@ lamp2.enable = slow_blink;
 
 If you want **shared** state across multiple uses, don't put memory in a function:
 
-```fcdsl
+```facto
 # WRONG - each call has separate memory
 func get_shared_counter() {
     Memory shared: "signal-A";
@@ -274,7 +274,7 @@ Signal counter2 = shared_counter.read();  # Same memory
 
 Parameters accept compatible types:
 
-```fcdsl
+```facto
 func process(Signal s, int n) {
     return s + n;
 }
@@ -294,7 +294,7 @@ The compiler automatically coerces types as needed.
 
 Variables declared inside functions are local to that function:
 
-```fcdsl
+```facto
 func calculate(Signal input) {
     Signal doubled = input * 2;      # Local variable
     Signal adjusted = doubled + 10;  # Another local
@@ -311,24 +311,24 @@ This helps prevent naming conflicts and keeps your code organized.
 
 For larger projects, split your code across multiple files and use `import`:
 
-```fcdsl
-import "path/to/other_file.fcdsl";
+```facto
+import "path/to/other_file.facto";
 ```
 
 ### How Imports Work
 
 Imports use **textual inclusion** (like C's `#include`). The imported file's content is inserted at the import location before parsing.
 
-**main.fcdsl:**
-```fcdsl
-import "utils.fcdsl";
+**main.facto:**
+```facto
+import "utils.facto";
 
 Signal input = ("signal-input", 0);
 Signal safe_input = clamp(input, 0, 100);  # Uses function from utils
 ```
 
-**utils.fcdsl:**
-```fcdsl
+**utils.facto:**
+```facto
 func clamp(Signal value, int min_val, int max_val) {
     Signal too_low = value < min_val;
     Signal too_high = value > max_val;
@@ -348,23 +348,23 @@ Paths are relative to the file containing the import:
 
 ```
 project/
-  main.fcdsl           # import "lib/utils.fcdsl"
+  main.facto           # import "lib/utils.facto"
   lib/
-    utils.fcdsl        # ← imported file
+    utils.facto        # ← imported file
 ```
 
 ### Circular Import Protection
 
 The compiler detects and prevents circular imports:
 
-**a.fcdsl:**
-```fcdsl
-import "b.fcdsl";  # Imports b
+**a.facto:**
+```facto
+import "b.facto";  # Imports b
 ```
 
-**b.fcdsl:**
-```fcdsl
-import "a.fcdsl";  # Would create a cycle - skipped
+**b.facto:**
+```facto
+import "a.facto";  # Would create a cycle - skipped
 ```
 
 The second import is silently skipped to break the cycle.
@@ -373,9 +373,9 @@ The second import is silently skipped to break the cycle.
 
 The sample programs include a `stdlib/` directory with reusable utilities. You can create your own library of common functions:
 
-```fcdsl
-import "stdlib/math.fcdsl";
-import "stdlib/display.fcdsl";
+```facto
+import "stdlib/math.facto";
+import "stdlib/display.facto";
 ```
 
 ## Function Best Practices
@@ -384,7 +384,7 @@ import "stdlib/display.fcdsl";
 
 Each function should do one thing well:
 
-```fcdsl
+```facto
 # Good - focused functions
 func is_in_range(Signal value, int min_val, int max_val) {
     return (value >= min_val) && (value <= max_val);
@@ -399,7 +399,7 @@ func clamp(Signal value, int min_val, int max_val) {
 
 ### Use Descriptive Names
 
-```fcdsl
+```facto
 # Good
 func calculate_production_rate(Signal items, Signal ticks) { ... }
 
@@ -409,7 +409,7 @@ func calc(Signal a, Signal b) { ... }
 
 ### Document Complex Functions
 
-```fcdsl
+```facto
 # Smooth filter: averages the last N samples
 # Parameters:
 #   input - current sample value
@@ -426,7 +426,7 @@ func smooth_filter(Signal input, int window) {
 
 Instead of deeply nested function calls, use intermediate variables:
 
-```fcdsl
+```facto
 # Hard to read
 Signal result = process(transform(filter(clamp(input, 0, 100), threshold)));
 
@@ -441,8 +441,8 @@ Signal result = process(transformed);
 
 Create a reusable display library for common patterns:
 
-**display_lib.fcdsl:**
-```fcdsl
+**display_lib.facto:**
+```facto
 # Creates a bar graph display using lamps
 # Returns the leftmost lamp entity
 func make_bar_graph(int x, int y, int width, Signal value, int max_val) {
@@ -474,9 +474,9 @@ func make_status_indicator(int x, int y, Signal status) {
 }
 ```
 
-**main.fcdsl:**
-```fcdsl
-import "display_lib.fcdsl";
+**main.facto:**
+```facto
+import "display_lib.facto";
 
 Signal system_status = ("signal-status", 0);
 Entity indicator = make_status_indicator(0, 0, system_status);
@@ -486,8 +486,8 @@ Entity indicator = make_status_indicator(0, 0, system_status);
 
 Common signal processing functions:
 
-**signal_processing.fcdsl:**
-```fcdsl
+**signal_processing.facto:**
+```facto
 # Deadband filter - ignores small changes
 func deadband(Signal input, int threshold) {
     Memory last_output: "signal-L";
@@ -546,7 +546,7 @@ func hysteresis(Signal input, int low_threshold, int high_threshold) {
 - Parameter types: `Signal`, `int`, `Entity` (not `Memory`)
 - Each function call creates its own combinator instances
 - Memory in functions creates **independent instances** per call
-- Use `import "file.fcdsl"` to include other files
+- Use `import "file.facto"` to include other files
 - Imports are textual – content is inserted at the import point
 - Create libraries of reusable functions for common patterns
 

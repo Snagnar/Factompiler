@@ -1,6 +1,6 @@
 """Simple tile occupancy tracking for entity placement."""
 
-from typing import Set, Tuple, Dict
+
 from .layout_plan import EntityPlacement
 
 
@@ -14,10 +14,10 @@ class TileGrid:
     """
 
     def __init__(self):
-        self._occupied: Set[Tuple[int, int]] = set()
+        self._occupied: set[tuple[int, int]] = set()
 
     def is_available(
-        self, tile_pos: Tuple[int, int], footprint: Tuple[int, int]
+        self, tile_pos: tuple[int, int], footprint: tuple[int, int]
     ) -> bool:
         """Check if a tile position is available for given footprint.
 
@@ -33,7 +33,7 @@ class TileGrid:
         return True
 
     def mark_occupied(
-        self, tile_pos: Tuple[int, int], footprint: Tuple[int, int]
+        self, tile_pos: tuple[int, int], footprint: tuple[int, int]
     ) -> None:
         """Mark tiles as occupied.
 
@@ -47,7 +47,7 @@ class TileGrid:
                 self._occupied.add((tile_pos[0] + dx, tile_pos[1] + dy))
 
     def reserve_exact(
-        self, tile_pos: Tuple[int, int], footprint: Tuple[int, int]
+        self, tile_pos: tuple[int, int], footprint: tuple[int, int]
     ) -> bool:
         """Try to reserve exact tile position.
 
@@ -62,7 +62,7 @@ class TileGrid:
         self.mark_occupied(tile_pos, footprint)
         return True
 
-    def rebuild_from_placements(self, placements: Dict[str, EntityPlacement]) -> None:
+    def rebuild_from_placements(self, placements: dict[str, EntityPlacement]) -> None:
         """Rebuild occupancy from entity placements.
 
         Used after position optimization to update tile tracking.

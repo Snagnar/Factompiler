@@ -2,27 +2,26 @@
 Tests for dsl_ast.py - AST node classes and structures.
 """
 
+from dsl_compiler.src.ast.base import ASTNode
+from dsl_compiler.src.ast.expressions import BinaryOp, Expr, IdentifierExpr, UnaryOp
 from dsl_compiler.src.ast.literals import (
-    NumberLiteral,
-    StringLiteral,
-    PropertyAccess,
     Identifier,
     LValue,
+    NumberLiteral,
+    PropertyAccess,
+    StringLiteral,
 )
-from dsl_compiler.src.ast.expressions import BinaryOp, UnaryOp, Expr
 from dsl_compiler.src.ast.statements import (
-    DeclStmt,
     AssignStmt,
-    MemDecl,
+    DeclStmt,
     ExprStmt,
-    ReturnStmt,
-    ImportStmt,
     FuncDecl,
-    Statement,
+    ImportStmt,
+    MemDecl,
     Program,
+    ReturnStmt,
+    Statement,
 )
-from dsl_compiler.src.ast.expressions import IdentifierExpr
-from dsl_compiler.src.ast.base import ASTNode
 
 
 class TestLiteralNodes:

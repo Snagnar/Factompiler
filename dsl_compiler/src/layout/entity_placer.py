@@ -1,36 +1,36 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.common.entity_data import (
-    get_entity_footprint,
     get_entity_alignment,
+    get_entity_footprint,
 )
-from .layout_plan import LayoutPlan, EntityPlacement
-from .signal_analyzer import SignalAnalyzer
-from .signal_graph import SignalGraph
-from .tile_grid import TileGrid
-from .memory_builder import MemoryBuilder
-
-
 from dsl_compiler.src.ir.builder import (
-    IRNode,
-    IR_Const,
+    BundleRef,
     IR_Arith,
+    IR_Const,
     IR_Decider,
     IR_MemCreate,
     IR_MemRead,
     IR_MemWrite,
     IR_PlaceEntity,
     IR_WireMerge,
+    IRNode,
     SignalRef,
-    BundleRef,
     ValueRef,
 )
 from dsl_compiler.src.ir.nodes import (
-    IR_EntityPropWrite,
-    IR_EntityPropRead,
-    IR_LatchWrite,
     IR_EntityOutput,
+    IR_EntityPropRead,
+    IR_EntityPropWrite,
+    IR_LatchWrite,
 )
+
+from .layout_plan import EntityPlacement, LayoutPlan
+from .memory_builder import MemoryBuilder
+from .signal_analyzer import SignalAnalyzer
+from .signal_graph import SignalGraph
+from .tile_grid import TileGrid
 
 
 class EntityPlacer:
@@ -54,17 +54,17 @@ class EntityPlacer:
             tile_grid, layout_plan, signal_analyzer, diagnostics
         )
 
-        self._memory_modules: Dict[str, Dict[str, Any]] = {}
-        self._wire_merge_junctions: Dict[str, Dict[str, Any]] = {}
-        self._entity_property_signals: Dict[str, str] = {}
-        self._ir_nodes: Dict[str, IRNode] = {}  # Track all IR nodes by ID for lookups
-        self._merge_membership: Dict[str, set] = {}  # source_id -> set of merge_ids
+        self._memory_modules: dict[str, dict[str, Any]] = {}
+        self._wire_merge_junctions: dict[str, dict[str, Any]] = {}
+        self._entity_property_signals: dict[str, str] = {}
+        self._ir_nodes: dict[str, IRNode] = {}  # Track all IR nodes by ID for lookups
+        self._merge_membership: dict[str, set] = {}  # source_id -> set of merge_ids
 
     def _build_debug_info(
-        self, op: IRNode, role_override: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, op: IRNode, role_override: str | None = None
+    ) -> dict[str, Any]:
         """Extract debug information from an IR node and its usage entry."""
-        debug_info: Dict[str, Any] = {}
+        debug_info: dict[str, Any] = {}
         usage = self.signal_usage.get(op.node_id)
 
         # Variable name - prefer debug_label which is the actual variable name
@@ -339,7 +339,6 @@ class EntityPlacer:
         1. IR-time construction (condition folding): Uses first_operand/second_operand ValueRefs
         2. Layout-time construction (SR latches): Uses first_signal/second_signal strings
         """
-        from dsl_compiler.src.ir.nodes import SignalRef
 
         # Track all input operands for signal graph
         all_operands = []
@@ -566,7 +565,7 @@ class EntityPlacer:
                 "value": op.value,
             }
 
-    def _try_inline_comparison(self, signal_ref: SignalRef) -> Optional[dict]:
+    def _try_inline_comparison(self, signal_ref: SignalRef) -> dict | None:
         """Check if a signal is a simple comparison that can be inlined."""
         source_placement = self.plan.get_placement(signal_ref.source_id)
         if not source_placement or source_placement.entity_type != "decider-combinator":
@@ -645,11 +644,11 @@ class EntityPlacer:
         for input_sig in op.sources:
             self._add_signal_sink(input_sig, op.node_id)
 
-    def get_merge_membership(self) -> Dict[str, set]:
+    def get_merge_membership(self) -> dict[str, set]:
         """Return merge membership info for wire color conflict detection."""
         return self._merge_membership
 
-    def _get_placement_position(self, value_ref: ValueRef) -> Optional[Tuple[int, int]]:
+    def _get_placement_position(self, value_ref: ValueRef) -> tuple[int, int] | None:
         """Get position of entity producing this value."""
         if isinstance(value_ref, SignalRef):
             placement = self.plan.get_placement(value_ref.source_id)

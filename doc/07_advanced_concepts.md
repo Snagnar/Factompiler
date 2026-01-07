@@ -9,7 +9,7 @@ This chapter covers optimization, design patterns, debugging techniques, and adv
 Your code passes through several stages:
 
 ```
-Source Code (.fcdsl)
+Source Code (.facto)
        │
        ▼
     ┌──────────────────┐
@@ -69,7 +69,7 @@ The compiler converts your code to IR nodes representing Factorio entities:
 
 The compiler detects identical expressions and reuses them:
 
-```fcdsl
+```facto
 Signal x = a + b;
 Signal y = a + b;  # Reuses x's combinator
 Signal z = a + b;  # Also reuses x's combinator
@@ -86,7 +86,7 @@ Only **one** arithmetic combinator is created, and all three variables reference
 
 Logical chains of comparisons are folded into single multi-condition decider combinators:
 
-```fcdsl
+```facto
 Signal a = ("signal-A", 0);
 Signal b = ("signal-B", 0);
 Signal c = ("signal-C", 0);
@@ -114,7 +114,7 @@ This takes advantage of Factorio 2.0's multi-condition decider combinators.
 
 Arithmetic in literals is evaluated at compile time:
 
-```fcdsl
+```facto
 Signal step = ("signal-A", 5 * 2 - 3);  # Becomes ("signal-A", 7)
 int threshold = 100 / 4 + 25;            # Becomes 50
 ```
@@ -125,7 +125,7 @@ No combinators are created for these calculations – they're resolved before th
 
 When adding signals of the same type that come from "simple" sources, the compiler skips creating arithmetic combinators:
 
-```fcdsl
+```facto
 Signal iron_a = ("iron-plate", 100);  # Constant combinator
 Signal iron_b = ("iron-plate", 200);  # Constant combinator
 Signal iron_c = ("iron-plate", 50);   # Constant combinator
@@ -145,7 +145,7 @@ The signals are wired together directly, and Factorio's circuit network sums the
 
 Same-type projections are removed:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal same = iron | "iron-plate";  # No combinator, same is just iron
 ```
@@ -154,7 +154,7 @@ Signal same = iron | "iron-plate";  # No combinator, same is just iron
 
 For unconditional memory writes with feedback, the compiler generates optimized arithmetic loops:
 
-```fcdsl
+```facto
 # This:
 Memory counter: "signal-A";
 counter.write(counter.read() + 1);
@@ -165,7 +165,7 @@ counter.write(counter.read() + 1);
 
 **Multi-step optimization:**
 
-```fcdsl
+```facto
 Memory state: "signal-A";
 Signal s1 = state.read() + 1;
 Signal s2 = s1 * 3;
@@ -179,7 +179,7 @@ The compiler creates a chain of arithmetic combinators with feedback from the la
 
 Simple comparisons in `enable` assignments are inlined:
 
-```fcdsl
+```facto
 lamp.enable = count > 10;
 # The lamp's circuit condition is set to "signal-A > 10"
 # No decider combinator created
@@ -193,7 +193,7 @@ Factorio has two wire colors: red and green. Understanding how the compiler uses
 
 The wire router assigns colors to avoid conflicts when multiple sources produce the same signal type:
 
-```fcdsl
+```facto
 Signal a = ("signal-A", 10);
 Signal b = ("signal-A", 20);
 Signal c = a * b;  # Multiplication combinator
@@ -219,7 +219,7 @@ A more complex wire conflict occurs in patterns like the **MadZuri balanced load
 
 **The Pattern:**
 
-```fcdsl
+```facto
 # 6 chests storing items
 Bundle chests = {c1.output, c2.output, c3.output, c4.output, c5.output, c6.output};
 
@@ -263,7 +263,7 @@ If your circuit behaves unexpectedly, check for:
 Use `--json` to inspect the raw blueprint and see wire connections:
 
 ```bash
-python compile.py program.fcdsl --json | jq '.blueprint.entities[].connections'
+python compile.py program.facto --json | jq '.blueprint.entities[].connections'
 ```
 
 ## Wire Distance and Relay Poles
@@ -274,7 +274,7 @@ Factorio circuit wires have a **maximum span of 9 tiles**. The compiler automati
 
 If you place entities far apart:
 
-```fcdsl
+```facto
 Entity lamp1 = place("small-lamp", 0, 0);
 Entity lamp2 = place("small-lamp", 50, 0);
 
@@ -289,7 +289,7 @@ The compiler inserts medium electric poles between them to relay the wire connec
 
 You can also add power poles explicitly:
 
-```fcdsl
+```facto
 Entity pole1 = place("medium-electric-pole", 0, 5);
 Entity pole2 = place("medium-electric-pole", 9, 5);
 Entity pole3 = place("medium-electric-pole", 18, 5);
@@ -300,7 +300,7 @@ Entity pole3 = place("medium-electric-pole", 18, 5);
 Add power poles to the entire blueprint:
 
 ```bash
-python compile.py program.fcdsl --power-poles medium
+python compile.py program.facto --power-poles medium
 ```
 
 Options: `small`, `medium`, `big`, `substation`
@@ -311,7 +311,7 @@ Options: `small`, `medium`, `big`, `substation`
 
 Detect when a signal changes (pulse on transition):
 
-```fcdsl
+```facto
 Memory previous: "signal-A";
 Signal current = input_signal;
 Signal changed = current != previous.read();
@@ -322,7 +322,7 @@ previous.write(current);
 
 **Rising edge only:**
 
-```fcdsl
+```facto
 Memory previous: "signal-A";
 Signal current = input_signal;
 Signal rising = (current > 0) && (previous.read() == 0);
@@ -333,7 +333,7 @@ previous.write(current);
 
 Ignore rapid toggles (require signal to be stable):
 
-```fcdsl
+```facto
 Memory stable_count: "signal-C";
 Memory last_input: "signal-L";
 Memory output: "signal-O";
@@ -357,7 +357,7 @@ Signal stable_output = output.read();
 
 Implement a finite state machine:
 
-```fcdsl
+```facto
 Memory state: "signal-S";
 Signal current = state.read();
 
@@ -389,7 +389,7 @@ Signal is_stopped = current == 2;
 
 Select the highest-priority active input:
 
-```fcdsl
+```facto
 Signal priority0 = ("signal-0", 0);  # Highest priority
 Signal priority1 = ("signal-1", 0);
 Signal priority2 = ("signal-2", 0);
@@ -406,7 +406,7 @@ Signal selected = (priority0 > 0) * 0
 
 Choose one of several inputs based on a selector:
 
-```fcdsl
+```facto
 Signal selector = ("signal-select", 0);  # 0, 1, 2, or 3
 Signal input0 = ("signal-A", 0);
 Signal input1 = ("signal-B", 0);
@@ -423,7 +423,7 @@ Signal output = (selector == 0) * input0
 
 Count time and trigger actions:
 
-```fcdsl
+```facto
 Memory ticks: "signal-T";
 int duration = 60;  # 60 ticks = 1 second at 60 UPS
 
@@ -442,7 +442,7 @@ Signal progress = (count * 100) / duration;  # 0-100%
 
 Generate regular pulses:
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 int period = 60;
 int pulse_width = 5;
@@ -460,7 +460,7 @@ Bundles enable powerful parallel processing patterns using Factorio's "each" sig
 
 Monitor multiple resources with a single operation:
 
-```fcdsl
+```facto
 # Create a bundle of resource levels
 Bundle resources = { 
     ("iron-plate", 0),    # Wire from chests
@@ -485,7 +485,7 @@ allClearLamp.enable = allStocked > 0;
 
 Apply the same transformation to multiple signals:
 
-```fcdsl
+```facto
 # Input signals from sensors
 Bundle sensors = { 
     ("signal-1", 0),
@@ -505,7 +505,7 @@ Signal anyHigh = any(normalized) > 80;
 
 Extract and process individual signals from a bundle:
 
-```fcdsl
+```facto
 Bundle data = { ("signal-A", 100), ("signal-B", 200), ("signal-C", 50) };
 
 # Get specific values
@@ -525,7 +525,7 @@ For loops enable powerful entity generation and repetitive logic.
 
 Create a bar graph display:
 
-```fcdsl
+```facto
 Signal level = ("signal-L", 0);  # Input: 0-7
 
 for i in 0..8 {
@@ -538,7 +538,7 @@ for i in 0..8 {
 
 Show a number in binary:
 
-```fcdsl
+```facto
 Memory value: "signal-V";
 value.write((value.read() + 1) % 256);  # 8-bit counter
 
@@ -553,7 +553,7 @@ for bit in 0..8 {
 
 Create a 2D grid using nested positioning:
 
-```fcdsl
+```facto
 Signal active = ("signal-A", 1);
 
 # 4x4 grid of lamps
@@ -569,7 +569,7 @@ for row in 0..4 {
 
 Create a step sequencer using loops:
 
-```fcdsl
+```facto
 Memory step: "signal-S";
 step.write((step.read() + 1) % 16);
 Signal current = step.read();
@@ -593,7 +593,7 @@ for active_step in [0, 4, 8, 12] {
 
 Use `.type` in loops to maintain type consistency:
 
-```fcdsl
+```facto
 Signal reference = ("iron-plate", 100);
 
 for i in 0..4 {
@@ -611,7 +611,7 @@ for i in 0..4 {
 See detailed compilation information:
 
 ```bash
-python compile.py program.fcdsl --log-level debug
+python compile.py program.facto --log-level debug
 ```
 
 This shows:
@@ -621,22 +621,12 @@ This shows:
 - Optimization passes applied
 - Layout decisions
 
-### Using `--explain`
-
-Get extended diagnostic messages:
-
-```bash
-python compile.py program.fcdsl --explain
-```
-
-Warnings include suggestions for fixes.
-
 ### Using `--json`
 
 Inspect the raw blueprint:
 
 ```bash
-python compile.py program.fcdsl --json > blueprint.json
+python compile.py program.facto --json > blueprint.json
 ```
 
 Then examine with `jq` or a JSON viewer:
@@ -654,20 +644,10 @@ jq '.blueprint.entities[] | {name, connections}' blueprint.json
 See the unoptimized output:
 
 ```bash
-python compile.py program.fcdsl --no-optimize
+python compile.py program.facto --no-optimize
 ```
 
 Useful for understanding what combinators each expression creates.
-
-### Strict Mode
-
-Catch potential issues early:
-
-```bash
-python compile.py program.fcdsl --strict
-```
-
-Warnings become errors. Use this for production-quality circuits.
 
 ### Common Error Messages
 
@@ -701,7 +681,7 @@ Each combinator adds processing overhead. Reduce count by:
 
 Each combinator adds 1 tick of delay. Deep expression chains create latency:
 
-```fcdsl
+```facto
 # This has 3 ticks of delay
 Signal result = ((a + b) * c) / d;
 # tick 1: a + b
@@ -715,7 +695,7 @@ For real-time control, minimize expression depth.
 
 Sometimes storing a value is better than recomputing it:
 
-```fcdsl
+```facto
 # Recomputes expensive expression every tick
 Signal expensive = ((a * b) + (c * d)) / ((e * f) - (g * h));
 lamp.enable = expensive > threshold;
@@ -732,7 +712,7 @@ lamp.enable = cached.read() > threshold;
 
 Pass values through a chain of memory cells:
 
-```fcdsl
+```facto
 Memory stage0: "signal-A";
 Memory stage1: "signal-A";
 Memory stage2: "signal-A";
@@ -758,7 +738,7 @@ Signal out3 = stage3.read();
 
 One-hot counter that cycles through positions:
 
-```fcdsl
+```facto
 Memory position: "signal-A";
 int num_positions = 8;
 
@@ -780,7 +760,7 @@ Signal pos7 = position.read() == 7;
 
 A basic proportional-integral-derivative controller:
 
-```fcdsl
+```facto
 Signal setpoint = ("signal-setpoint", 100);
 Signal actual = ("signal-actual", 0);  # Wire from sensor
 
@@ -814,7 +794,7 @@ Signal control = output | "signal-control";
 
 Convert binary to binary-coded decimal for display:
 
-```fcdsl
+```facto
 Signal binary = ("signal-input", 0);  # 0-999
 
 # Extract digits using division and modulo
@@ -866,7 +846,7 @@ Compiled blueprints include combinators that need power:
 - **Design patterns**: edge detection, state machines, timers, multiplexers
 - **Bundle patterns**: parallel scaling, resource monitoring, threshold checking with `any()`/`all()`
 - **For loop patterns**: LED displays, binary outputs, grids, sequencers
-- **Debug with**: `--log-level debug`, `--explain`, `--json`, `--strict`
+- **Debug with**: `--log-level debug`, `--json`
 - **Performance**: minimize combinators, be aware of tick delay
 
 ---
@@ -875,7 +855,7 @@ Compiled blueprints include combinators that need power:
 
 For complete details, see:
 - **[Language Specification](../LANGUAGE_SPEC.md)** – Complete syntax and semantics
-- **[Entity Reference](../ENTITY_REFERENCE_DSL.md)** – All entities and their properties
+- **[Entity Reference](../ENTITY_REFERENCE.md)** – All entities and their properties
 
 ---
 

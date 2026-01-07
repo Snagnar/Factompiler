@@ -1,5 +1,5 @@
 """
-Blueprint emission module for the Factorio Circuit DSL.
+Blueprint emission module for the Facto.
 
 This module converts IR operations into actual Factorio combinators and entities
 using the factorio-draftsman library to generate blueprint JSON.
@@ -7,21 +7,22 @@ using the factorio-draftsman library to generate blueprint JSON.
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Any, Set
+from typing import Any
 
 from draftsman.blueprintable import Blueprint
+from draftsman.classes.entity import Entity
+from draftsman.data import signals as signal_data
 from draftsman.entity import (
     new_entity,
 )  # Use draftsman's factory
-from draftsman.classes.entity import Entity
-from draftsman.data import signals as signal_data
 from draftsman.utils import distance
 
-from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.common.constants import DEFAULT_CONFIG
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.layout.layout_plan import (
     LayoutPlan,
 )
+
 from .entity_emitter import PlanEntityEmitter
 
 EDGE_LAYOUT_NOTE = (
@@ -36,7 +37,7 @@ class BlueprintEmitter:
     def __init__(
         self,
         diagnostics: ProgramDiagnostics,
-        signal_type_map: Optional[Dict[str, str]] = None,
+        signal_type_map: dict[str, str] | None = None,
     ) -> None:
         self.signal_type_map = signal_type_map or {}
         self.diagnostics = diagnostics
@@ -55,7 +56,7 @@ class BlueprintEmitter:
         self.blueprint.description = layout_plan.blueprint_description or ""
         self.blueprint.version = (2, 0)
 
-        entity_map: Dict[str, Entity] = {}
+        entity_map: dict[str, Entity] = {}
 
         # Sort placements by ID for deterministic entity ordering
         for ir_node_id in sorted(layout_plan.entity_placements.keys()):
@@ -79,7 +80,7 @@ class BlueprintEmitter:
     def _materialize_connections(
         self,
         layout_plan: LayoutPlan,
-        entity_map: Dict[str, Entity],
+        entity_map: dict[str, Entity],
     ) -> None:
         for connection in layout_plan.wire_connections:
             source = entity_map.get(connection.source_entity_id)
@@ -96,7 +97,7 @@ class BlueprintEmitter:
                 )
                 continue
 
-            kwargs: Dict[str, Any] = {
+            kwargs: dict[str, Any] = {
                 "color": connection.wire_color,
                 "entity_1": source,
                 "entity_2": sink,
@@ -116,7 +117,7 @@ class BlueprintEmitter:
     def _materialize_power_grid(
         self,
         layout_plan: LayoutPlan,
-        entity_map: Dict[str, Entity],
+        entity_map: dict[str, Entity],
     ) -> None:
         """Materialize power grid and generate connections between poles.
 
@@ -145,7 +146,7 @@ class BlueprintEmitter:
             entity_map[entity.id] = entity
 
         # Identify relay poles
-        relay_ids: Set[str] = {
+        relay_ids: set[str] = {
             p.ir_node_id
             for p in layout_plan.entity_placements.values()
             if getattr(p, "role", None) == "wire_relay"

@@ -1,6 +1,6 @@
 # Signals and Types
 
-Signals are the foundation of everything in Factompiler. Understanding how they work will help you build effective circuits.
+Signals are the foundation of everything in Facto. Understanding how they work will help you build effective circuits.
 
 ## What is a Signal?
 
@@ -11,9 +11,9 @@ In Factorio, signals are data that flows through circuit networks. Each signal h
 
 When you read a circuit network, you see values like "iron-plate: 50, copper-plate: 30". That's two signals of different types with their respective values.
 
-In Factompiler, we represent signals like this:
+In Facto, we represent signals like this:
 
-```fcdsl
+```facto
 Signal my_signal = ("iron-plate", 50);
 ```
 
@@ -49,7 +49,7 @@ Fluids can be used as signals too:
 
 The most common way to declare a signal with a specific type:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal counter = ("signal-A", 0);
 Signal temperature = ("steam", 500);
@@ -59,7 +59,7 @@ Signal temperature = ("steam", 500);
 
 If you don't need a specific type, let the compiler pick one:
 
-```fcdsl
+```facto
 Signal x = 5;    # Compiler assigns signal-A
 Signal y = 10;   # Compiler assigns signal-B
 Signal z = 15;   # Compiler assigns signal-C
@@ -71,7 +71,7 @@ The compiler automatically allocates virtual signals (`signal-A`, `signal-B`, et
 
 For pure compile-time constants that shouldn't become signals:
 
-```fcdsl
+```facto
 int threshold = 100;
 int multiplier = 5;
 Signal result = input * multiplier;  # multiplier is just the number 5
@@ -87,7 +87,7 @@ Use `int` when you need a constant for calculations but don't want it to exist a
 
 Signals support all standard arithmetic:
 
-```fcdsl
+```facto
 Signal a = ("signal-A", 100);
 Signal b = ("signal-B", 30);
 
@@ -105,7 +105,7 @@ Each operation typically creates an **arithmetic combinator** in your blueprint.
 
 For bit manipulation:
 
-```fcdsl
+```facto
 Signal flags = ("signal-A", 0b11110000);
 Signal mask = ("signal-B", 0b00001111);
 
@@ -120,9 +120,9 @@ Note: Bitwise operators are uppercase (`AND`, `OR`, `XOR`) to distinguish them f
 
 ### Number Literals
 
-Factompiler supports multiple number formats:
+Facto supports multiple number formats:
 
-```fcdsl
+```facto
 Signal decimal = 255;         # Decimal
 Signal binary = 0b11111111;   # Binary
 Signal octal = 0o377;         # Octal
@@ -133,7 +133,7 @@ Signal hex = 0xFF;            # Hexadecimal
 
 This is particularly useful for bitwise operations and color values:
 
-```fcdsl
+```facto
 Signal red_color = 0xFF0000;     # Pure red in RGB
 Signal permissions = 0b00000111; # Three flags set
 ```
@@ -142,7 +142,7 @@ Signal permissions = 0b00000111; # Three flags set
 
 Comparisons produce signals with value `1` (true) or `0` (false):
 
-```fcdsl
+```facto
 Signal a = ("signal-A", 50);
 Signal threshold = ("signal-T", 100);
 
@@ -160,7 +160,7 @@ Comparisons create **decider combinators** in your blueprint.
 
 Combine boolean conditions:
 
-```fcdsl
+```facto
 Signal temp = ("signal-T", 75);
 Signal pressure = ("signal-P", 50);
 
@@ -186,7 +186,7 @@ Understanding how types flow through operations is important.
 
 When you specify a type, it's used:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);  # Type: iron-plate
 ```
 
@@ -194,7 +194,7 @@ Signal iron = ("iron-plate", 100);  # Type: iron-plate
 
 In binary operations, the left operand's type is used for the result:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 50);
 
@@ -206,7 +206,7 @@ Signal mixed = iron + copper;  # Result type: iron-plate, value: 150
 
 When a signal meets an integer, the integer adopts the signal's type:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal more_iron = iron + 50;  # Result: iron-plate, value: 150
 ```
@@ -215,7 +215,7 @@ Signal more_iron = iron + 50;  # Result: iron-plate, value: 150
 
 Mixed type operations work but generate warnings. To avoid them:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 50);
 
@@ -230,7 +230,7 @@ Signal total = (iron | "signal-T") + (copper | "signal-T");  # Both signal-T
 
 The projection operator changes a signal's type without changing its value:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal as_copper = iron | "copper-plate";   # Type: copper-plate, value: 100
 Signal as_virtual = iron | "signal-A";      # Type: signal-A, value: 100
@@ -242,7 +242,7 @@ Signal as_virtual = iron | "signal-A";      # Type: signal-A, value: 100
 
 When you want to combine values from different signal types:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 80);
 Signal coal = ("coal", 50);
@@ -260,7 +260,7 @@ Signal total = (iron | "signal-total")
 
 Give meaningful names to output signals:
 
-```fcdsl
+```facto
 Signal calculated_value = complex_expression;
 Signal output = calculated_value | "signal-output";
 ```
@@ -269,7 +269,7 @@ Signal output = calculated_value | "signal-output";
 
 The projection operator can also be used in declarations:
 
-```fcdsl
+```facto
 # These are equivalent:
 Signal iron = ("iron-plate", 100);
 Signal iron = 100 | "iron-plate";
@@ -277,7 +277,7 @@ Signal iron = 100 | "iron-plate";
 
 The second form is especially useful when adding types to expressions:
 
-```fcdsl
+```facto
 Signal result = (a + b * 2) | "signal-R";
 ```
 
@@ -285,7 +285,7 @@ Signal result = (a + b * 2) | "signal-R";
 
 Projecting to the same type is a no-op – the compiler removes it:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal same = iron | "iron-plate";  # No combinator created, just uses iron
 ```
@@ -296,7 +296,7 @@ You can access a signal's type at compile time using the `.type` property. This 
 
 ### Basic Usage
 
-```fcdsl
+```facto
 Signal a = ("iron-plate", 60);
 Signal b = 50 | a.type;   # b is projected to iron-plate (same type as a)
 ```
@@ -305,7 +305,7 @@ Signal b = 50 | a.type;   # b is projected to iron-plate (same type as a)
 
 Use `.type` in signal literal syntax:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal derived = (iron.type, 42);  # Creates iron-plate signal with value 42
 ```
@@ -314,7 +314,7 @@ Signal derived = (iron.type, 42);  # Creates iron-plate signal with value 42
 
 **Type Propagation:** Keep signal types consistent without repeating type names:
 
-```fcdsl
+```facto
 Signal input = ("signal-A", 0);       # Input from circuit
 Signal doubled = input * 2;            # Inherits signal-A type
 Signal offset = 10 | input.type;       # Explicit same type as input
@@ -323,7 +323,7 @@ Signal result = doubled + offset;      # No type mismatch warning
 
 **Dynamic Type Matching in Functions:** Match the type of a parameter:
 
-```fcdsl
+```facto
 func add_offset(Signal value, int offset) {
     Signal typed_offset = offset | value.type;
     return value + typed_offset;
@@ -340,7 +340,7 @@ Bundles are **unordered collections of signals** that can be operated on as a un
 
 Create bundles using curly brace syntax with signal elements:
 
-```fcdsl
+```facto
 # Bundle from signal literals
 Bundle resources = { ("iron-plate", 100), ("copper-plate", 80), ("coal", 50) };
 
@@ -355,7 +355,7 @@ Bundle empty = {};
 
 **Bundle Flattening:** Bundles can contain other bundles, which are automatically flattened:
 
-```fcdsl
+```facto
 Bundle more = { ("signal-Z", 30) };
 Bundle all = { pair, more };  # Contains signal-X, signal-Y, signal-Z
 ```
@@ -366,7 +366,7 @@ Bundle all = { pair, more };  # Contains signal-X, signal-Y, signal-Z
 
 Extract a specific signal from a bundle using bracket notation:
 
-```fcdsl
+```facto
 Bundle resources = { ("iron-plate", 100), ("copper-plate", 80) };
 
 Signal iron = resources["iron-plate"];   # Value: 100
@@ -380,7 +380,7 @@ Signal doubled = resources["iron-plate"] * 2;
 
 Apply arithmetic operations to **all signals** in a bundle simultaneously:
 
-```fcdsl
+```facto
 Bundle resources = { ("iron-plate", 100), ("copper-plate", 80), ("coal", 50) };
 
 Bundle doubled = resources * 2;      # All values doubled
@@ -404,7 +404,7 @@ Output: signal-each
 
 Use `any()` and `all()` functions for bundle-wide comparisons:
 
-```fcdsl
+```facto
 Bundle levels = { ("water", 500), ("oil", 100), ("steam", 0) };
 
 # any() - True if at least one signal matches
@@ -427,7 +427,7 @@ Bundles are ideal for:
 - **Signal aggregation**: Combine multiple signals for bulk operations
 - **Conditional logic**: Check conditions across multiple signals at once
 
-```fcdsl
+```facto
 # Scale all resource values for display
 Bundle resources = { ("iron-plate", 100), ("copper-plate", 80) };
 Bundle scaled = resources * 10;
@@ -446,7 +446,7 @@ For loops allow you to repeat code with an iterator variable. They are **unrolle
 
 Iterate over a range of numbers:
 
-```fcdsl
+```facto
 # Basic range: 0, 1, 2, 3, 4 (excludes end value)
 for i in 0..5 {
     Entity lamp = place("small-lamp", i, 0);
@@ -473,7 +473,7 @@ for k in 10..0 step -2 {
 
 Iterate over an explicit list of values:
 
-```fcdsl
+```facto
 for value in [1, 3, 5, 7, 9] {
     Entity lamp = place("small-lamp", value, 0);
     lamp.enable = count >= value;
@@ -484,7 +484,7 @@ for value in [1, 3, 5, 7, 9] {
 
 The iterator variable can be used in expressions:
 
-```fcdsl
+```facto
 Signal base = ("signal-B", 10);
 
 for x in 0..4 {
@@ -500,7 +500,7 @@ for x in 0..4 {
 
 For loops are fully unrolled at compile time. This means:
 
-```fcdsl
+```facto
 for i in 0..3 {
     Entity lamp = place("small-lamp", i, 0);
 }
@@ -508,7 +508,7 @@ for i in 0..3 {
 
 Is equivalent to writing:
 
-```fcdsl
+```facto
 Entity lamp_0 = place("small-lamp", 0, 0);
 Entity lamp_1 = place("small-lamp", 1, 0);
 Entity lamp_2 = place("small-lamp", 2, 0);
@@ -518,7 +518,7 @@ Entity lamp_2 = place("small-lamp", 2, 0);
 
 **Creating a lamp array:**
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 counter.write((counter.read() + 1) % 8);
 Signal pos = counter.read();
@@ -532,7 +532,7 @@ for i in 0..8 {
 
 **Binary display:**
 
-```fcdsl
+```facto
 Memory bits: "signal-A";
 bits.write((bits.read() + 1) % 16);
 
@@ -547,7 +547,7 @@ for bit in 0..4 {
 
 The output specifier is used with decider combinators to pass through values conditionally:
 
-```fcdsl
+```facto
 Signal count = ("signal-A", 50);
 Signal data = ("signal-B", 1000);
 
@@ -561,7 +561,7 @@ This is different from multiplication:
 
 The output specifier is particularly useful for signal gating:
 
-```fcdsl
+```facto
 # Gate pattern: only pass signal when enabled
 Signal gate = (enable > 0) : input_signal;
 ```
@@ -587,7 +587,7 @@ From highest (evaluated first) to lowest:
 
 ### Examples
 
-```fcdsl
+```facto
 Signal a = 2 + 3 * 4;        # 14 (multiplication first)
 Signal b = (2 + 3) * 4;      # 20 (parentheses override)
 Signal c = 2 ** 3 ** 2;      # 512 (** is right-associative: 2^(3^2) = 2^9)
@@ -598,7 +598,7 @@ Signal d = x > 5 && y < 10;  # Comparison before logical AND
 
 ### Temperature Monitor
 
-```fcdsl
+```facto
 # Input from temperature sensor (wire from heat exchanger)
 Signal temp = ("signal-T", 0);
 
@@ -620,7 +620,7 @@ Signal status_danger = danger | "signal-red";
 
 ### Resource Ratio Calculator
 
-```fcdsl
+```facto
 # Inputs from logistics network (wire from roboport)
 Signal iron = ("iron-plate", 0);
 Signal copper = ("copper-plate", 0);
@@ -641,7 +641,7 @@ Signal output = can_make | "signal-C";
 
 ### RGB Color Mixer
 
-```fcdsl
+```facto
 # Individual color channels (0-255)
 Signal red = ("signal-R", 128);
 Signal green = ("signal-G", 64);

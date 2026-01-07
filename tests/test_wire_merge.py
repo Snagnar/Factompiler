@@ -2,11 +2,11 @@
 
 import pytest
 
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.ir.builder import IR_Arith, IR_WireMerge
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
-from tests.test_helpers import lower_program, emit_blueprint
-from dsl_compiler.src.ir.builder import IR_Arith, IR_WireMerge
-from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from tests.test_helpers import emit_blueprint, lower_program
 
 
 @pytest.fixture
@@ -16,7 +16,7 @@ def parser():
 
 def _lower_ir(parser: DSLParser, code: str):
     diagnostics = ProgramDiagnostics()
-    analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+    analyzer = SemanticAnalyzer(diagnostics)
     program = parser.parse(code)
     analyzer.visit(program)
     assert not diagnostics.has_errors(), diagnostics.get_messages()
@@ -112,9 +112,7 @@ class TestWireMerge:
             label="No Merge",
             signal_type_map=signal_map_no_merge,
         )
-        assert not diagnostics_no_merge.has_errors(), (
-            diagnostics_no_merge.get_messages()
-        )
+        assert not diagnostics_no_merge.has_errors(), diagnostics_no_merge.get_messages()
         entities_without_merge = len(blueprint_no_merge.entities)
 
         assert entities_with_merge < entities_without_merge

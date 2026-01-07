@@ -1,12 +1,12 @@
 # Entities and Control
 
-Entities are the physical objects in Factorio – lamps, inserters, train stops, assemblers, and more. Factompiler lets you place entities in your blueprint and control them with circuit signals.
+Entities are the physical objects in Factorio – lamps, inserters, train stops, assemblers, and more. Facto lets you place entities in your blueprint and control them with circuit signals.
 
 ## Placing Entities
 
 Use the `place()` function to add an entity to your blueprint:
 
-```fcdsl
+```facto
 Entity name = place("prototype", x, y);
 Entity name = place("prototype", x, y, {property: value, ...});
 ```
@@ -18,7 +18,7 @@ Parameters:
 
 ### Basic Placement
 
-```fcdsl
+```facto
 Entity lamp = place("small-lamp", 0, 0);
 Entity inserter = place("inserter", 5, 0);
 Entity belt = place("transport-belt", 10, 0);
@@ -30,7 +30,7 @@ Entity belt = place("transport-belt", 10, 0);
 
 Configure entity settings at placement time:
 
-```fcdsl
+```facto
 Entity colored_lamp = place("small-lamp", 0, 0, {
     use_colors: 1,
     always_on: 1,
@@ -52,7 +52,7 @@ Entity fast_inserter = place("fast-inserter", 5, 0, {
 
 When you use integer constants, the entity is placed at exactly those coordinates:
 
-```fcdsl
+```facto
 Entity lamp1 = place("small-lamp", 0, 0);   # At origin
 Entity lamp2 = place("small-lamp", 5, 0);   # 5 tiles right
 Entity lamp3 = place("small-lamp", 0, 5);   # 5 tiles down
@@ -66,7 +66,7 @@ Factorio uses a coordinate system where:
 
 For functional circuits (not visual displays), you can let the compiler optimize positions:
 
-```fcdsl
+```facto
 Signal x_pos = some_signal;
 Entity lamp = place("small-lamp", x_pos, 0);  # Position chosen by layout engine
 ```
@@ -81,7 +81,7 @@ When coordinates are signals or expressions (not constants), the layout engine p
 
 Most entities have an `enable` property that turns them on or off based on a circuit signal:
 
-```fcdsl
+```facto
 Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = count > 50;  # Lamp turns on when count exceeds 50
 ```
@@ -92,7 +92,7 @@ This is the most common way to control entities.
 
 Use dot notation to set properties:
 
-```fcdsl
+```facto
 entity.property = value;
 ```
 
@@ -108,13 +108,13 @@ The `value` can be:
 Lamps are the simplest way to visualize circuit output.
 
 **Basic lamp:**
-```fcdsl
+```facto
 Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = signal > 0;
 ```
 
 **Colored lamp (RGB):**
-```fcdsl
+```facto
 Entity rgb_lamp = place("small-lamp", 0, 0, {
     use_colors: 1,      # Enable color mode
     always_on: 1,       # Stay on regardless of enable
@@ -140,7 +140,7 @@ rgb_lamp.b = blue_value;
 
 Control inserter operation with circuit conditions:
 
-```fcdsl
+```facto
 Entity inserter = place("inserter", 0, 0);
 inserter.enable = chest_count < 100;  # Only insert when chest has < 100 items
 ```
@@ -154,7 +154,7 @@ inserter.enable = chest_count < 100;  # Only insert when chest has < 100 items
 - `"stack-inserter"` – Maximum throughput
 
 **Direction property:**
-```fcdsl
+```facto
 Entity inserter = place("inserter", 0, 0, {direction: 4});  # Facing East
 ```
 
@@ -170,7 +170,7 @@ Direction values:
 
 Control belt movement:
 
-```fcdsl
+```facto
 Entity belt = place("transport-belt", 0, 0);
 belt.enable = should_run > 0;
 ```
@@ -184,7 +184,7 @@ belt.enable = should_run > 0;
 
 Train stops have many circuit-controllable properties:
 
-```fcdsl
+```facto
 Entity station = place("train-stop", 0, 0, {
     station: "Iron Pickup",     # Station name
     color: {r: 255, g: 0, b: 0} # Display color
@@ -199,7 +199,7 @@ station.read_from_train = 1;             # Read train contents
 
 Control production:
 
-```fcdsl
+```facto
 Entity assembler = place("assembling-machine-1", 0, 0);
 assembler.enable = has_materials > 0;
 ```
@@ -213,7 +213,7 @@ assembler.enable = has_materials > 0;
 
 Power poles are circuit connection points:
 
-```fcdsl
+```facto
 Entity pole = place("medium-electric-pole", 0, 0);
 ```
 
@@ -229,7 +229,7 @@ The compiler automatically adds relay poles when wire distances exceed 9 tiles, 
 
 Some entity properties can be read back as signals:
 
-```fcdsl
+```facto
 Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = some_condition;
 
@@ -242,7 +242,7 @@ This is useful for creating feedback loops or monitoring entity state.
 
 Entities like chests, tanks, and storage units output their contents as circuit signals. Access this with the `.output` property:
 
-```fcdsl
+```facto
 Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
 Bundle contents = chest.output;  # All item signals from the chest
 ```
@@ -256,7 +256,7 @@ The `.output` property returns a **Bundle** containing all signals the entity ou
 
 **Example: Balanced Loader Pattern**
 
-```fcdsl
+```facto
 # Read all chest contents
 Entity c1 = place("steel-chest", 0, 0, {read_contents: 1});
 Entity c2 = place("steel-chest", 1, 0, {read_contents: 1});
@@ -278,7 +278,7 @@ The compiler automatically handles wire color conflicts when the same source (li
 
 When you assign a simple comparison to `enable`, the compiler **inlines** it into the entity's circuit condition:
 
-```fcdsl
+```facto
 Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = count > 10;  # No extra combinator! Uses lamp's built-in condition.
 ```
@@ -292,7 +292,7 @@ Instead of creating a decider combinator that outputs 1/0 and connecting it to t
 
 If the comparison is complex or reused, a decider combinator is created:
 
-```fcdsl
+```facto
 Signal is_high = count > 10;
 lamp1.enable = is_high;  # Uses the signal
 lamp2.enable = is_high;  # Reuses the same signal
@@ -305,7 +305,7 @@ lamp2.enable = is_high;  # Reuses the same signal
 
 Use `for` loops to place multiple entities efficiently:
 
-```fcdsl
+```facto
 # Place 8 lamps in a row
 for i in 0..8 {
     Entity lamp = place("small-lamp", i * 2, 0);
@@ -325,7 +325,7 @@ For loops are unrolled at compile time, so each iteration creates independent en
 
 You can also use functions to encapsulate entity creation:
 
-```fcdsl
+```facto
 func place_lamp(int x, int y) {
     Entity lamp = place("small-lamp", x, y);
     return lamp;
@@ -341,7 +341,7 @@ Entity lamp3 = place_lamp(6, 0);
 
 Control multiple entities with the same logic:
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 counter.write((counter.read() + 1) % 20);
 
@@ -363,7 +363,7 @@ lamp4.enable = phase >= 15;
 
 ### Chaser Pattern
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 counter.write((counter.read() + 1) % 8);
 Signal pos = counter.read();
@@ -379,7 +379,7 @@ for i in 0..8 {
 
 This example creates a lamp that smoothly cycles through all colors:
 
-```fcdsl
+```facto
 # HSV color cycling (simplified)
 Memory hue: "signal-H";
 hue.write((hue.read() + 1) % 1530);  # 1530 = 6 * 255
@@ -423,7 +423,7 @@ lamp.b = blue_val;
 
 A practical circuit that monitors production and controls machines:
 
-```fcdsl
+```facto
 # Input signals (wire from storage chests)
 Signal iron_stock = ("iron-plate", 0);
 Signal copper_stock = ("copper-plate", 0);
@@ -457,7 +457,7 @@ lamp_running.enable = should_produce; # On = producing
 
 ## Entity Reference
 
-For a complete list of all entities, their prototypes, and properties, see the **[Entity Reference](../ENTITY_REFERENCE_DSL.md)**.
+For a complete list of all entities, their prototypes, and properties, see the **[Entity Reference](../ENTITY_REFERENCE.md)**.
 
 This reference includes:
 - All entity prototype names
@@ -472,7 +472,7 @@ This reference includes:
 
 For displays (lamp arrays, status indicators), use evenly spaced positions:
 
-```fcdsl
+```facto
 Entity lamp1 = place("small-lamp", 0, 0);
 Entity lamp2 = place("small-lamp", 2, 0);  # 2-tile spacing
 Entity lamp3 = place("small-lamp", 4, 0);
@@ -482,7 +482,7 @@ Entity lamp3 = place("small-lamp", 4, 0);
 
 Place related entities near each other:
 
-```fcdsl
+```facto
 # Status display at y=0
 Entity status_lamp = place("small-lamp", 0, 0);
 
@@ -495,7 +495,7 @@ Entity assembler = place("assembling-machine-1", 3, 5);
 
 Let the compiler optimize simple conditions:
 
-```fcdsl
+```facto
 # Good - inlines into lamp's condition
 lamp.enable = count > 100;
 
@@ -506,7 +506,7 @@ lamp.enable = enable;
 
 ### Name Your Entities Meaningfully
 
-```fcdsl
+```facto
 Entity output_indicator = place("small-lamp", 0, 0);
 Entity material_warning = place("small-lamp", 2, 0);
 Entity production_status = place("small-lamp", 4, 0);
@@ -521,7 +521,7 @@ Entity production_status = place("small-lamp", 4, 0);
 - Most entities support `enable` for on/off control
 - Lamps support RGB color control with `use_colors` mode
 - The compiler inlines simple comparisons into entity conditions
-- See the **[Entity Reference](../ENTITY_REFERENCE_DSL.md)** for all entity types
+- See the **[Entity Reference](../ENTITY_REFERENCE.md)** for all entity types
 
 ---
 

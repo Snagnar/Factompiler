@@ -6,10 +6,9 @@ for implicit signal allocation. It excludes wildcard signals (each, anything,
 everything) which have special semantics in Factorio circuit networks.
 """
 
-from typing import FrozenSet, List
 
 # Wildcard signals - cannot be used as regular signals
-WILDCARD_SIGNALS: FrozenSet[str] = frozenset(
+WILDCARD_SIGNALS: frozenset[str] = frozenset(
     {
         "signal-each",
         "signal-anything",
@@ -18,7 +17,7 @@ WILDCARD_SIGNALS: FrozenSet[str] = frozenset(
 )
 
 # Signals reserved by the compiler for internal use
-RESERVED_SIGNALS: FrozenSet[str] = frozenset(
+RESERVED_SIGNALS: frozenset[str] = frozenset(
     {
         "signal-W",  # Memory write-enable channel
     }
@@ -27,7 +26,7 @@ RESERVED_SIGNALS: FrozenSet[str] = frozenset(
 # All valid virtual signals available for internal allocation, in priority order.
 # Letters and digits first (most recognizable), then colors, then symbols.
 # Total: 152 signals (155 virtual signals - 3 wildcards)
-AVAILABLE_VIRTUAL_SIGNALS: List[str] = [
+AVAILABLE_VIRTUAL_SIGNALS: list[str] = [
     # === Letters (26) - most commonly used ===
     "signal-A",
     "signal-B",

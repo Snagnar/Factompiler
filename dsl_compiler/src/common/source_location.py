@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any
 
 """Source location utilities for tracking code positions."""
 
@@ -9,7 +9,7 @@ from typing import Optional, Any
 class SourceLocation:
     """Represents a location in source code."""
 
-    file: Optional[str] = None
+    file: str | None = None
     line: int = 0
     column: int = 0
 
@@ -26,8 +26,8 @@ class SourceLocation:
 
     @staticmethod
     def render(
-        node: Optional[Any], default_file: Optional[str] = None
-    ) -> Optional[str]:
+        node: Any | None, default_file: str | None = None
+    ) -> str | None:
         """Format a human-friendly file:line string for an AST node.
 
         This is a compatibility method for code that uses render_source_location.

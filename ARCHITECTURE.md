@@ -2,12 +2,12 @@
 
 ## Overview
 
-Factompiler is a multi-stage compiler that transforms Factorio Circuit DSL (FCDSL) source code into Factorio blueprint strings. The compilation pipeline consists of five distinct stages, each with well-defined responsibilities and interfaces.
+Factompiler is a multi-stage compiler that transforms Facto source code into Factorio blueprint strings. The compilation pipeline consists of five distinct stages, each with well-defined responsibilities and interfaces.
 
 ## Compilation Pipeline
 
 ```
-Source Code (.fcdsl)
+Source Code (.facto)
     ↓
 ┌─────────────────────┐
 │  1. Parser          │  Input: str  →  Output: AST
@@ -339,7 +339,7 @@ All merged in compile.py → Final diagnostic output
 - **Common:** `tests/test_common_infrastructure.py` - Shared utilities
 
 ### Integration Tests
-- **Sample Programs:** `tests/sample_programs/*.fcdsl` - End-to-end compilation
+- **Sample Programs:** `tests/sample_programs/*.facto` - End-to-end compilation
 - Each sample tests specific language features
 - Validates complete pipeline from source to blueprint
 

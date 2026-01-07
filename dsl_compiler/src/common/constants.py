@@ -1,5 +1,5 @@
 """
-Factorio Circuit DSL Compiler - User-Configurable Constants
+Facto Compiler - User-Configurable Constants
 
 This module contains all user-tunable settings for the compiler.
 Import DEFAULT_CONFIG for default values, or create a custom CompilerConfig.
@@ -40,7 +40,7 @@ class CompilerConfig:
     """
 
     # Layout Optimization
-    layout_solver_time_limit: int = 15
+    layout_solver_time_limit: int = 2
     max_layout_coordinate: int = 200
     acceptable_layout_violations: int = 5
 

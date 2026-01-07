@@ -2,49 +2,47 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Union
+from lark import Token, Transformer, Tree
 
-from lark import Transformer, Tree, Token
-
-from dsl_compiler.src.ast.statements import (
-    ASTNode,
-    Program,
-    Statement,
-    Expr,
-    LValue,
-    DeclStmt,
-    AssignStmt,
-    MemDecl,
-    ExprStmt,
-    ReturnStmt,
-    ImportStmt,
-    FuncDecl,
-    TypedParam,
-    ForStmt,
-)
-from dsl_compiler.src.ast.literals import (
-    Identifier,
-    PropertyAccess,
-    NumberLiteral,
-    StringLiteral,
-    DictLiteral,
-)
 from dsl_compiler.src.ast.expressions import (
     BinaryOp,
-    UnaryOp,
-    IdentifierExpr,
-    PropertyAccessExpr,
-    CallExpr,
-    ReadExpr,
-    WriteExpr,
-    ProjectionExpr,
-    SignalLiteral,
+    BundleAllExpr,
+    BundleAnyExpr,
     BundleLiteral,
     BundleSelectExpr,
-    BundleAnyExpr,
-    BundleAllExpr,
-    SignalTypeAccess,
+    CallExpr,
     EntityOutputExpr,
+    IdentifierExpr,
+    ProjectionExpr,
+    PropertyAccessExpr,
+    ReadExpr,
+    SignalLiteral,
+    SignalTypeAccess,
+    UnaryOp,
+    WriteExpr,
+)
+from dsl_compiler.src.ast.literals import (
+    DictLiteral,
+    Identifier,
+    NumberLiteral,
+    PropertyAccess,
+    StringLiteral,
+)
+from dsl_compiler.src.ast.statements import (
+    AssignStmt,
+    ASTNode,
+    DeclStmt,
+    Expr,
+    ExprStmt,
+    ForStmt,
+    FuncDecl,
+    ImportStmt,
+    LValue,
+    MemDecl,
+    Program,
+    ReturnStmt,
+    Statement,
+    TypedParam,
 )
 
 
@@ -86,7 +84,7 @@ class DSLTransformer(Transformer):
             node.column = token_or_tree.column
         return node
 
-    def start(self, statements: List[Statement]) -> Program:
+    def start(self, statements: list[Statement]) -> Program:
         """start: statement*"""
         return Program(statements=statements)
 
@@ -116,7 +114,7 @@ class DSLTransformer(Transformer):
             return items[0]
 
         name_token = None
-        signal_type: Optional[str] = None
+        signal_type: str | None = None
 
         for item in items:
             if isinstance(item, Token):
@@ -236,8 +234,8 @@ class DSLTransformer(Transformer):
             return FuncDecl(name="unknown", params=[], body=[])
 
         name = str(items[0])
-        params: List[TypedParam] = []
-        body: List[Statement] = []
+        params: list[TypedParam] = []
+        body: list[Statement] = []
 
         for item in items[1:]:
             if isinstance(item, list) and all(isinstance(x, TypedParam) for x in item):
@@ -261,7 +259,7 @@ class DSLTransformer(Transformer):
             FuncDecl(name=name, params=params, body=body), items[0]
         )
 
-    def typed_param_list(self, items) -> List[TypedParam]:
+    def typed_param_list(self, items) -> list[TypedParam]:
         """typed_param_list: typed_param ("," typed_param)*"""
         return list(items)
 
@@ -371,8 +369,8 @@ class DSLTransformer(Transformer):
         """range_iterator: range_bound RANGE_OP range_bound [STEP_KW range_bound]"""
         # Extract bounds - can be int or str (variable name)
         bounds = []
-        step_value: Union[int, str] = 1
-        
+        step_value: int | str = 1
+
         i = 0
         while i < len(items):
             item = items[i]
@@ -687,13 +685,13 @@ class DSLTransformer(Transformer):
         set_expr = self._unwrap_tree(items[3])
         return (set_expr, reset_expr, False)  # set_priority=False (RS latch)
 
-    def arglist(self, items) -> List[Expr]:
+    def arglist(self, items) -> list[Expr]:
         """arglist: expr ("," expr)*"""
         return list(items)
 
     def dict_literal(self, items) -> DictLiteral:
         """dict_literal: '{' [dict_item (',' dict_item)*] '}'"""
-        entries: Dict[str, Expr] = {}
+        entries: dict[str, Expr] = {}
         first_token = None
         for key, value, token in items:
             entries[key] = value
@@ -726,7 +724,7 @@ class DSLTransformer(Transformer):
 
     def bundle_literal(self, items) -> BundleLiteral:
         """bundle_literal: '{' [bundle_element (',' bundle_element)*] '}'"""
-        elements: List[Expr] = []
+        elements: list[Expr] = []
         first_token = None
         for item in items:
             unwrapped = self._unwrap_tree(item)
@@ -810,7 +808,7 @@ class DSLTransformer(Transformer):
         value = NumberLiteral(value=self._parse_number(raw_number), raw_text=raw_number)
         return SignalLiteral(value=value, signal_type=None, raw_text=raw_number)
 
-    def type_property_access(self, items) -> "SignalTypeAccess":
+    def type_property_access(self, items) -> SignalTypeAccess:
         """type_property_access: NAME "." NAME
         
         Returns a SignalTypeAccess node that will be resolved during semantic analysis
@@ -820,7 +818,7 @@ class DSLTransformer(Transformer):
         property_name = str(items[1])
         return SignalTypeAccess(object_name=object_name, property_name=property_name)
 
-    def type_literal(self, items) -> "str | SignalTypeAccess":
+    def type_literal(self, items) -> str | SignalTypeAccess:
         """type_literal: STRING | type_property_access | NAME"""
         token = items[0]
         # If it's a SignalTypeAccess from type_property_access, return it as-is

@@ -1,15 +1,17 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Union
+
+from typing import Any
+
 from .base import ASTNode
 
-"""Expression node definitions for the Factorio Circuit DSL."""
+"""Expression node definitions for the Facto."""
 
 
 class Expr(ASTNode):
     """Base class for all expressions."""
 
     def __init__(
-        self, line: int = 0, column: int = 0, raw_text: Optional[str] = None
+        self, line: int = 0, column: int = 0, raw_text: str | None = None
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
 
@@ -18,7 +20,7 @@ class BinaryOp(Expr):
     """Binary operation: left op right"""
 
     def __init__(
-        self, op: str, left: "Expr", right: "Expr", line: int = 0, column: int = 0
+        self, op: str, left: Expr, right: Expr, line: int = 0, column: int = 0
     ) -> None:
         super().__init__(line, column)
         self.op = op  # +, -, *, /, %, ==, !=, <, <=, >, >=, &&, ||
@@ -29,7 +31,7 @@ class BinaryOp(Expr):
 class UnaryOp(Expr):
     """Unary operation: op expr"""
 
-    def __init__(self, op: str, expr: "Expr", line: int = 0, column: int = 0) -> None:
+    def __init__(self, op: str, expr: Expr, line: int = 0, column: int = 0) -> None:
         super().__init__(line, column)
         self.op = op  # +, -, !
         self.expr = expr
@@ -39,12 +41,12 @@ class CallExpr(Expr):
     """Function call: func(args...)"""
 
     def __init__(
-        self, name: str, args: List["Expr"], line: int = 0, column: int = 0
+        self, name: str, args: list[Expr], line: int = 0, column: int = 0
     ) -> None:
         super().__init__(line, column)
         self.name = name
         self.args = args
-        self.metadata: Dict[str, Any] = {}
+        self.metadata: dict[str, Any] = {}
 
 
 class ReadExpr(Expr):
@@ -69,11 +71,11 @@ class WriteExpr(Expr):
 
     def __init__(
         self,
-        value: "Expr",
+        value: Expr,
         memory_name: str,
-        when: Optional["Expr"] = None,
-        set_signal: Optional["Expr"] = None,
-        reset_signal: Optional["Expr"] = None,
+        when: Expr | None = None,
+        set_signal: Expr | None = None,
+        reset_signal: Expr | None = None,
         set_priority: bool = True,  # True = SR (set priority), False = RS (reset priority)
         *,
         line: int = 0,
@@ -101,7 +103,7 @@ class ProjectionExpr(Expr):
     """
 
     def __init__(
-        self, expr: "Expr", target_type: "Union[str, SignalTypeAccess]", line: int = 0, column: int = 0
+        self, expr: Expr, target_type: str | SignalTypeAccess, line: int = 0, column: int = 0
     ) -> None:
         super().__init__(line, column)
         self.expr = expr
@@ -119,11 +121,11 @@ class SignalLiteral(Expr):
 
     def __init__(
         self,
-        value: "Expr",
-        signal_type: "Optional[Union[str, SignalTypeAccess]]" = None,
+        value: Expr,
+        signal_type: str | SignalTypeAccess | None = None,
         line: int = 0,
         column: int = 0,
-        raw_text: Optional[str] = None,
+        raw_text: str | None = None,
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
         self.value = value
@@ -134,7 +136,7 @@ class IdentifierExpr(Expr):
     """Variable reference in expression context."""
 
     def __init__(
-        self, name: str, line: int = 0, column: int = 0, raw_text: Optional[str] = None
+        self, name: str, line: int = 0, column: int = 0, raw_text: str | None = None
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
         self.name = name
@@ -149,7 +151,7 @@ class PropertyAccessExpr(Expr):
         property_name: str,
         line: int = 0,
         column: int = 0,
-        raw_text: Optional[str] = None,
+        raw_text: str | None = None,
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
         self.object_name = object_name
@@ -165,11 +167,11 @@ class OutputSpecExpr(Expr):
 
     def __init__(
         self,
-        condition: "Expr",
-        output_value: "Expr",
+        condition: Expr,
+        output_value: Expr,
         line: int = 0,
         column: int = 0,
-        raw_text: Optional[str] = None,
+        raw_text: str | None = None,
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
         self.condition = condition  # Must be a comparison (BinaryOp with COMP_OP)
@@ -185,10 +187,10 @@ class BundleLiteral(Expr):
 
     def __init__(
         self,
-        elements: List["Expr"],
+        elements: list[Expr],
         line: int = 0,
         column: int = 0,
-        raw_text: Optional[str] = None,
+        raw_text: str | None = None,
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
         self.elements = elements  # List of signal/bundle expressions
@@ -203,11 +205,11 @@ class BundleSelectExpr(Expr):
 
     def __init__(
         self,
-        bundle: "Expr",
+        bundle: Expr,
         signal_type: str,
         line: int = 0,
         column: int = 0,
-        raw_text: Optional[str] = None,
+        raw_text: str | None = None,
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
         self.bundle = bundle  # The bundle expression
@@ -223,10 +225,10 @@ class BundleAnyExpr(Expr):
 
     def __init__(
         self,
-        bundle: "Expr",
+        bundle: Expr,
         line: int = 0,
         column: int = 0,
-        raw_text: Optional[str] = None,
+        raw_text: str | None = None,
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
         self.bundle = bundle
@@ -241,10 +243,10 @@ class BundleAllExpr(Expr):
 
     def __init__(
         self,
-        bundle: "Expr",
+        bundle: Expr,
         line: int = 0,
         column: int = 0,
-        raw_text: Optional[str] = None,
+        raw_text: str | None = None,
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
         self.bundle = bundle
@@ -267,7 +269,7 @@ class SignalTypeAccess(Expr):
         property_name: str,
         line: int = 0,
         column: int = 0,
-        raw_text: Optional[str] = None,
+        raw_text: str | None = None,
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
         self.object_name = object_name
@@ -292,7 +294,7 @@ class EntityOutputExpr(Expr):
         entity_name: str,
         line: int = 0,
         column: int = 0,
-        raw_text: Optional[str] = None,
+        raw_text: str | None = None,
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
         self.entity_name = entity_name

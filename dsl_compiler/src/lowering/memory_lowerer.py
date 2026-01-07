@@ -1,20 +1,21 @@
 from __future__ import annotations
-from typing import Any, Optional
-from dsl_compiler.src.ast.statements import ASTNode, MemDecl
+
+from typing import Any
+
 from dsl_compiler.src.ast.expressions import ReadExpr, WriteExpr
+from dsl_compiler.src.ast.statements import ASTNode, MemDecl
 from dsl_compiler.src.ir.builder import SignalRef, ValueRef
 from dsl_compiler.src.ir.nodes import (
-    IR_Const,
-    IR_Decider,
-    IR_LatchWrite,
-    MEMORY_TYPE_STANDARD,
     MEMORY_TYPE_RS_LATCH,
     MEMORY_TYPE_SR_LATCH,
+    MEMORY_TYPE_STANDARD,
+    IR_Const,
+    IR_Decider,
 )
 from dsl_compiler.src.semantic.analyzer import SignalValue
 from dsl_compiler.src.semantic.type_system import get_signal_type_name
 
-"""Memory-related lowering helpers for the Factorio Circuit DSL."""
+"""Memory-related lowering helpers for the Facto."""
 
 
 class MemoryLowerer:
@@ -35,20 +36,20 @@ class MemoryLowerer:
     def diagnostics(self):
         return self.parent.diagnostics
 
-    def _error(self, message: str, node: Optional[ASTNode] = None) -> None:
+    def _error(self, message: str, node: ASTNode | None = None) -> None:
         """Add a lowering error diagnostic."""
         self.diagnostics.error(message, stage="lowering", node=node)
 
     def lower_mem_decl(self, stmt: MemDecl) -> None:
         """Lower memory declaration to IR.
-        
+
         Memory type (standard vs latch) is determined later when we see the write.
         At declaration time, we just create a placeholder.
         """
         memory_id = f"mem_{stmt.name}"
         self.parent.memory_refs[stmt.name] = memory_id
 
-        signal_type: Optional[str] = None
+        signal_type: str | None = None
         mem_info = getattr(self.semantic, "memory_types", {}).get(stmt.name)
 
         if mem_info:
@@ -96,16 +97,14 @@ class MemoryLowerer:
 
     def lower_write_expr(self, expr: WriteExpr) -> SignalRef:
         """Lower memory write expression.
-        
+
         Dispatches to standard write or latch write based on the expression type.
         """
         memory_name = expr.memory_name
 
         if memory_name not in self.parent.memory_refs:
             self._error(f"Undefined memory: {memory_name}", expr)
-            return self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
         # Dispatch to latch write if set/reset signals are present
         if expr.is_latch_write():
@@ -115,13 +114,13 @@ class MemoryLowerer:
 
     def _lower_latch_write(self, expr: WriteExpr) -> SignalRef:
         """Lower latch write: mem.write(value, set=s, reset=r)
-        
+
         Creates a latch with:
         - SR latch (set priority): multi-condition with feedback
         - RS latch (reset priority): condition S > R
-        
+
         The latch is a single decider combinator with green wire self-feedback.
-        
+
         Value handling:
         - value=1: Latch outputs 1 directly, no multiplier needed
         - value=N (constant): Latch outputs 1, multiplier scales to N
@@ -135,7 +134,7 @@ class MemoryLowerer:
         self.parent.push_expr_context(f"write({memory_name}).value", expr)
         value_ref = self.parent.expr_lowerer.lower_expr(expr.value)
         self.parent.pop_expr_context()
-        
+
         # The value is passed directly to IR - can be int or SignalRef
         # The layout phase will handle creating a multiplier if needed
         latch_value = value_ref
@@ -163,12 +162,12 @@ class MemoryLowerer:
 
         # Get the originally declared memory signal type
         declared_signal_type = self._memory_signal_type(memory_name)
-        
+
         # Determine if we need a multiplier (value != 1 or value is signal)
         # The multiplier outputs on the DECLARED memory signal type
         # The latch outputs on the SET signal type (for feedback)
         needs_multiplier = not isinstance(latch_value, int) or latch_value != 1
-        
+
         if needs_multiplier:
             # With multiplier: memory output is on declared signal type
             # Don't change memory_types - keep the declared type
@@ -183,13 +182,13 @@ class MemoryLowerer:
             # Without multiplier: memory output is directly from latch
             # Latch outputs on the memory's declared signal type
             pass
-        
+
         self.parent.ensure_signal_registered(set_signal_type)
         if declared_signal_type:
             self.parent.ensure_signal_registered(declared_signal_type)
 
         # Determine latch type based on set_priority
-        # SR latch (set priority): multi-condition  
+        # SR latch (set priority): multi-condition
         # RS latch (reset priority): S > R
         memory_type = MEMORY_TYPE_SR_LATCH if expr.set_priority else MEMORY_TYPE_RS_LATCH
 
@@ -227,9 +226,7 @@ class MemoryLowerer:
             )
             expected_signal_type = self.ir_builder.allocate_implicit_type()
 
-        coerced_data_ref = self._coerce_to_signal_type(
-            data_ref, expected_signal_type, expr
-        )
+        coerced_data_ref = self._coerce_to_signal_type(data_ref, expected_signal_type, expr)
 
         if expr.when is not None:
             # Push context for the when condition
@@ -265,7 +262,7 @@ class MemoryLowerer:
 
         return coerced_data_ref
 
-    def _memory_signal_type(self, memory_name: str) -> Optional[str]:
+    def _memory_signal_type(self, memory_name: str) -> str | None:
         if memory_name in self.parent.memory_types:
             return self.parent.memory_types[memory_name]
 
@@ -292,14 +289,14 @@ class MemoryLowerer:
 
             source_type = getattr(value_ref, "signal_type", None) or "<unknown>"
 
-            if getattr(self.semantic, "strict_types", False):
-                self._error(
-                    "Type mismatch in memory write:\n"
-                    f"  Expected: '{signal_type}'\n"
-                    f"  Got: '{source_type}'\n"
-                    f'  Fix: Use projection: value | "{signal_type}"',
-                    node,
-                )
+            # Always emit warning for type mismatches
+            self._warning(
+                "Type mismatch in memory write:\n"
+                f"  Expected: '{signal_type}'\n"
+                f"  Got: '{source_type}'\n"
+                f'  Fix: Use projection: value | "{signal_type}"',
+                node,
+            )
 
             return self.ir_builder.arithmetic("+", value_ref, 0, signal_type, node)
 

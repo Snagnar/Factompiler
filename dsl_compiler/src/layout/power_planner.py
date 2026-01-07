@@ -1,10 +1,13 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+
 import math
+from dataclasses import dataclass
+from typing import Any
+
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+
+from .layout_plan import LayoutPlan
 from .tile_grid import TileGrid
-from .layout_plan import LayoutPlan, PowerPolePlacement
 
 """Power infrastructure planning for the layout module."""
 
@@ -13,11 +16,11 @@ from .layout_plan import LayoutPlan, PowerPolePlacement
 class PlannedPowerPole:
     """Result of the power planner describing a single pole placement."""
 
-    position: Tuple[int, int]
+    position: tuple[int, int]
     prototype: str
 
 
-POWER_POLE_CONFIG: Dict[str, Dict[str, object]] = {
+POWER_POLE_CONFIG: dict[str, dict[str, object]] = {
     "small": {
         "prototype": "small-electric-pole",
         "footprint": (1, 1),
@@ -53,17 +56,17 @@ class PowerPlanner:
         tile_grid: TileGrid,
         layout_plan: LayoutPlan,
         diagnostics: ProgramDiagnostics,
-        connection_planner: Optional[Any] = None,
+        connection_planner: Any | None = None,
     ) -> None:
         self.tile_grid = tile_grid
         self.layout_plan = layout_plan
         self.diagnostics = diagnostics
         self.connection_planner = connection_planner
-        self._planned: List[PlannedPowerPole] = []
+        self._planned: list[PlannedPowerPole] = []
 
     def _compute_entity_bounds(
         self, exclude_power_poles: bool = True
-    ) -> Optional[Tuple[float, float, float, float]]:
+    ) -> tuple[float, float, float, float] | None:
         """Compute bounding box of all positioned entities.
 
         Args:

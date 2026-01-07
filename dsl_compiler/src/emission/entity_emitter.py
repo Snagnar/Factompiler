@@ -1,13 +1,20 @@
 from __future__ import annotations
-from typing import Dict, Optional, Any, List, Set
+
 import copy
+from typing import Any
+
 from draftsman.classes.entity import Entity  # type: ignore[import-not-found]
-from draftsman.entity import new_entity  # type: ignore[import-not-found]
-from draftsman.entity import DeciderCombinator, ArithmeticCombinator, ConstantCombinator  # type: ignore[import-not-found]
+from draftsman.data import fluids, items  # type: ignore[import-not-found]
+from draftsman.entity import (  # type: ignore[import-not-found]
+    ArithmeticCombinator,
+    ConstantCombinator,
+    DeciderCombinator,
+    new_entity,  # type: ignore[import-not-found]
+)
 from draftsman.signatures import CircuitNetworkSelection  # type: ignore[import-not-found]
-from draftsman.data import items, fluids  # type: ignore[import-not-found]
-from dsl_compiler.src.layout.layout_plan import EntityPlacement
+
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.layout.layout_plan import EntityPlacement
 
 """Blueprint entity materialization helpers built on LayoutPlan."""
 
@@ -26,7 +33,7 @@ def _infer_signal_type(signal_name: str) -> str:
     return "virtual"
 
 
-def format_entity_description(debug_info: Optional[dict]) -> str:
+def format_entity_description(debug_info: dict | None) -> str:
     """Format entity debug information into a human-readable description.
 
     Generates user-friendly descriptions that always include line numbers
@@ -35,8 +42,6 @@ def format_entity_description(debug_info: Optional[dict]) -> str:
     """
     if not debug_info:
         return ""
-
-    parts = []
 
     # Extract key information
     var = debug_info.get("variable", "")
@@ -120,20 +125,20 @@ class PlanEntityEmitter:
 
     def __init__(
         self,
-        diagnostics: Optional[ProgramDiagnostics] = None,
-        signal_type_map: Optional[Dict[str, str]] = None,
+        diagnostics: ProgramDiagnostics | None = None,
+        signal_type_map: dict[str, str] | None = None,
     ) -> None:
         self.diagnostics = diagnostics or ProgramDiagnostics()
         self.signal_type_map = signal_type_map or {}
 
-    def create_entity(self, placement: EntityPlacement) -> Optional[Entity]:
+    def create_entity(self, placement: EntityPlacement) -> Entity | None:
         """Create a Draftsman entity matching ``placement``.
 
         Returns the instantiated entity or ``None`` if instantiation fails.
         """
 
         template = placement.properties.get("entity_obj")
-        entity: Optional[Entity]
+        entity: Entity | None
 
         if template is not None:
             entity = copy.deepcopy(template)
@@ -184,7 +189,7 @@ class PlanEntityEmitter:
         return entity
 
     def _configure_decider(
-        self, entity: DeciderCombinator, props: Dict[str, Any]
+        self, entity: DeciderCombinator, props: dict[str, Any]
     ) -> None:
         """Configure a decider combinator from placement properties.
 
@@ -237,8 +242,8 @@ class PlanEntityEmitter:
     def _configure_decider_multi_condition(
         self,
         entity: DeciderCombinator,
-        props: Dict[str, Any],
-        conditions_list: List[Dict[str, Any]],
+        props: dict[str, Any],
+        conditions_list: list[dict[str, Any]],
     ) -> None:
         """Configure a decider combinator with multiple conditions (Factorio 2.0).
 
@@ -255,7 +260,7 @@ class PlanEntityEmitter:
         draftsman_conditions = []
 
         for cond in conditions_list:
-            cond_kwargs: Dict[str, Any] = {
+            cond_kwargs: dict[str, Any] = {
                 "comparator": cond.get("comparator", ">"),
                 "compare_type": cond.get("compare_type", "or"),
             }
@@ -268,7 +273,9 @@ class PlanEntityEmitter:
             if first_signal:
                 cond_kwargs["first_signal"] = first_signal
                 if first_wires:
-                    cond_kwargs["first_signal_networks"] = self._wires_to_network_selection(first_wires)
+                    cond_kwargs["first_signal_networks"] = (
+                        self._wires_to_network_selection(first_wires)
+                    )
             elif first_constant is not None:
                 cond_kwargs["first_signal"] = "signal-0"
                 cond_kwargs["constant"] = first_constant
@@ -281,7 +288,9 @@ class PlanEntityEmitter:
             if second_signal:
                 cond_kwargs["second_signal"] = second_signal
                 if second_wires:
-                    cond_kwargs["second_signal_networks"] = self._wires_to_network_selection(second_wires)
+                    cond_kwargs["second_signal_networks"] = (
+                        self._wires_to_network_selection(second_wires)
+                    )
             elif second_constant is not None:
                 cond_kwargs["constant"] = second_constant
 
@@ -294,7 +303,7 @@ class PlanEntityEmitter:
         output_value = props.get("output_value", 1)
         copy_count = props.get("copy_count_from_input", False)
 
-        output_kwargs: Dict[str, Any] = {
+        output_kwargs: dict[str, Any] = {
             "signal": output_signal,
             "copy_count_from_input": copy_count,
         }
@@ -303,7 +312,7 @@ class PlanEntityEmitter:
 
         entity.outputs = [DeciderCombinator.Output(**output_kwargs)]
 
-    def _wires_to_network_selection(self, wires: Set[str]) -> CircuitNetworkSelection:
+    def _wires_to_network_selection(self, wires: set[str]) -> CircuitNetworkSelection:
         """Convert a set of wire colors to a CircuitNetworkSelection."""
         return CircuitNetworkSelection(
             red="red" in wires,
@@ -311,7 +320,7 @@ class PlanEntityEmitter:
         )
 
     def _configure_arithmetic(
-        self, entity: ArithmeticCombinator, props: Dict[str, Any]
+        self, entity: ArithmeticCombinator, props: dict[str, Any]
     ) -> None:
         """Configure an arithmetic combinator from placement properties."""
         operation = props.get("operation", "+")
@@ -332,11 +341,15 @@ class PlanEntityEmitter:
         entity.output_signal = output_signal
 
         # Convert wire sets to CircuitNetworkSelection
-        entity.first_operand_wires = self._wires_to_network_selection(left_operand_wires)
-        entity.second_operand_wires = self._wires_to_network_selection(right_operand_wires)
+        entity.first_operand_wires = self._wires_to_network_selection(
+            left_operand_wires
+        )
+        entity.second_operand_wires = self._wires_to_network_selection(
+            right_operand_wires
+        )
 
     def _configure_constant(
-        self, entity: ConstantCombinator, props: Dict[str, Any]
+        self, entity: ConstantCombinator, props: dict[str, Any]
     ) -> None:
         """Configure a constant combinator from placement properties."""
         # Handle multi-signal constants (bundles)
@@ -358,7 +371,7 @@ class PlanEntityEmitter:
     def _apply_property_writes(
         self,
         entity: Entity,
-        property_writes: Dict[str, Any],
+        property_writes: dict[str, Any],
         placement: EntityPlacement,
     ) -> None:
         """Apply property writes to entity (e.g., entity.enable = signal)."""
@@ -405,7 +418,9 @@ class PlanEntityEmitter:
 
                 if prop_type == "inline_bundle_condition":
                     # Handle inlined all()/any() bundle conditions
-                    signal_name = prop_data.get("signal")  # signal-everything or signal-anything
+                    signal_name = prop_data.get(
+                        "signal"
+                    )  # signal-everything or signal-anything
                     comparator = prop_data.get("operator")
                     constant = prop_data.get("constant")
 
@@ -414,7 +429,9 @@ class PlanEntityEmitter:
                     if hasattr(entity, "circuit_enabled"):
                         entity.circuit_enabled = True
                         if hasattr(entity, "set_circuit_condition"):
-                            entity.set_circuit_condition(signal_dict, comparator, constant)
+                            entity.set_circuit_condition(
+                                signal_dict, comparator, constant
+                            )
                         else:
                             if not hasattr(entity, "control_behavior"):
                                 entity.control_behavior = {}

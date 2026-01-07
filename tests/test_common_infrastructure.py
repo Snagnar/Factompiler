@@ -40,6 +40,6 @@ def test_signal_registry():
 
 def test_source_location():
     """Test source location formatting."""
-    loc = SourceLocation(file="test.fcdsl", line=10, column=5)
-    assert "test.fcdsl" in str(loc)
+    loc = SourceLocation(file="test.facto", line=10, column=5)
+    assert "test.facto" in str(loc)
     assert "10" in str(loc)

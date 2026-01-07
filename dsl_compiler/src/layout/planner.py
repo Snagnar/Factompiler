@@ -1,16 +1,16 @@
 """Main layout planning orchestrator."""
 
 from __future__ import annotations
-from .entity_placer import EntityPlacer
 
-from typing import Any, Dict, Optional
+from typing import Any
 
-from dsl_compiler.src.ir.nodes import IRNode
+from dsl_compiler.src.common.constants import DEFAULT_CONFIG, CompilerConfig
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
-from dsl_compiler.src.common.constants import CompilerConfig, DEFAULT_CONFIG
+from dsl_compiler.src.ir.nodes import IRNode
 from dsl_compiler.src.layout.integer_layout_solver import IntegerLayoutEngine
 
 from .connection_planner import ConnectionPlanner
+from .entity_placer import EntityPlacer
 from .layout_plan import LayoutPlan
 from .signal_analyzer import (
     SignalAnalyzer,
@@ -24,12 +24,12 @@ class LayoutPlanner:
 
     def __init__(
         self,
-        signal_type_map: Dict[str, str],
+        signal_type_map: dict[str, str],
         diagnostics: ProgramDiagnostics,
         *,
-        signal_refs: Optional[Dict[str, Any]] = None,
-        referenced_signal_names: Optional[set] = None,
-        power_pole_type: Optional[str] = None,
+        signal_refs: dict[str, Any] | None = None,
+        referenced_signal_names: set | None = None,
+        power_pole_type: str | None = None,
         max_wire_span: float = 9.0,
         config: CompilerConfig = DEFAULT_CONFIG,
         use_mst_optimization: bool = True,
@@ -47,13 +47,13 @@ class LayoutPlanner:
         self.tile_grid = TileGrid()
         self.layout_plan = LayoutPlan()
 
-        self.signal_analyzer: Optional[SignalAnalyzer] = None
-        self.signal_usage: Dict[str, SignalUsageEntry] = {}
-        self.connection_planner: Optional[ConnectionPlanner] = None
+        self.signal_analyzer: SignalAnalyzer | None = None
+        self.signal_usage: dict[str, SignalUsageEntry] = {}
+        self.connection_planner: ConnectionPlanner | None = None
         self.signal_graph: Any = None
-        self._memory_modules: Dict[str, Any] = {}
-        self._wire_merge_junctions: Dict[str, Any] = {}
-        self._merge_membership: Dict[str, set] = {}
+        self._memory_modules: dict[str, Any] = {}
+        self._wire_merge_junctions: dict[str, Any] = {}
+        self._merge_membership: dict[str, set] = {}
 
     def plan_layout(
         self,
@@ -194,7 +194,7 @@ class LayoutPlanner:
 
         self._inject_wire_colors_into_placements()
 
-    def _resolve_source_entity(self, signal_id: Any) -> Optional[str]:
+    def _resolve_source_entity(self, signal_id: Any) -> str | None:
         """Resolve source entity ID from a signal ID.
 
         When memory operations are optimized, mem_read nodes may be replaced
@@ -377,7 +377,7 @@ class LayoutPlanner:
         self.layout_plan.blueprint_label = blueprint_label
         self.layout_plan.blueprint_description = blueprint_description
 
-    def _determine_locked_wire_colors(self) -> Dict[tuple[str, str], str]:
+    def _determine_locked_wire_colors(self) -> dict[tuple[str, str], str]:
         """Determine wire colors that must be locked for correctness.
 
         For SR latch memories:

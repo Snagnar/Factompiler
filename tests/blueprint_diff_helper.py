@@ -2,8 +2,9 @@
 Blueprint diff helper: counts entity types in a blueprint for rapid verification.
 """
 
-from draftsman.blueprintable import Blueprint
 from collections import Counter
+
+from draftsman.blueprintable import Blueprint
 
 
 def count_entity_types(blueprint: Blueprint):

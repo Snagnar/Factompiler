@@ -31,13 +31,11 @@ Memory tick_counter: "signal-0";
 Signal current_iron = iron_storage.read();
 Signal iron_input = 50 | "iron-plate";
 Signal should_write_iron = (current_iron == 0);  # 1 if true, 0 if false
-iron_storage.write(iron_input, when=should_write_iron);  # Writes 50 if storage is 0, otherwise holds
 
 # Scenario 2: Write only if input exceeds threshold
 Signal copper_input = 75 | "copper-plate";
 Signal should_store_copper = copper_input > 100;  # Boolean: 1 if true, 0 if false
 Signal copper_current = copper_storage.read();
-copper_storage.write(copper_input, when=should_store_copper);  # Writes input if > 100, otherwise holds
 
 # Scenario 3: Conditional increment - add to counter only if condition met
 Signal current_count = tick_counter.read();
@@ -109,10 +107,6 @@ min_copper_seen.write(copper_input, when=should_update_min);
 
 Signal reset_signal = 0;  # Set to 1 to trigger reset
 
-# Write cleared values back when reset is triggered
-iron_storage.write(0 | "iron-plate", when=reset_signal);
-copper_storage.write(0 | "copper-plate", when=reset_signal);
-
 # =============================================================================
 # READING AND COMBINING MEMORY VALUES
 # =============================================================================
@@ -133,8 +127,28 @@ Signal should_swap = 0;  # Condition to swap iron and copper storage
 Signal iron_after_swap = (should_swap * (copper_storage.read() | "iron-plate") + (!should_swap) * iron_storage.read());
 Signal copper_after_swap = (should_swap * (iron_storage.read() | "copper-plate") + (!should_swap) * copper_storage.read());
 
-iron_storage.write(iron_after_swap, when=should_swap);
-copper_storage.write(copper_after_swap, when=should_swap);
+# =============================================================================
+# UNIFIED WRITE LOGIC - Combine all conditions into single write per memory
+# =============================================================================
+
+# Priority: reset > swap > conditional initialization
+# For iron_storage: combines reset (line 113), swap (line 136), and init (line 34)
+Signal iron_final_value = 
+    (reset_signal * (0 | "iron-plate")) +                           # Reset takes priority
+    ((!reset_signal && should_swap) * iron_after_swap) +            # Swap if no reset
+    ((!reset_signal && !should_swap && should_write_iron) * iron_input) +  # Init if no reset/swap
+    ((!reset_signal && !should_swap && !should_write_iron) * current_iron);  # Hold otherwise
+
+iron_storage.write(iron_final_value);
+
+# For copper_storage: combines reset (line 114), swap (line 137), and conditional (line 40)
+Signal copper_final_value = 
+    (reset_signal * (0 | "copper-plate")) +                         # Reset takes priority
+    ((!reset_signal && should_swap) * copper_after_swap) +          # Swap if no reset
+    ((!reset_signal && !should_swap && should_store_copper) * copper_input) +  # Store if no reset/swap
+    ((!reset_signal && !should_swap && !should_store_copper) * copper_current);  # Hold otherwise
+
+copper_storage.write(copper_final_value);
 
 # =============================================================================
 # OUTPUT SIGNALS - Based on Memory State

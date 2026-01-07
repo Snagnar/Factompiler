@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 from abc import ABC
-from typing import Any, Optional
+from typing import Any
 
 """Base classes and utilities for AST traversal."""
 
@@ -12,8 +13,8 @@ class ASTNode(ABC):
         self,
         line: int = 0,
         column: int = 0,
-        source_file: Optional[str] = None,
-        raw_text: Optional[str] = None,
+        source_file: str | None = None,
+        raw_text: str | None = None,
     ) -> None:
         self.line = line
         self.column = column

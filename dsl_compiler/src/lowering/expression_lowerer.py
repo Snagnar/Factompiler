@@ -1,30 +1,26 @@
-"""Expression lowering utilities for the Factorio Circuit DSL."""
+"""Expression lowering utilities for the Facto."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
-from dsl_compiler.src.ast.statements import (
-    Expr,
-    ReturnStmt,
-)
 from dsl_compiler.src.ast.expressions import (
     BinaryOp,
+    BundleAllExpr,
+    BundleAnyExpr,
+    BundleLiteral,
+    BundleSelectExpr,
     CallExpr,
+    EntityOutputExpr,
     IdentifierExpr,
     OutputSpecExpr,
     ProjectionExpr,
     PropertyAccessExpr,
     ReadExpr,
     SignalLiteral,
+    SignalTypeAccess,
     UnaryOp,
     WriteExpr,
-    BundleLiteral,
-    BundleSelectExpr,
-    BundleAnyExpr,
-    BundleAllExpr,
-    SignalTypeAccess,
-    EntityOutputExpr,
 )
 from dsl_compiler.src.ast.literals import (
     DictLiteral,
@@ -32,18 +28,27 @@ from dsl_compiler.src.ast.literals import (
     PropertyAccess,
     StringLiteral,
 )
+from dsl_compiler.src.ast.statements import (
+    Expr,
+    ReturnStmt,
+)
 from dsl_compiler.src.ir.builder import (
+    BundleRef,
     IR_Const,
     IR_WireMerge,
     SignalRef,
-    BundleRef,
     ValueRef,
 )
-from dsl_compiler.src.ir.nodes import IR_EntityPropRead, IR_EntityOutput, IR_Decider, IR_Arith, IR_Const
+from dsl_compiler.src.ir.nodes import (
+    IR_Arith,
+    IR_Const,
+    IR_Decider,
+    IR_EntityOutput,
+    IR_EntityPropRead,
+)
 from dsl_compiler.src.semantic.symbol_table import SymbolType
 from dsl_compiler.src.semantic.type_system import (
     BundleValue,
-    DynamicBundleValue,
     IntValue,
     SignalValue,
     ValueInfo,
@@ -79,13 +84,13 @@ class ExpressionLowerer:
     def diagnostics(self):
         return self.parent.diagnostics
 
-    def _error(self, message: str, node: Optional["ASTNode"] = None) -> None:
+    def _error(self, message: str, node: ASTNode | None = None) -> None:
         """Delegate error reporting to parent lowerer."""
         self.parent._error(message, node)
 
     def _resolve_signal_type(
-        self, type_ref: "str | SignalTypeAccess", expr: Expr
-    ) -> Optional[str]:
+        self, type_ref: str | SignalTypeAccess, expr: Expr
+    ) -> str | None:
         """Resolve a signal type reference to a string type name.
         
         Handles both:
@@ -101,10 +106,10 @@ class ExpressionLowerer:
         """
         if isinstance(type_ref, str):
             return type_ref
-            
+
         if isinstance(type_ref, SignalTypeAccess):
             var_name = type_ref.object_name
-            
+
             # Check param_values first (for function parameters during inlining)
             if var_name in self.parent.param_values:
                 value = self.parent.param_values[var_name]
@@ -112,7 +117,7 @@ class ExpressionLowerer:
                     return value.signal_type
                 self._error(f"Cannot access '.type' on non-signal parameter '{var_name}'", expr)
                 return None
-            
+
             # Check signal_refs for regular variables
             if var_name in self.parent.signal_refs:
                 value = self.parent.signal_refs[var_name]
@@ -120,14 +125,14 @@ class ExpressionLowerer:
                     return value.signal_type
                 self._error(f"Cannot access '.type' on non-signal variable '{var_name}'", expr)
                 return None
-            
+
             # Fall back to semantic analyzer for scope lookup
             return self.semantic.resolve_signal_type_access(type_ref, expr)
-            
+
         self._error(f"Invalid type reference: {type(type_ref).__name__}", expr)
         return None
 
-    def _attach_expr_context(self, node_id: str, expr: Optional[Expr] = None) -> None:
+    def _attach_expr_context(self, node_id: str, expr: Expr | None = None) -> None:
         """Attach current expression context to an IR node for debug info."""
         ctx = self.parent.get_expr_context()
         if not ctx:
@@ -204,7 +209,7 @@ class ExpressionLowerer:
         their semantic analysis types. This method extracts the actual signal type
         from the ValueRef if possible.
         """
-        from dsl_compiler.src.semantic.type_system import SignalValue, SignalTypeInfo
+        from dsl_compiler.src.semantic.type_system import SignalTypeInfo, SignalValue
 
         if isinstance(value_ref, SignalRef):
             signal_type_name = value_ref.signal_type
@@ -314,7 +319,7 @@ class ExpressionLowerer:
         right_ref: ValueRef,
         output_type: str,
         result_type: ValueInfo,
-        left_signal_type: Optional[str],
+        left_signal_type: str | None,
     ) -> SignalRef:
         """Lower standard arithmetic operations (+, -, *, /, %)."""
         # Try wire merge optimization for addition
@@ -338,7 +343,7 @@ class ExpressionLowerer:
         left_ref: ValueRef,
         right_ref: ValueRef,
         output_type: str,
-        left_signal_type: Optional[str],
+        left_signal_type: str | None,
     ) -> SignalRef:
         """Lower arithmetic-like operations (**, <<, >>, AND, OR, XOR).
 
@@ -361,7 +366,7 @@ class ExpressionLowerer:
         left_ref: ValueRef,
         right_ref: ValueRef,
         output_type: str,
-        left_signal_type: Optional[str],
+        left_signal_type: str | None,
     ) -> SignalRef:
         """Lower comparison operations to decider combinator with constant output 1."""
         self.parent.ensure_signal_registered(output_type, left_signal_type)
@@ -377,7 +382,7 @@ class ExpressionLowerer:
         left_ref: ValueRef,
         right_ref: ValueRef,
         output_type: str,
-        left_signal_type: Optional[str],
+        left_signal_type: str | None,
     ) -> SignalRef:
         """Lower logical operations (&&, ||) with correct semantics.
 
@@ -543,7 +548,7 @@ class ExpressionLowerer:
     # instead of three combinators (two deciders + one arithmetic multiplier).
     # =========================================================================
 
-    def _try_fold_logical_chain(self, expr: BinaryOp) -> Optional[SignalRef]:
+    def _try_fold_logical_chain(self, expr: BinaryOp) -> SignalRef | None:
         """Try to fold a logical AND/OR chain into a single multi-condition decider.
 
         Returns a SignalRef if folding succeeded, None otherwise.
@@ -559,7 +564,7 @@ class ExpressionLowerer:
 
     def _collect_comparison_chain(
         self, expr: Expr, logical_op: str
-    ) -> Optional[List[BinaryOp]]:
+    ) -> list[BinaryOp] | None:
         """Collect all simple comparisons in a logical chain.
 
         For (a > 0) && (b > 0) && (c > 0), returns [a > 0, b > 0, c > 0].
@@ -616,7 +621,7 @@ class ExpressionLowerer:
         return False
 
     def _create_folded_decider(
-        self, comparisons: List[BinaryOp], combine_type: str, expr: BinaryOp
+        self, comparisons: list[BinaryOp], combine_type: str, expr: BinaryOp
     ) -> SignalRef:
         """Create a multi-condition decider from a list of comparison expressions.
 
@@ -658,7 +663,7 @@ class ExpressionLowerer:
 
     def _fold_binary_constant(
         self, op: str, left: int, right: int, node: Expr
-    ) -> Optional[int]:
+    ) -> int | None:
         """Fold binary operation on constants at compile time.
 
         Delegates to ConstantFolder for the actual folding logic.
@@ -818,7 +823,7 @@ class ExpressionLowerer:
     def lower_projection_expr(self, expr: ProjectionExpr) -> SignalRef:
         """Lower projection expression with type conversion."""
         source_ref = self.lower_expr(expr.expr)
-        
+
         # Resolve the target type (may be a string or SignalTypeAccess)
         target_type = self._resolve_signal_type(expr.target_type, expr)
         if target_type is None:
@@ -876,7 +881,7 @@ class ExpressionLowerer:
             if signal_name is None:
                 # Error already reported, use implicit type
                 signal_name = self.ir_builder.allocate_implicit_type()
-                
+
             output_type = signal_name
             self.parent.ensure_signal_registered(signal_name)
             value_ref = self.lower_expr(expr.value)
@@ -924,18 +929,14 @@ class ExpressionLowerer:
         ref.output_type = signal_name
         return ref
 
-    def lower_dict_literal(self, expr: DictLiteral) -> Dict[str, Any]:
-        properties: Dict[str, Any] = {}
+    def lower_dict_literal(self, expr: DictLiteral) -> dict[str, Any]:
+        properties: dict[str, Any] = {}
         for key, value_expr in expr.entries.items():
-            if isinstance(value_expr, NumberLiteral):
-                properties[key] = value_expr.value
-            elif isinstance(value_expr, StringLiteral):
+            if isinstance(value_expr, NumberLiteral) or isinstance(value_expr, StringLiteral):
                 properties[key] = value_expr.value
             elif isinstance(value_expr, SignalLiteral):
                 inner_value = value_expr.value
-                if isinstance(inner_value, NumberLiteral):
-                    properties[key] = inner_value.value
-                elif isinstance(inner_value, StringLiteral):
+                if isinstance(inner_value, NumberLiteral) or isinstance(inner_value, StringLiteral):
                     properties[key] = inner_value.value
                 else:
                     lowered = self.lower_expr(inner_value)
@@ -961,7 +962,7 @@ class ExpressionLowerer:
     # Bundle lowering methods
     # -------------------------------------------------------------------------
 
-    def _resolve_constant_symbol(self, name: str) -> Optional[int]:
+    def _resolve_constant_symbol(self, name: str) -> int | None:
         """Resolve a symbol name to a constant integer value if possible.
         
         Used by ConstantFolder to resolve identifier references during
@@ -972,23 +973,23 @@ class ExpressionLowerer:
             or None if the symbol is not defined or not a constant.
         """
         from dsl_compiler.src.semantic.type_system import IntValue
-        
+
         # First check param_values (for function parameters during inlining)
         if name in self.parent.param_values:
             val = self.parent.param_values[name]
             if isinstance(val, int):
                 return val
             return None
-        
+
         # Look up in semantic symbol table
         symbol = self.semantic.current_scope.lookup(name)
         if symbol is None:
             return None
-        
+
         # Check if it's an IntValue with a known constant value
         if isinstance(symbol.value_type, IntValue) and symbol.value_type.value is not None:
             return symbol.value_type.value
-        
+
         return None
 
     def lower_bundle_literal(self, expr: BundleLiteral) -> BundleRef:
@@ -997,8 +998,8 @@ class ExpressionLowerer:
         For all-constant bundles: Creates a single IR_Const with multiple signals.
         For mixed bundles: Creates IR_WireMerge of computed + constant parts.
         """
-        constant_signals: Dict[str, int] = {}
-        computed_refs: List[ValueRef] = []
+        constant_signals: dict[str, int] = {}
+        computed_refs: list[ValueRef] = []
         all_signal_types: set[str] = set()
 
         for element in expr.elements:
@@ -1014,7 +1015,7 @@ class ExpressionLowerer:
                     # Check if it's a constant signal literal
                     if isinstance(element, SignalLiteral) and element.signal_type:
                         const_value = ConstantFolder.extract_constant_int(
-                            element.value, 
+                            element.value,
                             self.diagnostics,
                             symbol_resolver=self._resolve_constant_symbol
                         )
@@ -1048,7 +1049,7 @@ class ExpressionLowerer:
                 # Single signal, wrap in BundleRef
                 if isinstance(ref, SignalRef):
                     return BundleRef({ref.signal_type}, ref.source_id, source_ast=expr)
-            
+
             # Multiple computed sources - create proper IR_WireMerge
             merge_ref = self.ir_builder.wire_merge(computed_refs, "bundle", expr)
             return BundleRef(all_signal_types, merge_ref.source_id, source_ast=expr)
@@ -1176,7 +1177,7 @@ class ExpressionLowerer:
         )
 
     def lower_property_access(
-        self, expr: Union[PropertyAccess, PropertyAccessExpr]
+        self, expr: PropertyAccess | PropertyAccessExpr
     ) -> ValueRef:
         """Lower property access expression (works for both LValue and Expr forms)."""
         entity_name = expr.object_name
@@ -1196,7 +1197,7 @@ class ExpressionLowerer:
         self._error(f"Undefined entity: {entity_name}", expr)
         return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
-    def lower_call_expr(self, expr: CallExpr) -> Optional[ValueRef]:
+    def lower_call_expr(self, expr: CallExpr) -> ValueRef | None:
         if expr.name == "place":
             return self.lower_place_call(expr)
         if expr.name == "memory":
@@ -1218,7 +1219,7 @@ class ExpressionLowerer:
             )
         return self.lower_expr(expr.args[0])
 
-    def lower_function_call_inline(self, expr: CallExpr) -> Optional[ValueRef]:
+    def lower_function_call_inline(self, expr: CallExpr) -> ValueRef | None:
         func_name = expr.name
 
         # Check for recursion
@@ -1255,8 +1256,8 @@ class ExpressionLowerer:
             )
 
         # Evaluate arguments with type-aware handling
-        param_values: Dict[str, ValueRef] = {}
-        entity_params: Dict[str, str] = {}  # Track entity parameters separately
+        param_values: dict[str, ValueRef] = {}
+        entity_params: dict[str, str] = {}  # Track entity parameters separately
 
         for param, arg_expr in zip(func_def.params, expr.args):
             if param.type_name == "Entity":
@@ -1302,7 +1303,7 @@ class ExpressionLowerer:
         self.parent._inlining_stack.append(func_name)
 
         try:
-            return_value: Optional[ValueRef] = None
+            return_value: ValueRef | None = None
             for stmt in func_def.body:
                 if isinstance(stmt, ReturnStmt) and stmt.expr:
                     if isinstance(stmt.expr, IdentifierExpr):
@@ -1357,7 +1358,7 @@ class ExpressionLowerer:
 
     def _gather_merge_sources_from_ref(
         self, value_ref: ValueRef
-    ) -> Optional[List[SignalRef]]:
+    ) -> list[SignalRef] | None:
         if not isinstance(value_ref, SignalRef):
             return None
 
@@ -1369,8 +1370,8 @@ class ExpressionLowerer:
         return None
 
     def _try_fold_wire_merge(
-        self, sources: List[SignalRef], output_type: str, source_ast: Optional[Any]
-    ) -> Optional[SignalRef]:
+        self, sources: list[SignalRef], output_type: str, source_ast: Any | None
+    ) -> SignalRef | None:
         """Attempt to fold a wire merge of constants into a single constant.
 
         Will NOT fold if any source is a user-declared constant (has a variable name).
@@ -1433,8 +1434,8 @@ class ExpressionLowerer:
         expr: BinaryOp,
         left_ref: ValueRef,
         right_ref: ValueRef,
-        result_type: Optional[ValueInfo],
-    ) -> Optional[SignalRef]:
+        result_type: ValueInfo | None,
+    ) -> SignalRef | None:
         if expr.op != "+":
             return None
         if not isinstance(result_type, SignalValue):
@@ -1469,8 +1470,8 @@ class ExpressionLowerer:
         if folded_ref is not None:
             return folded_ref
 
-        merge_op_to_reuse: Optional[IR_WireMerge] = None
-        reuse_ref: Optional[SignalRef] = None
+        merge_op_to_reuse: IR_WireMerge | None = None
+        reuse_ref: SignalRef | None = None
 
         if isinstance(left_ref, SignalRef):
             left_source = self.ir_builder.get_operation(left_ref.source_id)
@@ -1512,7 +1513,7 @@ class ExpressionLowerer:
         )
         return merge_ref
 
-    def _try_extract_const_value(self, value_ref: ValueRef) -> Optional[int]:
+    def _try_extract_const_value(self, value_ref: ValueRef) -> int | None:
         """Try to extract a constant integer value from a ValueRef.
 
         This recursively resolves IR operations if they involve only constants.
@@ -1551,7 +1552,7 @@ class ExpressionLowerer:
         # Not a constant value
         return None
 
-    def _extract_coordinate(self, coord_expr: Expr) -> Union[int, ValueRef]:
+    def _extract_coordinate(self, coord_expr: Expr) -> int | ValueRef:
         """Extract coordinate from place() call, resolving compile-time constants.
 
         Returns:
@@ -1580,15 +1581,15 @@ class ExpressionLowerer:
         """
         if not isinstance(value_ref, SignalRef):
             return
-            
+
         op = self.ir_builder.get_operation(value_ref.source_id)
         if op is None:
             return
-            
+
         # Mark this operation as suppressed
         if hasattr(op, 'debug_metadata'):
             op.debug_metadata["suppress_materialization"] = True
-        
+
         # Recursively suppress operands for arithmetic operations
         if isinstance(op, IR_Arith):
             self._suppress_value_ref_materialization(op.left)
@@ -1633,7 +1634,7 @@ class ExpressionLowerer:
             const_op.debug_metadata["suppress_materialization"] = True
         return entity_id, result_ref
 
-    def _extract_place_prototype(self, expr: CallExpr) -> Optional[str]:
+    def _extract_place_prototype(self, expr: CallExpr) -> str | None:
         """Extract prototype string from place() call."""
         prototype_expr = expr.args[0]
         if isinstance(prototype_expr, StringLiteral):
@@ -1650,7 +1651,7 @@ class ExpressionLowerer:
         y_coord = self._extract_coordinate(y_expr)
         return x_coord, y_coord
 
-    def _extract_place_properties(self, expr: CallExpr) -> Optional[Dict[str, Any]]:
+    def _extract_place_properties(self, expr: CallExpr) -> dict[str, Any] | None:
         """Extract properties dict from place() call."""
         if len(expr.args) < 4:
             return None

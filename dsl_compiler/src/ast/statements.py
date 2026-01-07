@@ -1,11 +1,13 @@
 from __future__ import annotations
+
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Union
+
 from .base import ASTNode
 from .expressions import Expr
 from .literals import LValue
 
-"""Statement node definitions for the Factorio Circuit DSL."""
+"""Statement node definitions for the Facto."""
 
 
 @dataclass
@@ -16,14 +18,14 @@ class TypedParam:
     name: str
     line: int = 0
     column: int = 0
-    source_file: Optional[str] = None
+    source_file: str | None = None
 
 
 class Program(ASTNode):
     """Root node representing an entire DSL program."""
 
     def __init__(
-        self, statements: List["Statement"], line: int = 0, column: int = 0
+        self, statements: list[Statement], line: int = 0, column: int = 0
     ) -> None:
         super().__init__(line, column)
         self.statements = statements
@@ -33,7 +35,7 @@ class Statement(ASTNode):
     """Base class for all statements."""
 
     def __init__(
-        self, line: int = 0, column: int = 0, raw_text: Optional[str] = None
+        self, line: int = 0, column: int = 0, raw_text: str | None = None
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
 
@@ -72,7 +74,7 @@ class MemDecl(Statement):
     def __init__(
         self,
         name: str,
-        signal_type: Optional[str] = None,
+        signal_type: str | None = None,
         line: int = 0,
         column: int = 0,
     ) -> None:
@@ -101,7 +103,7 @@ class ImportStmt(Statement):
     """import "file" [as alias];"""
 
     def __init__(
-        self, path: str, alias: Optional[str] = None, line: int = 0, column: int = 0
+        self, path: str, alias: str | None = None, line: int = 0, column: int = 0
     ) -> None:
         super().__init__(line, column)
         self.path = path
@@ -114,8 +116,8 @@ class FuncDecl(Statement):
     def __init__(
         self,
         name: str,
-        params: List[TypedParam],
-        body: List[Statement],
+        params: list[TypedParam],
+        body: list[Statement],
         line: int = 0,
         column: int = 0,
     ) -> None:
@@ -140,11 +142,11 @@ class ForStmt(Statement):
     def __init__(
         self,
         iterator_name: str,
-        start: Optional[Union[int, str]],
-        stop: Optional[Union[int, str]],
-        step: Optional[Union[int, str]],
-        values: Optional[List[int]],
-        body: List["Statement"],
+        start: int | str | None,
+        stop: int | str | None,
+        step: int | str | None,
+        values: list[int] | None,
+        body: list[Statement],
         line: int = 0,
         column: int = 0,
     ) -> None:
@@ -156,7 +158,7 @@ class ForStmt(Statement):
         self.values = values  # List of values for list iterator, None for range
         self.body = body
 
-    def get_iteration_values(self, constant_resolver: Optional[Callable[[str], int]] = None) -> List[int]:
+    def get_iteration_values(self, constant_resolver: Callable[[str], int] | None = None) -> list[int]:
         """Returns the sequence of values the iterator takes.
         
         Args:
@@ -166,19 +168,19 @@ class ForStmt(Statement):
         """
         if self.values is not None:
             return list(self.values)
-        
+
         # Resolve bounds
-        def resolve(value: Union[int, str]) -> int:
+        def resolve(value: int | str) -> int:
             if isinstance(value, int):
                 return value
             if constant_resolver is None:
                 raise ValueError(f"Variable '{value}' in for loop range requires a constant resolver")
             return constant_resolver(value)
-        
+
         start = resolve(self.start)
         stop = resolve(self.stop)
         step = resolve(self.step) if self.step is not None else None
-        
+
         # Range iteration
         result = []
         if step is None:

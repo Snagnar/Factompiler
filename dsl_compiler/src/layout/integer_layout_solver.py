@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
-import numpy as np
 
+import numpy as np
 from ortools.sat.python import cp_model
 
+from dsl_compiler.src.common.constants import DEFAULT_CONFIG, CompilerConfig
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
-from dsl_compiler.src.common.constants import CompilerConfig, DEFAULT_CONFIG
+
 from .layout_plan import EntityPlacement
 from .signal_graph import SignalGraph
 
@@ -27,7 +27,7 @@ class OptimizationResult:
     before use in Draftsman/Factorio.
     """
 
-    positions: Dict[str, Tuple[int, int]]  # entity_id -> (tile_x, tile_y)
+    positions: dict[str, tuple[int, int]]  # entity_id -> (tile_x, tile_y)
     violations: int
     total_wire_length: int
     success: bool
@@ -47,11 +47,11 @@ class IntegerLayoutEngine:
     def __init__(
         self,
         signal_graph: SignalGraph,
-        entity_placements: Dict[str, EntityPlacement],
+        entity_placements: dict[str, EntityPlacement],
         diagnostics: ProgramDiagnostics,
-        constraints: Optional[LayoutConstraints] = None,
+        constraints: LayoutConstraints | None = None,
         config: CompilerConfig = DEFAULT_CONFIG,
-        wire_merge_junctions: Optional[Dict[str, Dict]] = None,
+        wire_merge_junctions: dict[str, dict] | None = None,
     ):
         self.signal_graph = signal_graph
         self.entity_placements = entity_placements
@@ -90,7 +90,7 @@ class IntegerLayoutEngine:
         self.connections = []
 
         # First, build a map of wire merge node -> its sinks
-        wire_merge_sinks: Dict[str, List[str]] = {}
+        wire_merge_sinks: dict[str, list[str]] = {}
         for signal_id, source_id, sink_id in self.signal_graph.iter_source_sink_pairs():
             if source_id in self.wire_merge_junctions:
                 if source_id not in wire_merge_sinks:
@@ -99,7 +99,7 @@ class IntegerLayoutEngine:
                     wire_merge_sinks[source_id].append(sink_id)
 
         # Also build a map of wire merge node -> its sources (actual entity IDs)
-        wire_merge_sources: Dict[str, List[str]] = {}
+        wire_merge_sources: dict[str, list[str]] = {}
         for merge_id, merge_info in self.wire_merge_junctions.items():
             inputs = merge_info.get("inputs", [])
             sources = []
@@ -195,7 +195,7 @@ class IntegerLayoutEngine:
             else:
                 self.footprints[entity_id] = (1, 1)
 
-    def optimize(self, time_limit_seconds: int = 60) -> Dict[str, Tuple[int, int]]:
+    def optimize(self, time_limit_seconds: int = 60) -> dict[str, tuple[int, int]]:
         """
         Optimize layout with progressive relaxation strategy.
 
@@ -274,7 +274,7 @@ class IntegerLayoutEngine:
         self._diagnose_failure()
         return self._fallback_grid_layout()
 
-    def _get_relaxation_strategies(self) -> List[Dict]:
+    def _get_relaxation_strategies(self) -> list[dict]:
         """Define progressive relaxation strategies."""
         max_span = int(self.constraints.max_wire_span)
         max_coord = self.constraints.max_coordinate
@@ -313,7 +313,7 @@ class IntegerLayoutEngine:
         ]
 
     def _solve_with_strategy(
-        self, strategy: Dict, time_limit: int
+        self, strategy: dict, time_limit: int
     ) -> OptimizationResult:
         """Solve layout with a specific strategy."""
         model = cp_model.CpModel()
@@ -352,7 +352,7 @@ class IntegerLayoutEngine:
 
     def _create_position_variables(
         self, model: cp_model.CpModel, max_coord: int
-    ) -> Dict[str, Tuple]:
+    ) -> dict[str, tuple]:
         """Create integer position variables for all entities."""
         positions = {}
 
@@ -372,7 +372,7 @@ class IntegerLayoutEngine:
         return positions
 
     def _add_no_overlap_constraint(
-        self, model: cp_model.CpModel, positions: Dict
+        self, model: cp_model.CpModel, positions: dict
     ) -> None:
         """Add hard no-overlap constraint using AddNoOverlap2D."""
         x_intervals = []
@@ -391,8 +391,8 @@ class IntegerLayoutEngine:
         model.AddNoOverlap2D(x_intervals, y_intervals)
 
     def _add_span_constraints(
-        self, model: cp_model.CpModel, positions: Dict, max_span: int
-    ) -> Tuple[List, List]:
+        self, model: cp_model.CpModel, positions: dict, max_span: int
+    ) -> tuple[list, list]:
         """Add soft wire span constraints with violation tracking."""
         span_violations = []
         wire_lengths = []
@@ -420,7 +420,7 @@ class IntegerLayoutEngine:
         return span_violations, wire_lengths
 
     def _add_edge_layout_constraints(
-        self, model: cp_model.CpModel, positions: Dict
+        self, model: cp_model.CpModel, positions: dict
     ) -> None:
         """Add constraints for north-south edge layout.
 
@@ -538,9 +538,9 @@ class IntegerLayoutEngine:
     def _create_objective(
         self,
         model: cp_model.CpModel,
-        span_violations: List,
-        wire_lengths: List,
-        positions: Dict,
+        span_violations: list,
+        wire_lengths: list,
+        positions: dict,
         violation_weight: int,
         max_coord: int,
     ) -> None:
@@ -585,9 +585,9 @@ class IntegerLayoutEngine:
         self,
         solver: cp_model.CpSolver,
         status: int,
-        positions: Dict,
-        span_violations: List,
-        wire_lengths: List,
+        positions: dict,
+        span_violations: list,
+        wire_lengths: list,
         strategy_name: str,
     ) -> OptimizationResult:
         """Extract optimization result from solved model."""
@@ -709,7 +709,7 @@ class IntegerLayoutEngine:
 
     def _optimize_with_decomposition(
         self, time_limit: int
-    ) -> Dict[str, Tuple[int, int]]:
+    ) -> dict[str, tuple[int, int]]:
         """Optimize large graphs using connected component decomposition."""
         components = self._find_connected_components()
 
@@ -766,7 +766,7 @@ class IntegerLayoutEngine:
 
         return all_positions
 
-    def _find_connected_components(self) -> List[List[str]]:
+    def _find_connected_components(self) -> list[list[str]]:
         """Find connected components using depth-first search."""
         adjacency = {entity_id: set() for entity_id in self.entity_ids}
 
@@ -795,7 +795,7 @@ class IntegerLayoutEngine:
 
         return components
 
-    def _fallback_grid_layout(self) -> Dict[str, Tuple[int, int]]:
+    def _fallback_grid_layout(self) -> dict[str, tuple[int, int]]:
         """Create simple grid layout as fallback when optimization fails."""
         self.diagnostics.info("Generating fallback grid layout")
 

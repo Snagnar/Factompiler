@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate comprehensive entity documentation for the Factorio Circuit DSL.
+Generate comprehensive entity documentation for the Facto.
 
 This script creates educational documentation that helps users understand:
 1. What properties can be set on each entity (both at placement and dynamically)
@@ -560,7 +560,7 @@ def generate_enum_reference() -> List[str]:
         if enum_name not in ALL_ENUMS:
             continue
         enum_info = ALL_ENUMS[enum_name]
-        lines.extend([f"### <a id=\"{enum_name.lower()}\"></a>{enum_name}", "", 
+        lines.extend([f"### <a id="{enum_name.lower()}"></a>{enum_name}", "", 
                       "| DSL Value | Enum Name |",
                       "|-----------|-----------|"])
         for member_name, value in enum_info.members.items():
@@ -638,7 +638,7 @@ def generate_entity_section(entity: EntityInfo) -> List[str]:
     
     # DSL Examples
     if entity.dsl_examples:
-        lines.extend(["#### DSL Examples", "", "```fcdsl"])
+        lines.extend(["#### DSL Examples", "", "```facto"])
         lines.extend(entity.dsl_examples)
         lines.extend(["```", ""])
     
@@ -649,7 +649,7 @@ def generate_entity_section(entity: EntityInfo) -> List[str]:
     if settable_props:
         lines.append("#### Settable Properties")
         lines.append("")
-        lines.append("Set at placement: `place(\"name\", x, y, {prop: value})` or after: `entity.prop = value`")
+        lines.append("Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`")
         lines.append("")
         lines.append("| Property | Type | Default | Example |")
         lines.append("|----------|------|---------|---------|")
@@ -729,7 +729,7 @@ ENTITY_CATEGORIES = {
 
 def generate_documentation() -> str:
     lines = [
-        "# Entity Reference for Factorio Circuit DSL",
+        "# Entity Reference for Facto",
         "",
         f"**Generated:** {datetime.now().strftime('%Y-%m-%d')}",
         f"**Draftsman version:** {draftsman.__version__}",
@@ -756,19 +756,19 @@ def generate_documentation() -> str:
         "",
         "### Placement Syntax",
         "",
-        "```fcdsl",
+        "```facto",
         'Entity name = place("prototype-name", x, y, {prop1: value1, prop2: value2});',
         "```",
         "",
         "### Setting Properties",
         "",
         "**At placement time** (in the property dictionary):",
-        "```fcdsl",
+        "```facto",
         'Entity lamp = place("small-lamp", 0, 0, {use_colors: 1, color_mode: 1});',
         "```",
         "",
         "**After placement** (for circuit-controlled values):",
-        "```fcdsl",
+        "```facto",
         "lamp.enable = signal > 0;  # Control based on circuit signal",
         "lamp.r = red_value;        # Dynamic RGB control",
         "```",
@@ -777,14 +777,14 @@ def generate_documentation() -> str:
         "",
         "Enum properties accept **integer values**. See the [Enum Reference](#enum-reference) for all values.",
         "",
-        "```fcdsl",
+        "```facto",
         'Entity lamp = place("small-lamp", 0, 0, {color_mode: 1});  # 1 = COMPONENTS',
         "```",
         "",
         "### Boolean Properties",
         "",
         "Boolean properties accept `1` (true) or `0` (false):",
-        "```fcdsl",
+        "```facto",
         'Entity lamp = place("small-lamp", 0, 0, {use_colors: 1, always_on: 1});',
         "```",
         "",
@@ -857,7 +857,7 @@ def generate_documentation() -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate comprehensive entity documentation for the Factorio Circuit DSL"
+        description="Generate comprehensive entity documentation for the Facto"
     )
     parser.add_argument('--output', '-o', help='Output file path (default: stdout)')
     args = parser.parse_args()

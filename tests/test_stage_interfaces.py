@@ -7,25 +7,24 @@ This module validates that:
 4. Diagnostics flow correctly through the pipeline
 """
 
-from dsl_compiler.src.layout.layout_plan import LayoutPlan
+import pytest
 from draftsman.blueprintable import Blueprint
 
-import pytest
-
-from dsl_compiler.src.parsing.parser import DSLParser
-from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
-from tests.test_helpers import lower_program, emit_blueprint
-from dsl_compiler.src.layout.planner import LayoutPlanner
 from dsl_compiler.src.ast.statements import Program
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.layout.layout_plan import LayoutPlan
+from dsl_compiler.src.layout.planner import LayoutPlanner
+from dsl_compiler.src.parsing.parser import DSLParser
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
+from tests.test_helpers import emit_blueprint, lower_program
 
 
-def analyze_program(ast, analyzer=None, strict_types=False, diagnostics=None):
+def analyze_program(ast, analyzer=None, diagnostics=None):
     """Helper to analyze a program AST."""
     if diagnostics is None:
         diagnostics = ProgramDiagnostics()
     if analyzer is None:
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=strict_types)
+        analyzer = SemanticAnalyzer(diagnostics)
     analyzer.visit(ast)
     return diagnostics
 
@@ -250,9 +249,7 @@ class TestBlueprintEmitterInterface:
 
         ir_ops, _, signal_map = lower_program(ast, analyzer)
 
-        blueprint, _ = emit_blueprint(
-            ir_ops, label="Test Blueprint", signal_type_map=signal_map
-        )
+        blueprint, _ = emit_blueprint(ir_ops, label="Test Blueprint", signal_type_map=signal_map)
 
         assert blueprint.label == "Test Blueprint"
 

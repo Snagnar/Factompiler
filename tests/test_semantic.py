@@ -4,9 +4,10 @@ Tests for semantic.py - Semantic analysis functionality.
 import os
 
 import pytest
+
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
-from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 
 class TestSemanticAnalyzer:
@@ -22,7 +23,7 @@ class TestSemanticAnalyzer:
 
     @pytest.fixture
     def analyzer(self, diagnostics):
-        return SemanticAnalyzer(diagnostics, strict_types=False)
+        return SemanticAnalyzer(diagnostics)
 
     def test_analyzer_initialization(self, analyzer):
         """Test analyzer can be initialized."""
@@ -39,17 +40,17 @@ class TestSemanticAnalyzer:
         """Test semantic analysis on sample files."""
 
         sample_files = [
-            "tests/sample_programs/01_basic_arithmetic.fcdsl",
-            "tests/sample_programs/04_memory.fcdsl",
+            "tests/sample_programs/01_basic_arithmetic.facto",
+            "tests/sample_programs/04_memory.facto",
         ]
 
         for file_path in sample_files:
             if os.path.exists(file_path):
-                with open(file_path, "r") as f:
+                with open(file_path) as f:
                     code = f.read()
                 program = parser.parse(code)
                 diagnostics = ProgramDiagnostics()
-                analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+                analyzer = SemanticAnalyzer(diagnostics)
                 analyzer.visit(program)
                 assert not diagnostics.has_errors()
 
@@ -64,7 +65,7 @@ class TestSemanticAnalyzer:
 
         program = parser.parse(code)
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
         assert diagnostics.has_errors(), "Legacy write syntax should raise an error"
@@ -84,7 +85,7 @@ class TestSemanticAnalyzer:
 
         program = parser.parse(code)
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
         assert not diagnostics.has_errors(), (
@@ -98,7 +99,7 @@ class TestSemanticAnalyzer:
 
         program = parser.parse(code)
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
         assert diagnostics.has_errors(), (
@@ -116,7 +117,7 @@ class TestSemanticAnalyzer:
 
         program = parser.parse(code)
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
         assert diagnostics.has_errors(), (
@@ -134,7 +135,7 @@ class TestSemanticAnalyzer:
 
         program = parser.parse(code)
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
         assert diagnostics.has_errors(), (
@@ -149,7 +150,7 @@ class TestSemanticAnalyzer:
         """Allocator must keep producing unique implicit virtual signals."""
 
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
 
         allocations = [analyzer.allocate_implicit_type() for _ in range(60)]
         names = [info.name for info in allocations]

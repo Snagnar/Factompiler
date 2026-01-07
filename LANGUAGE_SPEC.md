@@ -1,9 +1,9 @@
-# Factorio Circuit DSL Language Specification
+# Facto Language Specification
 
 **Version 2.5**  
 **Date: December 2025**
 
-This document provides a complete specification of the Factorio Circuit DSL (Domain Specific Language) as currently implemented. The DSL compiles to Factorio 2.0 blueprint strings that can be imported into the game.
+This document provides a complete specification of the Facto programming language as currently implemented. Facto compiles to Factorio 2.0 blueprint strings that can be imported into the game.
 
 ## Table of Contents
 
@@ -27,14 +27,14 @@ This document provides a complete specification of the Factorio Circuit DSL (Dom
 
 ## Overview
 
-The Factorio Circuit DSL is a **statically-typed**, **imperative language** designed to generate Factorio combinator circuits and entity blueprints. It provides high-level abstractions over Factorio's circuit network while maintaining direct control over signal routing and entity behavior.
+Facto is a **statically-typed**, **imperative language** designed to generate Factorio combinator circuits and entity blueprints. It provides high-level abstractions over Factorio's circuit network while maintaining direct control over signal routing and entity behavior.
 
 ### Design Philosophy
 
 - **Signal-Centric**: Everything is a signal flowing through circuit networks
 - **Type Safety**: Explicit signal types prevent channel conflicts
 - **Implicit Optimization**: Compiler optimizes common patterns automatically
-- **Direct Mapping**: Clear correspondence between DSL and Factorio entities
+- **Direct Mapping**: Clear correspondence between Facto code and Factorio entities
 
 ### Compilation Pipeline
 
@@ -51,7 +51,7 @@ Each stage validates and optimizes the program before generating the final Facto
 
 ### Hello, Lamp!
 
-```fcdsl
+```facto
 # Create a blinking lamp controlled by a counter
 Memory counter: "signal-A";
 counter.write(counter.read() + 1);
@@ -62,9 +62,9 @@ Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = blink;
 ```
 
-Save this program to `hello_lamp.fcdsl` and compile it with:
+Save this program to `hello_lamp.facto` and compile it with:
 ```bash
-python compile.py hello_lamp.fcdsl
+python compile.py hello_lamp.facto
 ```
 
 Import the resulting blueprint string into Factorio and watch your lamp blink!
@@ -75,7 +75,7 @@ Import the resulting blueprint string into Factorio and watch your lamp blink!
 
 ### Comments
 
-```fcdsl
+```facto
 # Hash-style line comments
 // C-style line comments also work
 Signal x = 5;  // End-of-line comments
@@ -85,9 +85,9 @@ Signal x = 5;  // End-of-line comments
 
 **Integers:**
 
-The DSL supports integer literals in multiple bases:
+Facto supports integer literals in multiple bases:
 
-```fcdsl
+```facto
 # Decimal
 42        # Positive integer
 -17       # Negative integer
@@ -110,7 +110,7 @@ The DSL supports integer literals in multiple bases:
 All number bases represent 32-bit signed integers and compile to the same values.
 
 **Strings:**
-```fcdsl
+```facto
 "iron-plate"    # Item signal
 "signal-A"      # Virtual signal
 "water"         # Fluid signal
@@ -157,19 +157,19 @@ From highest (tightest binding) to lowest (loosest binding):
 When combining operands of different types, the compiler follows these precedence rules:
 
 **Integer + Integer = Integer**
-```fcdsl
+```facto
 int result = 5 + 3;  # Pure integer arithmetic
 ```
 
 **Signal + Integer = Signal** (signal type takes precedence)
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal more = iron + 50;  # Result: iron-plate signal with value 150
 # The integer constant is coerced to match the signal's type
 ```
 
 **Signal + Signal = Signal** (left operand's type takes precedence)
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 50);
 Signal mixed = iron + copper;  # Result: iron-plate signal with value 150
@@ -179,7 +179,7 @@ Signal mixed = iron + copper;  # Result: iron-plate signal with value 150
 **Type Precedence Rule:** When one operand is a signal with an explicit type and the other is an integer constant or a signal with a different type, the **existing signal type always takes precedence**. The compiler automatically coerces the other operand to match.
 
 To avoid type mismatch warnings, use explicit projection:
-```fcdsl
+```facto
 Signal aligned = (copper | "iron-plate") + iron;  # Both iron-plate, no warning
 ```
 
@@ -187,13 +187,13 @@ Signal aligned = (copper | "iron-plate") + iron;  # Both iron-plate, no warning
 
 ## Type System
 
-The DSL has five fundamental value types that map directly to Factorio circuit concepts.
+Facto has five fundamental value types that map directly to Factorio circuit concepts.
 
 ### Integer (`int`)
 
 Plain integer values used for constants and direct computations.
 
-```fcdsl
+```facto
 int count = 42;
 int threshold = count + 10;
 ```
@@ -206,7 +206,7 @@ Single-channel Factorio signals carrying both a **type** (iron-plate, signal-A) 
 
 #### Explicit Signal Types
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);      # Item signal
 Signal virtual = ("signal-A", 42);      # Virtual signal
 Signal water = ("water", 1000);         # Fluid signal
@@ -216,7 +216,7 @@ Signal water = ("water", 1000);         # Fluid signal
 
 When you don't specify a type, the compiler allocates a virtual signal:
 
-```fcdsl
+```facto
 Signal implicit = 5;  # Compiler assigns __v1 → signal-A
 Signal another = 10;  # Compiler assigns __v2 → signal-B
 ```
@@ -227,7 +227,7 @@ The compiler maps `__v1`, `__v2`, etc. to Factorio's virtual signals `signal-A` 
 
 Signal literals can contain arithmetic expressions that are evaluated at compile time:
 
-```fcdsl
+```facto
 Signal step = ("signal-A", 5 * 2 - 9);  # Compiles to ("signal-A", 1)
 Signal threshold = ("iron-plate", 100 / 2 + 50);  # Compiles to ("iron-plate", 100)
 ```
@@ -236,7 +236,7 @@ Signal threshold = ("iron-plate", 100 / 2 + 50);  # Compiles to ("iron-plate", 1
 
 Stateful storage cells that persist values across game ticks using write-gated latch circuits.
 
-```fcdsl
+```facto
 Memory counter: "signal-A";             # Explicit type
 Memory state;                           # Implicit type (inferred from first write)
 ```
@@ -245,20 +245,20 @@ Memory state;                           # Implicit type (inferred from first wri
 
 If you don't specify a type, the compiler infers it from the first `.write()`:
 
-```fcdsl
+```facto
 Memory accumulator;  # Type unknown
 
 Signal iron = ("iron-plate", 50);
 accumulator.write(iron);  # Now accumulator stores iron-plate signals
 ```
 
-**Warning:** All writes to a memory cell must use the same signal type. Mixed types will generate warnings (or errors in `--strict` mode).
+**Warning:** All writes to a memory cell must use the same signal type. Mixed types will generate warnings.
 
 ### Entity (`Entity`)
 
 References to placed Factorio entities that can be controlled via circuit networks.
 
-```fcdsl
+```facto
 Entity lamp = place("small-lamp", 5, 0);
 Entity train_stop = place("train-stop", 10, 5);
 ```
@@ -273,7 +273,7 @@ Bundles are **unordered collections of signals** that can be operated on as a un
 
 Create bundles using curly brace syntax with signal elements:
 
-```fcdsl
+```facto
 # Bundle from signal literals
 Bundle resources = { ("iron-plate", 100), ("copper-plate", 80), ("coal", 50) };
 
@@ -288,14 +288,14 @@ Bundle empty = {};
 
 **Bundle Flattening:** Bundles can contain other bundles, which are automatically flattened:
 
-```fcdsl
+```facto
 Bundle more = { ("signal-Z", 30) };
 Bundle all = { pair, more };  # Contains signal-X, signal-Y, signal-Z
 ```
 
 **Important:** Each signal type within a bundle must be unique. Duplicate signal types are a compile-time error:
 
-```fcdsl
+```facto
 Bundle bad = { ("iron-plate", 10), ("iron-plate", 20) };  # ERROR: Duplicate signal type
 ```
 
@@ -303,7 +303,7 @@ Bundle bad = { ("iron-plate", 10), ("iron-plate", 20) };  # ERROR: Duplicate sig
 
 Extract a specific signal from a bundle using bracket notation:
 
-```fcdsl
+```facto
 Bundle resources = { ("iron-plate", 100), ("copper-plate", 80) };
 
 Signal iron = resources["iron-plate"];   # Value: 100
@@ -317,7 +317,7 @@ Signal doubled = resources["iron-plate"] * 2;
 
 Apply arithmetic operations to **all signals** in a bundle simultaneously:
 
-```fcdsl
+```facto
 Bundle resources = { ("iron-plate", 100), ("copper-plate", 80), ("coal", 50) };
 
 Bundle doubled = resources * 2;      # All values doubled
@@ -337,7 +337,7 @@ Output: signal-each
 
 **Important:** Bundle arithmetic requires a **scalar operand** (Signal or int). Bundle + Bundle is not supported:
 
-```fcdsl
+```facto
 Bundle a = { ("iron-plate", 100) };
 Bundle b = { ("copper-plate", 80) };
 Bundle c = a + b;  # ERROR: Bundle operations require Signal or int operand
@@ -347,7 +347,7 @@ Bundle c = a + b;  # ERROR: Bundle operations require Signal or int operand
 
 Use `any()` and `all()` functions for bundle-wide comparisons:
 
-```fcdsl
+```facto
 Bundle levels = { ("water", 500), ("oil", 100), ("steam", 0) };
 
 # any() - True if at least one signal matches
@@ -370,7 +370,7 @@ Bundles are ideal for:
 - **Signal aggregation**: Combine multiple signals for bulk operations
 - **Conditional logic**: Check conditions across multiple signals at once
 
-```fcdsl
+```facto
 # 7-segment display example: store digit patterns as a bundle
 Bundle digit_0 = {
     ("signal-A", 0b1111110),  # Segments a-g encoded as bits
@@ -391,7 +391,7 @@ Bundle active = segment_bits AND 1;
 
 #### Typed Literals
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 50);
 Signal flag = ("signal-A", 1);
@@ -401,16 +401,16 @@ Signal flag = ("signal-A", 1);
 
 The type name in signal literals is a string:
 
-```fcdsl
+```facto
 # Both forms are equivalent:
 Signal a = ("signal-A", 100);
 ```
 
 #### Syntactic Sugar for Type Annotations
 
-The DSL provides a convenient shorthand using the projection operator for type annotations:
+Facto provides a convenient shorthand using the projection operator for type annotations:
 
-```fcdsl
+```facto
 # Long form (explicit tuple)
 Signal iron = ("iron-plate", 100);
 
@@ -422,7 +422,7 @@ Signal iron = 100 | "iron-plate";
 
 This syntactic sugar is particularly useful when you need to add a type annotation to an existing value:
 
-```fcdsl
+```facto
 # Adding type to a function parameter
 func process(Signal value) {
     Signal typed_value = value | "signal-S";  # Annotate with signal-S
@@ -435,14 +435,14 @@ func process(Signal value) {
 
 #### Untyped Literals (Implicit Allocation)
 
-```fcdsl
+```facto
 Signal x = 5;   # Compiler allocates __v1 → signal-A
 Signal y = 10;  # Compiler allocates __v2 → signal-B
 ```
 
 ### Arithmetic Operations
 
-```fcdsl
+```facto
 Signal sum = a + b;
 Signal diff = a - b;
 Signal product = a * 2;
@@ -453,19 +453,19 @@ Signal remainder = a % 10;
 #### Type Inference Rules
 
 **Int + Int = Int**
-```fcdsl
+```facto
 int x = 5 + 3;  # Result: 8 (integer)
 ```
 
 **Signal + Int = Signal** (integer coerced to signal type)
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal more = iron + 50;  # Result: iron-plate signal with value 150
 # Warning: Mixed types in binary operation
 ```
 
 **Signal + Signal = Signal** (left operand type wins)
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 50);
 Signal mixed = iron + copper;  # Result: iron-plate signal with value 150
@@ -474,7 +474,7 @@ Signal mixed = iron + copper;  # Result: iron-plate signal with value 150
 
 To avoid warnings, use explicit projections:
 
-```fcdsl
+```facto
 Signal aligned = (copper | "iron-plate") + iron;  # Both iron-plate
 ```
 
@@ -482,7 +482,7 @@ Signal aligned = (copper | "iron-plate") + iron;  # Both iron-plate
 
 All comparison operators return signals:
 
-```fcdsl
+```facto
 Signal is_greater = iron > 100;     # Returns signal (1 if true, 0 if false)
 Signal is_equal = count == 50;      # Returns signal
 Signal in_range = (x >= 10) && (x <= 100);
@@ -494,7 +494,7 @@ The result inherits the signal type from the left operand, or uses a virtual sig
 
 Logical operators work with boolean values (treating non-zero as true, zero as false):
 
-```fcdsl
+```facto
 # Logical AND - both operands must be non-zero
 Signal both1 = (a > 0) && (b > 0);  # Symbolic form
 Signal both2 = (a > 0) and (b > 0); # Word form (equivalent)
@@ -518,7 +518,7 @@ Signal not_zero = !(x == 0);
 
 The output specifier (`:`) is used with decider combinators to copy signal values from input:
 
-```fcdsl
+```facto
 # Syntax: condition : output_value
 Signal filtered = (count > 10) : input_signal;
 
@@ -532,7 +532,7 @@ Signal filtered = (count > 10) : input_signal;
 - Conditional pass-through
 
 **Precedence:** The output specifier has lower precedence than comparison operators, so:
-```fcdsl
+```facto
 Signal result = x > 5 : y;    # Equivalent to: (x > 5) : y
 ```
 
@@ -542,7 +542,7 @@ Signal result = x > 5 : y;    # Equivalent to: (x > 5) : y
 
 The projection operator **casts** a signal to a different channel:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal as_copper = iron | "copper-plate";  # Now a copper-plate signal
 Signal as_virtual = iron | "signal-A";     # Now a virtual signal
@@ -550,7 +550,7 @@ Signal as_virtual = iron | "signal-A";     # Now a virtual signal
 
 #### Same-Type Projections (No-Op)
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal same = iron | "iron-plate";  # No-op; compiler optimizes away
 ```
@@ -559,7 +559,7 @@ Signal same = iron | "iron-plate";  # No-op; compiler optimizes away
 
 To sum signals across different channels onto one channel:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 80);
 Signal coal = ("coal", 50);
@@ -578,7 +578,7 @@ Access a signal's type at compile time using the `.type` property. This allows y
 
 #### Basic Usage
 
-```fcdsl
+```facto
 Signal a = ("iron-plate", 60);
 Signal b = 50 | a.type;   # b is projected to iron-plate (same type as a)
 ```
@@ -587,7 +587,7 @@ Signal b = 50 | a.type;   # b is projected to iron-plate (same type as a)
 
 Use `.type` in signal literal syntax:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal derived = (iron.type, 42);  # Creates iron-plate signal with value 42
 ```
@@ -596,7 +596,7 @@ Signal derived = (iron.type, 42);  # Creates iron-plate signal with value 42
 
 **Type Propagation:** Keep signal types consistent without repeating type names:
 
-```fcdsl
+```facto
 Signal input = ("signal-A", 0);       # Input from circuit
 Signal doubled = input * 2;            # Inherits signal-A type
 Signal offset = 10 | input.type;       # Explicit same type as input
@@ -605,7 +605,7 @@ Signal result = doubled + offset;      # No type mismatch warning
 
 **Dynamic Type Matching:** Match the type of a parameter:
 
-```fcdsl
+```facto
 func add_offset(Signal value, int offset) {
     Signal typed_offset = offset | value.type;
     return value + typed_offset;
@@ -619,7 +619,7 @@ func add_offset(Signal value, int offset) {
 
 ### Variable Declarations
 
-```fcdsl
+```facto
 int count = 42;
 Signal iron = ("iron-plate", 100);
 Entity lamp = place("small-lamp", 0, 0);
@@ -630,7 +630,7 @@ All variables are **immutable** except memories (which are stateful by nature).
 
 ### Assignments
 
-```fcdsl
+```facto
 x = y + 5;              # Variable reassignment
 lamp.enable = count > 0; # Property assignment
 ```
@@ -641,7 +641,7 @@ lamp.enable = count > 0; # Property assignment
 
 Any expression can be a statement for side effects:
 
-```fcdsl
+```facto
 memory.write(value);   # Memory write side effect
 place("lamp", 5, 0);   # Entity placement side effect
 ```
@@ -650,7 +650,7 @@ place("lamp", 5, 0);   # Entity placement side effect
 
 Used in functions to specify return values:
 
-```fcdsl
+```facto
 func double(Signal x) {
     return x * 2;
 }
@@ -658,8 +658,8 @@ func double(Signal x) {
 
 ### Import Statements
 
-```fcdsl
-import "stdlib/memory_utils.fcdsl";
+```facto
+import "stdlib/memory_utils.facto";
 ```
 
 Imports use **C-style preprocessing**: the imported file's content is inlined before parsing. Circular imports are detected and skipped.
@@ -674,7 +674,7 @@ For loops allow you to repeat code with an iterator variable. They are **unrolle
 
 Iterate over a range of numbers:
 
-```fcdsl
+```facto
 # Basic range: 0, 1, 2, 3, 4 (excludes end value)
 for i in 0..5 {
     Entity lamp = place("small-lamp", i, 0);
@@ -703,7 +703,7 @@ for k in 10..0 step -2 {
 
 Iterate over an explicit list of values:
 
-```fcdsl
+```facto
 for value in [1, 3, 5, 7, 9] {
     Entity lamp = place("small-lamp", value, 0);
     lamp.enable = count >= value;
@@ -718,7 +718,7 @@ for value in [1, 3, 5, 7, 9] {
 
 The iterator variable can be used in expressions:
 
-```fcdsl
+```facto
 Signal base = ("signal-B", 10);
 
 for x in 0..4 {
@@ -742,7 +742,7 @@ for y in 0..3 {
 
 For loops are fully unrolled at compile time. This means:
 
-```fcdsl
+```facto
 for i in 0..3 {
     Entity lamp = place("small-lamp", i, 0);
 }
@@ -750,7 +750,7 @@ for i in 0..3 {
 
 Is equivalent to writing:
 
-```fcdsl
+```facto
 Entity lamp_0 = place("small-lamp", 0, 0);
 Entity lamp_1 = place("small-lamp", 1, 0);
 Entity lamp_2 = place("small-lamp", 2, 0);
@@ -765,11 +765,11 @@ Entity lamp_2 = place("small-lamp", 2, 0);
 
 ## Memory System
 
-Memory in the DSL models **persistent state** using write-gated latch circuits or optimized arithmetic feedback loops. The compiler automatically chooses the most efficient implementation based on usage patterns.
+Memory in Facto models **persistent state** using write-gated latch circuits or optimized arithmetic feedback loops. The compiler automatically chooses the most efficient implementation based on usage patterns.
 
 ### Memory Declaration
 
-```fcdsl
+```facto
 Memory counter: "signal-A";              # Explicit type
 Memory state;                            # Implicit type (inferred from first write)
 ```
@@ -778,7 +778,7 @@ Memory state;                            # Implicit type (inferred from first wr
 
 #### Reading Memory
 
-```fcdsl
+```facto
 Signal current = counter.read();
 ```
 
@@ -786,7 +786,7 @@ Returns the current stored value as a Signal with the memory's declared type.
 
 #### Writing Memory
 
-```fcdsl
+```facto
 memory.write(value_expr);                  # Unconditional
 memory.write(value_expr, when=condition);  # Conditional
 ```
@@ -797,7 +797,7 @@ memory.write(value_expr, when=condition);  # Conditional
 
 **Examples:**
 
-```fcdsl
+```facto
 # Unconditional write (every tick)
 counter.write(counter.read() + 1);
 
@@ -819,7 +819,7 @@ If omitted, `when=1` (always write) is used as the default.
 
 For binary state control with explicit set and reset triggers, use the latch write syntax:
 
-```fcdsl
+```facto
 memory.write(value, set=set_condition, reset=reset_condition);
 ```
 
@@ -836,7 +836,7 @@ memory.write(value, set=set_condition, reset=reset_condition);
 
 When both set AND reset are active simultaneously, the latch **resets** (outputs 0):
 
-```fcdsl
+```facto
 Memory pump_on: "signal-P";
 Signal low_tank = tank_level < 20;
 Signal high_tank = tank_level >= 80;
@@ -854,7 +854,7 @@ Uses single-condition decider: `Set > Reset`. Compiles to 1 combinator.
 
 When both set AND reset are active simultaneously, the latch **stays ON**:
 
-```fcdsl
+```facto
 Memory pump_on: "signal-P";
 Signal low_tank = tank_level < 20;
 Signal high_tank = tank_level >= 80;
@@ -873,7 +873,7 @@ Latches are ideal for **hysteresis** – preventing rapid on/off cycling around 
 
 Turn on steam generators when accumulators drop below 20%, keep running until they reach 80%:
 
-```fcdsl
+```facto
 Signal accum = ("signal-A", 0);  # From accumulator
 Memory steam_on: "signal-S";
 
@@ -889,7 +889,7 @@ The latch prevents flickering: once ON, it stays ON until the high threshold is 
 
 Latches output the specified value when ON, 0 when OFF:
 
-```fcdsl
+```facto
 # Output 1 when latched (binary)
 pump.write(1, set=low, reset=high);
 
@@ -941,7 +941,7 @@ The write-gated latch uses a **unidirectional forward feedback + self-loop** top
 
 For **unconditional writes** that read the same memory:
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 counter.write(counter.read() + 1);  # Always-on counter
 ```
@@ -956,14 +956,14 @@ The compiler optimizes this to **arithmetic combinators with feedback loops** in
 **Results:**
 
 **Single-Operation Pattern:**
-```fcdsl
+```facto
 Memory counter: "signal-A";
 counter.write(counter.read() + 1);
 ```
 Result: One arithmetic combinator with red self-feedback wire instead of two deciders.
 
 **Multi-Operation Chain Pattern:**
-```fcdsl
+```facto
 Memory pattern_gen: "signal-D";
 Signal step1 = pattern_gen.read() + 1;
 Signal step2 = step1 * 3;
@@ -977,7 +977,7 @@ Result: Chain of arithmetic combinators with a feedback wire from the last combi
 
 **CRITICAL:** The `signal-W` virtual signal is **reserved** for memory write enables. Never use `signal-W` for user data:
 
-```fcdsl
+```facto
 Signal bad = ("signal-W", 5);  # COMPILE ERROR
 Signal ok = ("signal-A", 5);   # OK
 ```
@@ -990,11 +990,11 @@ The compiler enforces this at compile time.
 
 ## Entity System
 
-Entities represent physical Factorio structures placed in the blueprint. The DSL lets you place entities and control them via circuit networks.
+Entities represent physical Factorio structures placed in the blueprint. Facto lets you place entities and control them via circuit networks.
 
 ### Entity Placement
 
-```fcdsl
+```facto
 Entity entity_name = place(prototype, x, y, [properties]);
 ```
 
@@ -1005,7 +1005,7 @@ Entity entity_name = place(prototype, x, y, [properties]);
 
 **Examples:**
 
-```fcdsl
+```facto
 Entity lamp = place("small-lamp", 5, 0);
 Entity train_stop = place("train-stop", 10, 5, {station: "Iron Pickup"});
 Entity assembler = place("assembling-machine-1", 0, 10);
@@ -1017,7 +1017,7 @@ The position parameters (`x`, `y`) determine how the entity is placed:
 
 **Fixed Positions:** When both coordinates are constant integers (literals or constant integer variables), the entity is placed at the exact specified position:
 
-```fcdsl
+```facto
 int lamp_y = 20;
 Entity lamp1 = place("small-lamp", 0, lamp_y);  # Fixed at (0, 20)
 Entity lamp2 = place("small-lamp", 5, 10);      # Fixed at (5, 10)
@@ -1025,7 +1025,7 @@ Entity lamp2 = place("small-lamp", 5, 10);      # Fixed at (5, 10)
 
 **Optimized Positions:** When either coordinate is a dynamic signal expression (not a compile-time constant), or when coordinates are omitted, the layout engine automatically optimizes the entity's position based on signal flow and wire connections:
 
-```fcdsl
+```facto
 Signal x_pos = counter * 2;
 Entity lamp3 = place("small-lamp", x_pos, 0);  # Position optimized by layout engine
 ```
@@ -1036,7 +1036,7 @@ Entity lamp3 = place("small-lamp", x_pos, 0);  # Position optimized by layout en
 
 **Static properties** (in the dictionary) are applied at entity creation:
 
-```fcdsl
+```facto
 Entity station = place("train-stop", 10, 5, {
     station: "Central Depot",
     color: {r: 1, g: 0, b: 0}
@@ -1045,7 +1045,7 @@ Entity station = place("train-stop", 10, 5, {
 
 **Dynamic properties** (via circuit signals) are controlled after placement:
 
-```fcdsl
+```facto
 Entity lamp = place("small-lamp", 5, 0);
 lamp.enable = signal > 0;  # Circuit control
 ```
@@ -1054,7 +1054,7 @@ lamp.enable = signal > 0;  # Circuit control
 
 #### Writing Properties
 
-```fcdsl
+```facto
 lamp.enable = signal > 0;         # Circuit-controlled enable
 train_stop.manual_mode = 1;       # Constant value
 assembler.enable = production_flag;
@@ -1064,7 +1064,7 @@ The compiler translates property assignments into Factorio circuit conditions.
 
 #### Reading Properties
 
-```fcdsl
+```facto
 Signal lamp_status = lamp.enable;  # Read entity state
 ```
 
@@ -1074,7 +1074,7 @@ Property reads create signals that track the entity's current state.
 
 Entities like chests, tanks, and storage units output their contents as circuit signals. Access this using the `.output` property:
 
-```fcdsl
+```facto
 Entity chest = place("steel-chest", 0, 0);
 Bundle contents = chest.output;  # All item signals from chest
 
@@ -1100,7 +1100,7 @@ The `.output` property returns a **dynamic Bundle** whose signals are determined
 
 For simple comparisons, the compiler **inlines** them into the entity's circuit condition:
 
-```fcdsl
+```facto
 Entity lamp = place("small-lamp", 5, 0);
 lamp.enable = count > 10;
 ```
@@ -1116,7 +1116,7 @@ Instead of creating a separate decider combinator, the compiler configures the l
 
 When using `all()` or `any()` in an enable condition, the compiler inlines the check directly into the entity's circuit condition:
 
-```fcdsl
+```facto
 Entity chest = place("steel-chest", 0, 0);
 Entity lamp = place("small-lamp", 2, 0);
 
@@ -1134,7 +1134,7 @@ Instead of creating a decider combinator with `signal-everything`, the lamp's ci
 ### Common Entity Properties
 
 #### Lamps
-```fcdsl
+```facto
 lamp.enable = condition;  # Turn on/off
 ```
 
@@ -1142,7 +1142,7 @@ lamp.enable = condition;  # Turn on/off
 
 Lamps can display colored light using RGB signals. First, enable color mode in the placement properties:
 
-```fcdsl
+```facto
 Entity lamp = place("small-lamp", 0, 0, {use_colors: 1, always_on: 1, color_mode: 1});
 lamp.r = red_signal;    # Red component (0-255)
 lamp.g = green_signal;  # Green component (0-255)
@@ -1156,7 +1156,7 @@ lamp.b = blue_signal;   # Blue component (0-255)
 - `r`, `g`, `b`: Circuit-controlled color components (0-255 each)
 
 #### Train Stops
-```fcdsl
+```facto
 train_stop.manual_mode = 1;        # Enable/disable trains
 train_stop.enable = condition;      # Enable/disable station
 train_stop.read_from_train = 1;     # Read train contents
@@ -1164,17 +1164,17 @@ train_stop.send_to_train = 1;       # Send signals to train
 ```
 
 #### Assembling Machines
-```fcdsl
+```facto
 assembler.enable = condition;       # Enable/disable production
 ```
 
 #### Inserters
-```fcdsl
+```facto
 inserter.enable = condition;        # Enable/disable
 ```
 
 #### Belts
-```fcdsl
+```facto
 belt.enable = condition;            # Enable/disable belt movement
 ```
 
@@ -1184,7 +1184,7 @@ belt.enable = condition;            # Enable/disable belt movement
 
 ### Function Declarations
 
-```fcdsl
+```facto
 func function_name(type1 param1, type2 param2, ...) {
     # Function body
     return expression;
@@ -1198,7 +1198,7 @@ func function_name(type1 param1, type2 param2, ...) {
 
 **Example:**
 
-```fcdsl
+```facto
 func clamp(Signal value, int min_val, int max_val) {
     Signal too_low = value < min_val;
     Signal too_high = value > max_val;
@@ -1217,7 +1217,7 @@ func clamp(Signal value, int min_val, int max_val) {
 
 **IMPORTANT:** Functions are **always inlined** at call sites. They don't create reusable circuit modules; they're templates for code generation.
 
-```fcdsl
+```facto
 Signal x = clamp(input, 0, 100);
 Signal y = clamp(other, 10, 50);
 ```
@@ -1228,7 +1228,7 @@ This generates **two separate** copies of the clamping logic in the IR.
 
 Signal and int types can be implicitly converted:
 
-```fcdsl
+```facto
 func process(Signal s, int n) {
     # s can receive both Signal and int
     # n can receive both int and Signal
@@ -1247,7 +1247,7 @@ Signal result3 = process(100, 200); # OK: int coerced to Signal, int stays int
 
 Entity parameters allow functions to operate on existing entities:
 
-```fcdsl
+```facto
 func configure_lamp(Entity lamp, Signal red, Signal green, Signal blue) {
     lamp.r = red;
     lamp.g = green;
@@ -1262,7 +1262,7 @@ configure_lamp(my_lamp, 255, 0, 0);  # Configure it to be red
 
 Variables declared in functions are local to that scope:
 
-```fcdsl
+```facto
 func compute(Signal input) {
     Signal temp = input * 2;  # Local to function
     Signal result = temp + 10;
@@ -1274,7 +1274,7 @@ func compute(Signal input) {
 
 Functions can return entities placed within them. This is useful for creating entity factory functions:
 
-```fcdsl
+```facto
 func place_colored_lamp(int x, int y, Signal red, Signal green, Signal blue) {
     Entity lamp = place("small-lamp", x, y, {use_colors: 1, always_on: 1, color_mode: 1});
     lamp.r = red;
@@ -1293,7 +1293,7 @@ When a function returns an entity, the caller can assign it to an `Entity` varia
 
 Functions can declare local memory, but remember each call site gets its own copy:
 
-```fcdsl
+```facto
 func counter() {
     Memory count: "signal-C";
     count.write(count.read() + 1);
@@ -1338,7 +1338,7 @@ The compiler generates IR nodes representing Factorio combinators:
 
 ### Signal Type Mapping
 
-The compiler maintains a **signal type registry** that maps DSL signal identifiers to Factorio signal names:
+The compiler maintains a **signal type registry** that maps Facto signal identifiers to Factorio signal names:
 
 ```
 __v1 → signal-A (virtual)
@@ -1353,7 +1353,7 @@ This mapping is exported in debug metadata for troubleshooting.
 
 ## Circuit Network Integration
 
-### How DSL Maps to Factorio
+### How Facto Maps to Factorio
 
 #### Signal Types
 
@@ -1371,7 +1371,7 @@ Factorio recognizes several signal categories:
 
 **Entity Signals:** Correspond to entity prototypes
 
-The DSL respects these categories and validates signal names against the Factorio database (via Draftsman).
+Facto respects these categories and validates signal names against the Factorio database (via Draftsman).
 
 #### Wire Colors
 
@@ -1387,7 +1387,7 @@ This separation prevents signal summation at combinator inputs. For example, if 
 
 **Example of Automatic Color Assignment:**
 
-```fcdsl
+```facto
 Signal a = ("signal-A", 10);
 Signal b = ("signal-A", 20);
 Signal c = a * b;
@@ -1399,7 +1399,7 @@ If both `a` and `b` feed into the same combinator on the same wire color, they'd
 
 The compiler detects complex conflicts involving bundle merges. When the same source participates in multiple merges with a **transitive relationship** (one merge's output feeds into another merge), the paths need different wire colors:
 
-```fcdsl
+```facto
 Bundle sum = {c1.output, c2.output, c3.output};  # Merge M1: all chests
 Bundle neg_avg = sum / -3;                        # Computes negative average
 Bundle input1 = {neg_avg, c1.output};             # Merge M2: avg + chest1
@@ -1452,7 +1452,7 @@ The compiler applies several optimization passes to reduce entity count and impr
 
 Identical expressions are computed once and reused:
 
-```fcdsl
+```facto
 Signal x = a + b;
 Signal y = a + b;  # Reuses x's combinator
 ```
@@ -1463,7 +1463,7 @@ The IR optimizer detects that both expressions are identical and makes `y` refer
 
 Logical AND/OR chains of comparisons are folded into a single multi-condition decider combinator:
 
-```fcdsl
+```facto
 Signal a = ("signal-A", 0);
 Signal b = ("signal-B", 0);
 Signal c = ("signal-C", 0);
@@ -1490,7 +1490,7 @@ This optimization takes advantage of Factorio 2.0's multi-condition decider comb
 
 When adding **simple sources** (constants, entity outputs, other wire merges) on the same channel, the compiler skips creating an arithmetic combinator and wires them directly:
 
-```fcdsl
+```facto
 Signal iron_a = ("iron-plate", 100);  # Constant
 Signal iron_b = ("iron-plate", 200);  # Constant
 Signal iron_c = ("iron-plate", 50);   # Constant
@@ -1508,7 +1508,7 @@ Signal total = iron_a + iron_b + iron_c;  # No combinator! Just wires.
 
 Arithmetic in signal literals is evaluated at compile time:
 
-```fcdsl
+```facto
 Signal step = ("signal-A", 5 * 2 - 9);  # Becomes ("signal-A", 1)
 ```
 
@@ -1516,7 +1516,7 @@ Signal step = ("signal-A", 5 * 2 - 9);  # Becomes ("signal-A", 1)
 
 Same-type projections are no-ops and are optimized away:
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal same = iron | "iron-plate";  # No combinator generated
 ```
@@ -1525,7 +1525,7 @@ Signal same = iron | "iron-plate";  # No combinator generated
 
 As described earlier, unconditional memory writes with feedback are optimized to arithmetic combinators with feedback loops:
 
-```fcdsl
+```facto
 # Single-operation: self-feedback on one combinator
 Memory counter: "signal-A";
 counter.write(counter.read() + 1);
@@ -1544,7 +1544,7 @@ The compiler detects dependency chains up to 50 operations deep and optimizes th
 
 Simple comparisons in entity property assignments are compiled to circuit conditions instead of separate combinators:
 
-```fcdsl
+```facto
 lamp.enable = count > 10;  # No decider; uses lamp's circuit condition
 ```
 
@@ -1555,7 +1555,7 @@ lamp.enable = count > 10;  # No decider; uses lamp's circuit condition
 ### Signal Type Management
 
 **DO:**
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);        # Explicit types for clarity
 Signal copper = ("copper-plate", 50);
 Signal total = (iron | "signal-total") 
@@ -1563,7 +1563,7 @@ Signal total = (iron | "signal-total")
 ```
 
 **DON'T:**
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 50);
 Signal mixed = iron + copper;  # Warning: Mixed types, left wins
@@ -1572,13 +1572,13 @@ Signal mixed = iron + copper;  # Warning: Mixed types, left wins
 ### Memory Usage
 
 **DO:**
-```fcdsl
+```facto
 Memory counter: "signal-A";  # Explicit type is best
 counter.write(counter.read() + 1);
 ```
 
 **DON'T:**
-```fcdsl
+```facto
 Memory counter;  # Implicit type is confusing
 counter.write(value);  # Hard to track what type counter uses
 ```
@@ -1586,7 +1586,7 @@ counter.write(value);  # Hard to track what type counter uses
 ### Function Design
 
 **DO:**
-```fcdsl
+```facto
 func clamp(Signal value, int min_val, int max_val) {
     Signal result = (value < min_val) * min_val
                   + (value > max_val) * max_val
@@ -1596,7 +1596,7 @@ func clamp(Signal value, int min_val, int max_val) {
 ```
 
 **DON'T:**
-```fcdsl
+```facto
 func stateful_function(Signal input) {
     Memory state;  # Each call creates separate memory!
     # ...
@@ -1606,13 +1606,13 @@ func stateful_function(Signal input) {
 ### Entity Control
 
 **DO:**
-```fcdsl
+```facto
 Entity lamp = place("small-lamp", 5, 0);
 lamp.enable = count > threshold;  # Compiler inlines comparison
 ```
 
 **DON'T:**
-```fcdsl
+```facto
 Signal enable = count > threshold;  # Creates extra decider
 Entity lamp = place("small-lamp", 5, 0);
 lamp.enable = enable;
@@ -1621,7 +1621,7 @@ lamp.enable = enable;
 ### Projection Patterns
 
 **DO:**
-```fcdsl
+```facto
 # Aggregate onto one channel
 Signal total = (iron | "signal-T") + (copper | "signal-T");
 
@@ -1630,7 +1630,7 @@ Signal iron_only = total | "iron-plate";
 ```
 
 **DON'T:**
-```fcdsl
+```facto
 Signal mixed = iron + copper;  # Loses copper's type
 Signal extracted = mixed | "copper-plate";  # Can't recover lost info
 ```
@@ -1641,7 +1641,7 @@ Signal extracted = mixed | "copper-plate";  # Can't recover lost info
 
 ### Basic Counter
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 counter.write(counter.read() + 1);
 
@@ -1650,7 +1650,7 @@ Signal output = counter.read() | "signal-output";
 
 ### Blinking Lamps
 
-```fcdsl
+```facto
 Memory tick: "signal-T";
 tick.write(tick.read() + 1);
 
@@ -1665,7 +1665,7 @@ lamp2.enable = pattern >= 10;
 
 ### Production Controller
 
-```fcdsl
+```facto
 # Inputs (wire these signals from your factory)
 Signal demand = ("signal-demand", 0);
 Signal supply = ("signal-supply", 0);
@@ -1684,7 +1684,7 @@ assembler2.enable = shortage > 100;  # Second machine for high demand
 
 ### Bitwise Operations and other Tricks
 
-```fcdsl
+```facto
 # Using different number bases
 Signal binary = 0b11111111;      # 255 in binary
 Signal octal = 0o377;            # 255 in octal
@@ -1722,7 +1722,7 @@ Signal active = enabled or override;             # Either condition
 
 ### State Machine
 
-```fcdsl
+```facto
 Memory state: "signal-S";
 
 Signal current_state = state.read();
@@ -1757,7 +1757,7 @@ Signal error = (current_state == 3) | "signal-error";
 
 A classic Factorio circuit pattern that balances item distribution across multiple chests. Each inserter is enabled only when its chest contains fewer items than the average:
 
-```fcdsl
+```facto
 # Place chests along the train cargo wagons
 Entity c1 = place("steel-chest", 0, 0);
 Entity c2 = place("steel-chest", 1, 0);
@@ -1794,7 +1794,7 @@ Different wire colors are assigned to prevent double-counting:
 
 ### Filter and Accumulator
 
-```fcdsl
+```facto
 func smooth_filter(Signal input, int window_size) {
     Memory sum: "signal-sum";
     Memory count: "signal-count";
@@ -1818,7 +1818,7 @@ Signal smoothed = smooth_filter(raw_input, 10);
 
 ### For Loop: Lamp Array
 
-```fcdsl
+```facto
 # Create a row of 10 lamps controlled by a counter
 Memory tick: "signal-T";
 tick.write(tick.read() + 1);
@@ -1832,7 +1832,7 @@ for i in 0..10 {
 
 ### For Loop: Knight Rider Effect
 
-```fcdsl
+```facto
 # Create a bouncing light pattern
 Memory counter: "signal-C";
 counter.write(counter.read() + 1);
@@ -1849,7 +1849,7 @@ for i in 0..8 {
 
 ### Signal Type Access: Type Propagation
 
-```fcdsl
+```facto
 # Keep consistent types without repeating type strings
 Signal source = ("iron-plate", 100);
 Signal offset = 50 | source.type;        # iron-plate type from source
@@ -1867,7 +1867,7 @@ Signal output = scaled_signal(source, 10);
 
 ### Bundle Processing: Resource Monitor
 
-```fcdsl
+```facto
 # Monitor multiple resource levels
 Bundle resources = { 
     ("iron-plate", 0),      # Wired from storage 
@@ -1897,7 +1897,7 @@ warning.enable = alert;
 
 #### Mixed Type Warnings
 
-```fcdsl
+```facto
 Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 50);
 Signal mixed = iron + copper;
@@ -1906,13 +1906,13 @@ Signal mixed = iron + copper;
 ```
 
 **Fix:**
-```fcdsl
+```facto
 Signal aligned = (copper | "iron-plate") + iron;  # Both iron-plate
 ```
 
 #### Unknown Signal Warnings
 
-```fcdsl
+```facto
 Signal unknown = ("nonexistent-signal", 0);
 # Warning: Unknown signal type: nonexistent-signal, using signal-0
 ```
@@ -1923,21 +1923,21 @@ The compiler validates signals against the Factorio database. If a signal doesn'
 
 #### Undefined Variables
 
-```fcdsl
+```facto
 Signal result = undefined_var + 5;
 # Error: Undefined variable 'undefined_var'
 ```
 
 #### Type Mismatches
 
-```fcdsl
+```facto
 Entity lamp = 42;
 # Error: Cannot assign int to Entity type
 ```
 
 #### Memory Type Conflicts
 
-```fcdsl
+```facto
 Memory buffer: "iron-plate";
 Signal copper = ("copper-plate", 50);
 buffer.write(copper);
@@ -1946,28 +1946,18 @@ buffer.write(copper);
 
 #### Reserved Signal Violations
 
-```fcdsl
+```facto
 Signal bad = ("signal-W", 5);
 # Error: Signal 'signal-W' is reserved for memory write-enable and cannot be used in signal literals
 ```
 
-### Strict Mode
-
-Compile with `--strict` to promote all warnings to errors:
-
-```bash
-python compile.py program.fcdsl --strict
-```
-
-This enforces stricter type checking and catches potential bugs earlier.
-
 ### Diagnostic Output
 
 ```
-Compiling example.fcdsl...
+Compiling example.facto...
 Diagnostics:
-  WARNING [semantic:example.fcdsl:12]: Mixed signal types in binary operation
-  ERROR [lowering:example.fcdsl:25]: Undefined memory 'invalid_mem' in read operation
+  WARNING [semantic:example.facto:12]: Mixed signal types in binary operation
+  ERROR [lowering:example.facto:25]: Undefined memory 'invalid_mem' in read operation
 
 Compilation failed: Semantic analysis failed
 ```
@@ -1985,7 +1975,7 @@ Diagnostics include:
 ### Basic Compilation
 
 ```bash
-python compile.py input.fcdsl
+python compile.py input.facto
 ```
 
 Prints blueprint string to stdout.
@@ -1993,31 +1983,19 @@ Prints blueprint string to stdout.
 ### Save to File
 
 ```bash
-python compile.py input.fcdsl -o output.blueprint
-```
-
-### Strict Type Checking
-
-```bash
-python compile.py input.fcdsl --strict
+python compile.py input.facto -o output.blueprint
 ```
 
 ### Debug Logging
 
 ```bash
-python compile.py input.fcdsl --log-level debug
-```
-
-### Extended Diagnostics
-
-```bash
-python compile.py input.fcdsl --explain
+python compile.py input.facto --log-level debug
 ```
 
 ### Add Power Poles
 
 ```bash
-python compile.py input.fcdsl --power-poles medium
+python compile.py input.facto --power-poles medium
 ```
 
 Options: `small`, `medium`, `big`, `substation`
@@ -2025,19 +2003,19 @@ Options: `small`, `medium`, `big`, `substation`
 ### Custom Blueprint Name
 
 ```bash
-python compile.py input.fcdsl --name "My Factory Controller"
+python compile.py input.facto --name "My Factory Controller"
 ```
 
 ### Disable Optimizations
 
 ```bash
-python compile.py input.fcdsl --no-optimize
+python compile.py input.facto --no-optimize
 ```
 
 ### Output JSON Format
 
 ```bash
-python compile.py input.fcdsl --json
+python compile.py input.facto --json
 ```
 
 Outputs raw blueprint JSON instead of base64-encoded blueprint string.

@@ -1,60 +1,60 @@
-"""Semantic analysis for the Factorio Circuit DSL."""
+"""Semantic analysis for the Facto."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+from dsl_compiler.src.ast.base import ASTVisitor
 from dsl_compiler.src.ast.expressions import (
+    ASTNode,
+    BinaryOp,
+    BundleAllExpr,
+    BundleAnyExpr,
+    BundleLiteral,
+    BundleSelectExpr,
+    CallExpr,
+    EntityOutputExpr,
+    Expr,
     IdentifierExpr,
+    OutputSpecExpr,
     ProjectionExpr,
     PropertyAccessExpr,
     ReadExpr,
     SignalLiteral,
+    SignalTypeAccess,
     UnaryOp,
     WriteExpr,
-    ASTNode,
-    Expr,
-    CallExpr,
-    BinaryOp,
-    OutputSpecExpr,
-    BundleLiteral,
-    BundleSelectExpr,
-    BundleAnyExpr,
-    BundleAllExpr,
-    SignalTypeAccess,
-    EntityOutputExpr,
 )
 from dsl_compiler.src.ast.literals import (
     DictLiteral,
+    Identifier,
     NumberLiteral,
     PropertyAccess,
     StringLiteral,
-    Identifier,
 )
 from dsl_compiler.src.ast.statements import (
-    ReturnStmt,
+    AssignStmt,
+    DeclStmt,
+    ExprStmt,
+    ForStmt,
+    FuncDecl,
+    ImportStmt,
     MemDecl,
     Program,
-    DeclStmt,
-    FuncDecl,
+    ReturnStmt,
     Statement,
-    AssignStmt,
-    ExprStmt,
-    ImportStmt,
-    ForStmt,
 )
-from dsl_compiler.src.ast.base import ASTVisitor
 from dsl_compiler.src.common.diagnostics import (
     ProgramDiagnostics,
 )
 from dsl_compiler.src.common.signal_registry import (
-    SignalTypeRegistry,
     SignalTypeInfo,
+    SignalTypeRegistry,
     is_valid_factorio_signal,
 )
 from dsl_compiler.src.common.source_location import (
     SourceLocation,
 )
 
-from .symbol_table import SymbolTable, Symbol, SymbolType, SemanticError
+from .symbol_table import SemanticError, Symbol, SymbolTable, SymbolType
 from .type_system import (
     BundleValue,
     DynamicBundleValue,
@@ -72,7 +72,7 @@ from .type_system import (
 class SemanticAnalyzer(ASTVisitor):
     """Main semantic analysis visitor."""
 
-    RESERVED_SIGNAL_RULES: Dict[str, Tuple[str, str]] = {
+    RESERVED_SIGNAL_RULES: dict[str, tuple[str, str]] = {
         "signal-W": ("error", "the memory write-enable channel"),
     }
 
@@ -82,8 +82,7 @@ class SemanticAnalyzer(ASTVisitor):
     COMPARISON_OPS = {"==", "!=", "<", "<=", ">", ">="}
     LOGICAL_OPS = {"&&", "||"}
 
-    def __init__(self, diagnostics: ProgramDiagnostics, strict_types: bool = False):
-        self.strict_types = strict_types
+    def __init__(self, diagnostics: ProgramDiagnostics):
         self.diagnostics = diagnostics
         self.diagnostics.default_stage = "semantic"
         self.symbol_table = SymbolTable()
@@ -91,19 +90,19 @@ class SemanticAnalyzer(ASTVisitor):
 
         self.signal_registry = SignalTypeRegistry()
 
-        self.signal_debug_info: Dict[str, SignalDebugInfo] = {}
-        self.memory_types: Dict[str, MemoryInfo] = {}
-        self.expr_types: Dict[int, ValueInfo] = {}
-        
+        self.signal_debug_info: dict[str, SignalDebugInfo] = {}
+        self.memory_types: dict[str, MemoryInfo] = {}
+        self.expr_types: dict[int, ValueInfo] = {}
+
         # Track memory cells that have been written to (only one write per memory allowed)
-        self._memory_write_locations: Dict[str, ASTNode] = {}
+        self._memory_write_locations: dict[str, ASTNode] = {}
 
         self._analyzing_functions: set[str] = (
             set()
         )  # Track functions being analyzed for recursion detection
 
     @property
-    def signal_type_map(self) -> Dict[str, Any]:
+    def signal_type_map(self) -> dict[str, Any]:
         """Get signal type map from registry."""
         return self.signal_registry.get_all_mappings()
 
@@ -170,7 +169,7 @@ The order of set=/reset= determines priority:
 You cannot mix 'when=' with 'set=/reset=' arguments.
 """
 
-    def _resolve_physical_signal_name(self, signal_key: Optional[str]) -> Optional[str]:
+    def _resolve_physical_signal_name(self, signal_key: str | None) -> str | None:
         if not signal_key:
             return None
         mapped = self.signal_type_map.get(signal_key)
@@ -180,7 +179,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             return mapped
         return signal_key
 
-    def _lookup_signal_category(self, signal_key: Optional[str]) -> Optional[str]:
+    def _lookup_signal_category(self, signal_key: str | None) -> str | None:
         if not signal_key:
             return None
         mapped = self.signal_type_map.get(signal_key)
@@ -193,8 +192,8 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         identifier: str,
         node: ASTNode,
         value_type: ValueInfo,
-        declared_type: Optional[str] = None,
-    ) -> Optional[SignalDebugInfo]:
+        declared_type: str | None = None,
+    ) -> SignalDebugInfo | None:
         if not isinstance(value_type, SignalValue):
             return None
 
@@ -221,17 +220,13 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
         return debug_info
 
-    def get_signal_debug_payload(self, identifier: str) -> Optional[SignalDebugInfo]:
+    def get_signal_debug_payload(self, identifier: str) -> SignalDebugInfo | None:
         return self.signal_debug_info.get(identifier)
 
-    def make_signal_type_info(
-        self, type_name: str, implicit: bool = False
-    ) -> SignalTypeInfo:
+    def make_signal_type_info(self, type_name: str, implicit: bool = False) -> SignalTypeInfo:
         """Create a SignalTypeInfo with virtual flag inferred from name."""
         is_virtual = type_name.startswith("signal-") or type_name.startswith("__")
-        return SignalTypeInfo(
-            name=type_name, is_implicit=implicit, is_virtual=is_virtual
-        )
+        return SignalTypeInfo(name=type_name, is_implicit=implicit, is_virtual=is_virtual)
 
     def validate_signal_type_with_error(
         self, signal_name: str, node: ASTNode, context: str = ""
@@ -264,23 +259,23 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
     def resolve_signal_type_access(
         self, type_ref: "str | SignalTypeAccess", node: ASTNode
-    ) -> Optional[str]:
+    ) -> str | None:
         """Resolve a signal type reference to a string type name.
-        
+
         Handles both:
         - String literals (e.g., "iron-plate") - returned as-is
         - SignalTypeAccess (e.g., a.type) - resolved to the signal's type at compile time
-        
+
         Args:
             type_ref: Either a string type name or a SignalTypeAccess expression
             node: The AST node for error reporting
-            
+
         Returns:
             The resolved signal type name as a string, or None on error
         """
         if isinstance(type_ref, str):
             return type_ref
-            
+
         if isinstance(type_ref, SignalTypeAccess):
             if type_ref.property_name != "type":
                 self.diagnostics.error(
@@ -289,7 +284,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                     node=node,
                 )
                 return None
-                
+
             # Look up the signal variable
             symbol = self.current_scope.lookup(type_ref.object_name)
             if symbol is None:
@@ -299,7 +294,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                     node=node,
                 )
                 return None
-                
+
             # Check that the variable is a Signal
             if not isinstance(symbol.value_type, SignalValue):
                 self.diagnostics.error(
@@ -309,7 +304,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                     node=node,
                 )
                 return None
-                
+
             # Extract the signal type name (works for both explicit and implicit types)
             if symbol.value_type.signal_type is None:
                 # This shouldn't normally happen since SignalValue always has a signal_type
@@ -319,9 +314,9 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                     node=node,
                 )
                 return None
-            
+
             return symbol.value_type.signal_type.name
-            
+
         # Unknown type
         self.diagnostics.error(
             f"Invalid type reference: {type(type_ref).__name__}",
@@ -345,10 +340,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         if isinstance(expr, NumberLiteral):
             return IntValue(value=expr.value)
 
-        elif isinstance(expr, StringLiteral):
-            return IntValue()
-
-        elif isinstance(expr, DictLiteral):
+        elif isinstance(expr, StringLiteral) or isinstance(expr, DictLiteral):
             return IntValue()
 
         elif isinstance(expr, IdentifierExpr):
@@ -382,7 +374,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             if expr.is_latch_write():
                 set_type = self.get_expr_type(expr.set_signal)
                 reset_type = self.get_expr_type(expr.reset_signal)
-                
+
                 # Validate set signal is a signal expression
                 if not isinstance(set_type, SignalValue):
                     self.diagnostics.error(
@@ -392,7 +384,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                         stage="semantic",
                         node=expr,
                     )
-                
+
                 # Validate reset signal is a signal expression
                 if not isinstance(reset_type, SignalValue):
                     self.diagnostics.error(
@@ -402,7 +394,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                         stage="semantic",
                         node=expr,
                     )
-                
+
                 # Check for mixed arguments (when= with set=/reset=)
                 if expr.when is not None:
                     self.diagnostics.error(
@@ -445,7 +437,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             scope_qualified_name = f"{id(self.current_scope)}:{expr.memory_name}"
             if scope_qualified_name in self._memory_write_locations:
                 prev_node = self._memory_write_locations[scope_qualified_name]
-                prev_line = getattr(prev_node, 'line', '?')
+                prev_line = getattr(prev_node, "line", "?")
                 self.diagnostics.error(
                     f"Multiple writes to memory '{expr.memory_name}' not allowed. "
                     f"Each memory cell can only have one write() call. "
@@ -456,9 +448,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             else:
                 self._memory_write_locations[scope_qualified_name] = expr
 
-            if expr.when is not None and not isinstance(
-                enable_type, (SignalValue, IntValue)
-            ):
+            if expr.when is not None and not isinstance(enable_type, (SignalValue, IntValue)):
                 self.diagnostics.error(
                     "write when= argument must evaluate to a signal or integer.",
                     stage="semantic",
@@ -482,11 +472,9 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 return symbol.value_type
 
             mem_info = self.memory_types.get(expr.memory_name)
-            write_signal_name = (
-                value_type.signal_type.name if value_type.signal_type else None
-            )
+            write_signal_name = value_type.signal_type.name if value_type.signal_type else None
 
-            expected_type: Optional[str] = None
+            expected_type: str | None = None
             if mem_info is not None and mem_info.signal_type:
                 expected_type = mem_info.signal_type
             elif mem_info is None and isinstance(symbol.value_type, SignalValue):
@@ -494,11 +482,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 if signal_info:
                     expected_type = signal_info.name
 
-            if (
-                expected_type is None
-                and mem_info is not None
-                and write_signal_name is not None
-            ):
+            if expected_type is None and mem_info is not None and write_signal_name is not None:
                 inferred_info = self.make_signal_type_info(
                     write_signal_name,
                     implicit=write_signal_name.startswith("__"),
@@ -521,9 +505,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                     debug_info.factorio_signal = self._resolve_physical_signal_name(
                         write_signal_name
                     )
-                    debug_info.category = self._lookup_signal_category(
-                        write_signal_name
-                    )
+                    debug_info.category = self._lookup_signal_category(write_signal_name)
 
                 expected_type = write_signal_name
 
@@ -554,10 +536,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 if is_implicit_type:
                     pass
                 elif mem_info is not None and not mem_info.explicit:
-                    if self.strict_types:
-                        self.diagnostics.error(message, stage="semantic", node=expr)
-                    else:
-                        self.diagnostics.warning(message, stage="semantic", node=expr)
+                    self.diagnostics.warning(message, stage="semantic", node=expr)
                 else:
                     self.diagnostics.error(message, stage="semantic", node=expr)
 
@@ -581,14 +560,10 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             if resolved_type is None:
                 # Error already reported by resolve_signal_type_access
                 return SignalValue(signal_type=self.allocate_implicit_type())
-                
+
             if resolved_type in self.RESERVED_SIGNAL_RULES:
-                self._emit_reserved_signal_diagnostic(
-                    resolved_type, expr, "as a projection target"
-                )
-            self.validate_signal_type_with_error(
-                resolved_type, expr, "in projection"
-            )
+                self._emit_reserved_signal_diagnostic(resolved_type, expr, "as a projection target")
+            self.validate_signal_type_with_error(resolved_type, expr, "in projection")
             target_signal_type = SignalTypeInfo(name=resolved_type)
             return SignalValue(signal_type=target_signal_type)
 
@@ -603,14 +578,10 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 if resolved_type is None:
                     # Error already reported by resolve_signal_type_access
                     return SignalValue(signal_type=self.allocate_implicit_type())
-                    
+
                 if resolved_type in self.RESERVED_SIGNAL_RULES:
-                    self._emit_reserved_signal_diagnostic(
-                        resolved_type, expr, "in signal literals"
-                    )
-                self.validate_signal_type_with_error(
-                    resolved_type, expr, "in signal literal"
-                )
+                    self._emit_reserved_signal_diagnostic(resolved_type, expr, "in signal literals")
+                self.validate_signal_type_with_error(resolved_type, expr, "in signal literal")
                 signal_type = SignalTypeInfo(name=resolved_type)
                 return SignalValue(signal_type=signal_type, count_expr=expr.value)
             else:
@@ -646,10 +617,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             elif object_symbol.symbol_type == SymbolType.ENTITY:
                 return SignalValue(signal_type=self.allocate_implicit_type())
             elif object_symbol.symbol_type == SymbolType.MODULE:
-                if (
-                    object_symbol.properties
-                    and expr.property_name in object_symbol.properties
-                ):
+                if object_symbol.properties and expr.property_name in object_symbol.properties:
                     func_symbol = object_symbol.properties[expr.property_name]
                     return func_symbol.value_type
                 else:
@@ -735,11 +703,8 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         return IntValue(), f"Invalid operand types for {op}"
 
     def _emit_type_warning(self, message: str, node: ASTNode) -> None:
-        """Emit a type compatibility message as error or warning based on strict mode."""
-        if self.strict_types:
-            self.diagnostics.error(message, stage="semantic", node=node)
-        else:
-            self.diagnostics.warning(message, stage="semantic", node=node)
+        """Emit a type compatibility warning."""
+        self.diagnostics.warning(message, stage="semantic", node=node)
 
     def infer_binary_op_type(self, expr: BinaryOp) -> ValueInfo:
         """Infer type for binary operations with mixed-type rules."""
@@ -872,9 +837,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         for stmt in node.statements:
             self.visit(stmt)
 
-    def _try_simplify_signal_projection(
-        self, proj_expr: ProjectionExpr
-    ) -> Optional[SignalLiteral]:
+    def _try_simplify_signal_projection(self, proj_expr: ProjectionExpr) -> SignalLiteral | None:
         """
         Try to simplify a projection of a literal to a direct signal literal.
 
@@ -981,9 +944,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         else:
             return SymbolType.VARIABLE
 
-    def _value_matches_type(
-        self, value_type: ValueInfo, expected_type_name: str
-    ) -> bool:
+    def _value_matches_type(self, value_type: ValueInfo, expected_type_name: str) -> bool:
         """Check if a value type matches the expected type name."""
         # VoidValue never matches any expected type
         if isinstance(value_type, VoidValue):
@@ -1030,7 +991,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
         return VoidValue()
 
-    def _infer_builtin_call_type(self, expr: CallExpr) -> Optional[ValueInfo]:
+    def _infer_builtin_call_type(self, expr: CallExpr) -> ValueInfo | None:
         """Return ValueInfo for built-in calls or None if not handled."""
         if expr.name == "place":
             signal_type = self.allocate_implicit_type()
@@ -1135,13 +1096,9 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         if declared_type is None:
             signal_info = self.allocate_implicit_type()
         else:
-            self.validate_signal_type_with_error(
-                declared_type, node, f"for memory '{node.name}'"
-            )
+            self.validate_signal_type_with_error(declared_type, node, f"for memory '{node.name}'")
             if declared_type in self.RESERVED_SIGNAL_RULES:
-                self._emit_reserved_signal_diagnostic(
-                    declared_type, node, "for memory storage"
-                )
+                self._emit_reserved_signal_diagnostic(declared_type, node, "for memory storage")
 
             signal_info = self.make_signal_type_info(declared_type)
 
@@ -1199,13 +1156,9 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
     def _is_compatible_argument(self, param_type: str, arg_type: ValueInfo) -> bool:
         """Check if argument type is compatible with parameter type."""
         if param_type == "int":
-            return isinstance(
-                arg_type, (IntValue, SignalValue)
-            )  # Allow signal->int coercion
+            return isinstance(arg_type, (IntValue, SignalValue))  # Allow signal->int coercion
         elif param_type == "Signal":
-            return isinstance(
-                arg_type, (IntValue, SignalValue)
-            )  # Allow int->signal coercion
+            return isinstance(arg_type, (IntValue, SignalValue))  # Allow int->signal coercion
         elif param_type == "Entity":
             return isinstance(arg_type, EntityValue)
         return False
@@ -1216,7 +1169,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         for param in node.params:
             if param.type_name == "Memory":
                 self.diagnostics.error(
-                    f"Memory cannot be used as a function parameter type",
+                    "Memory cannot be used as a function parameter type",
                     stage="semantic",
                     node=node,
                 )
@@ -1255,9 +1208,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             # Define parameters with their declared types
             for param in node.params:
                 param_value_type = self._type_name_to_value_info(param.type_name)
-                param_symbol_type = self._param_type_name_to_symbol_type(
-                    param.type_name
-                )
+                param_symbol_type = self._param_type_name_to_symbol_type(param.type_name)
 
                 param_symbol = Symbol(
                     name=param.name,
@@ -1279,7 +1230,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             # Remove from analyzing set
             self._analyzing_functions.discard(node.name)
 
-    def _infer_function_return_type(self, body: List[Statement]) -> ValueInfo:
+    def _infer_function_return_type(self, body: list[Statement]) -> ValueInfo:
         """Infer function return type by analyzing return statements."""
 
         for stmt in body:
@@ -1290,7 +1241,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
     def _resolve_for_loop_constant(self, name: str) -> int:
         """Resolve a variable name to its compile-time constant integer value.
-        
+
         Used for resolving for loop range bounds that use variable references.
         """
         symbol = self.current_scope.lookup(name)
@@ -1310,11 +1261,11 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
     def visit_ForStmt(self, node: ForStmt) -> None:
         """Analyze a for loop statement.
-        
+
         For loops are compile-time constructs that get unrolled.
         The iterator variable is an immutable int with a known literal value.
         """
-        # Validate step is not zero for range iterators  
+        # Validate step is not zero for range iterators
         # (only check if step is a literal int, not a variable)
         if node.step is not None and isinstance(node.step, int) and node.step == 0:
             self.diagnostics.error(
@@ -1380,9 +1331,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                     try:
                         self.current_scope.define(entity_symbol)
                     except SemanticError as e:
-                        self.diagnostics.error(
-                            e.message, stage="semantic", node=node.target
-                        )
+                        self.diagnostics.error(e.message, stage="semantic", node=node.target)
                 else:
                     self.diagnostics.error(
                         f"Undefined variable '{node.target.name}'",
@@ -1444,15 +1393,21 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             if node.name in builtin_names:
                 self._validate_builtin_call(node)
                 return
-            self.diagnostics.error(
-                f"Undefined function '{node.name}'", stage="semantic", node=node
-            )
+            # Special error for legacy write() function syntax
+            if node.name == "write":
+                self.diagnostics.error(
+                    "Legacy write() function syntax is not supported. "
+                    "Use memory_name.write(value) or memory_name.write(value, when=condition) instead. "
+                    "Note: The first argument to write() is not a memory symbol in the new syntax.",
+                    stage="semantic",
+                    node=node,
+                )
+                return
+            self.diagnostics.error(f"Undefined function '{node.name}'", stage="semantic", node=node)
             return
 
         if func_symbol.symbol_type != SymbolType.FUNCTION:
-            self.diagnostics.error(
-                f"'{node.name}' is not a function", stage="semantic", node=node
-            )
+            self.diagnostics.error(f"'{node.name}' is not a function", stage="semantic", node=node)
             return
 
         # Check for recursion
@@ -1465,9 +1420,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             )
             return
 
-        func_def = (
-            func_symbol.function_def if hasattr(func_symbol, "function_def") else None
-        )
+        func_def = func_symbol.function_def if hasattr(func_symbol, "function_def") else None
 
         if func_def:
             expected_params = len(func_def.params)
@@ -1513,9 +1466,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             element_type = self.get_expr_type(element)
 
             if isinstance(element_type, SignalValue):
-                signal_name = (
-                    element_type.signal_type.name if element_type.signal_type else None
-                )
+                signal_name = element_type.signal_type.name if element_type.signal_type else None
                 if signal_name:
                     if signal_name in seen_signals:
                         self.diagnostics.error(
@@ -1631,12 +1582,12 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
     def _infer_entity_output_type(self, expr: EntityOutputExpr) -> DynamicBundleValue:
         """Infer type for entity.output expression.
-        
+
         Returns DynamicBundleValue since the actual signals depend on runtime state
         (e.g., chest contents, train cargo).
         """
         entity_name = expr.entity_name
-        
+
         # Look up the entity in the symbol table
         symbol = self.current_scope.lookup(entity_name)
         if symbol is None:
@@ -1646,7 +1597,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 node=expr,
             )
             return DynamicBundleValue(source_entity_id=entity_name)
-        
+
         if symbol.symbol_type != SymbolType.ENTITY:
             self.diagnostics.error(
                 f"'{entity_name}' is not an entity; cannot access .output property",
@@ -1654,7 +1605,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 node=expr,
             )
             return DynamicBundleValue(source_entity_id=entity_name)
-        
+
         # Return a DynamicBundleValue - signal types are determined at runtime
         return DynamicBundleValue(source_entity_id=entity_name)
 

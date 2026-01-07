@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from collections.abc import Callable
+from typing import Any
 
-from dsl_compiler.src.ast.statements import (
-    ASTNode,
-    Expr,
-)
 from dsl_compiler.src.ast.expressions import (
     BinaryOp,
     IdentifierExpr,
@@ -15,11 +12,13 @@ from dsl_compiler.src.ast.expressions import (
     UnaryOp,
 )
 from dsl_compiler.src.ast.literals import NumberLiteral
-
-from typing import Callable
+from dsl_compiler.src.ast.statements import (
+    ASTNode,
+    Expr,
+)
 
 # Type alias for symbol resolver callback
-SymbolResolver = Callable[[str], Optional[int]]
+SymbolResolver = Callable[[str], int | None]
 
 
 class ConstantFolder:
@@ -32,7 +31,7 @@ class ConstantFolder:
         right: int,
         node: ASTNode,
         diagnostics: Any = None,
-    ) -> Optional[int]:
+    ) -> int | None:
         """Evaluate a binary integer operation at compile time."""
 
         # Arithmetic
@@ -133,8 +132,8 @@ class ConstantFolder:
         cls,
         expr: Expr,
         diagnostics: Any = None,
-        symbol_resolver: Optional[SymbolResolver] = None,
-    ) -> Optional[int]:
+        symbol_resolver: SymbolResolver | None = None,
+    ) -> int | None:
         """Attempt to evaluate an expression to an integer constant.
 
         Recursively evaluates constant expressions at compile time, including:

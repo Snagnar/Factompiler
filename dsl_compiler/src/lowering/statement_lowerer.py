@@ -1,29 +1,11 @@
 from __future__ import annotations
+
 from typing import Any
-from dsl_compiler.src.ir.builder import (
-    IR_Const,
-    SignalRef,
-    BundleRef,
-    ValueRef,
-)
-from dsl_compiler.src.ir.nodes import IR_EntityPropWrite
-from dsl_compiler.src.semantic.analyzer import SignalValue
-from dsl_compiler.src.semantic.type_system import IntValue, get_signal_type_name
-from dsl_compiler.src.ast.statements import (
-    AssignStmt,
-    DeclStmt,
-    ExprStmt,
-    FuncDecl,
-    ImportStmt,
-    MemDecl,
-    ReturnStmt,
-    Statement,
-    ForStmt,
-)
+
 from dsl_compiler.src.ast.expressions import (
     BinaryOp,
-    BundleAnyExpr,
     BundleAllExpr,
+    BundleAnyExpr,
     CallExpr,
     SignalLiteral,
 )
@@ -32,6 +14,25 @@ from dsl_compiler.src.ast.literals import (
     NumberLiteral,
     PropertyAccess,
 )
+from dsl_compiler.src.ast.statements import (
+    AssignStmt,
+    DeclStmt,
+    ExprStmt,
+    ForStmt,
+    FuncDecl,
+    ImportStmt,
+    MemDecl,
+    ReturnStmt,
+    Statement,
+)
+from dsl_compiler.src.ir.builder import (
+    BundleRef,
+    IR_Const,
+    SignalRef,
+    ValueRef,
+)
+from dsl_compiler.src.ir.nodes import IR_EntityPropWrite
+from dsl_compiler.src.semantic.type_system import IntValue, get_signal_type_name
 
 
 class StatementLowerer:
@@ -337,9 +338,9 @@ class StatementLowerer:
 
             # Remove variables defined in this iteration (restore scope)
             # Keep only the keys that existed before this iteration
-            new_signal_refs = {k: v for k, v in self.parent.signal_refs.items() 
+            new_signal_refs = {k: v for k, v in self.parent.signal_refs.items()
                               if k in saved_signal_refs_keys}
-            new_entity_refs = {k: v for k, v in self.parent.entity_refs.items() 
+            new_entity_refs = {k: v for k, v in self.parent.entity_refs.items()
                               if k in saved_entity_refs_keys}
             self.parent.signal_refs = new_signal_refs
             self.parent.entity_refs = new_entity_refs

@@ -1,5 +1,5 @@
 """
-AST to IR lowering pass for the Factorio Circuit DSL.
+AST to IR lowering pass for the Facto.
 
 This module orchestrates the lowering helpers that convert semantic-analyzed
 AST nodes into IR operations following the compiler specification.
@@ -7,20 +7,20 @@ AST nodes into IR operations following the compiler specification.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Set
 from dataclasses import dataclass
+
+from draftsman.data import signals as signal_data
 
 from dsl_compiler.src.ast.statements import (
     ASTNode,
-    Statement,
     Program,
+    Statement,
 )
-from dsl_compiler.src.ir.nodes import IRNode, ValueRef, SignalRef
-from dsl_compiler.src.ir.builder import IRBuilder
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
-from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 from dsl_compiler.src.common.source_location import SourceLocation
-from draftsman.data import signals as signal_data
+from dsl_compiler.src.ir.builder import IRBuilder
+from dsl_compiler.src.ir.nodes import IRNode, SignalRef, ValueRef
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 
 from .expression_lowerer import ExpressionLowerer
 from .memory_lowerer import MemoryLowerer
@@ -31,9 +31,9 @@ from .statement_lowerer import StatementLowerer
 class ExpressionContext:
     """Context for tracking expression lowering for debug info."""
 
-    target_name: Optional[str] = None  # Variable being assigned to
-    target_line: Optional[int] = None  # Line number of assignment
-    source_file: Optional[str] = None  # Source file name
+    target_name: str | None = None  # Variable being assigned to
+    target_line: int | None = None  # Line number of assignment
+    source_file: str | None = None  # Source file name
 
 
 class ASTLowerer:
@@ -47,32 +47,32 @@ class ASTLowerer:
         self.diagnostics = diagnostics
         self.diagnostics.default_stage = "lowering"
 
-        self.signal_refs: Dict[str, SignalRef] = {}
-        self.memory_refs: Dict[str, str] = {}
-        self.memory_types: Dict[
+        self.signal_refs: dict[str, SignalRef] = {}
+        self.memory_refs: dict[str, str] = {}
+        self.memory_types: dict[
             str, str
         ] = {}  # Track memory signal types during lowering
-        self.entity_refs: Dict[str, str] = {}
-        self.param_values: Dict[str, ValueRef] = {}
+        self.entity_refs: dict[str, str] = {}
+        self.param_values: dict[str, ValueRef] = {}
         # Track which signal names are actually referenced (not just declared)
-        self.referenced_signal_names: Set[str] = set()
+        self.referenced_signal_names: set[str] = set()
 
         # Expression context stack for tracking assignment context during lowering
-        self._expr_context_stack: List[ExpressionContext] = []
+        self._expr_context_stack: list[ExpressionContext] = []
 
         # Track function inlining to detect recursion
-        self._inlining_stack: List[str] = []
+        self._inlining_stack: list[str] = []
 
         self.ir_builder.signal_registry = self.semantic.signal_registry
 
-        self.returned_entity_id: Optional[str] = None
+        self.returned_entity_id: str | None = None
 
         self.mem_lowerer = MemoryLowerer(self)
         self.expr_lowerer = ExpressionLowerer(self)
         self.stmt_lowerer = StatementLowerer(self)
 
     def push_expr_context(
-        self, target_name: Optional[str], node: Optional[ASTNode] = None
+        self, target_name: str | None, node: ASTNode | None = None
     ) -> None:
         """Push expression context for tracking what variable is being computed."""
         line = getattr(node, "line", None) if node else None
@@ -84,19 +84,19 @@ class ASTLowerer:
         )
         self._expr_context_stack.append(ctx)
 
-    def pop_expr_context(self) -> Optional[ExpressionContext]:
+    def pop_expr_context(self) -> ExpressionContext | None:
         """Pop expression context after lowering expression."""
         if self._expr_context_stack:
             return self._expr_context_stack.pop()
         return None
 
-    def get_expr_context(self) -> Optional[ExpressionContext]:
+    def get_expr_context(self) -> ExpressionContext | None:
         """Get current expression context without removing it."""
         if self._expr_context_stack:
             return self._expr_context_stack[-1]
         return None
 
-    def _error(self, message: str, node: Optional[ASTNode] = None) -> None:
+    def _error(self, message: str, node: ASTNode | None = None) -> None:
         """Add a lowering error diagnostic."""
         self.diagnostics.error(message, stage="lowering", node=node)
 
@@ -139,7 +139,7 @@ class ASTLowerer:
             ref, label=name, source_ast=source_ast, metadata=metadata
         )
 
-    def _infer_signal_category(self, signal_type: Optional[str]) -> str:
+    def _infer_signal_category(self, signal_type: str | None) -> str:
         """Infer the Factorio signal category for the given identifier."""
         if not signal_type:
             return "virtual"
@@ -183,7 +183,7 @@ class ASTLowerer:
         return "virtual"
 
     def ensure_signal_registered(
-        self, signal_type: Optional[str], source_signal_type: Optional[str] = None
+        self, signal_type: str | None, source_signal_type: str | None = None
     ) -> None:
         """Ensure that a signal identifier is known to the emitter."""
 
@@ -213,7 +213,7 @@ class ASTLowerer:
             signal_type, signal_type, category or "virtual"
         )
 
-    def lower_program(self, program: Program) -> List[IRNode]:
+    def lower_program(self, program: Program) -> list[IRNode]:
         for stmt in program.statements:
             self.lower_statement(stmt)
         return self.ir_builder.get_ir()

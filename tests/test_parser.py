@@ -4,10 +4,11 @@ Tests for parser.py - Core parsing functionality.
 import os
 
 import pytest
-from dsl_compiler.src.parsing.parser import DSLParser
+
 from dsl_compiler.src.ast.statements import Program
-from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.parsing.parser import DSLParser
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 
 
 class TestParser:
@@ -27,13 +28,13 @@ class TestParser:
         """Test parsing of sample files."""
 
         sample_files = [
-            "tests/sample_programs/01_basic_arithmetic.fcdsl",
-            "tests/sample_programs/04_memory.fcdsl",
+            "tests/sample_programs/01_basic_arithmetic.facto",
+            "tests/sample_programs/04_memory.facto",
         ]
 
         for file_path in sample_files:
             if os.path.exists(file_path):
-                with open(file_path, "r") as f:
+                with open(file_path) as f:
                     code = f.read()
                 program = parser.parse(code)
                 assert isinstance(program, Program)
@@ -44,22 +45,22 @@ class TestParser:
         lib_dir = tmp_path / "lib"
         lib_dir.mkdir()
 
-        helper_path = lib_dir / "helper.fcdsl"
+        helper_path = lib_dir / "helper.facto"
         helper_path.write_text(
             "Signal helper_signal = 5;\n",
             encoding="utf-8",
         )
 
-        main_path = tmp_path / "main.fcdsl"
+        main_path = tmp_path / "main.facto"
         main_path.write_text(
-            'import "lib/helper.fcdsl";\nSignal result = helper_signal + 1;\n',
+            'import "lib/helper.facto";\nSignal result = helper_signal + 1;\n',
             encoding="utf-8",
         )
 
         parser = DSLParser()
         program = parser.parse_file(main_path)
         diagnostics = ProgramDiagnostics()
-        analyzer = SemanticAnalyzer(diagnostics, strict_types=False)
+        analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
         assert not diagnostics.has_errors(), diagnostics.get_messages()

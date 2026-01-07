@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get your first Factompiler circuit running in under 5 minutes!
+Get your first Facto circuit running in under 5 minutes!
 
 ## Installation
 
@@ -30,15 +30,13 @@ You should see the compiler's help output:
 ```
 Usage: compile.py [OPTIONS] INPUT_FILE
 
-  Compile Factorio Circuit DSL files to blueprint format.
+  Compile Facto source files to blueprint format.
 
 Options:
   -o, --output PATH               Output file for the blueprint
-  --strict                        Enable strict type checking
   --name TEXT                     Blueprint name
   --log-level [debug|info|warning|error]
   --no-optimize                   Disable IR optimizations
-  --explain                       Add extended explanations to diagnostics
   --power-poles TEXT              Add power poles
   --json                          Output blueprint in JSON format
   --help                          Show this message and exit.
@@ -50,10 +48,10 @@ Let's create a classic circuit – a lamp that blinks on and off every few ticks
 
 ### Step 1: Create the Source File
 
-Create a new file called `blink.fcdsl`:
+Create a new file called `blink.facto`:
 
-```fcdsl
-# blink.fcdsl - A simple blinking lamp
+```facto
+# blink.facto - A simple blinking lamp
 
 # Create a memory cell to count ticks
 Memory counter: "signal-A";
@@ -72,7 +70,7 @@ lamp.enable = blink;
 ### Step 2: Compile It
 
 ```bash
-python compile.py blink.fcdsl
+python compile.py blink.facto
 ```
 
 The compiler outputs a base64-encoded blueprint string to your terminal.
@@ -94,12 +92,12 @@ The compiler outputs a base64-encoded blueprint string to your terminal.
 
 Let's break down what each line does:
 
-```fcdsl
+```facto
 Memory counter: "signal-A";
 ```
 This creates a **memory cell** – a circuit that remembers a value between ticks. It stores a signal of type `signal-A`.
 
-```fcdsl
+```facto
 counter.write((counter.read() + 1) % 20);
 ```
 Every tick, this:
@@ -108,12 +106,12 @@ Every tick, this:
 3. Takes the remainder when divided by 20 (so it cycles 0→19→0→19...)
 4. Writes the result back to `counter`
 
-```fcdsl
+```facto
 Signal blink = counter.read() < 10;
 ```
 Creates a signal that is `1` (true) when the counter is 0-9, and `0` (false) when it's 10-19.
 
-```fcdsl
+```facto
 Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = blink;
 ```
@@ -124,7 +122,7 @@ Places a lamp at coordinates (0, 0) and connects its enable condition to our bli
 Instead of copying from the terminal, you can save directly to a file:
 
 ```bash
-python compile.py blink.fcdsl -o blink.blueprint
+python compile.py blink.facto -o blink.blueprint
 ```
 
 Then open `blink.blueprint` in any text editor to copy the string.
@@ -133,8 +131,8 @@ Then open `blink.blueprint` in any text editor to copy the string.
 
 Let's try something with visible outputs – a circuit that does math:
 
-```fcdsl
-# arithmetic.fcdsl - Basic arithmetic operations
+```facto
+# arithmetic.facto - Basic arithmetic operations
 
 # Input signals (you'd wire these from your factory)
 Signal input_a = ("signal-A", 100);
@@ -156,7 +154,7 @@ Signal output_quot = quotient | "signal-4";
 Compile and import:
 
 ```bash
-python compile.py arithmetic.fcdsl -o arithmetic.blueprint
+python compile.py arithmetic.facto -o arithmetic.blueprint
 ```
 
 > **[IMAGE PLACEHOLDER]**: Screenshot of the arithmetic circuit in Factorio, with a view showing the constant combinators and arithmetic combinators.
@@ -165,8 +163,8 @@ python compile.py arithmetic.fcdsl -o arithmetic.blueprint
 
 Here's a practical example – an inserter that only runs when there are items to move:
 
-```fcdsl
-# controlled_inserter.fcdsl
+```facto
+# controlled_inserter.facto
 
 # This signal comes from reading a chest (wire it in-game)
 Signal chest_contents = ("iron-plate", 0);
@@ -185,8 +183,8 @@ inserter.enable = should_run;
 
 One of the most practical circuits: backup power that turns on when accumulators are low, and stays on until they're full – without flickering on and off.
 
-```fcdsl
-# steam_backup.fcdsl
+```facto
+# steam_backup.facto
 
 # Signal from accumulator (0-100%)
 Signal battery = ("signal-A", 0);  # Wire from your accumulator
@@ -209,23 +207,15 @@ See [Memory](04_memory.md) for more on latches and hysteresis patterns.
 ### See What's Happening (Debug Mode)
 
 ```bash
-python compile.py blink.fcdsl --log-level debug
+python compile.py blink.facto --log-level debug
 ```
 
 This shows you the compilation stages and what the compiler is doing.
 
-### Strict Type Checking
-
-```bash
-python compile.py blink.fcdsl --strict
-```
-
-Turns all warnings into errors. Great for catching subtle bugs.
-
 ### Add Power Poles
 
 ```bash
-python compile.py blink.fcdsl --power-poles medium
+python compile.py blink.facto --power-poles medium
 ```
 
 Automatically adds power poles to your blueprint. Options: `small`, `medium`, `big`, `substation`.
@@ -233,7 +223,7 @@ Automatically adds power poles to your blueprint. Options: `small`, `medium`, `b
 ### Custom Blueprint Name
 
 ```bash
-python compile.py blink.fcdsl --name "My Awesome Blinker"
+python compile.py blink.facto --name "My Awesome Blinker"
 ```
 
 The blueprint will have this name when imported.
@@ -241,7 +231,7 @@ The blueprint will have this name when imported.
 ### View as JSON
 
 ```bash
-python compile.py blink.fcdsl --json
+python compile.py blink.facto --json
 ```
 
 Outputs the raw blueprint JSON instead of the encoded string. Useful for debugging or integration with other tools.
@@ -251,7 +241,7 @@ Outputs the raw blueprint JSON instead of the encoded string. Useful for debuggi
 ## Common Questions
 
 **What version of Factorio does this work with?**
-Factompiler generates blueprints for Factorio 2.0 and later.
+Factompiler (the compiler) generates blueprints for Factorio 2.0 and later.
 
 **What's the difference between `int` and `Signal`?**
 - `int` is a compile-time constant – just a number, no combinator created
@@ -266,7 +256,7 @@ Check: (1) power pole nearby, (2) external signals wired in, (3) give it a tick 
 **Can I use loops?**
 Yes! `for` loops are unrolled at compile time:
 
-```fcdsl
+```facto
 for i in 0..5 {
     Entity lamp = place("small-lamp", i * 2, 0);
     lamp.enable = count > 0;

@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Optional
+
 from dsl_compiler.src.ast.statements import ASTNode
+
 from .type_system import ValueInfo
 
 """Symbol table implementation for semantic analysis."""
@@ -21,7 +23,7 @@ class SymbolType(Enum):
 class SemanticError(Exception):
     """Exception raised for semantic analysis errors."""
 
-    def __init__(self, message: str, node: Optional[ASTNode] = None) -> None:
+    def __init__(self, message: str, node: ASTNode | None = None) -> None:
         self.message = message
         self.node = node
         location = f" at {node.line}:{node.column}" if node and node.line > 0 else ""
@@ -37,9 +39,9 @@ class Symbol:
     value_type: ValueInfo
     defined_at: ASTNode
     is_mutable: bool = False
-    properties: Optional[Dict[str, "Symbol"]] = None
-    function_def: Optional[ASTNode] = None
-    debug_info: Dict[str, object] = field(default_factory=dict)
+    properties: dict[str, "Symbol"] | None = None
+    function_def: ASTNode | None = None
+    debug_info: dict[str, object] = field(default_factory=dict)
 
 
 class SymbolTable:
@@ -47,8 +49,8 @@ class SymbolTable:
 
     def __init__(self, parent: Optional["SymbolTable"] = None) -> None:
         self.parent = parent
-        self.symbols: Dict[str, Symbol] = {}
-        self.children: List["SymbolTable"] = []
+        self.symbols: dict[str, Symbol] = {}
+        self.children: list[SymbolTable] = []
 
     def define(self, symbol: Symbol) -> None:
         """Define a symbol in the current scope."""
@@ -60,7 +62,7 @@ class SymbolTable:
             )
         self.symbols[symbol.name] = symbol
 
-    def lookup(self, name: str) -> Optional[Symbol]:
+    def lookup(self, name: str) -> Symbol | None:
         """Look up a symbol by name, searching parent scopes as needed."""
 
         if name in self.symbols:

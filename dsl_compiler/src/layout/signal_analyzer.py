@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any
+
 from draftsman.data import signals as signal_data  # type: ignore[import-not-found]
+
 from dsl_compiler.src.ast.expressions import SignalLiteral
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.common.signals import (
@@ -9,17 +11,17 @@ from dsl_compiler.src.common.signals import (
     WILDCARD_SIGNALS,
 )
 from dsl_compiler.src.ir.builder import (
-    IRNode,
-    IRValue,
-    IR_Const,
+    BundleRef,
     IR_Arith,
+    IR_Const,
     IR_Decider,
     IR_MemCreate,
     IR_MemWrite,
     IR_PlaceEntity,
     IR_WireMerge,
+    IRNode,
+    IRValue,
     SignalRef,
-    BundleRef,
 )
 from dsl_compiler.src.ir.nodes import IR_EntityPropWrite
 
@@ -29,24 +31,24 @@ class SignalUsageEntry:
     """Metadata describing how a logical signal is produced and consumed."""
 
     signal_id: str
-    signal_type: Optional[str] = None
-    producer: Optional[IRValue] = None
-    consumers: Set[str] = field(default_factory=set)
-    export_targets: Set[str] = field(default_factory=set)
-    output_entities: Set[str] = field(default_factory=set)
-    source_ast: Optional[Any] = None
-    literal_value: Optional[int] = None
-    literal_declared_type: Optional[str] = None
+    signal_type: str | None = None
+    producer: IRValue | None = None
+    consumers: set[str] = field(default_factory=set)
+    export_targets: set[str] = field(default_factory=set)
+    output_entities: set[str] = field(default_factory=set)
+    source_ast: Any | None = None
+    literal_value: int | None = None
+    literal_declared_type: str | None = None
     is_typed_literal: bool = False
-    debug_label: Optional[str] = None
-    debug_metadata: Dict[str, Any] = field(default_factory=dict)
+    debug_label: str | None = None
+    debug_metadata: dict[str, Any] = field(default_factory=dict)
     should_materialize: bool = True
-    resolved_signal_name: Optional[str] = None
-    resolved_signal_type: Optional[str] = None
+    resolved_signal_name: str | None = None
+    resolved_signal_type: str | None = None
     # Track all variable names that alias to this signal (for output detection)
-    alias_names: Set[str] = field(default_factory=set)
+    alias_names: set[str] = field(default_factory=set)
     # Track which aliases are output-only (not consumed by other code)
-    output_aliases: Set[str] = field(default_factory=set)
+    output_aliases: set[str] = field(default_factory=set)
 
 
 class SignalAnalyzer:
@@ -55,17 +57,17 @@ class SignalAnalyzer:
     def __init__(
         self,
         diagnostics: ProgramDiagnostics,
-        signal_type_map: Dict[str, Any],
-        signal_refs: Optional[Dict[str, SignalRef]] = None,
-        referenced_signal_names: Optional[Set[str]] = None,
+        signal_type_map: dict[str, Any],
+        signal_refs: dict[str, SignalRef] | None = None,
+        referenced_signal_names: set[str] | None = None,
     ):
         self.diagnostics = diagnostics
         self.signal_type_map = signal_type_map
         self.signal_refs = signal_refs or {}
         self.referenced_signal_names = referenced_signal_names or set()
-        self.signal_usage: Dict[str, SignalUsageEntry] = {}
+        self.signal_usage: dict[str, SignalUsageEntry] = {}
         # Pre-populate allocated signals from existing mappings
-        self._allocated_signals: Set[str] = set()
+        self._allocated_signals: set[str] = set()
         for mapping in signal_type_map.values():
             if isinstance(mapping, dict):
                 self._allocated_signals.add(mapping.get("name"))
@@ -77,17 +79,17 @@ class SignalAnalyzer:
         self._signal_pool_index = 0
         self._warned_signal_reuse = False
 
-    def analyze(self, ir_operations: List[IRNode]) -> Dict[str, SignalUsageEntry]:
+    def analyze(self, ir_operations: list[IRNode]) -> dict[str, SignalUsageEntry]:
         """Analyze IR operations to build a signal usage index."""
 
-        usage: Dict[str, SignalUsageEntry] = {}
+        usage: dict[str, SignalUsageEntry] = {}
 
         # Build a map from node_id to operation for quick lookup
-        op_by_id: Dict[str, IRNode] = {op.node_id: op for op in ir_operations}
+        op_by_id: dict[str, IRNode] = {op.node_id: op for op in ir_operations}
 
         # Build alias map: source_id -> set of variable names that reference it
         # Skip entries whose producer has suppress_materialization (e.g., entity placeholders)
-        source_to_names: Dict[str, Set[str]] = {}
+        source_to_names: dict[str, set[str]] = {}
         for name, ref in self.signal_refs.items():
             if isinstance(ref, SignalRef):
                 # Check if this source has suppress_materialization
@@ -100,7 +102,7 @@ class SignalAnalyzer:
                 source_to_names[ref.source_id].add(name)
 
         def ensure_entry(
-            signal_id: str, signal_type: Optional[str] = None
+            signal_id: str, signal_type: str | None = None
         ) -> SignalUsageEntry:
             entry = usage.get(signal_id)
             if entry is None:
@@ -236,7 +238,7 @@ class SignalAnalyzer:
             return False
         return entry.literal_value is not None
 
-    def inline_value(self, signal_ref: SignalRef) -> Optional[int]:
+    def inline_value(self, signal_ref: SignalRef) -> int | None:
         """Get the inlined literal value for a signal reference if possible."""
         if self.can_inline_constant(signal_ref):
             entry = self.signal_usage[signal_ref.source_id]
@@ -245,8 +247,8 @@ class SignalAnalyzer:
 
     def resolve_signal_name(
         self,
-        signal_type: Optional[str],
-        entry: Optional[SignalUsageEntry] = None,
+        signal_type: str | None,
+        entry: SignalUsageEntry | None = None,
     ) -> str:
         """Resolve a signal type to a Factorio signal name."""
         # If signal_type is a concrete Factorio signal name (not an implicit __v variable),
@@ -257,7 +259,7 @@ class SignalAnalyzer:
             # Check if it's a known Factorio signal
             if signal_type in signal_data.raw or signal_type.startswith("signal-"):
                 return signal_type
-        
+
         lookup_entry = entry
         if lookup_entry is None and signal_type:
             lookup_entry = self.signal_usage.get(signal_type)
@@ -268,8 +270,8 @@ class SignalAnalyzer:
         return self._resolve_via_mapping(signal_type, lookup_entry)
 
     def resolve_signal_type(
-        self, signal_type: Optional[str], entry: Optional[SignalUsageEntry] = None
-    ) -> Optional[str]:
+        self, signal_type: str | None, entry: SignalUsageEntry | None = None
+    ) -> str | None:
         """Resolve a signal type to its category (virtual, item, fluid)."""
         lookup_entry = entry
         if lookup_entry is None and signal_type:
@@ -296,13 +298,13 @@ class SignalAnalyzer:
             return self.resolve_signal_name(operand.signal_type, entry)
 
         if hasattr(operand, "signal_type"):
-            signal_type = getattr(operand, "signal_type")
+            signal_type = operand.signal_type
         else:
             signal_type = str(operand).split("@")[0]
 
         return self._resolve_via_mapping(signal_type, None)
 
-    def get_operand_for_combinator(self, operand: Any) -> Union[str, int]:
+    def get_operand_for_combinator(self, operand: Any) -> str | int:
         """Resolve an operand for combinator use (inline constants or signal names)."""
         if isinstance(operand, int):
             return operand
@@ -380,14 +382,14 @@ class SignalAnalyzer:
             entry.should_materialize = True
 
     def _resolve_signal_identity(
-        self, entry: Optional[SignalUsageEntry], force: bool = False
+        self, entry: SignalUsageEntry | None, force: bool = False
     ) -> None:
         if not entry:
             return
         if not force and entry.resolved_signal_name:
             return
 
-        candidates: List[str] = []
+        candidates: list[str] = []
         if entry.literal_declared_type:
             candidates.append(entry.literal_declared_type)
         if entry.signal_type:
@@ -395,8 +397,8 @@ class SignalAnalyzer:
         if entry.debug_label and entry.debug_label not in candidates:
             candidates.append(entry.debug_label)
 
-        name: Optional[str] = None
-        category: Optional[str] = None
+        name: str | None = None
+        category: str | None = None
 
         for candidate in candidates:
             if not candidate:
@@ -462,7 +464,7 @@ class SignalAnalyzer:
                 )
 
     def _resolve_via_mapping(
-        self, signal_type: Optional[str], entry: Optional[SignalUsageEntry]
+        self, signal_type: str | None, entry: SignalUsageEntry | None
     ) -> str:
         if entry and entry.resolved_signal_name:
             return entry.resolved_signal_name
@@ -504,7 +506,7 @@ class SignalAnalyzer:
             return "virtual"
         return "virtual"
 
-    def _build_available_signal_pool(self) -> List[str]:
+    def _build_available_signal_pool(self) -> list[str]:
         """
         Build pool of signals available for implicit allocation.
 
@@ -514,7 +516,7 @@ class SignalAnalyzer:
         - Reserved compiler signals
         - Wildcard signals
         """
-        excluded: Set[str] = set()
+        excluded: set[str] = set()
 
         # Add reserved and wildcard signals
         excluded.update(RESERVED_SIGNALS)

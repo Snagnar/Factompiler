@@ -1,5 +1,5 @@
-// fcdsl.lark
-// Factorio Circuit DSL grammar (Lark format)
+// facto.lark
+// Facto language grammar (Lark format)
 // Version 2.0 - Extended operator support
 
 %import common.ESCAPED_STRING   -> STRING
