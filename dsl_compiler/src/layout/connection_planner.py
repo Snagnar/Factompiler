@@ -258,9 +258,7 @@ class RelayNetwork:
         path: list[tuple[str, str]] = []
         current_pos = source_pos
 
-        for i in range(
-            num_relays + 5
-        ):  # +5 for safety margin if relays get placed off-path
+        for i in range(num_relays + 5):  # +5 for safety margin if relays get placed off-path
             # Calculate remaining distance and direction FROM CURRENT POSITION
             remaining_dist = math.dist(current_pos, sink_pos)
             if remaining_dist <= span_limit * 0.95:
@@ -365,9 +363,7 @@ class RelayNetwork:
                 return node
 
         # Need to create a new relay - find the best available position
-        return self._create_relay_directed(
-            ideal_pos, source_pos, sink_pos, span_limit, signal_name
-        )
+        return self._create_relay_directed(ideal_pos, source_pos, sink_pos, span_limit, signal_name)
 
     def _create_relay_directed(
         self,
@@ -430,11 +426,9 @@ class RelayNetwork:
         # Sort by score and try to reserve the best positions
         candidates.sort(key=lambda x: x[0])
 
-        for score, candidate_pos in candidates:
+        for _score, candidate_pos in candidates:
             if self.tile_grid.reserve_exact(candidate_pos, footprint=(1, 1)):
-                return self._finalize_relay_creation(
-                    candidate_pos, signal_name, ideal_pos
-                )
+                return self._finalize_relay_creation(candidate_pos, signal_name, ideal_pos)
 
         return None
 
@@ -605,9 +599,7 @@ class ConnectionPlanner:
             self._edge_network_ids[edge_key] = network_id
 
         num_networks = len(source_color_to_network)
-        self.diagnostics.info(
-            f"Computed network IDs: {num_networks} isolated source networks"
-        )
+        self.diagnostics.info(f"Computed network IDs: {num_networks} isolated source networks")
 
     def plan_connections(
         self,
@@ -761,12 +753,12 @@ class ConnectionPlanner:
         signal_graph: Any = None,
     ) -> dict[tuple[str, str], str]:
         """Compute edge-level locked colors for sources participating in multiple merges.
-        
+
         When a source entity participates in multiple independent merges, the edges
         from that source to different merge chains need to use different wire colors
         to keep the networks separated - BUT only when those different paths would
         arrive at the SAME final entity.
-        
+
         For example, in a balanced loader:
         - Chest1 output participates in both 'total' merge (all chests → combinator)
           and 'input1' merge (chest1 + neg_avg → inserter1)
@@ -774,17 +766,17 @@ class ConnectionPlanner:
           1. chest1 → combinator → inserter1 (computes negative average)
           2. chest1 → inserter1 (direct individual content)
         - These paths MUST use different colors to prevent double-counting
-        
+
         But for the combinator output:
         - It participates in merge_65..merge_70 (6 inserter input merges)
         - Each goes to a DIFFERENT inserter - no shared destination
         - Same color is fine for all (no conflict)
-        
+
         Args:
             edges: All circuit edges after merge expansion
             merge_membership: Maps source_id -> set of merge_ids the source belongs to
             signal_graph: Signal graph for resolving IR node IDs to entity IDs
-            
+
         Returns:
             Dict mapping (actual_entity_id, merge_id) -> wire color
         """
@@ -809,9 +801,7 @@ class ConnectionPlanner:
         merge_to_sinks: dict[str, set] = {}
         for edge in edges:
             if edge.originating_merge_id:
-                merge_to_sinks.setdefault(edge.originating_merge_id, set()).add(
-                    edge.sink_entity_id
-                )
+                merge_to_sinks.setdefault(edge.originating_merge_id, set()).add(edge.sink_entity_id)
 
         # Find sources that participate in multiple merges
         for source_id, merge_ids in merge_membership.items():
@@ -843,7 +833,7 @@ class ConnectionPlanner:
             has_conflict = False
             for i, m1 in enumerate(merge_list):
                 sinks1 = merge_to_sinks.get(m1, set())
-                for m2 in merge_list[i+1:]:
+                for m2 in merge_list[i + 1 :]:
                     sources2 = merge_to_sources.get(m2, set())
                     # If m1's sink is a source in m2, there's a transitive path
                     if sinks1 & sources2:
@@ -909,7 +899,7 @@ class ConnectionPlanner:
 
             for source_ref in merge_info.get("inputs", []):
                 # Handle both SignalRef and BundleRef
-                if isinstance(source_ref, SignalRef) or isinstance(source_ref, BundleRef):
+                if isinstance(source_ref, (SignalRef, BundleRef)):
                     ir_source_id = source_ref.source_id
                 else:
                     continue
@@ -1009,9 +999,7 @@ class ConnectionPlanner:
             if not edge.source_entity_id:
                 continue
             sink_conflicts = conflict_map.setdefault(edge.sink_entity_id, {})
-            sink_conflicts.setdefault(edge.resolved_signal_name, set()).add(
-                edge.source_entity_id
-            )
+            sink_conflicts.setdefault(edge.resolved_signal_name, set()).add(edge.source_entity_id)
 
         for sink_id, conflict_entries in conflict_map.items():
             for resolved_signal, sources in conflict_entries.items():
@@ -1050,9 +1038,7 @@ class ConnectionPlanner:
             if count:
                 summaries.append(f"{count} {color}")
         if summaries:
-            self.diagnostics.info(
-                "Wire color planner assignments: " + ", ".join(summaries)
-            )
+            self.diagnostics.info("Wire color planner assignments: " + ", ".join(summaries))
 
     def _log_unresolved_conflicts(self) -> None:
         if self._coloring_success or not self._coloring_conflicts:
@@ -1061,9 +1047,7 @@ class ConnectionPlanner:
         for conflict in self._coloring_conflicts:
             resolved_signal = conflict.nodes[0][1]
             source_desc = ", ".join(sorted({node_id for node_id, _ in conflict.nodes}))
-            sink_desc = (
-                ", ".join(sorted(conflict.sinks)) if conflict.sinks else "unknown sinks"
-            )
+            sink_desc = ", ".join(sorted(conflict.sinks)) if conflict.sinks else "unknown sinks"
             self.diagnostics.info(
                 "Two-color routing could not isolate signal "
                 f"'{resolved_signal}' across sinks [{sink_desc}]; falling back to single-channel wiring for involved entities ({source_desc})."
@@ -1093,9 +1077,7 @@ class ConnectionPlanner:
 
         return None
 
-    def _is_memory_feedback_edge(
-        self, source_id: str, sink_id: str, signal_name: str
-    ) -> bool:
+    def _is_memory_feedback_edge(self, source_id: str, sink_id: str, signal_name: str) -> bool:
         """Check if an edge is a memory SR latch feedback connection.
 
         Feedback edges (write_gate ↔ hold_gate) must use GREEN wire while
@@ -1126,18 +1108,10 @@ class ConnectionPlanner:
             write_id = module.write_gate.ir_node_id
             hold_id = module.hold_gate.ir_node_id
 
-            if (
-                source_id == write_id
-                and sink_id == hold_id
-                and signal_name == module.signal_type
-            ):
+            if source_id == write_id and sink_id == hold_id and signal_name == module.signal_type:
                 return True
 
-            if (
-                source_id == hold_id
-                and sink_id == write_id
-                and signal_name == module.signal_type
-            ):
+            if source_id == hold_id and sink_id == write_id and signal_name == module.signal_type:
                 return True
 
         return False
@@ -1157,9 +1131,11 @@ class ConnectionPlanner:
             if not isinstance(module, MemoryModule):
                 continue
 
-            if hasattr(module, "_feedback_signal_ids"):
-                if signal_name in module._feedback_signal_ids:
-                    return True
+            if (
+                hasattr(module, "_feedback_signal_ids")
+                and signal_name in module._feedback_signal_ids
+            ):
+                return True
 
         if signal_name.startswith("__feedback_"):
             self.diagnostics.info(
@@ -1210,16 +1186,14 @@ class ConnectionPlanner:
         direct_routed_count = 0
 
         # Sort for deterministic iteration order
-        for (signal_name, wire_color), edge_color_pairs in sorted(
-            signal_groups.items()
-        ):
+        for (signal_name, wire_color), edge_color_pairs in sorted(signal_groups.items()):
             edges = [pair[0] for pair in edge_color_pairs]
 
             # Debug: log signal group processing
             if "arith_15" in str([e.source_entity_id for e in edges]):
                 self.diagnostics.info(
                     f"Processing signal group ({signal_name}, {wire_color}) with {len(edges)} edges, "
-                    f"sources: {set(e.source_entity_id for e in edges)}"
+                    f"sources: { {e.source_entity_id for e in edges} }"
                 )
 
             # Find all bidirectional pairs in this signal group
@@ -1395,9 +1369,7 @@ class ConnectionPlanner:
             self._edge_wire_colors[(ent_b, ent_a, signal_name)] = wire_color
 
             # Get network ID from the first original edge (all share the same network)
-            network_id = self.get_network_id_for_edge(
-                source_id, sink_ids[0], signal_name
-            )
+            network_id = self.get_network_id_for_edge(source_id, sink_ids[0], signal_name)
 
             # Route the connection
             if not self._route_mst_edge(
@@ -1407,9 +1379,7 @@ class ConnectionPlanner:
 
         return all_succeeded
 
-    def _build_minimum_spanning_tree(
-        self, entity_ids: list[str]
-    ) -> list[tuple[str, str]]:
+    def _build_minimum_spanning_tree(self, entity_ids: list[str]) -> list[tuple[str, str]]:
         """Build minimum spanning tree over entities using Prim's algorithm.
 
         Args:
@@ -1492,8 +1462,7 @@ class ConnectionPlanner:
 
         if not placement_a.position or not placement_b.position:
             self.diagnostics.info(
-                f"Skipped MST edge for '{signal_name}': missing position "
-                f"({entity_a} or {entity_b})"
+                f"Skipped MST edge for '{signal_name}': missing position ({entity_a} or {entity_b})"
             )
             return False
 
@@ -1602,12 +1571,7 @@ class ConnectionPlanner:
 
         if source is None or sink is None:
             self.diagnostics.info(
-                "Skipped wiring for '%s' due to missing placement (%s -> %s)."
-                % (
-                    edge.resolved_signal_name,
-                    edge.source_entity_id,
-                    edge.sink_entity_id,
-                )
+                f"Skipped wiring for '{edge.resolved_signal_name}' due to missing placement ({edge.source_entity_id} -> {edge.sink_entity_id})."
             )
             return
 
@@ -1674,8 +1638,7 @@ class ConnectionPlanner:
 
         if violation_count > 5:
             self.diagnostics.warning(
-                f"Total {violation_count} wire connections exceed span limit "
-                f"(showing first 5)"
+                f"Total {violation_count} wire connections exceed span limit (showing first 5)"
             )
 
         relay_count = sum(

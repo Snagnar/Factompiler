@@ -9,9 +9,7 @@ from .expressions import Expr
 class Literal(Expr):
     """Base class for literal values."""
 
-    def __init__(
-        self, line: int = 0, column: int = 0, raw_text: str | None = None
-    ) -> None:
+    def __init__(self, line: int = 0, column: int = 0, raw_text: str | None = None) -> None:
         super().__init__(line, column, raw_text=raw_text)
 
 
@@ -60,9 +58,7 @@ class DictLiteral(Literal):
 class LValue(ASTNode):
     """Base class for assignment targets."""
 
-    def __init__(
-        self, line: int = 0, column: int = 0, raw_text: str | None = None
-    ) -> None:
+    def __init__(self, line: int = 0, column: int = 0, raw_text: str | None = None) -> None:
         super().__init__(line, column, raw_text=raw_text)
 
 

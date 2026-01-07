@@ -25,9 +25,7 @@ class SourceLocation:
         return ":".join(parts) if parts else "unknown"
 
     @staticmethod
-    def render(
-        node: Any | None, default_file: str | None = None
-    ) -> str | None:
+    def render(node: Any | None, default_file: str | None = None) -> str | None:
         """Format a human-friendly file:line string for an AST node.
 
         This is a compatibility method for code that uses render_source_location.

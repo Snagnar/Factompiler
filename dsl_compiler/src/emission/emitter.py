@@ -7,6 +7,7 @@ using the factorio-draftsman library to generate blueprint JSON.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import Any
 
 from draftsman.blueprintable import Blueprint
@@ -50,9 +51,7 @@ class BlueprintEmitter:
         """Emit a blueprint from a completed layout plan."""
 
         self.blueprint = Blueprint()
-        self.blueprint.label = (
-            layout_plan.blueprint_label or DEFAULT_CONFIG.default_blueprint_label
-        )
+        self.blueprint.label = layout_plan.blueprint_label or DEFAULT_CONFIG.default_blueprint_label
         self.blueprint.description = layout_plan.blueprint_description or ""
         self.blueprint.version = (2, 0)
 
@@ -88,9 +87,7 @@ class BlueprintEmitter:
 
             if source is None or sink is None:
                 missing_id = (
-                    connection.source_entity_id
-                    if source is None
-                    else connection.sink_entity_id
+                    connection.source_entity_id if source is None else connection.sink_entity_id
                 )
                 self.diagnostics.warning(
                     f"Skipped wire for '{connection.signal_name}' due to missing entity '{missing_id}' - this may indicate a logic error."
@@ -177,10 +174,9 @@ class BlueprintEmitter:
 
         for dist, neighbor in candidates[:max_neighbors]:
             if dist <= min(pole.maximum_wire_distance, neighbor.maximum_wire_distance):
-                try:
+                with suppress(Exception):
+                    # Connection may already exist
                     self.blueprint.add_power_connection(pole, neighbor)
-                except Exception:
-                    pass  # Connection may already exist
 
     def _ensure_signal_map_registered(self) -> None:
         for entry in self.signal_type_map.values():
@@ -201,9 +197,7 @@ class BlueprintEmitter:
             try:
                 signal_data.add_signal(name, signal_type)
             except Exception as exc:  # pragma: no cover - draftsman errors
-                self.diagnostics.info(
-                    f"Could not register signal '{name}' as {signal_type}: {exc}"
-                )
+                self.diagnostics.info(f"Could not register signal '{name}' as {signal_type}: {exc}")
 
     def _apply_blueprint_metadata(self, previous_description: str) -> None:
         if not hasattr(self.blueprint, "description"):

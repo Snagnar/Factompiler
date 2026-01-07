@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from dsl_compiler.src.ast.base import ASTNode
 from dsl_compiler.src.ast.expressions import (
     BinaryOp,
     BundleAllExpr,
@@ -34,17 +35,16 @@ from dsl_compiler.src.ast.statements import (
 )
 from dsl_compiler.src.ir.builder import (
     BundleRef,
-    IR_Const,
-    IR_WireMerge,
+    IRConst,
+    IRWireMerge,
     SignalRef,
     ValueRef,
 )
 from dsl_compiler.src.ir.nodes import (
-    IR_Arith,
-    IR_Const,
-    IR_Decider,
-    IR_EntityOutput,
-    IR_EntityPropRead,
+    IRArith,
+    IRDecider,
+    IREntityOutput,
+    IREntityPropRead,
 )
 from dsl_compiler.src.semantic.symbol_table import SymbolType
 from dsl_compiler.src.semantic.type_system import (
@@ -88,19 +88,17 @@ class ExpressionLowerer:
         """Delegate error reporting to parent lowerer."""
         self.parent._error(message, node)
 
-    def _resolve_signal_type(
-        self, type_ref: str | SignalTypeAccess, expr: Expr
-    ) -> str | None:
+    def _resolve_signal_type(self, type_ref: str | SignalTypeAccess, expr: Expr) -> str | None:
         """Resolve a signal type reference to a string type name.
-        
+
         Handles both:
         - String literals (e.g., "iron-plate") - returned as-is
         - SignalTypeAccess (e.g., a.type) - resolved from the actual signal's type
-        
+
         Args:
             type_ref: Either a string type name or a SignalTypeAccess expression
             expr: The AST expression for error reporting context
-            
+
         Returns:
             The resolved signal type name as a string, or None on error
         """
@@ -200,9 +198,7 @@ class ExpressionLowerer:
         self._error(f"Undefined identifier: {name}", expr)
         return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
-    def _get_actual_type_from_ref(
-        self, value_ref: ValueRef, semantic_type: ValueInfo
-    ) -> ValueInfo:
+    def _get_actual_type_from_ref(self, value_ref: ValueRef, semantic_type: ValueInfo) -> ValueInfo:
         """Get actual type from a lowered ValueRef, accounting for function parameters.
 
         When inside a function, parameter references may have different types than
@@ -305,9 +301,7 @@ class ExpressionLowerer:
             )
 
         if expr.op in LOGICAL_OPS:
-            return self._lower_logical_op(
-                expr, left_ref, right_ref, output_type, left_signal_type
-            )
+            return self._lower_logical_op(expr, left_ref, right_ref, output_type, left_signal_type)
 
         self._error(f"Unknown binary operator: {expr.op}", expr)
         return self.ir_builder.const(output_type, 0, expr)
@@ -324,16 +318,12 @@ class ExpressionLowerer:
         """Lower standard arithmetic operations (+, -, *, /, %)."""
         # Try wire merge optimization for addition
         if expr.op == "+":
-            merge_candidate = self._attempt_wire_merge(
-                expr, left_ref, right_ref, result_type
-            )
+            merge_candidate = self._attempt_wire_merge(expr, left_ref, right_ref, result_type)
             if merge_candidate is not None:
                 return merge_candidate
 
         self.parent.ensure_signal_registered(output_type, left_signal_type)
-        result = self.ir_builder.arithmetic(
-            expr.op, left_ref, right_ref, output_type, expr
-        )
+        result = self.ir_builder.arithmetic(expr.op, left_ref, right_ref, output_type, expr)
         self._attach_expr_context(result.source_id, expr)
         return result
 
@@ -354,9 +344,7 @@ class ExpressionLowerer:
         factorio_op = {"**": "^"}.get(expr.op, expr.op)
 
         self.parent.ensure_signal_registered(output_type, left_signal_type)
-        result = self.ir_builder.arithmetic(
-            factorio_op, left_ref, right_ref, output_type, expr
-        )
+        result = self.ir_builder.arithmetic(factorio_op, left_ref, right_ref, output_type, expr)
         self._attach_expr_context(result.source_id, expr)
         return result
 
@@ -370,9 +358,7 @@ class ExpressionLowerer:
     ) -> SignalRef:
         """Lower comparison operations to decider combinator with constant output 1."""
         self.parent.ensure_signal_registered(output_type, left_signal_type)
-        result = self.ir_builder.decider(
-            expr.op, left_ref, right_ref, 1, output_type, expr
-        )
+        result = self.ir_builder.decider(expr.op, left_ref, right_ref, 1, output_type, expr)
         self._attach_expr_context(result.source_id, expr)
         return result
 
@@ -411,9 +397,7 @@ class ExpressionLowerer:
 
         if left_is_bool and right_is_bool:
             # Optimization: multiply for 0/1 values (1 combinator)
-            result = self.ir_builder.arithmetic(
-                "*", left_ref, right_ref, output_type, expr
-            )
+            result = self.ir_builder.arithmetic("*", left_ref, right_ref, output_type, expr)
             self._attach_expr_context(result.source_id, expr)
             return result
 
@@ -422,9 +406,7 @@ class ExpressionLowerer:
         if isinstance(left_ref, int):
             left_ref = self.ir_builder.const(output_type, left_ref, expr)
             # Force materialization - deciders can't compare inline integers
-            self.ir_builder.annotate_signal(
-                left_ref, metadata={"name": f"__literal_{left_ref}"}
-            )
+            self.ir_builder.annotate_signal(left_ref, metadata={"name": f"__literal_{left_ref}"})
 
         left_bool = self.ir_builder.decider("!=", left_ref, 0, 1, output_type, expr)
         self._attach_expr_context(left_bool.source_id, expr)
@@ -432,16 +414,12 @@ class ExpressionLowerer:
         if isinstance(right_ref, int):
             right_ref = self.ir_builder.const(output_type, right_ref, expr)
             # Force materialization - deciders can't compare inline integers
-            self.ir_builder.annotate_signal(
-                right_ref, metadata={"name": f"__literal_{right_ref}"}
-            )
+            self.ir_builder.annotate_signal(right_ref, metadata={"name": f"__literal_{right_ref}"})
 
         right_bool = self.ir_builder.decider("!=", right_ref, 0, 1, output_type, expr)
         self._attach_expr_context(right_bool.source_id, expr)
 
-        result = self.ir_builder.arithmetic(
-            "*", left_bool, right_bool, output_type, expr
-        )
+        result = self.ir_builder.arithmetic("*", left_bool, right_bool, output_type, expr)
         self._attach_expr_context(result.source_id, expr)
         return result
 
@@ -460,9 +438,7 @@ class ExpressionLowerer:
 
         if left_is_bool and right_is_bool:
             # Optimization: (a + b) > 0 works for 0/1 values (2 combinators)
-            sum_ref = self.ir_builder.arithmetic(
-                "+", left_ref, right_ref, output_type, expr
-            )
+            sum_ref = self.ir_builder.arithmetic("+", left_ref, right_ref, output_type, expr)
             self._attach_expr_context(sum_ref.source_id, expr)
 
             result = self.ir_builder.decider(">", sum_ref, 0, 1, output_type, expr)
@@ -474,9 +450,7 @@ class ExpressionLowerer:
         if isinstance(left_ref, int):
             left_ref = self.ir_builder.const(output_type, left_ref, expr)
             # Force materialization - deciders can't compare inline integers
-            self.ir_builder.annotate_signal(
-                left_ref, metadata={"name": f"__literal_{left_ref}"}
-            )
+            self.ir_builder.annotate_signal(left_ref, metadata={"name": f"__literal_{left_ref}"})
 
         left_bool = self.ir_builder.decider("!=", left_ref, 0, 1, output_type, expr)
         self._attach_expr_context(left_bool.source_id, expr)
@@ -484,16 +458,12 @@ class ExpressionLowerer:
         if isinstance(right_ref, int):
             right_ref = self.ir_builder.const(output_type, right_ref, expr)
             # Force materialization - deciders can't compare inline integers
-            self.ir_builder.annotate_signal(
-                right_ref, metadata={"name": f"__literal_{right_ref}"}
-            )
+            self.ir_builder.annotate_signal(right_ref, metadata={"name": f"__literal_{right_ref}"})
 
         right_bool = self.ir_builder.decider("!=", right_ref, 0, 1, output_type, expr)
         self._attach_expr_context(right_bool.source_id, expr)
 
-        sum_ref = self.ir_builder.arithmetic(
-            "+", left_bool, right_bool, output_type, expr
-        )
+        sum_ref = self.ir_builder.arithmetic("+", left_bool, right_bool, output_type, expr)
         self._attach_expr_context(sum_ref.source_id, expr)
 
         result = self.ir_builder.decider(">", sum_ref, 0, 1, output_type, expr)
@@ -517,21 +487,20 @@ class ExpressionLowerer:
             op = self.ir_builder.get_operation(ref.source_id)
 
             # Deciders with constant integer output produce booleans
-            if isinstance(op, IR_Decider):
-                if isinstance(op.output_value, int):
-                    return True
+            if isinstance(op, IRDecider) and isinstance(op.output_value, int):
+                return True
 
             # Constants with 0 or 1 value
-            if isinstance(op, IR_Const):
+            if isinstance(op, IRConst):
                 return op.value in (0, 1)
 
             # Arithmetic operations that preserve boolean status
-            if isinstance(op, IR_Arith):
+            if isinstance(op, IRArith):
                 # Multiplication of booleans produces boolean
                 if op.op == "*":
-                    return self._is_boolean_producer(
-                        op.left
-                    ) and self._is_boolean_producer(op.right)
+                    return self._is_boolean_producer(op.left) and self._is_boolean_producer(
+                        op.right
+                    )
                 # Identity projection (x + 0) preserves boolean status
                 if op.op == "+" and op.right == 0:
                     return self._is_boolean_producer(op.left)
@@ -562,9 +531,7 @@ class ExpressionLowerer:
         combine_type = "and" if expr.op == "&&" else "or"
         return self._create_folded_decider(comparisons, combine_type, expr)
 
-    def _collect_comparison_chain(
-        self, expr: Expr, logical_op: str
-    ) -> list[BinaryOp] | None:
+    def _collect_comparison_chain(self, expr: Expr, logical_op: str) -> list[BinaryOp] | None:
         """Collect all simple comparisons in a logical chain.
 
         For (a > 0) && (b > 0) && (c > 0), returns [a > 0, b > 0, c > 0].
@@ -588,9 +555,7 @@ class ExpressionLowerer:
 
         elif isinstance(expr, BinaryOp) and expr.op in COMPARISON_OPS:
             # Base case: simple comparison - check operands are simple
-            if self._is_simple_operand(expr.left) and self._is_simple_operand(
-                expr.right
-            ):
+            if self._is_simple_operand(expr.left) and self._is_simple_operand(expr.right):
                 return [expr]
 
         return None  # Not foldable
@@ -615,10 +580,8 @@ class ExpressionLowerer:
         if isinstance(expr, IdentifierExpr):
             # Variable references are simple - they just reference existing signals
             return True
-        if isinstance(expr, (BundleAnyExpr, BundleAllExpr)):
-            # any/all on bundles produce signal-anything/everything
-            return True
-        return False
+        # any/all on bundles produce signal-anything/everything
+        return isinstance(expr, (BundleAnyExpr, BundleAllExpr))
 
     def _create_folded_decider(
         self, comparisons: list[BinaryOp], combine_type: str, expr: BinaryOp
@@ -637,9 +600,7 @@ class ExpressionLowerer:
             SignalRef pointing to the folded decider's output
         """
         result_type = self.semantic.get_expr_type(expr)
-        output_type = (
-            get_signal_type_name(result_type) or self.ir_builder.allocate_implicit_type()
-        )
+        output_type = get_signal_type_name(result_type) or self.ir_builder.allocate_implicit_type()
 
         # Register the output signal type
         self.parent.ensure_signal_registered(output_type)
@@ -661,16 +622,12 @@ class ExpressionLowerer:
         self._attach_expr_context(result.source_id, expr)
         return result
 
-    def _fold_binary_constant(
-        self, op: str, left: int, right: int, node: Expr
-    ) -> int | None:
+    def _fold_binary_constant(self, op: str, left: int, right: int, node: Expr) -> int | None:
         """Fold binary operation on constants at compile time.
 
         Delegates to ConstantFolder for the actual folding logic.
         """
-        return ConstantFolder.fold_binary_operation(
-            op, left, right, node, self.diagnostics
-        )
+        return ConstantFolder.fold_binary_operation(op, left, right, node, self.diagnostics)
 
     def lower_output_spec_expr(self, expr: OutputSpecExpr) -> SignalRef:
         """Lower output specifier expression to decider with copy-count-from-input.
@@ -681,32 +638,21 @@ class ExpressionLowerer:
         instead of constant 1.
         """
         # Validate that condition is a comparison
-        if (
-            not isinstance(expr.condition, BinaryOp)
-            or expr.condition.op not in COMPARISON_OPS
-        ):
+        if not isinstance(expr.condition, BinaryOp) or expr.condition.op not in COMPARISON_OPS:
             self._error(
                 "Output specifier (:) requires a comparison expression. "
                 f"Got operator: {getattr(expr.condition, 'op', 'non-binary')}",
                 expr,
             )
-            return self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
         comparison = expr.condition
 
         # Try constant folding the entire output spec expression
         # If both comparison operands are constants, we can evaluate at compile time
-        left_const = ConstantFolder.extract_constant_int(
-            comparison.left, self.diagnostics
-        )
-        right_const = ConstantFolder.extract_constant_int(
-            comparison.right, self.diagnostics
-        )
-        output_const = ConstantFolder.extract_constant_int(
-            expr.output_value, self.diagnostics
-        )
+        left_const = ConstantFolder.extract_constant_int(comparison.left, self.diagnostics)
+        right_const = ConstantFolder.extract_constant_int(comparison.right, self.diagnostics)
+        output_const = ConstantFolder.extract_constant_int(expr.output_value, self.diagnostics)
 
         if left_const is not None and right_const is not None:
             # Evaluate comparison at compile time
@@ -795,10 +741,7 @@ class ExpressionLowerer:
         if actual_operand_type != operand_type:
             result_type = actual_operand_type
 
-        output_type = (
-            get_signal_type_name(result_type)
-            or self.ir_builder.allocate_implicit_type()
-        )
+        output_type = get_signal_type_name(result_type) or self.ir_builder.allocate_implicit_type()
 
         operand_signal_type = get_signal_type_name(result_type)
         self.parent.ensure_signal_registered(output_type, operand_signal_type)
@@ -807,9 +750,7 @@ class ExpressionLowerer:
             return operand_ref
         if expr.op == "-":
             neg_one = self.ir_builder.const(output_type, -1, expr)
-            result = self.ir_builder.arithmetic(
-                "*", operand_ref, neg_one, output_type, expr
-            )
+            result = self.ir_builder.arithmetic("*", operand_ref, neg_one, output_type, expr)
             self._attach_expr_context(result.source_id, expr)
             return result
         if expr.op == "!":
@@ -847,23 +788,24 @@ class ExpressionLowerer:
         if getattr(source_ref, "signal_type", None) == target_type:
             return source_ref
 
-        self.parent.ensure_signal_registered(
-            target_type, getattr(source_ref, "signal_type", None)
-        )
+        self.parent.ensure_signal_registered(target_type, getattr(source_ref, "signal_type", None))
         result_ref = self.ir_builder.arithmetic("+", source_ref, 0, target_type, expr)
         self._attach_expr_context(result_ref.source_id, expr)
 
         # Propagate user_declared flag through projections
         source_op = self.ir_builder.get_operation(source_ref.source_id)
-        if source_op and hasattr(source_op, "debug_metadata"):
-            if source_op.debug_metadata.get("user_declared"):
-                result_op = self.ir_builder.get_operation(result_ref.source_id)
-                if result_op:
-                    result_op.debug_metadata["user_declared"] = True
-                    if "declared_name" in source_op.debug_metadata:
-                        result_op.debug_metadata["declared_name"] = (
-                            source_op.debug_metadata["declared_name"]
-                        )
+        if (
+            source_op
+            and hasattr(source_op, "debug_metadata")
+            and source_op.debug_metadata.get("user_declared")
+        ):
+            result_op = self.ir_builder.get_operation(result_ref.source_id)
+            if result_op:
+                result_op.debug_metadata["user_declared"] = True
+                if "declared_name" in source_op.debug_metadata:
+                    result_op.debug_metadata["declared_name"] = source_op.debug_metadata[
+                        "declared_name"
+                    ]
 
         return result_ref
 
@@ -932,11 +874,11 @@ class ExpressionLowerer:
     def lower_dict_literal(self, expr: DictLiteral) -> dict[str, Any]:
         properties: dict[str, Any] = {}
         for key, value_expr in expr.entries.items():
-            if isinstance(value_expr, NumberLiteral) or isinstance(value_expr, StringLiteral):
+            if isinstance(value_expr, (NumberLiteral, StringLiteral)):
                 properties[key] = value_expr.value
             elif isinstance(value_expr, SignalLiteral):
                 inner_value = value_expr.value
-                if isinstance(inner_value, NumberLiteral) or isinstance(inner_value, StringLiteral):
+                if isinstance(inner_value, (NumberLiteral, StringLiteral)):
                     properties[key] = inner_value.value
                 else:
                     lowered = self.lower_expr(inner_value)
@@ -964,10 +906,10 @@ class ExpressionLowerer:
 
     def _resolve_constant_symbol(self, name: str) -> int | None:
         """Resolve a symbol name to a constant integer value if possible.
-        
+
         Used by ConstantFolder to resolve identifier references during
         constant extraction.
-        
+
         Returns:
             The constant integer value if the symbol is a compile-time constant,
             or None if the symbol is not defined or not a constant.
@@ -995,8 +937,8 @@ class ExpressionLowerer:
     def lower_bundle_literal(self, expr: BundleLiteral) -> BundleRef:
         """Lower a bundle literal { signal1, signal2, ... } to IR.
 
-        For all-constant bundles: Creates a single IR_Const with multiple signals.
-        For mixed bundles: Creates IR_WireMerge of computed + constant parts.
+        For all-constant bundles: Creates a single IRConst with multiple signals.
+        For mixed bundles: Creates IRWireMerge of computed + constant parts.
         """
         constant_signals: dict[str, int] = {}
         computed_refs: list[ValueRef] = []
@@ -1006,9 +948,7 @@ class ExpressionLowerer:
             element_type = self.semantic.get_expr_type(element)
 
             if isinstance(element_type, SignalValue):
-                signal_name = (
-                    element_type.signal_type.name if element_type.signal_type else None
-                )
+                signal_name = element_type.signal_type.name if element_type.signal_type else None
                 if signal_name:
                     all_signal_types.add(signal_name)
 
@@ -1017,7 +957,7 @@ class ExpressionLowerer:
                         const_value = ConstantFolder.extract_constant_int(
                             element.value,
                             self.diagnostics,
-                            symbol_resolver=self._resolve_constant_symbol
+                            symbol_resolver=self._resolve_constant_symbol,
                         )
                         if const_value is not None:
                             constant_signals[signal_name] = const_value
@@ -1050,7 +990,7 @@ class ExpressionLowerer:
                 if isinstance(ref, SignalRef):
                     return BundleRef({ref.signal_type}, ref.source_id, source_ast=expr)
 
-            # Multiple computed sources - create proper IR_WireMerge
+            # Multiple computed sources - create proper IRWireMerge
             merge_ref = self.ir_builder.wire_merge(computed_refs, "bundle", expr)
             return BundleRef(all_signal_types, merge_ref.source_id, source_ast=expr)
 
@@ -1073,18 +1013,14 @@ class ExpressionLowerer:
 
         if isinstance(bundle_ref, BundleRef):
             # Return a SignalRef pointing to the same source but with specific signal type
-            return SignalRef(
-                expr.signal_type, bundle_ref.source_id, source_ast=expr
-            )
+            return SignalRef(expr.signal_type, bundle_ref.source_id, source_ast=expr)
         elif isinstance(bundle_ref, SignalRef):
             # If it's already a SignalRef (shouldn't happen for valid bundles),
             # just change the signal type
             return SignalRef(expr.signal_type, bundle_ref.source_id, source_ast=expr)
         else:
             self._error("Cannot select from non-bundle value", expr)
-            return self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
     def lower_bundle_any(self, expr: BundleAnyExpr) -> SignalRef:
         """Lower any(bundle) expression.
@@ -1098,9 +1034,7 @@ class ExpressionLowerer:
             return SignalRef("signal-anything", bundle_ref.source_id, source_ast=expr)
         else:
             self._error("any() requires a bundle argument", expr)
-            return self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
     def lower_bundle_all(self, expr: BundleAllExpr) -> SignalRef:
         """Lower all(bundle) expression.
@@ -1114,12 +1048,10 @@ class ExpressionLowerer:
             return SignalRef("signal-everything", bundle_ref.source_id, source_ast=expr)
         else:
             self._error("all() requires a bundle argument", expr)
-            return self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
     def lower_entity_output(self, expr: EntityOutputExpr) -> BundleRef:
-        """Lower entity.output expression to an IR_EntityOutput node.
+        """Lower entity.output expression to an IREntityOutput node.
 
         Entity outputs allow reading the circuit network output of entities
         like chests (item counts) or tanks (fluid levels) as a Bundle.
@@ -1136,9 +1068,9 @@ class ExpressionLowerer:
 
         entity_id = self.parent.entity_refs[entity_name]
 
-        # Create the IR_EntityOutput node
+        # Create the IREntityOutput node
         node_id = f"entity_output_{self.ir_builder.next_id()}"
-        entity_output_op = IR_EntityOutput(
+        entity_output_op = IREntityOutput(
             node_id=node_id,
             entity_id=entity_id,
             source_ast=expr,
@@ -1172,13 +1104,9 @@ class ExpressionLowerer:
         factorio_op = {"**": "^"}.get(expr.op, expr.op)
 
         # Create arithmetic combinator with 'each' input/output
-        return self.ir_builder.bundle_arithmetic(
-            factorio_op, bundle_ref, right_ref, expr
-        )
+        return self.ir_builder.bundle_arithmetic(factorio_op, bundle_ref, right_ref, expr)
 
-    def lower_property_access(
-        self, expr: PropertyAccess | PropertyAccessExpr
-    ) -> ValueRef:
+    def lower_property_access(self, expr: PropertyAccess | PropertyAccessExpr) -> ValueRef:
         """Lower property access expression (works for both LValue and Expr forms)."""
         entity_name = expr.object_name
         prop_name = expr.property_name
@@ -1186,9 +1114,7 @@ class ExpressionLowerer:
         if entity_name in self.parent.entity_refs:
             entity_id = self.parent.entity_refs[entity_name]
             signal_type = self.ir_builder.allocate_implicit_type()
-            read_op = IR_EntityPropRead(
-                f"prop_read_{entity_id}_{prop_name}", signal_type, expr
-            )
+            read_op = IREntityPropRead(f"prop_read_{entity_id}_{prop_name}", signal_type, expr)
             read_op.entity_id = entity_id
             read_op.property_name = prop_name
             self.ir_builder.add_operation(read_op)
@@ -1214,9 +1140,7 @@ class ExpressionLowerer:
     def lower_memory_call(self, expr: CallExpr) -> ValueRef:
         if not expr.args:
             self._error("memory() requires an initial value", expr)
-            return self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
         return self.lower_expr(expr.args[0])
 
     def lower_function_call_inline(self, expr: CallExpr) -> ValueRef | None:
@@ -1229,9 +1153,7 @@ class ExpressionLowerer:
                 f"This should have been caught during semantic analysis.",
                 expr,
             )
-            return self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
         func_symbol = self.semantic.current_scope.lookup(func_name)
         if (
@@ -1240,9 +1162,7 @@ class ExpressionLowerer:
             or not func_symbol.function_def
         ):
             self._error(f"Cannot inline function: {func_name}", expr)
-            return self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
         func_def = func_symbol.function_def
 
@@ -1251,15 +1171,13 @@ class ExpressionLowerer:
                 f"Function {func_name} expects {len(func_def.params)} arguments, got {len(expr.args)}",
                 expr,
             )
-            return self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
         # Evaluate arguments with type-aware handling
         param_values: dict[str, ValueRef] = {}
         entity_params: dict[str, str] = {}  # Track entity parameters separately
 
-        for param, arg_expr in zip(func_def.params, expr.args):
+        for param, arg_expr in zip(func_def.params, expr.args, strict=False):
             if param.type_name == "Entity":
                 # Entity parameters: extract entity_id from entity_refs
                 if isinstance(arg_expr, IdentifierExpr):
@@ -1267,9 +1185,7 @@ class ExpressionLowerer:
                     if entity_id:
                         entity_params[param.name] = entity_id
                     else:
-                        self._error(
-                            f"Expected entity for parameter '{param.name}'", arg_expr
-                        )
+                        self._error(f"Expected entity for parameter '{param.name}'", arg_expr)
                 else:
                     self._error(
                         f"Entity parameter '{param.name}' requires an entity identifier",
@@ -1281,23 +1197,17 @@ class ExpressionLowerer:
                 # If Signal parameter receives an int, convert to SignalRef
                 if param.type_name == "Signal" and isinstance(lowered_arg, int):
                     signal_type = self.ir_builder.allocate_implicit_type()
-                    lowered_arg = self.ir_builder.const(
-                        signal_type, lowered_arg, arg_expr
-                    )
+                    lowered_arg = self.ir_builder.const(signal_type, lowered_arg, arg_expr)
                 param_values[param.name] = lowered_arg
 
         # Save state for nesting
-        old_param_values = {
-            k: v for k, v in self.parent.param_values.items() if k in param_values
-        }
+        old_param_values = {k: v for k, v in self.parent.param_values.items() if k in param_values}
         old_entity_refs = self.parent.entity_refs.copy()
         old_signal_refs = self.parent.signal_refs.copy()
 
         # Set up function scope
         self.parent.param_values.update(param_values)
-        self.parent.entity_refs.update(
-            entity_params
-        )  # Entity params accessible via entity_refs
+        self.parent.entity_refs.update(entity_params)  # Entity params accessible via entity_refs
 
         # Push function name onto inlining stack
         self.parent._inlining_stack.append(func_name)
@@ -1309,9 +1219,7 @@ class ExpressionLowerer:
                     if isinstance(stmt.expr, IdentifierExpr):
                         var_name = stmt.expr.name
                         if var_name in self.parent.entity_refs:
-                            self.parent.returned_entity_id = self.parent.entity_refs[
-                                var_name
-                            ]
+                            self.parent.returned_entity_id = self.parent.entity_refs[var_name]
                     return_value = self.lower_expr(stmt.expr)
                     break
                 else:
@@ -1352,18 +1260,14 @@ class ExpressionLowerer:
         source_op = self.ir_builder.get_operation(value_ref.source_id)
         if source_op is None:
             return False
-        if isinstance(source_op, (IR_Const, IR_EntityPropRead, IR_WireMerge)):
-            return True
-        return False
+        return bool(isinstance(source_op, (IRConst, IREntityPropRead, IRWireMerge)))
 
-    def _gather_merge_sources_from_ref(
-        self, value_ref: ValueRef
-    ) -> list[SignalRef] | None:
+    def _gather_merge_sources_from_ref(self, value_ref: ValueRef) -> list[SignalRef] | None:
         if not isinstance(value_ref, SignalRef):
             return None
 
         source_op = self.ir_builder.get_operation(value_ref.source_id)
-        if isinstance(source_op, IR_WireMerge):
+        if isinstance(source_op, IRWireMerge):
             return [src for src in source_op.sources if isinstance(src, SignalRef)]
         if self._is_simple_source_ref(value_ref):
             return [value_ref]
@@ -1393,7 +1297,7 @@ class ExpressionLowerer:
                 return None
 
             source_op = self.ir_builder.get_operation(source_ref.source_id)
-            if not isinstance(source_op, IR_Const):
+            if not isinstance(source_op, IRConst):
                 return None
 
             # DO NOT fold user-declared constants (they should remain visible)
@@ -1411,14 +1315,14 @@ class ExpressionLowerer:
         folded_op = self.ir_builder.get_operation(folded_ref.source_id)
 
         # Mark folded constant with debug info showing it's a fold
-        if isinstance(folded_op, IR_Const):
+        if isinstance(folded_op, IRConst):
             folded_op.debug_metadata["folded_from"] = const_source_ids
             folded_op.debug_metadata["fold_operation"] = "wire_merge_sum"
             folded_op.debug_label = f"folded_merge_{len(const_source_ids)}_consts"
 
         for source_id in const_source_ids:
             source_op = self.ir_builder.get_operation(source_id)
-            if isinstance(source_op, IR_Const):
+            if isinstance(source_op, IRConst):
                 source_op.debug_metadata["suppress_materialization"] = True
 
         self.diagnostics.info(
@@ -1462,32 +1366,24 @@ class ExpressionLowerer:
         if len(unique_ids) != len(combined_sources):
             return None
 
-        self.parent.ensure_signal_registered(
-            output_type, combined_sources[0].signal_type
-        )
+        self.parent.ensure_signal_registered(output_type, combined_sources[0].signal_type)
 
         folded_ref = self._try_fold_wire_merge(combined_sources, output_type, expr)
         if folded_ref is not None:
             return folded_ref
 
-        merge_op_to_reuse: IR_WireMerge | None = None
+        merge_op_to_reuse: IRWireMerge | None = None
         reuse_ref: SignalRef | None = None
 
         if isinstance(left_ref, SignalRef):
             left_source = self.ir_builder.get_operation(left_ref.source_id)
-            if (
-                isinstance(left_source, IR_WireMerge)
-                and left_source.source_ast is expr.left
-            ):
+            if isinstance(left_source, IRWireMerge) and left_source.source_ast is expr.left:
                 merge_op_to_reuse = left_source
                 reuse_ref = left_ref
 
         if merge_op_to_reuse is None and isinstance(right_ref, SignalRef):
             right_source = self.ir_builder.get_operation(right_ref.source_id)
-            if (
-                isinstance(right_source, IR_WireMerge)
-                and right_source.source_ast is expr.right
-            ):
+            if isinstance(right_source, IRWireMerge) and right_source.source_ast is expr.right:
                 merge_op_to_reuse = right_source
                 reuse_ref = right_ref
 
@@ -1535,11 +1431,11 @@ class ExpressionLowerer:
             return None
 
         # Constant combinator - return its value
-        if isinstance(op, IR_Const):
+        if isinstance(op, IRConst):
             return op.value
 
         # Arithmetic operation - check if operands are constants
-        if isinstance(op, IR_Arith):
+        if isinstance(op, IRArith):
             left_val = self._try_extract_const_value(op.left)
             right_val = self._try_extract_const_value(op.right)
 
@@ -1575,7 +1471,7 @@ class ExpressionLowerer:
 
     def _suppress_value_ref_materialization(self, value_ref: ValueRef) -> None:
         """Mark IR operations backing a value ref as not needing materialization.
-        
+
         Called when we've extracted a compile-time constant from an expression
         and no longer need the IR operations to produce a signal.
         """
@@ -1587,30 +1483,24 @@ class ExpressionLowerer:
             return
 
         # Mark this operation as suppressed
-        if hasattr(op, 'debug_metadata'):
+        if hasattr(op, "debug_metadata"):
             op.debug_metadata["suppress_materialization"] = True
 
         # Recursively suppress operands for arithmetic operations
-        if isinstance(op, IR_Arith):
+        if isinstance(op, IRArith):
             self._suppress_value_ref_materialization(op.left)
             self._suppress_value_ref_materialization(op.right)
 
     def _lower_place_core(self, expr: CallExpr) -> tuple[str, SignalRef]:
         """Lower place() builtin into IR operations."""
         if len(expr.args) < 3:
-            self._error(
-                "place() requires at least 3 arguments: (prototype, x, y)", expr
-            )
-            dummy = self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
+            self._error("place() requires at least 3 arguments: (prototype, x, y)", expr)
+            dummy = self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
             return "error_entity", dummy
 
         prototype = self._extract_place_prototype(expr)
         if prototype is None:
-            dummy = self.ir_builder.const(
-                self.ir_builder.allocate_implicit_type(), 0, expr
-            )
+            dummy = self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
             return "error_entity", dummy
 
         x_coord, y_coord = self._extract_place_coordinates(expr)
@@ -1626,11 +1516,9 @@ class ExpressionLowerer:
             source_ast=expr,
         )
 
-        result_ref = self.ir_builder.const(
-            self.ir_builder.allocate_implicit_type(), 0, expr
-        )
+        result_ref = self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
         const_op = self.ir_builder.get_operation(result_ref.source_id)
-        if isinstance(const_op, IR_Const):
+        if isinstance(const_op, IRConst):
             const_op.debug_metadata["suppress_materialization"] = True
         return entity_id, result_ref
 

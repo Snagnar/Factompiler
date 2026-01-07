@@ -6,7 +6,6 @@ for implicit signal allocation. It excludes wildcard signals (each, anything,
 everything) which have special semantics in Factorio circuit networks.
 """
 
-
 # Wildcard signals - cannot be used as regular signals
 WILDCARD_SIGNALS: frozenset[str] = frozenset(
     {

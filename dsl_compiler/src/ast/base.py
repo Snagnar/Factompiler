@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from abc import ABC
 from typing import Any
 
 """Base classes and utilities for AST traversal."""
 
 
-class ASTNode(ABC):
+class ASTNode:
     """Base class for all AST nodes."""
 
     def __init__(
@@ -22,7 +21,7 @@ class ASTNode(ABC):
         self.raw_text = raw_text
 
 
-class ASTVisitor(ABC):
+class ASTVisitor:
     """Base class for AST traversal visitors."""
 
     def visit(self, node: ASTNode) -> Any:

@@ -1,6 +1,7 @@
 """
 Tests for semantic.py - Semantic analysis functionality.
 """
+
 import os
 
 import pytest
@@ -102,13 +103,11 @@ class TestSemanticAnalyzer:
         analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
-        assert diagnostics.has_errors(), (
-            "Expected an error when using reserved signal-W"
-        )
+        assert diagnostics.has_errors(), "Expected an error when using reserved signal-W"
         messages = diagnostics.get_messages()
-        assert any(
-            "signal-W" in message and "reserved" in message for message in messages
-        ), "Diagnostic should explain that signal-W is reserved"
+        assert any("signal-W" in message and "reserved" in message for message in messages), (
+            "Diagnostic should explain that signal-W is reserved"
+        )
 
     def test_signal_w_projection_is_rejected(self, parser):
         """Projecting onto signal-W must surface a reservation error."""
@@ -120,13 +119,11 @@ class TestSemanticAnalyzer:
         analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
 
-        assert diagnostics.has_errors(), (
-            "Expected an error when projecting onto reserved signal-W"
-        )
+        assert diagnostics.has_errors(), "Expected an error when projecting onto reserved signal-W"
         messages = diagnostics.get_messages()
-        assert any(
-            "signal-W" in message and "reserved" in message for message in messages
-        ), "Diagnostic should explain that signal-W is reserved"
+        assert any("signal-W" in message and "reserved" in message for message in messages), (
+            "Diagnostic should explain that signal-W is reserved"
+        )
 
     def test_signal_w_memory_declaration_is_rejected(self, parser):
         """Memory declarations must not claim the reserved signal-W channel."""
@@ -142,9 +139,9 @@ class TestSemanticAnalyzer:
             "Expected an error when reserving signal-W for memory storage"
         )
         messages = diagnostics.get_messages()
-        assert any(
-            "signal-W" in message and "reserved" in message for message in messages
-        ), "Diagnostic should explain that signal-W is reserved"
+        assert any("signal-W" in message and "reserved" in message for message in messages), (
+            "Diagnostic should explain that signal-W is reserved"
+        )
 
     def test_virtual_signal_allocation_unbounded(self):
         """Allocator must keep producing unique implicit virtual signals."""

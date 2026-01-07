@@ -142,22 +142,22 @@ Memory cells support three write modes:
    Memory mem: "signal-X";
    mem.write(value);              // Unconditional write
    mem.write(value, when=cond);   // Conditional write (when cond > 0)
-   
+
    Creates a 2-combinator circuit: write-gate + hold-latch.
    Value is written every tick while condition is true.
 
 2. RS LATCH (reset priority):
    Memory mem: "signal-X";
    mem.write(value, reset=r, set=s);   // Note: reset= FIRST
-   
+
    Single decider combinator. Outputs value when S > R.
    When both set and reset are active, reset wins (turns OFF).
    The 'set=' and 'reset=' arguments must be signal expressions.
 
 3. SR LATCH (set priority):
-   Memory mem: "signal-X";  
+   Memory mem: "signal-X";
    mem.write(value, set=s, reset=r);   // Note: set= FIRST
-   
+
    Single decider combinator with multi-condition.
    When both set and reset are active, set wins (stays ON).
    The 'set=' and 'reset=' arguments must be signal expressions.
@@ -340,7 +340,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         if isinstance(expr, NumberLiteral):
             return IntValue(value=expr.value)
 
-        elif isinstance(expr, StringLiteral) or isinstance(expr, DictLiteral):
+        elif isinstance(expr, (StringLiteral, DictLiteral)):
             return IntValue()
 
         elif isinstance(expr, IdentifierExpr):
@@ -1434,7 +1434,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 return
 
             # Validate argument types
-            for i, (param, arg) in enumerate(zip(func_def.params, node.args)):
+            for i, (param, arg) in enumerate(zip(func_def.params, node.args, strict=False)):
                 arg_type = self.get_expr_type(arg)
 
                 if not self._is_compatible_argument(param.type_name, arg_type):
@@ -1611,7 +1611,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
     def generic_visit(self, node: ASTNode) -> Any:
         """Default visitor - traverse children."""
-        for field_name, field_value in node.__dict__.items():
+        for _field_name, field_value in node.__dict__.items():
             if isinstance(field_value, ASTNode):
                 self.visit(field_value)
             elif isinstance(field_value, list):

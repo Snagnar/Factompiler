@@ -1,3 +1,4 @@
+import contextlib
 from typing import Any
 
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
@@ -7,23 +8,23 @@ from dsl_compiler.src.common.entity_data import (
 )
 from dsl_compiler.src.ir.builder import (
     BundleRef,
-    IR_Arith,
-    IR_Const,
-    IR_Decider,
-    IR_MemCreate,
-    IR_MemRead,
-    IR_MemWrite,
-    IR_PlaceEntity,
-    IR_WireMerge,
+    IRArith,
+    IRConst,
+    IRDecider,
+    IRMemCreate,
+    IRMemRead,
+    IRMemWrite,
     IRNode,
+    IRPlaceEntity,
+    IRWireMerge,
     SignalRef,
     ValueRef,
 )
 from dsl_compiler.src.ir.nodes import (
-    IR_EntityOutput,
-    IR_EntityPropRead,
-    IR_EntityPropWrite,
-    IR_LatchWrite,
+    IREntityOutput,
+    IREntityPropRead,
+    IREntityPropWrite,
+    IRLatchWrite,
 )
 
 from .layout_plan import EntityPlacement, LayoutPlan
@@ -50,9 +51,7 @@ class EntityPlacer:
         self.diagnostics = diagnostics
         self.signal_graph = SignalGraph()
 
-        self.memory_builder = MemoryBuilder(
-            tile_grid, layout_plan, signal_analyzer, diagnostics
-        )
+        self.memory_builder = MemoryBuilder(tile_grid, layout_plan, signal_analyzer, diagnostics)
 
         self._memory_modules: dict[str, dict[str, Any]] = {}
         self._wire_merge_junctions: dict[str, dict[str, Any]] = {}
@@ -60,24 +59,18 @@ class EntityPlacer:
         self._ir_nodes: dict[str, IRNode] = {}  # Track all IR nodes by ID for lookups
         self._merge_membership: dict[str, set] = {}  # source_id -> set of merge_ids
 
-    def _build_debug_info(
-        self, op: IRNode, role_override: str | None = None
-    ) -> dict[str, Any]:
+    def _build_debug_info(self, op: IRNode, role_override: str | None = None) -> dict[str, Any]:
         """Extract debug information from an IR node and its usage entry."""
         debug_info: dict[str, Any] = {}
         usage = self.signal_usage.get(op.node_id)
 
         # Variable name - prefer debug_label which is the actual variable name
         debug_info["variable"] = (
-            (usage.debug_label if usage else None)
-            or getattr(op, "debug_label", None)
-            or op.node_id
+            (usage.debug_label if usage else None) or getattr(op, "debug_label", None) or op.node_id
         )
 
         # Source location - try multiple sources
-        source_ast = (usage.source_ast if usage else None) or getattr(
-            op, "source_ast", None
-        )
+        source_ast = (usage.source_ast if usage else None) or getattr(op, "source_ast", None)
 
         # Get line from source_ast first
         line = None
@@ -113,32 +106,35 @@ class EntityPlacer:
             debug_info["source_file"] = source_file
 
         # Signal type
-        debug_info["signal_type"] = (
-            usage.resolved_signal_name if usage else None
-        ) or getattr(op, "output_type", None)
+        debug_info["signal_type"] = (usage.resolved_signal_name if usage else None) or getattr(
+            op, "output_type", None
+        )
 
         # Check for user declaration
-        if hasattr(op, "debug_metadata") and op.debug_metadata:
-            if op.debug_metadata.get("user_declared"):
-                debug_info["user_declared"] = True
-                declared_name = op.debug_metadata.get("declared_name")
-                if declared_name:
-                    debug_info["variable"] = declared_name
+        if (
+            hasattr(op, "debug_metadata")
+            and op.debug_metadata
+            and op.debug_metadata.get("user_declared")
+        ):
+            debug_info["user_declared"] = True
+            declared_name = op.debug_metadata.get("declared_name")
+            if declared_name:
+                debug_info["variable"] = declared_name
 
         # Operation-specific info
-        if isinstance(op, IR_Const):
+        if isinstance(op, IRConst):
             debug_info["operation"] = "const"
             details = f"value={op.value}"
             if hasattr(op, "debug_metadata") and op.debug_metadata.get("user_declared"):
                 details += " (input)"
             debug_info["details"] = details
-        elif isinstance(op, IR_Arith):
+        elif isinstance(op, IRArith):
             debug_info["operation"] = "arith"
             debug_info["details"] = f"op={op.op}"
-        elif isinstance(op, IR_Decider):
+        elif isinstance(op, IRDecider):
             debug_info["operation"] = "decider"
             debug_info["details"] = f"cond={op.test_op}"
-        elif isinstance(op, IR_MemCreate):
+        elif isinstance(op, IRMemCreate):
             debug_info["operation"] = "memory"
             debug_info["details"] = "decl"
 
@@ -152,40 +148,39 @@ class EntityPlacer:
         self._ir_nodes[op.node_id] = op
         self.memory_builder.register_ir_node(op)
 
-        if isinstance(op, IR_Const):
+        if isinstance(op, IRConst):
             self._place_constant(op)
-        elif isinstance(op, IR_Arith):
+        elif isinstance(op, IRArith):
             self._place_arithmetic(op)
-        elif isinstance(op, IR_Decider):
+        elif isinstance(op, IRDecider):
             self._place_decider(op)
-        elif isinstance(op, IR_MemCreate):
+        elif isinstance(op, IRMemCreate):
             self.memory_builder.create_memory(op, self.signal_graph)
-        elif isinstance(op, IR_MemRead):
+        elif isinstance(op, IRMemRead):
             self.memory_builder.handle_read(op, self.signal_graph)
-        elif isinstance(op, IR_MemWrite):
+        elif isinstance(op, IRMemWrite):
             self.memory_builder.handle_write(op, self.signal_graph)
-        elif isinstance(op, IR_LatchWrite):
+        elif isinstance(op, IRLatchWrite):
             self.memory_builder.handle_latch_write(op, self.signal_graph)
-        elif isinstance(op, IR_PlaceEntity):
+        elif isinstance(op, IRPlaceEntity):
             self._place_user_entity(op)
-        elif isinstance(op, IR_EntityPropWrite):
+        elif isinstance(op, IREntityPropWrite):
             self._place_entity_prop_write(op)
-        elif isinstance(op, IR_EntityPropRead):
+        elif isinstance(op, IREntityPropRead):
             self._place_entity_prop_read(op)
-        elif isinstance(op, IR_EntityOutput):
+        elif isinstance(op, IREntityOutput):
             self._place_entity_output(op)
-        elif isinstance(op, IR_WireMerge):
+        elif isinstance(op, IRWireMerge):
             self._place_wire_merge(op)
         else:
             self.diagnostics.warning(f"Unknown IR operation: {type(op)}")
 
-    def _place_constant(self, op: IR_Const) -> None:
+    def _place_constant(self, op: IRConst) -> None:
         """Place constant combinator (if materialization required)."""
         usage = self.signal_usage.get(op.node_id)
-        if not usage or not usage.should_materialize:
-            # For bundle constants, always materialize if they have signals
-            if not op.signals:
-                return
+        # For bundle constants, always materialize if they have signals
+        if (not usage or not usage.should_materialize) and not op.signals:
+            return
 
         signal_name = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
         signal_type = self.signal_analyzer.resolve_signal_type(op.output_type, usage)
@@ -236,7 +231,7 @@ class EntityPlacer:
 
         self.signal_graph.set_source(op.node_id, op.node_id)
 
-    def _place_arithmetic(self, op: IR_Arith) -> None:
+    def _place_arithmetic(self, op: IRArith) -> None:
         """Place arithmetic combinator."""
         left_pos = self._get_placement_position(op.left)
         right_pos = self._get_placement_position(op.right)
@@ -274,7 +269,7 @@ class EntityPlacer:
         self._add_signal_sink(op.left, op.node_id)
         self._add_signal_sink(op.right, op.node_id)
 
-    def _place_decider(self, op: IR_Decider) -> None:
+    def _place_decider(self, op: IRDecider) -> None:
         """Place decider combinator.
 
         Handles both single-condition mode (legacy) and multi-condition mode
@@ -287,7 +282,7 @@ class EntityPlacer:
             # Legacy single-condition mode
             self._place_single_condition_decider(op)
 
-    def _place_single_condition_decider(self, op: IR_Decider) -> None:
+    def _place_single_condition_decider(self, op: IRDecider) -> None:
         """Place a single-condition decider combinator (legacy mode)."""
         left_pos = self._get_placement_position(op.left)
         right_pos = self._get_placement_position(op.right)
@@ -332,7 +327,7 @@ class EntityPlacer:
         if not isinstance(op.output_value, int):
             self._add_signal_sink(op.output_value, op.node_id)
 
-    def _place_multi_condition_decider(self, op: IR_Decider) -> None:
+    def _place_multi_condition_decider(self, op: IRDecider) -> None:
         """Place a multi-condition decider combinator.
 
         Handles conditions from:
@@ -357,9 +352,7 @@ class EntityPlacer:
                 if isinstance(cond.first_operand, int):
                     cond_dict["first_constant"] = cond.first_operand
                 else:
-                    first_op = self.signal_analyzer.get_operand_for_combinator(
-                        cond.first_operand
-                    )
+                    first_op = self.signal_analyzer.get_operand_for_combinator(cond.first_operand)
                     cond_dict["first_signal"] = first_op
                     all_operands.append(cond.first_operand)
             elif cond.first_signal:
@@ -376,9 +369,7 @@ class EntityPlacer:
                 if isinstance(cond.second_operand, int):
                     cond_dict["second_constant"] = cond.second_operand
                 else:
-                    second_op = self.signal_analyzer.get_operand_for_combinator(
-                        cond.second_operand
-                    )
+                    second_op = self.signal_analyzer.get_operand_for_combinator(cond.second_operand)
                     cond_dict["second_signal"] = second_op
                     all_operands.append(cond.second_operand)
             elif cond.second_signal:
@@ -420,7 +411,7 @@ class EntityPlacer:
         if not isinstance(op.output_value, int):
             self._add_signal_sink(op.output_value, op.node_id)
 
-    def _place_user_entity(self, op: IR_PlaceEntity) -> None:
+    def _place_user_entity(self, op: IRPlaceEntity) -> None:
         """Place user-requested entity."""
         prototype = op.prototype
 
@@ -444,9 +435,7 @@ class EntityPlacer:
             role="user_entity",
         )
         placement.properties["footprint"] = footprint
-        placement.properties["alignment"] = (
-            alignment  # Store alignment in properties if needed
-        )
+        placement.properties["alignment"] = alignment  # Store alignment in properties if needed
 
         if user_specified:
             placement.properties["user_specified_position"] = True
@@ -469,13 +458,11 @@ class EntityPlacer:
 
         self.plan.add_placement(placement)
 
-    def _place_entity_prop_write(self, op: IR_EntityPropWrite) -> None:
+    def _place_entity_prop_write(self, op: IREntityPropWrite) -> None:
         """Handle entity property writes."""
         placement = self.plan.get_placement(op.entity_id)
         if placement is None:
-            self.diagnostics.warning(
-                f"Property write to non-existent entity: {op.entity_id}"
-            )
+            self.diagnostics.warning(f"Property write to non-existent entity: {op.entity_id}")
             return
 
         if "property_writes" not in placement.properties:
@@ -512,17 +499,13 @@ class EntityPlacer:
 
                 # Preserve debug info from the inlined comparison
                 comparison_placement = self.plan.get_placement(op.value.source_id)
-                if (
-                    comparison_placement
-                    and "debug_info" in comparison_placement.properties
-                ):
+                if comparison_placement and "debug_info" in comparison_placement.properties:
                     comp_debug = comparison_placement.properties["debug_info"]
                     if "property_writes" in placement.properties:
                         writes = placement.properties["property_writes"]
                         if (
                             op.property_name in writes
-                            and writes[op.property_name].get("type")
-                            == "inline_comparison"
+                            and writes[op.property_name].get("type") == "inline_comparison"
                         ):
                             writes[op.property_name]["inlined_from"] = comp_debug.get(
                                 "variable", "comparison"
@@ -531,11 +514,9 @@ class EntityPlacer:
                 # ✅ FIX: Track that entity needs the comparison's input signal
                 # The entity must read the signal being compared
                 ir_node = self._ir_nodes.get(op.value.source_id)
-                if isinstance(ir_node, IR_Decider):
+                if isinstance(ir_node, IRDecider):
                     if isinstance(ir_node.left, SignalRef):
-                        self.signal_graph.remove_sink(
-                            ir_node.left.source_id, op.value.source_id
-                        )
+                        self.signal_graph.remove_sink(ir_node.left.source_id, op.value.source_id)
                         self._add_signal_sink(ir_node.left, op.entity_id)
                         self.diagnostics.info(
                             f"Inlined comparison into {op.entity_id}.{op.property_name}, "
@@ -594,7 +575,7 @@ class EntityPlacer:
             "signal_type": signal_ref.signal_type,
         }
 
-    def _place_entity_prop_read(self, op: IR_EntityPropRead) -> None:
+    def _place_entity_prop_read(self, op: IREntityPropRead) -> None:
         """Handle entity property reads."""
         # Property reads expose entity state as a signal
         # We need to create a virtual signal source
@@ -602,7 +583,7 @@ class EntityPlacer:
         self._entity_property_signals[op.node_id] = signal_name
         self.signal_graph.set_source(op.node_id, op.entity_id)
 
-    def _place_entity_output(self, op: "IR_EntityOutput") -> None:
+    def _place_entity_output(self, op: "IREntityOutput") -> None:
         """Handle entity output reads (e.g., chest.output, tank.output).
 
         Entity outputs expose the circuit network output of entities like chests
@@ -613,7 +594,7 @@ class EntityPlacer:
         # Track that this node reads from the entity's circuit output
         self.signal_graph.set_source(op.node_id, op.entity_id)
 
-    def _place_wire_merge(self, op: IR_WireMerge) -> None:
+    def _place_wire_merge(self, op: IRWireMerge) -> None:
         """Handle wire merge operations with membership tracking."""
         # Wire merges don't create entities, they just affect wiring topology
         # Record the merge junction for later wire planning
@@ -674,7 +655,7 @@ class EntityPlacer:
         self._memory_modules = self.memory_builder._modules
 
         entities_to_remove = []
-        for entity_id, placement in list(self.plan.entity_placements.items()):
+        for _entity_id, placement in list(self.plan.entity_placements.items()):
             for prop_writes in placement.properties.get("property_writes", {}).values():
                 if prop_writes.get("type") == "inline_comparison":
                     node_to_remove = prop_writes.get("comparison_data", {}).get(
@@ -737,9 +718,9 @@ class EntityPlacer:
             # Get output aliases if any
             output_aliases = entry.output_aliases
 
-            # For IR_Const producers: only create anchors for aliases, not the original
+            # For IRConst producers: only create anchors for aliases, not the original
             # The original constant combinator already exists and serves as output
-            if isinstance(entry.producer, IR_Const):
+            if isinstance(entry.producer, IRConst):
                 if not output_aliases:
                     # No aliases - the constant combinator itself is the output
                     continue
@@ -771,10 +752,8 @@ class EntityPlacer:
                     if ":" in location:
                         file_part, line_part = location.rsplit(":", 1)
                         debug_info["source_file"] = file_part
-                        try:
+                        with contextlib.suppress(ValueError):
                             debug_info["line"] = int(line_part)
-                        except ValueError:
-                            pass
 
                 self.plan.create_and_add_placement(
                     ir_node_id=anchor_id,

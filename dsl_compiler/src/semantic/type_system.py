@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Union
+from typing import Any
 
 from dsl_compiler.src.ast.statements import ASTNode, Expr
 
@@ -95,11 +95,11 @@ class BundleValue:
 @dataclass
 class DynamicBundleValue(BundleValue):
     """Bundle with runtime-determined signal types.
-    
+
     Used for entity outputs where the actual signals depend on runtime state
     (e.g., chest contents, train cargo). Signal types are unknown at compile
     time.
-    
+
     Example:
         Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
         Bundle contents = chest.output;  # DynamicBundleValue - types unknown
@@ -109,13 +109,21 @@ class DynamicBundleValue(BundleValue):
     is_dynamic: bool = True
 
 
-ValueInfo = Union[SignalValue, IntValue, FunctionValue, EntityValue, VoidValue, BundleValue, DynamicBundleValue]
+ValueInfo = (
+    SignalValue
+    | IntValue
+    | FunctionValue
+    | EntityValue
+    | VoidValue
+    | BundleValue
+    | DynamicBundleValue
+)
 
 
 @dataclass
 class MemoryInfo:
     """Type information captured for memory declarations.
-    
+
     The memory type (standard vs latch) is determined by how it's written to,
     not by the declaration. This allows flexible usage of memory cells.
     """

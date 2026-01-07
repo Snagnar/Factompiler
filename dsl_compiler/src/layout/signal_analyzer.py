@@ -1,3 +1,4 @@
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -12,18 +13,18 @@ from dsl_compiler.src.common.signals import (
 )
 from dsl_compiler.src.ir.builder import (
     BundleRef,
-    IR_Arith,
-    IR_Const,
-    IR_Decider,
-    IR_MemCreate,
-    IR_MemWrite,
-    IR_PlaceEntity,
-    IR_WireMerge,
+    IRArith,
+    IRConst,
+    IRDecider,
+    IRMemCreate,
+    IRMemWrite,
     IRNode,
+    IRPlaceEntity,
     IRValue,
+    IRWireMerge,
     SignalRef,
 )
-from dsl_compiler.src.ir.nodes import IR_EntityPropWrite
+from dsl_compiler.src.ir.nodes import IREntityPropWrite
 
 
 @dataclass
@@ -94,16 +95,17 @@ class SignalAnalyzer:
             if isinstance(ref, SignalRef):
                 # Check if this source has suppress_materialization
                 producer = op_by_id.get(ref.source_id)
-                if producer and hasattr(producer, "debug_metadata"):
-                    if producer.debug_metadata.get("suppress_materialization"):
-                        continue  # Skip entity placeholders
+                if (
+                    producer
+                    and hasattr(producer, "debug_metadata")
+                    and producer.debug_metadata.get("suppress_materialization")
+                ):
+                    continue  # Skip entity placeholders
                 if ref.source_id not in source_to_names:
                     source_to_names[ref.source_id] = set()
                 source_to_names[ref.source_id].add(name)
 
-        def ensure_entry(
-            signal_id: str, signal_type: str | None = None
-        ) -> SignalUsageEntry:
+        def ensure_entry(signal_id: str, signal_type: str | None = None) -> SignalUsageEntry:
             entry = usage.get(signal_id)
             if entry is None:
                 entry = SignalUsageEntry(signal_id=signal_id)
@@ -141,7 +143,7 @@ class SignalAnalyzer:
                 if getattr(op, "debug_metadata", None):
                     entry.debug_metadata.update(op.debug_metadata)
 
-                if isinstance(op, IR_Const):
+                if isinstance(op, IRConst):
                     entry.literal_value = op.value
                     if isinstance(op.source_ast, SignalLiteral):
                         declared_type = getattr(op.source_ast, "signal_type", None)
@@ -149,40 +151,38 @@ class SignalAnalyzer:
                             entry.is_typed_literal = True
                             entry.literal_declared_type = declared_type
                         else:
-                            entry.literal_declared_type = getattr(
-                                op, "output_type", None
-                            )
+                            entry.literal_declared_type = getattr(op, "output_type", None)
 
-            if isinstance(op, IR_Arith):
+            if isinstance(op, IRArith):
                 record_consumer(op.left, op.node_id)
                 record_consumer(op.right, op.node_id)
-            elif isinstance(op, IR_Decider):
+            elif isinstance(op, IRDecider):
                 record_consumer(op.left, op.node_id)
                 record_consumer(op.right, op.node_id)
                 record_consumer(op.output_value, op.node_id)
-            elif isinstance(op, IR_MemCreate):
+            elif isinstance(op, IRMemCreate):
                 if hasattr(op, "initial_value") and op.initial_value is not None:
                     record_consumer(op.initial_value, op.node_id)
-            elif isinstance(op, IR_MemWrite):
+            elif isinstance(op, IRMemWrite):
                 entry = ensure_entry(op.node_id)
                 if not entry.debug_label:
                     entry.debug_label = op.memory_id
                 record_consumer(op.data_signal, op.node_id)
                 record_consumer(op.write_enable, op.node_id)
-            elif isinstance(op, IR_PlaceEntity):
+            elif isinstance(op, IRPlaceEntity):
                 record_consumer(op.x, op.node_id)
                 record_consumer(op.y, op.node_id)
                 for prop_value in op.properties.values():
                     record_consumer(prop_value, op.node_id)
-            elif isinstance(op, IR_EntityPropWrite):
+            elif isinstance(op, IREntityPropWrite):
                 record_consumer(op.value, op.node_id)
                 record_export(op.value, f"entity:{op.entity_id}.{op.property_name}")
                 # Handle inlined bundle conditions - the bundle is consumed by the entity
-                if hasattr(op, 'inline_bundle_condition') and op.inline_bundle_condition:
+                if hasattr(op, "inline_bundle_condition") and op.inline_bundle_condition:
                     input_source = op.inline_bundle_condition.get("input_source")
                     if input_source:
                         record_consumer(input_source, op.entity_id)
-            elif isinstance(op, IR_WireMerge):
+            elif isinstance(op, IRWireMerge):
                 record_consumer(op.sources, op.node_id)
 
         # Populate alias information and detect output aliases
@@ -201,9 +201,8 @@ class SignalAnalyzer:
                 # Mark as output if:
                 # 1. Original behavior: has debug_label, no consumers
                 # 2. New behavior: has output-only aliases
-                if entry.debug_label and entry.debug_label != signal_id:
-                    if not entry.consumers:
-                        entry.debug_metadata["is_output"] = True
+                if entry.debug_label and entry.debug_label != signal_id and not entry.consumers:
+                    entry.debug_metadata["is_output"] = True
                 if entry.output_aliases:
                     entry.debug_metadata["is_output"] = True
                     entry.debug_metadata["output_aliases"] = list(entry.output_aliases)
@@ -232,7 +231,7 @@ class SignalAnalyzer:
         entry = self.signal_usage.get(signal_ref.source_id)
         if not entry:
             return False
-        if not isinstance(entry.producer, IR_Const):
+        if not isinstance(entry.producer, IRConst):
             return False
         if entry.should_materialize:
             return False
@@ -255,10 +254,12 @@ class SignalAnalyzer:
         # return it directly without looking up the entry's resolved name.
         # This handles bundle selection like resources["iron-plate"] where signal_type is
         # "iron-plate" but entry might be for the bundle with resolved_signal_name="signal-each".
-        if signal_type and not signal_type.startswith("__"):
-            # Check if it's a known Factorio signal
-            if signal_type in signal_data.raw or signal_type.startswith("signal-"):
-                return signal_type
+        if (
+            signal_type
+            and not signal_type.startswith("__")
+            and (signal_type in signal_data.raw or signal_type.startswith("signal-"))
+        ):
+            return signal_type
 
         lookup_entry = entry
         if lookup_entry is None and signal_type:
@@ -329,10 +330,13 @@ class SignalAnalyzer:
 
         # Check suppression flag first (but respect user declarations)
         if entry.debug_metadata.get("suppress_materialization"):
-            if producer and hasattr(producer, "debug_metadata"):
-                if producer.debug_metadata.get("user_declared"):
-                    entry.should_materialize = True
-                    return
+            if (
+                producer
+                and hasattr(producer, "debug_metadata")
+                and producer.debug_metadata.get("user_declared")
+            ):
+                entry.should_materialize = True
+                return
             entry.should_materialize = False
             return
 
@@ -346,7 +350,7 @@ class SignalAnalyzer:
                 entry.should_materialize = False
                 return
 
-        if isinstance(producer, IR_Const):
+        if isinstance(producer, IRConst):
             # Check for user declaration via debug_label
             is_user_declared = False
             if hasattr(producer, "debug_metadata"):
@@ -367,9 +371,7 @@ class SignalAnalyzer:
                     key in metadata for key in ("name", "declared_type", "source_ast")
                 )
 
-            has_user_label = (
-                bool(entry.debug_label) and entry.debug_label != entry.signal_id
-            )
+            has_user_label = bool(entry.debug_label) and entry.debug_label != entry.signal_id
 
             entry.should_materialize = bool(
                 entry.is_typed_literal
@@ -381,9 +383,7 @@ class SignalAnalyzer:
         else:
             entry.should_materialize = True
 
-    def _resolve_signal_identity(
-        self, entry: SignalUsageEntry | None, force: bool = False
-    ) -> None:
+    def _resolve_signal_identity(self, entry: SignalUsageEntry | None, force: bool = False) -> None:
         if not entry:
             return
         if not force and entry.resolved_signal_name:
@@ -449,9 +449,7 @@ class SignalAnalyzer:
                 if existing is None:
                     signal_data.add_signal(name, target_type)
                 else:
-                    existing_type = (
-                        existing.get("type") if isinstance(existing, dict) else None
-                    )
+                    existing_type = existing.get("type") if isinstance(existing, dict) else None
                     if (
                         existing_type
                         and target_type == "virtual"
@@ -459,13 +457,9 @@ class SignalAnalyzer:
                     ):
                         target_type = existing_type
             except Exception as exc:
-                self.diagnostics.info(
-                    f"Could not register signal '{name}' as {target_type}: {exc}"
-                )
+                self.diagnostics.info(f"Could not register signal '{name}' as {target_type}: {exc}")
 
-    def _resolve_via_mapping(
-        self, signal_type: str | None, entry: SignalUsageEntry | None
-    ) -> str:
+    def _resolve_via_mapping(self, signal_type: str | None, entry: SignalUsageEntry | None) -> str:
         if entry and entry.resolved_signal_name:
             return entry.resolved_signal_name
 
@@ -492,10 +486,9 @@ class SignalAnalyzer:
             return factorio_signal
 
         # Register as virtual if not known
-        try:
+        with suppress(ValueError):
+            # Already registered
             signal_data.add_signal(signal_type, "virtual")
-        except ValueError:
-            pass  # Already registered
         return signal_type
 
     def _infer_category_from_name(self, name: str) -> str:
@@ -540,9 +533,7 @@ class SignalAnalyzer:
         """
         if not self._available_signal_pool:
             # No signals available at all - fall back to signal-0
-            self.diagnostics.info(
-                "No virtual signals available for allocation. Using signal-0."
-            )
+            self.diagnostics.info("No virtual signals available for allocation. Using signal-0.")
             return "signal-0"
 
         if self._signal_pool_index >= len(self._available_signal_pool):

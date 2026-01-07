@@ -12,9 +12,7 @@ class EntityPlacement:
 
     ir_node_id: str
     entity_type: str  # draftsman entity type
-    position: tuple[float, float] | None = (
-        None  # None until positioned by force-directed layout
-    )
+    position: tuple[float, float] | None = None  # None until positioned by force-directed layout
     properties: dict[str, Any] = field(default_factory=dict)
     role: str | None = None
 
@@ -50,9 +48,7 @@ class LayoutPlan:
 
     power_poles: list[PowerPolePlacement] = field(default_factory=list)
 
-    blueprint_label: str = field(
-        default_factory=lambda: DEFAULT_CONFIG.default_blueprint_label
-    )
+    blueprint_label: str = field(default_factory=lambda: DEFAULT_CONFIG.default_blueprint_label)
     blueprint_description: str = field(
         default_factory=lambda: DEFAULT_CONFIG.default_blueprint_description
     )

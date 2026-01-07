@@ -4,22 +4,22 @@ Tests for ir.py - Intermediate Representation classes and structures.
 
 from dsl_compiler.src.ast.literals import NumberLiteral
 from dsl_compiler.src.ir.builder import (
-    IR_Arith,
-    IR_Const,
-    IR_Decider,
-    IR_MemCreate,
-    IR_MemRead,
-    IR_MemWrite,
-    IR_PlaceEntity,
+    IRArith,
     IRBuilder,
+    IRConst,
+    IRDecider,
+    IRMemCreate,
+    IRMemRead,
+    IRMemWrite,
     IRNode,
+    IRPlaceEntity,
     IRValue,
     SignalRef,
 )
 from dsl_compiler.src.ir.nodes import (
-    IR_EntityPropRead,
-    IR_EntityPropWrite,
     IREffect,
+    IREntityPropRead,
+    IREntityPropWrite,
 )
 
 
@@ -38,9 +38,9 @@ class TestIRValueNodes:
     """Test IR value-producing nodes."""
 
     def test_ir_const(self):
-        """Test IR_Const node."""
+        """Test IRConst node."""
         ast_node = NumberLiteral(42)
-        node = IR_Const("const_1", "signal-A", ast_node)
+        node = IRConst("const_1", "signal-A", ast_node)
         assert node.node_id == "const_1"
         assert node.output_type == "signal-A"
         assert node.source_ast == ast_node
@@ -48,8 +48,8 @@ class TestIRValueNodes:
         assert node.value == 42
 
     def test_ir_arith(self):
-        """Test IR_Arith node."""
-        node = IR_Arith("arith_1", "signal-A")
+        """Test IRArith node."""
+        node = IRArith("arith_1", "signal-A")
         assert node.node_id == "arith_1"
         assert node.output_type == "signal-A"
         node.op = "+"
@@ -60,8 +60,8 @@ class TestIRValueNodes:
         assert isinstance(node.right_operand, SignalRef)
 
     def test_ir_decider(self):
-        """Test IR_Decider node."""
-        node = IR_Decider("decider_1", "signal-A")
+        """Test IRDecider node."""
+        node = IRDecider("decider_1", "signal-A")
         assert node.node_id == "decider_1"
         assert node.output_type == "signal-A"
         node.condition_left = SignalRef("iron-plate", "input_1")
@@ -73,16 +73,16 @@ class TestIRValueNodes:
         assert node.condition_right == 10
 
     def test_ir_mem_read(self):
-        """Test IR_MemRead node."""
-        node = IR_MemRead("mem_read_1", "signal-A")
+        """Test IRMemRead node."""
+        node = IRMemRead("mem_read_1", "signal-A")
         assert node.node_id == "mem_read_1"
         assert node.output_type == "signal-A"
         node.memory_id = "mem_counter"
         assert node.memory_id == "mem_counter"
 
     def test_ir_entity_prop_read(self):
-        """Test IR_EntityPropRead node."""
-        node = IR_EntityPropRead("prop_read_1", "signal-A")
+        """Test IREntityPropRead node."""
+        node = IREntityPropRead("prop_read_1", "signal-A")
         assert node.node_id == "prop_read_1"
         assert node.output_type == "signal-A"
         node.entity_id = "lamp_1"
@@ -95,25 +95,25 @@ class TestIREffectNodes:
     """Test IR effect-producing nodes."""
 
     def test_ir_mem_create(self):
-        """Test IR_MemCreate node."""
-        node = IR_MemCreate("mem_counter", "signal-A")
+        """Test IRMemCreate node."""
+        node = IRMemCreate("mem_counter", "signal-A")
         assert node.memory_id == "mem_counter"
         assert node.signal_type == "signal-A"
         assert not hasattr(node, "initial_value")
 
     def test_ir_mem_write(self):
-        """Test IR_MemWrite node."""
+        """Test IRMemWrite node."""
         value = SignalRef("signal-A", "const_1")
         condition = SignalRef("signal-B", "const_2")
-        node = IR_MemWrite("mem_counter", value, condition)
+        node = IRMemWrite("mem_counter", value, condition)
         assert node.memory_id == "mem_counter"
         assert node.data_signal == value
         assert node.write_enable == condition
 
     def test_ir_place_entity(self):
-        """Test IR_PlaceEntity node."""
+        """Test IRPlaceEntity node."""
         properties = {"enabled": True}
-        node = IR_PlaceEntity("entity_1", "small-lamp", 5, 10, properties)
+        node = IRPlaceEntity("entity_1", "small-lamp", 5, 10, properties)
         assert node.entity_id == "entity_1"
         assert node.prototype == "small-lamp"
         assert node.x == 5
@@ -121,9 +121,9 @@ class TestIREffectNodes:
         assert node.properties == properties
 
     def test_ir_entity_prop_write(self):
-        """Test IR_EntityPropWrite node."""
+        """Test IREntityPropWrite node."""
         value = SignalRef("signal-A", "const_1")
-        node = IR_EntityPropWrite("entity_1", "enabled", value)
+        node = IREntityPropWrite("entity_1", "enabled", value)
         assert node.entity_id == "entity_1"
         assert node.property_name == "enabled"
         assert node.value == value
@@ -135,17 +135,17 @@ class TestIRHierarchy:
     def test_ir_node_base(self):
         """Test IRNode base class functionality."""
         # All IR nodes should inherit from IRNode
-        assert isinstance(IR_Const("id", "type"), IRNode)
-        assert isinstance(IR_MemCreate("id", "type", 0), IRNode)
+        assert isinstance(IRConst("id", "type"), IRNode)
+        assert isinstance(IRMemCreate("id", "type", 0), IRNode)
 
     def test_ir_value_hierarchy(self):
         """Test IRValue node inheritance."""
         values = [
-            IR_Const("const_1", "signal-A"),
-            IR_Arith("arith_1", "signal-A"),
-            IR_Decider("decider_1", "signal-A"),
-            IR_MemRead("mem_read_1", "signal-A"),
-            IR_EntityPropRead("prop_read_1", "signal-A"),
+            IRConst("const_1", "signal-A"),
+            IRArith("arith_1", "signal-A"),
+            IRDecider("decider_1", "signal-A"),
+            IRMemRead("mem_read_1", "signal-A"),
+            IREntityPropRead("prop_read_1", "signal-A"),
         ]
 
         for value in values:
@@ -155,10 +155,10 @@ class TestIRHierarchy:
     def test_ir_effect_hierarchy(self):
         """Test IREffect node inheritance."""
         effects = [
-            IR_MemCreate("mem", "signal-A", 0),
-            IR_MemWrite("mem", SignalRef("signal-A", "const_1"), 1),
-            IR_PlaceEntity("entity_1", "small-lamp", 0, 0, {}),
-            IR_EntityPropWrite("entity_1", "enabled", SignalRef("signal-A", "const_1")),
+            IRMemCreate("mem", "signal-A", 0),
+            IRMemWrite("mem", SignalRef("signal-A", "const_1"), 1),
+            IRPlaceEntity("entity_1", "small-lamp", 0, 0, {}),
+            IREntityPropWrite("entity_1", "enabled", SignalRef("signal-A", "const_1")),
         ]
 
         for effect in effects:

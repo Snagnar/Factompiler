@@ -61,13 +61,9 @@ class IntegerLayoutEngine:
         if constraints is not None:
             self.constraints = constraints
         else:
-            self.constraints = LayoutConstraints(
-                max_coordinate=config.max_layout_coordinate
-            )
+            self.constraints = LayoutConstraints(max_coordinate=config.max_layout_coordinate)
 
-        self.entity_ids = sorted(
-            entity_placements.keys()
-        )  # Sort for deterministic order
+        self.entity_ids = sorted(entity_placements.keys())  # Sort for deterministic order
         self.n_entities = len(self.entity_ids)
 
         # Identify power pole entities (for excluding from bounding box)
@@ -91,7 +87,7 @@ class IntegerLayoutEngine:
 
         # First, build a map of wire merge node -> its sinks
         wire_merge_sinks: dict[str, list[str]] = {}
-        for signal_id, source_id, sink_id in self.signal_graph.iter_source_sink_pairs():
+        for _signal_id, source_id, sink_id in self.signal_graph.iter_source_sink_pairs():
             if source_id in self.wire_merge_junctions:
                 if source_id not in wire_merge_sinks:
                     wire_merge_sinks[source_id] = []
@@ -115,7 +111,7 @@ class IntegerLayoutEngine:
                         sources.append(actual_entity_id)
             wire_merge_sources[merge_id] = sources
 
-        for signal_id, source_id, sink_id in self.signal_graph.iter_source_sink_pairs():
+        for _signal_id, source_id, sink_id in self.signal_graph.iter_source_sink_pairs():
             # Case 1: Both source and sink are real entities
             if source_id in self.entity_ids and sink_id in self.entity_ids:
                 self.connections.append((source_id, sink_id))
@@ -135,9 +131,7 @@ class IntegerLayoutEngine:
         # Deduplicate and sort for deterministic iteration order
         self.connections = sorted(set(self.connections))
 
-        self.diagnostics.info(
-            f"Built connectivity: {len(self.connections)} unique connections"
-        )
+        self.diagnostics.info(f"Built connectivity: {len(self.connections)} unique connections")
 
     def _identify_fixed_positions(self) -> None:
         """Identify entities with fixed positions (user-specified or grid-placed).
@@ -219,8 +213,7 @@ class IntegerLayoutEngine:
 
         if self.n_entities > 500:
             self.diagnostics.info(
-                f"Large graph detected ({self.n_entities} entities), "
-                "using subgraph decomposition"
+                f"Large graph detected ({self.n_entities} entities), using subgraph decomposition"
             )
             return self._optimize_with_decomposition(time_limit_seconds)
 
@@ -312,9 +305,7 @@ class IntegerLayoutEngine:
             },
         ]
 
-    def _solve_with_strategy(
-        self, strategy: dict, time_limit: int
-    ) -> OptimizationResult:
+    def _solve_with_strategy(self, strategy: dict, time_limit: int) -> OptimizationResult:
         """Solve layout with a specific strategy."""
         model = cp_model.CpModel()
 
@@ -371,9 +362,7 @@ class IntegerLayoutEngine:
 
         return positions
 
-    def _add_no_overlap_constraint(
-        self, model: cp_model.CpModel, positions: dict
-    ) -> None:
+    def _add_no_overlap_constraint(self, model: cp_model.CpModel, positions: dict) -> None:
         """Add hard no-overlap constraint using AddNoOverlap2D."""
         x_intervals = []
         y_intervals = []
@@ -419,9 +408,7 @@ class IntegerLayoutEngine:
 
         return span_violations, wire_lengths
 
-    def _add_edge_layout_constraints(
-        self, model: cp_model.CpModel, positions: dict
-    ) -> None:
+    def _add_edge_layout_constraints(self, model: cp_model.CpModel, positions: dict) -> None:
         """Add constraints for north-south edge layout.
 
         Strategy:
@@ -462,9 +449,7 @@ class IntegerLayoutEngine:
 
         # If no inputs or outputs, no edge constraints needed
         if not input_entities and not output_entities:
-            self.diagnostics.info(
-                "No edge layout constraints (no inputs/outputs marked)"
-            )
+            self.diagnostics.info("No edge layout constraints (no inputs/outputs marked)")
             return
 
         max_coord = self.constraints.max_coordinate
@@ -478,9 +463,7 @@ class IntegerLayoutEngine:
 
         if input_entities:
             Y_input_line = model.NewIntVar(0, max_coord, "Y_input_line")
-            max_input_height = max(
-                self.footprints.get(e, (1, 1))[1] for e in input_entities
-            )
+            max_input_height = max(self.footprints.get(e, (1, 1))[1] for e in input_entities)
             self.diagnostics.info(
                 f"Edge layout: {len(input_entities)} inputs, max height {max_input_height}"
             )
@@ -555,9 +538,7 @@ class IntegerLayoutEngine:
         total_wire_length = sum(wire_lengths) if wire_lengths else 0
 
         # Exclude power poles from bounding box calculation
-        non_pole_entities = [
-            e for e in self.entity_ids if e not in self._power_pole_ids
-        ]
+        non_pole_entities = [e for e in self.entity_ids if e not in self._power_pole_ids]
 
         if non_pole_entities:
             non_pole_x = [positions[e][0] for e in non_pole_entities]
@@ -574,9 +555,7 @@ class IntegerLayoutEngine:
             bounding_perimeter = 0
 
         objective = (
-            violation_weight * num_violations
-            + 100 * total_wire_length
-            + 100 * bounding_perimeter
+            violation_weight * num_violations + 100 * total_wire_length + 100 * bounding_perimeter
         )
 
         model.Minimize(objective)
@@ -597,13 +576,9 @@ class IntegerLayoutEngine:
                 for entity_id, (x, y) in positions.items()
             }
 
-            num_violations = (
-                sum(solver.Value(v) for v in span_violations) if span_violations else 0
-            )
+            num_violations = sum(solver.Value(v) for v in span_violations) if span_violations else 0
 
-            total_wire_length = (
-                sum(solver.Value(wl) for wl in wire_lengths) if wire_lengths else 0
-            )
+            total_wire_length = sum(solver.Value(wl) for wl in wire_lengths) if wire_lengths else 0
 
             return OptimizationResult(
                 positions=result_positions,
@@ -635,20 +610,15 @@ class IntegerLayoutEngine:
             if distance > self.constraints.max_wire_span:
                 violated_connections.append((source, sink, distance))
 
-        self.diagnostics.warning(
-            f"Layout has {len(violated_connections)} wire span violations:"
-        )
+        self.diagnostics.warning(f"Layout has {len(violated_connections)} wire span violations:")
 
         for source, sink, distance in violated_connections[:10]:
             self.diagnostics.warning(
-                f"  {source} → {sink}: {distance} units "
-                f"(limit: {self.constraints.max_wire_span})"
+                f"  {source} → {sink}: {distance} units (limit: {self.constraints.max_wire_span})"
             )
 
         if len(violated_connections) > 10:
-            self.diagnostics.warning(
-                f"  ... and {len(violated_connections) - 10} more violations"
-            )
+            self.diagnostics.warning(f"  ... and {len(violated_connections) - 10} more violations")
 
     def _diagnose_failure(self) -> None:
         """Provide detailed diagnostic information about optimization failure."""
@@ -686,9 +656,7 @@ class IntegerLayoutEngine:
             )
 
         if len(self.fixed_positions) > self.n_entities * 0.3:
-            fixed_poles = len(
-                [p for p in self.fixed_positions if p in self._power_pole_ids]
-            )
+            fixed_poles = len([p for p in self.fixed_positions if p in self._power_pole_ids])
             fixed_other = len(self.fixed_positions) - fixed_poles
             self.diagnostics.error(
                 f"  → Many fixed positions ({len(self.fixed_positions)}/{self.n_entities})\n"
@@ -707,30 +675,23 @@ class IntegerLayoutEngine:
 
         self.diagnostics.error("Falling back to simple grid layout")
 
-    def _optimize_with_decomposition(
-        self, time_limit: int
-    ) -> dict[str, tuple[int, int]]:
+    def _optimize_with_decomposition(self, time_limit: int) -> dict[str, tuple[int, int]]:
         """Optimize large graphs using connected component decomposition."""
         components = self._find_connected_components()
 
-        self.diagnostics.info(
-            f"Decomposed graph into {len(components)} connected components"
-        )
+        self.diagnostics.info(f"Decomposed graph into {len(components)} connected components")
 
         all_positions = {}
         current_offset_x = 0
 
         for i, component in enumerate(components):
             self.diagnostics.info(
-                f"Optimizing component {i + 1}/{len(components)} "
-                f"({len(component)} entities)"
+                f"Optimizing component {i + 1}/{len(components)} ({len(component)} entities)"
             )
 
             component_set = set(component)
             component_connections = [
-                (s, t)
-                for s, t in self.connections
-                if s in component_set and t in component_set
+                (s, t) for s, t in self.connections if s in component_set and t in component_set
             ]
 
             original_connections = self.connections

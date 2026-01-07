@@ -24,9 +24,7 @@ class TypedParam:
 class Program(ASTNode):
     """Root node representing an entire DSL program."""
 
-    def __init__(
-        self, statements: list[Statement], line: int = 0, column: int = 0
-    ) -> None:
+    def __init__(self, statements: list[Statement], line: int = 0, column: int = 0) -> None:
         super().__init__(line, column)
         self.statements = statements
 
@@ -34,9 +32,7 @@ class Program(ASTNode):
 class Statement(ASTNode):
     """Base class for all statements."""
 
-    def __init__(
-        self, line: int = 0, column: int = 0, raw_text: str | None = None
-    ) -> None:
+    def __init__(self, line: int = 0, column: int = 0, raw_text: str | None = None) -> None:
         super().__init__(line, column, raw_text=raw_text)
 
 
@@ -55,9 +51,7 @@ class DeclStmt(Statement):
 class AssignStmt(Statement):
     """variable = expression; or variable.property = expression;"""
 
-    def __init__(
-        self, target: LValue, value: Expr, line: int = 0, column: int = 0
-    ) -> None:
+    def __init__(self, target: LValue, value: Expr, line: int = 0, column: int = 0) -> None:
         super().__init__(line, column)
         self.target = target
         self.value = value
@@ -102,9 +96,7 @@ class ReturnStmt(Statement):
 class ImportStmt(Statement):
     """import "file" [as alias];"""
 
-    def __init__(
-        self, path: str, alias: str | None = None, line: int = 0, column: int = 0
-    ) -> None:
+    def __init__(self, path: str, alias: str | None = None, line: int = 0, column: int = 0) -> None:
         super().__init__(line, column)
         self.path = path
         self.alias = alias
@@ -129,13 +121,13 @@ class FuncDecl(Statement):
 
 class ForStmt(Statement):
     """for variable in iterator { body }
-    
+
     Represents a compile-time for loop that is fully unrolled.
-    
+
     Range bounds (start, stop, step) can be:
     - int: A literal integer value
     - str: A variable name that references a compile-time constant int
-    
+
     These must be resolved before calling get_iteration_values().
     """
 
@@ -153,14 +145,16 @@ class ForStmt(Statement):
         super().__init__(line, column)
         self.iterator_name = iterator_name
         self.start = start  # Start value for range (inclusive), None for list, can be var name
-        self.stop = stop    # Stop value for range (exclusive), None for list, can be var name
-        self.step = step    # Step value for range, None for list, can be var name
+        self.stop = stop  # Stop value for range (exclusive), None for list, can be var name
+        self.step = step  # Step value for range, None for list, can be var name
         self.values = values  # List of values for list iterator, None for range
         self.body = body
 
-    def get_iteration_values(self, constant_resolver: Callable[[str], int] | None = None) -> list[int]:
+    def get_iteration_values(
+        self, constant_resolver: Callable[[str], int] | None = None
+    ) -> list[int]:
         """Returns the sequence of values the iterator takes.
-        
+
         Args:
             constant_resolver: Optional callable that resolves variable names to their
                               compile-time constant int values. Required if any bounds
@@ -174,7 +168,9 @@ class ForStmt(Statement):
             if isinstance(value, int):
                 return value
             if constant_resolver is None:
-                raise ValueError(f"Variable '{value}' in for loop range requires a constant resolver")
+                raise ValueError(
+                    f"Variable '{value}' in for loop range requires a constant resolver"
+                )
             return constant_resolver(value)
 
         start = resolve(self.start)
@@ -196,5 +192,3 @@ class ForStmt(Statement):
                 result.append(i)
                 i += step
         return result
-
-

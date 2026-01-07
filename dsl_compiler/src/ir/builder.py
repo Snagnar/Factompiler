@@ -11,16 +11,16 @@ from .nodes import (
     MEMORY_TYPE_STANDARD,
     BundleRef,
     DeciderCondition,
-    IR_Arith,
-    IR_Const,
-    IR_Decider,
-    IR_MemCreate,
-    IR_MemRead,
-    IR_MemWrite,
-    IR_PlaceEntity,
-    IR_WireMerge,
+    IRArith,
+    IRConst,
+    IRDecider,
+    IRMemCreate,
+    IRMemRead,
+    IRMemWrite,
     IRNode,
+    IRPlaceEntity,
     IRValue,
+    IRWireMerge,
     SignalRef,
     ValueRef,
 )
@@ -89,13 +89,11 @@ class IRBuilder:
         if metadata:
             signal.debug_metadata.update(metadata)
 
-    def const(
-        self, signal_type: str, value: int, source_ast: ASTNode | None = None
-    ) -> SignalRef:
+    def const(self, signal_type: str, value: int, source_ast: ASTNode | None = None) -> SignalRef:
         """Create a constant signal value."""
 
         node_id = self.next_id("const")
-        op = IR_Const(node_id, signal_type, source_ast)
+        op = IRConst(node_id, signal_type, source_ast)
         op.value = value
         self.add_operation(op)
         return SignalRef(signal_type, node_id, source_ast=source_ast)
@@ -111,7 +109,7 @@ class IRBuilder:
         """Create an arithmetic operation."""
 
         node_id = self.next_id("arith")
-        arith_op = IR_Arith(node_id, output_type, source_ast)
+        arith_op = IRArith(node_id, output_type, source_ast)
         arith_op.op = op
         arith_op.left = left
         arith_op.right = right
@@ -141,7 +139,7 @@ class IRBuilder:
                                    copy the signal's count from input rather than outputting a constant
         """
         node_id = self.next_id("decider")
-        decider_op = IR_Decider(node_id, output_type, source_ast)
+        decider_op = IRDecider(node_id, output_type, source_ast)
         decider_op.test_op = test_op
         decider_op.left = left
         decider_op.right = right
@@ -178,7 +176,7 @@ class IRBuilder:
             SignalRef pointing to the output of this decider.
         """
         node_id = self.next_id("decider")
-        decider_op = IR_Decider(node_id, output_type, source_ast)
+        decider_op = IRDecider(node_id, output_type, source_ast)
         decider_op.output_value = output_value
         decider_op.copy_count_from_input = copy_count_from_input
 
@@ -204,7 +202,7 @@ class IRBuilder:
         """Create a virtual wire merge combining multiple sources."""
 
         node_id = self.next_id("wire_merge")
-        merge_op = IR_WireMerge(node_id, output_type, source_ast)
+        merge_op = IRWireMerge(node_id, output_type, source_ast)
         for source in sources:
             merge_op.add_source(source)
         self.add_operation(merge_op)
@@ -219,7 +217,7 @@ class IRBuilder:
     ) -> None:
         """Create a memory cell declaration."""
 
-        op = IR_MemCreate(memory_id, signal_type, source_ast, memory_type)
+        op = IRMemCreate(memory_id, signal_type, source_ast, memory_type)
         self.add_operation(op)
 
     def memory_read(
@@ -228,7 +226,7 @@ class IRBuilder:
         """Read from a memory cell."""
 
         node_id = self.next_id("mem_read")
-        op = IR_MemRead(node_id, signal_type, source_ast)
+        op = IRMemRead(node_id, signal_type, source_ast)
         op.memory_id = memory_id
         self.add_operation(op)
         return SignalRef(signal_type, node_id, source_ast=source_ast)
@@ -239,10 +237,10 @@ class IRBuilder:
         data_signal: ValueRef,
         write_enable: ValueRef,
         source_ast: ASTNode | None = None,
-    ) -> IR_MemWrite:
+    ) -> IRMemWrite:
         """Write to a memory cell (standard write-gated latch)."""
 
-        op = IR_MemWrite(memory_id, data_signal, write_enable, source_ast)
+        op = IRMemWrite(memory_id, data_signal, write_enable, source_ast)
         self.add_operation(op)
         return op
 
@@ -256,7 +254,7 @@ class IRBuilder:
         source_ast: ASTNode | None = None,
     ) -> Any:
         """Write to a memory cell using latch mode (single combinator).
-        
+
         Args:
             memory_id: The memory cell ID
             value: The value to output when latch is ON
@@ -265,9 +263,9 @@ class IRBuilder:
             latch_type: MEMORY_TYPE_SR_LATCH or MEMORY_TYPE_RS_LATCH
             source_ast: Source AST node for diagnostics
         """
-        from .nodes import IR_LatchWrite
+        from .nodes import IRLatchWrite
 
-        op = IR_LatchWrite(memory_id, value, set_signal, reset_signal, latch_type, source_ast)
+        op = IRLatchWrite(memory_id, value, set_signal, reset_signal, latch_type, source_ast)
         self.add_operation(op)
         return op
 
@@ -282,7 +280,7 @@ class IRBuilder:
     ) -> None:
         """Emit an entity placement."""
 
-        op = IR_PlaceEntity(entity_id, prototype, x, y, properties)
+        op = IRPlaceEntity(entity_id, prototype, x, y, properties)
         op.source_ast = source_ast  # Attach source AST for line number tracking
         self.add_operation(op)
 
@@ -306,7 +304,7 @@ class IRBuilder:
         """
         node_id = self.next_id("bundle_const")
         # Use "signal-each" as the nominal output type for bundle constants
-        op = IR_Const(node_id, "signal-each", source_ast)
+        op = IRConst(node_id, "signal-each", source_ast)
         op.signals = signals.copy()
         self.add_operation(op)
         return BundleRef(set(signals.keys()), node_id, source_ast=source_ast)
@@ -331,7 +329,7 @@ class IRBuilder:
         """
         node_id = self.next_id("bundle_arith")
         # Use "signal-each" for both input and output
-        arith_op = IR_Arith(node_id, "signal-each", source_ast)
+        arith_op = IRArith(node_id, "signal-each", source_ast)
         arith_op.op = op
         arith_op.left = SignalRef("signal-each", bundle.source_id)
         arith_op.right = operand

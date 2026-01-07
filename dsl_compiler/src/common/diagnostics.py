@@ -61,9 +61,7 @@ class ProgramDiagnostics:
     ) -> None:
         """Add an informational message (shown in verbose mode)."""
         logging.info(f"[{stage or self.default_stage}] {message}")
-        self._add(
-            DiagnosticSeverity.INFO, message, stage, line, column, source_file, node
-        )
+        self._add(DiagnosticSeverity.INFO, message, stage, line, column, source_file, node)
 
     def warning(
         self,
@@ -76,9 +74,7 @@ class ProgramDiagnostics:
     ) -> None:
         """Add a warning (always shown, doesn't stop compilation)."""
         logging.warning(f"[{stage or self.default_stage}] {message}")
-        self._add(
-            DiagnosticSeverity.WARNING, message, stage, line, column, source_file, node
-        )
+        self._add(DiagnosticSeverity.WARNING, message, stage, line, column, source_file, node)
         self._warning_count += 1
 
     def error(
@@ -92,9 +88,7 @@ class ProgramDiagnostics:
     ) -> None:
         """Add an error (always shown, stops compilation)."""
         logging.error(f"[{stage or self.default_stage}] {message}")
-        self._add(
-            DiagnosticSeverity.ERROR, message, stage, line, column, source_file, node
-        )
+        self._add(DiagnosticSeverity.ERROR, message, stage, line, column, source_file, node)
         if self.raise_errors:
             raise Exception(f"[{stage or self.default_stage}] {message}")
         self._error_count += 1

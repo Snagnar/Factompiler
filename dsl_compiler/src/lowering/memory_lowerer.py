@@ -9,8 +9,8 @@ from dsl_compiler.src.ir.nodes import (
     MEMORY_TYPE_RS_LATCH,
     MEMORY_TYPE_SR_LATCH,
     MEMORY_TYPE_STANDARD,
-    IR_Const,
-    IR_Decider,
+    IRConst,
+    IRDecider,
 )
 from dsl_compiler.src.semantic.analyzer import SignalValue
 from dsl_compiler.src.semantic.type_system import get_signal_type_name
@@ -239,21 +239,20 @@ class MemoryLowerer:
                 is_const_one = True
             elif isinstance(write_enable, SignalRef):
                 const_node = self.ir_builder.get_operation(write_enable.source_id)
-                if isinstance(const_node, IR_Const) and const_node.value == 1:
+                if isinstance(const_node, IRConst) and const_node.value == 1:
                     is_const_one = True
 
-            if not is_const_one:
-                if isinstance(write_enable, SignalRef):
-                    source_node = self.ir_builder.get_operation(write_enable.source_id)
-                    if isinstance(source_node, IR_Decider):
-                        self.parent.ensure_signal_registered("signal-W")
-                        source_node.output_type = "signal-W"
-                        write_enable.signal_type = "signal-W"
-                    elif write_enable.signal_type != "signal-W":
-                        self.parent.ensure_signal_registered("signal-W")
-                        write_enable = self.ir_builder.arithmetic(
-                            "+", write_enable, 0, "signal-W", expr
-                        )
+            if not is_const_one and isinstance(write_enable, SignalRef):
+                source_node = self.ir_builder.get_operation(write_enable.source_id)
+                if isinstance(source_node, IRDecider):
+                    self.parent.ensure_signal_registered("signal-W")
+                    source_node.output_type = "signal-W"
+                    write_enable.signal_type = "signal-W"
+                elif write_enable.signal_type != "signal-W":
+                    self.parent.ensure_signal_registered("signal-W")
+                    write_enable = self.ir_builder.arithmetic(
+                        "+", write_enable, 0, "signal-W", expr
+                    )
         else:
             self.parent.ensure_signal_registered("signal-W")
             write_enable = self.ir_builder.const("signal-W", 1, expr)

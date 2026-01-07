@@ -62,6 +62,7 @@ ignore = [
     "N802",   # Function name should be lowercase (allow camelCase for Lark transformers)
     "N803",   # Argument name should be lowercase
     "N806",   # Variable in function should be lowercase
+    "N999",   # Invalid module name (project root is "Factompiler")
     "SIM108", # Use ternary operator (sometimes less readable)
 ]
 

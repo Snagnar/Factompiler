@@ -10,18 +10,14 @@ from .base import ASTNode
 class Expr(ASTNode):
     """Base class for all expressions."""
 
-    def __init__(
-        self, line: int = 0, column: int = 0, raw_text: str | None = None
-    ) -> None:
+    def __init__(self, line: int = 0, column: int = 0, raw_text: str | None = None) -> None:
         super().__init__(line, column, raw_text=raw_text)
 
 
 class BinaryOp(Expr):
     """Binary operation: left op right"""
 
-    def __init__(
-        self, op: str, left: Expr, right: Expr, line: int = 0, column: int = 0
-    ) -> None:
+    def __init__(self, op: str, left: Expr, right: Expr, line: int = 0, column: int = 0) -> None:
         super().__init__(line, column)
         self.op = op  # +, -, *, /, %, ==, !=, <, <=, >, >=, &&, ||
         self.left = left
@@ -40,9 +36,7 @@ class UnaryOp(Expr):
 class CallExpr(Expr):
     """Function call: func(args...)"""
 
-    def __init__(
-        self, name: str, args: list[Expr], line: int = 0, column: int = 0
-    ) -> None:
+    def __init__(self, name: str, args: list[Expr], line: int = 0, column: int = 0) -> None:
         super().__init__(line, column)
         self.name = name
         self.args = args
@@ -96,7 +90,7 @@ class WriteExpr(Expr):
 
 class ProjectionExpr(Expr):
     """expr | "type" - project signal/bundle to specific channel
-    
+
     target_type can be:
     - A string (e.g., "iron-plate", "signal-A")
     - A SignalTypeAccess (e.g., a.type - resolved at compile time)
@@ -112,10 +106,10 @@ class ProjectionExpr(Expr):
 
 class SignalLiteral(Expr):
     """Signal literal: ("type", value) or just value
-    
+
     signal_type can be:
     - None for implicit type (compiler allocates virtual signal)
-    - A string (e.g., "iron-plate", "signal-A") 
+    - A string (e.g., "iron-plate", "signal-A")
     - A SignalTypeAccess (e.g., a.type - resolved at compile time)
     """
 
@@ -254,10 +248,10 @@ class BundleAllExpr(Expr):
 
 class SignalTypeAccess(Expr):
     """Access to a signal's type: signal_var.type
-    
+
     Used in projections and signal literals to dynamically reference
     the type of another signal variable. The type is resolved at compile time.
-    
+
     Example:
         Signal a = ("iron-plate", 60);
         Signal b = 50 | a.type;  # b is projected to iron-plate
@@ -278,12 +272,12 @@ class SignalTypeAccess(Expr):
 
 class EntityOutputExpr(Expr):
     """Access to entity's circuit output: entity.output
-    
+
     Represents reading the circuit network signals that an entity outputs.
     For chests: all items in the chest as a bundle
     For tanks: fluid amount as a signal
     For train stops with read_from_train: train contents as a bundle
-    
+
     Example:
         Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
         Bundle contents = chest.output;  # All items in chest as bundle

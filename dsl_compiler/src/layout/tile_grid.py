@@ -1,6 +1,5 @@
 """Simple tile occupancy tracking for entity placement."""
 
-
 from .layout_plan import EntityPlacement
 
 
@@ -16,9 +15,7 @@ class TileGrid:
     def __init__(self):
         self._occupied: set[tuple[int, int]] = set()
 
-    def is_available(
-        self, tile_pos: tuple[int, int], footprint: tuple[int, int]
-    ) -> bool:
+    def is_available(self, tile_pos: tuple[int, int], footprint: tuple[int, int]) -> bool:
         """Check if a tile position is available for given footprint.
 
         Args:
@@ -32,9 +29,7 @@ class TileGrid:
                     return False
         return True
 
-    def mark_occupied(
-        self, tile_pos: tuple[int, int], footprint: tuple[int, int]
-    ) -> None:
+    def mark_occupied(self, tile_pos: tuple[int, int], footprint: tuple[int, int]) -> None:
         """Mark tiles as occupied.
 
         Args:
@@ -46,9 +41,7 @@ class TileGrid:
             for dy in range(height):
                 self._occupied.add((tile_pos[0] + dx, tile_pos[1] + dy))
 
-    def reserve_exact(
-        self, tile_pos: tuple[int, int], footprint: tuple[int, int]
-    ) -> bool:
+    def reserve_exact(self, tile_pos: tuple[int, int], footprint: tuple[int, int]) -> bool:
         """Try to reserve exact tile position.
 
         Returns True if successful, False if position unavailable.

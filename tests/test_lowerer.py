@@ -8,9 +8,9 @@ import pytest
 
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.ir.nodes import (
-    IR_Arith,
-    IR_Const,
-    IR_MemWrite,
+    IRArith,
+    IRConst,
+    IRMemWrite,
     SignalRef,
 )
 from dsl_compiler.src.parsing.parser import DSLParser
@@ -78,7 +78,7 @@ class TestLowerer:
 
         assert not lower_diags.has_errors(), lower_diags.get_messages()
 
-        mem_writes = [op for op in ir_operations if isinstance(op, IR_MemWrite)]
+        mem_writes = [op for op in ir_operations if isinstance(op, IRMemWrite)]
         assert mem_writes, "Expected at least one memory write operation"
 
         write_op = mem_writes[0]
@@ -104,8 +104,8 @@ class TestLowerer:
 
         assert not lower_diags.has_errors(), lower_diags.get_messages()
 
-        consts = [op for op in ir_operations if isinstance(op, IR_Const)]
-        ariths = [op for op in ir_operations if isinstance(op, IR_Arith)]
+        consts = [op for op in ir_operations if isinstance(op, IRConst)]
+        ariths = [op for op in ir_operations if isinstance(op, IRArith)]
 
         assert len(consts) >= 3
         assert len(ariths) == 0
@@ -124,5 +124,5 @@ class TestLowerer:
 
         assert not lower_diags.has_errors(), lower_diags.get_messages()
 
-        ariths = [op for op in ir_operations if isinstance(op, IR_Arith)]
+        ariths = [op for op in ir_operations if isinstance(op, IRArith)]
         assert len(ariths) == 0

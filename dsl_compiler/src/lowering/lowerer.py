@@ -39,9 +39,7 @@ class ExpressionContext:
 class ASTLowerer:
     """Facade that coordinates specialised lowering helpers."""
 
-    def __init__(
-        self, semantic_analyzer: SemanticAnalyzer, diagnostics: ProgramDiagnostics
-    ):
+    def __init__(self, semantic_analyzer: SemanticAnalyzer, diagnostics: ProgramDiagnostics):
         self.semantic = semantic_analyzer
         self.ir_builder = IRBuilder()
         self.diagnostics = diagnostics
@@ -49,9 +47,7 @@ class ASTLowerer:
 
         self.signal_refs: dict[str, SignalRef] = {}
         self.memory_refs: dict[str, str] = {}
-        self.memory_types: dict[
-            str, str
-        ] = {}  # Track memory signal types during lowering
+        self.memory_types: dict[str, str] = {}  # Track memory signal types during lowering
         self.entity_refs: dict[str, str] = {}
         self.param_values: dict[str, ValueRef] = {}
         # Track which signal names are actually referenced (not just declared)
@@ -71,9 +67,7 @@ class ASTLowerer:
         self.expr_lowerer = ExpressionLowerer(self)
         self.stmt_lowerer = StatementLowerer(self)
 
-    def push_expr_context(
-        self, target_name: str | None, node: ASTNode | None = None
-    ) -> None:
+    def push_expr_context(self, target_name: str | None, node: ASTNode | None = None) -> None:
         """Push expression context for tracking what variable is being computed."""
         line = getattr(node, "line", None) if node else None
         source_file = getattr(node, "source_file", None) if node else None
@@ -135,9 +129,7 @@ class ASTLowerer:
             if signal_key:
                 metadata.setdefault("signal_key", signal_key)
 
-        self.ir_builder.annotate_signal(
-            ref, label=name, source_ast=source_ast, metadata=metadata
-        )
+        self.ir_builder.annotate_signal(ref, label=name, source_ast=source_ast, metadata=metadata)
 
     def _infer_signal_category(self, signal_type: str | None) -> str:
         """Infer the Factorio signal category for the given identifier."""
@@ -171,9 +163,7 @@ class ASTLowerer:
         if isinstance(mapped, str):
             if mapped in signal_data.raw:
                 prototype_type = signal_data.raw[mapped].get("type", "virtual")
-                return (
-                    "virtual" if prototype_type == "virtual-signal" else prototype_type
-                )
+                return "virtual" if prototype_type == "virtual-signal" else prototype_type
             if mapped.startswith("signal-"):
                 return "virtual"
 
@@ -201,17 +191,11 @@ class ASTLowerer:
         if self.ir_builder.signal_registry.resolve(signal_type) is not None:
             return
 
-        category = (
-            self._infer_signal_category(source_signal_type)
-            if source_signal_type
-            else None
-        )
+        category = self._infer_signal_category(source_signal_type) if source_signal_type else None
         if not category:
             category = self._infer_signal_category(signal_type)
 
-        self.ir_builder.signal_registry.register(
-            signal_type, signal_type, category or "virtual"
-        )
+        self.ir_builder.signal_registry.register(signal_type, signal_type, category or "virtual")
 
     def lower_program(self, program: Program) -> list[IRNode]:
         for stmt in program.statements:

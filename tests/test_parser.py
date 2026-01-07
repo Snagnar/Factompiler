@@ -1,6 +1,7 @@
 """
 Tests for parser.py - Core parsing functionality.
 """
+
 import os
 
 import pytest

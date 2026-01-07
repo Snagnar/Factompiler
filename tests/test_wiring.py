@@ -21,9 +21,7 @@ def test_plan_wire_colors_assigns_two_colors_when_possible():
     assert result.is_bipartite is True
     color_a = result.assignments[("src_a", "signal-A")]
     color_b = result.assignments[("src_b", "signal-A")]
-    assert color_a != color_b, (
-        "Conflicting producers should receive opposite wire colors"
-    )
+    assert color_a != color_b, "Conflicting producers should receive opposite wire colors"
 
 
 def test_plan_wire_colors_detects_non_bipartite_conflict():

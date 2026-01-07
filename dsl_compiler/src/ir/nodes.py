@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from abc import ABC
 from dataclasses import dataclass
-from typing import Any, Union
+from typing import Any
 
 from dsl_compiler.src.ast.statements import ASTNode
 
@@ -58,10 +57,10 @@ class BundleRef:
         return f"Bundle({types_str})@{self.source_id}"
 
 
-ValueRef = Union[SignalRef, BundleRef, int]
+ValueRef = SignalRef | BundleRef | int
 
 
-class IRNode(ABC):
+class IRNode:
     """Base class for all IR nodes."""
 
     def __init__(self, node_id: str, source_ast: ASTNode | None = None) -> None:
@@ -76,9 +75,7 @@ class IRNode(ABC):
 class IRValue(IRNode):
     """Base class for IR nodes that produce values."""
 
-    def __init__(
-        self, node_id: str, output_type: str, source_ast: ASTNode | None = None
-    ) -> None:
+    def __init__(self, node_id: str, output_type: str, source_ast: ASTNode | None = None) -> None:
         super().__init__(node_id, source_ast)
         self.output_type = output_type
         self.debug_label: str | None = None
@@ -90,16 +87,14 @@ class IREffect(IRNode):
     pass
 
 
-class IR_Const(IRValue):
+class IRConst(IRValue):
     """Constant combinator producing fixed signal value(s).
 
     For single signals: uses output_type and value.
     For bundles: uses signals dict mapping signal_type -> value.
     """
 
-    def __init__(
-        self, node_id: str, output_type: str, source_ast: ASTNode | None = None
-    ) -> None:
+    def __init__(self, node_id: str, output_type: str, source_ast: ASTNode | None = None) -> None:
         super().__init__(node_id, output_type, source_ast)
         self.value: int = 0
         # For multi-signal constants (bundles): signal_type -> value
@@ -108,16 +103,14 @@ class IR_Const(IRValue):
     def __str__(self) -> str:  # pragma: no cover - debug helper
         if self.signals:
             signals_str = ", ".join(f"{k}={v}" for k, v in self.signals.items())
-            return f"IR_Const({self.node_id}: bundle({signals_str}))"
-        return f"IR_Const({self.node_id}: {self.output_type} = {self.value})"
+            return f"IRConst({self.node_id}: bundle({signals_str}))"
+        return f"IRConst({self.node_id}: {self.output_type} = {self.value})"
 
 
-class IR_Arith(IRValue):
+class IRArith(IRValue):
     """Arithmetic combinator operation."""
 
-    def __init__(
-        self, node_id: str, output_type: str, source_ast: ASTNode | None = None
-    ) -> None:
+    def __init__(self, node_id: str, output_type: str, source_ast: ASTNode | None = None) -> None:
         super().__init__(node_id, output_type, source_ast)
         self.op: str = "+"
         self.left: ValueRef = 0
@@ -127,11 +120,7 @@ class IR_Arith(IRValue):
         self.needs_wire_separation: bool = False
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
-        return (
-            "IR_Arith("
-            f"{self.node_id}: {self.output_type} = {self.left} {self.op} {self.right}"
-            ")"
-        )
+        return f"IRArith({self.node_id}: {self.output_type} = {self.left} {self.op} {self.right})"
 
 
 @dataclass
@@ -143,7 +132,7 @@ class DeciderCondition:
 
     Wire filtering allows specifying which wire colors to read each signal from,
     essential for latches where feedback and external signals must be separated.
-    
+
     Supports two modes:
     1. String-based (layout-time): Uses first_signal/second_signal strings.
        Used by memory_builder for SR latches where signal names are known.
@@ -195,16 +184,14 @@ class DeciderCondition:
         return f"({left} {self.comparator} {right})"
 
 
-class IR_Decider(IRValue):
+class IRDecider(IRValue):
     """Decider combinator operation.
 
     Supports both single-condition mode (legacy) and multi-condition mode (Factorio 2.0).
     When conditions list is non-empty, it takes precedence over the legacy fields.
     """
 
-    def __init__(
-        self, node_id: str, output_type: str, source_ast: ASTNode | None = None
-    ) -> None:
+    def __init__(self, node_id: str, output_type: str, source_ast: ASTNode | None = None) -> None:
         super().__init__(node_id, output_type, source_ast)
         # Legacy single-condition fields (for backwards compatibility)
         self.test_op: str = "=="
@@ -225,22 +212,20 @@ class IR_Decider(IRValue):
                 for i, c in enumerate(self.conditions)
             )
             return (
-                f"IR_Decider({self.node_id}: {self.output_type} = "
+                f"IRDecider({self.node_id}: {self.output_type} = "
                 f"if({cond_str}) then {self.output_value}{copy_mode})"
             )
         return (
-            "IR_Decider("
+            "IRDecider("
             f"{self.node_id}: {self.output_type} = if({self.left} {self.test_op} {self.right}) "
             f"then {self.output_value}{copy_mode})"
         )
 
 
-class IR_WireMerge(IRValue):
+class IRWireMerge(IRValue):
     """Logical wire merge of multiple simple sources on the same signal."""
 
-    def __init__(
-        self, node_id: str, output_type: str, source_ast: ASTNode | None = None
-    ) -> None:
+    def __init__(self, node_id: str, output_type: str, source_ast: ASTNode | None = None) -> None:
         super().__init__(node_id, output_type, source_ast)
         self.sources: list[ValueRef] = []
 
@@ -249,63 +234,53 @@ class IR_WireMerge(IRValue):
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         joined = ", ".join(str(src) for src in self.sources)
-        return (
-            f"IR_WireMerge({self.node_id}: {self.output_type} = wire_merge({joined}))"
-        )
+        return f"IRWireMerge({self.node_id}: {self.output_type} = wire_merge({joined}))"
 
 
-class IR_MemRead(IRValue):
+class IRMemRead(IRValue):
     """Memory read operation."""
 
-    def __init__(
-        self, node_id: str, output_type: str, source_ast: ASTNode | None = None
-    ) -> None:
+    def __init__(self, node_id: str, output_type: str, source_ast: ASTNode | None = None) -> None:
         super().__init__(node_id, output_type, source_ast)
         self.memory_id: str = ""
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
-        return (
-            f"IR_MemRead({self.node_id}: {self.output_type} = read({self.memory_id}))"
-        )
+        return f"IRMemRead({self.node_id}: {self.output_type} = read({self.memory_id}))"
 
 
-class IR_EntityPropRead(IRValue):
+class IREntityPropRead(IRValue):
     """Entity property read operation."""
 
-    def __init__(
-        self, node_id: str, output_type: str, source_ast: ASTNode | None = None
-    ) -> None:
+    def __init__(self, node_id: str, output_type: str, source_ast: ASTNode | None = None) -> None:
         super().__init__(node_id, output_type, source_ast)
         self.entity_id: str = ""
         self.property_name: str = ""
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         return (
-            "IR_EntityPropRead("
+            "IREntityPropRead("
             f"{self.node_id}: {self.output_type} = {self.entity_id}.{self.property_name})"
         )
 
 
-class IR_EntityOutput(IRValue):
+class IREntityOutput(IRValue):
     """Read entity's circuit output as bundle.
-    
+
     Represents reading all signals an entity outputs to the circuit network.
     For chests: all items stored
     For tanks: fluid amount
     For train stops with read_from_train: train contents
-    
+
     In layout planning, this creates a virtual signal source at the entity
     rather than creating a new combinator.
     """
 
-    def __init__(
-        self, node_id: str, entity_id: str, source_ast: ASTNode | None = None
-    ) -> None:
+    def __init__(self, node_id: str, entity_id: str, source_ast: ASTNode | None = None) -> None:
         super().__init__(node_id, "bundle", source_ast)
         self.entity_id = entity_id
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
-        return f"IR_EntityOutput({self.node_id}: bundle = {self.entity_id}.output)"
+        return f"IREntityOutput({self.node_id}: bundle = {self.entity_id}.output)"
 
 
 # Memory type constants
@@ -314,7 +289,7 @@ MEMORY_TYPE_RS_LATCH = "rs_latch"
 MEMORY_TYPE_SR_LATCH = "sr_latch"
 
 
-class IR_MemCreate(IREffect):
+class IRMemCreate(IREffect):
     """Memory cell creation.
 
     Supports three memory types:
@@ -337,10 +312,10 @@ class IR_MemCreate(IREffect):
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         type_suffix = f" ({self.memory_type})" if self.memory_type != MEMORY_TYPE_STANDARD else ""
-        return f"IR_MemCreate({self.memory_id}: {self.signal_type}{type_suffix})"
+        return f"IRMemCreate({self.memory_id}: {self.signal_type}{type_suffix})"
 
 
-class IR_MemWrite(IREffect):
+class IRMemWrite(IREffect):
     """Memory write operation."""
 
     def __init__(
@@ -356,10 +331,10 @@ class IR_MemWrite(IREffect):
         self.write_enable = write_enable
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
-        return f"IR_MemWrite({self.memory_id} <- {self.data_signal} when {self.write_enable})"
+        return f"IRMemWrite({self.memory_id} <- {self.data_signal} when {self.write_enable})"
 
 
-class IR_LatchWrite(IREffect):
+class IRLatchWrite(IREffect):
     """Latch write operation.
 
     Creates a single-combinator latch with set/reset behavior:
@@ -389,10 +364,10 @@ class IR_LatchWrite(IREffect):
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         priority = "SR" if self.latch_type == MEMORY_TYPE_SR_LATCH else "RS"
-        return f"IR_LatchWrite({self.memory_id} <- {self.value}, {priority}, set={self.set_signal}, reset={self.reset_signal})"
+        return f"IRLatchWrite({self.memory_id} <- {self.value}, {priority}, set={self.set_signal}, reset={self.reset_signal})"
 
 
-class IR_PlaceEntity(IREffect):
+class IRPlaceEntity(IREffect):
     """Entity placement in a blueprint."""
 
     def __init__(
@@ -412,10 +387,12 @@ class IR_PlaceEntity(IREffect):
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         props_str = f", {self.properties}" if self.properties else ""
-        return f"IR_PlaceEntity({self.entity_id}: {self.prototype} at ({self.x}, {self.y}){props_str})"
+        return (
+            f"IRPlaceEntity({self.entity_id}: {self.prototype} at ({self.x}, {self.y}){props_str})"
+        )
 
 
-class IR_EntityPropWrite(IREffect):
+class IREntityPropWrite(IREffect):
     """Entity property write operation."""
 
     def __init__(self, entity_id: str, property_name: str, value: ValueRef) -> None:
@@ -427,9 +404,7 @@ class IR_EntityPropWrite(IREffect):
         self.inline_bundle_condition: dict[str, Any] | None = None
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
-        return (
-            f"IR_EntityPropWrite({self.entity_id}.{self.property_name} <- {self.value})"
-        )
+        return f"IREntityPropWrite({self.entity_id}.{self.property_name} <- {self.value})"
 
 
 __all__ = [
@@ -439,19 +414,19 @@ __all__ = [
     "IRNode",
     "IRValue",
     "IREffect",
-    "IR_Const",
-    "IR_Arith",
+    "IRConst",
+    "IRArith",
     "DeciderCondition",
-    "IR_Decider",
-    "IR_WireMerge",
-    "IR_MemRead",
-    "IR_EntityPropRead",
-    "IR_EntityOutput",
-    "IR_MemCreate",
-    "IR_MemWrite",
-    "IR_LatchWrite",
-    "IR_PlaceEntity",
-    "IR_EntityPropWrite",
+    "IRDecider",
+    "IRWireMerge",
+    "IRMemRead",
+    "IREntityPropRead",
+    "IREntityOutput",
+    "IRMemCreate",
+    "IRMemWrite",
+    "IRLatchWrite",
+    "IRPlaceEntity",
+    "IREntityPropWrite",
     # Memory type constants
     "MEMORY_TYPE_STANDARD",
     "MEMORY_TYPE_RS_LATCH",

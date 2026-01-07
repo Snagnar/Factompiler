@@ -6,6 +6,7 @@ Example: {"__v1": {"name": "signal-A", "type": "virtual"}}
 This is the ONLY format used. All code must handle dict values.
 """
 
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
@@ -63,9 +64,7 @@ class SignalTypeRegistry:
         self._type_map: dict[str, Any] = {}
         self._implicit_counter = 0
 
-    def register(
-        self, signal_key: str, factorio_signal: str, signal_type: str = "virtual"
-    ) -> None:
+    def register(self, signal_key: str, factorio_signal: str, signal_type: str = "virtual") -> None:
         """Register a signal type mapping.
 
         Args:
@@ -76,10 +75,9 @@ class SignalTypeRegistry:
         self._type_map[signal_key] = {"name": factorio_signal, "type": signal_type}
 
         if factorio_signal not in signal_data.raw:
-            try:
+            with suppress(ValueError):
+                # Signal already registered by another path
                 signal_data.add_signal(factorio_signal, signal_type)
-            except ValueError:
-                pass  # Signal already registered by another path
 
     def allocate_implicit(self) -> str:
         """Allocate a new implicit virtual signal type.

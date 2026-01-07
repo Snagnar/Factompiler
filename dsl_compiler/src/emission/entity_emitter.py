@@ -58,9 +58,7 @@ def format_entity_description(debug_info: dict | None) -> str:
     # Build primary identifier
     # For intermediates, show context: "computing <target_var>"
     # For final results, show the variable name
-    is_intermediate = var and var.startswith(
-        ("arith_", "decider_", "const_", "wire_merge_")
-    )
+    is_intermediate = var and var.startswith(("arith_", "decider_", "const_", "wire_merge_"))
 
     if is_intermediate and expr_context:
         # This is an intermediate computation for a named variable
@@ -188,9 +186,7 @@ class PlanEntityEmitter:
 
         return entity
 
-    def _configure_decider(
-        self, entity: DeciderCombinator, props: dict[str, Any]
-    ) -> None:
+    def _configure_decider(self, entity: DeciderCombinator, props: dict[str, Any]) -> None:
         """Configure a decider combinator from placement properties.
 
         Supports both legacy single-condition mode and Factorio 2.0 multi-condition mode.
@@ -273,8 +269,8 @@ class PlanEntityEmitter:
             if first_signal:
                 cond_kwargs["first_signal"] = first_signal
                 if first_wires:
-                    cond_kwargs["first_signal_networks"] = (
-                        self._wires_to_network_selection(first_wires)
+                    cond_kwargs["first_signal_networks"] = self._wires_to_network_selection(
+                        first_wires
                     )
             elif first_constant is not None:
                 cond_kwargs["first_signal"] = "signal-0"
@@ -288,8 +284,8 @@ class PlanEntityEmitter:
             if second_signal:
                 cond_kwargs["second_signal"] = second_signal
                 if second_wires:
-                    cond_kwargs["second_signal_networks"] = (
-                        self._wires_to_network_selection(second_wires)
+                    cond_kwargs["second_signal_networks"] = self._wires_to_network_selection(
+                        second_wires
                     )
             elif second_constant is not None:
                 cond_kwargs["constant"] = second_constant
@@ -319,9 +315,7 @@ class PlanEntityEmitter:
             green="green" in wires,
         )
 
-    def _configure_arithmetic(
-        self, entity: ArithmeticCombinator, props: dict[str, Any]
-    ) -> None:
+    def _configure_arithmetic(self, entity: ArithmeticCombinator, props: dict[str, Any]) -> None:
         """Configure an arithmetic combinator from placement properties."""
         operation = props.get("operation", "+")
         left_operand = props.get("left_operand")
@@ -331,9 +325,12 @@ class PlanEntityEmitter:
         left_operand_wires = props.get("left_operand_wires", {"red", "green"})
         right_operand_wires = props.get("right_operand_wires", {"red", "green"})
 
-        if output_signal == "signal-each":
-            if left_operand != "signal-each" and right_operand != "signal-each":
-                output_signal = "signal-0"
+        if (
+            output_signal == "signal-each"
+            and left_operand != "signal-each"
+            and right_operand != "signal-each"
+        ):
+            output_signal = "signal-0"
 
         entity.first_operand = left_operand
         entity.second_operand = right_operand
@@ -341,16 +338,10 @@ class PlanEntityEmitter:
         entity.output_signal = output_signal
 
         # Convert wire sets to CircuitNetworkSelection
-        entity.first_operand_wires = self._wires_to_network_selection(
-            left_operand_wires
-        )
-        entity.second_operand_wires = self._wires_to_network_selection(
-            right_operand_wires
-        )
+        entity.first_operand_wires = self._wires_to_network_selection(left_operand_wires)
+        entity.second_operand_wires = self._wires_to_network_selection(right_operand_wires)
 
-    def _configure_constant(
-        self, entity: ConstantCombinator, props: dict[str, Any]
-    ) -> None:
+    def _configure_constant(self, entity: ConstantCombinator, props: dict[str, Any]) -> None:
         """Configure a constant combinator from placement properties."""
         # Handle multi-signal constants (bundles)
         signals = props.get("signals")
@@ -394,9 +385,7 @@ class PlanEntityEmitter:
                     if hasattr(entity, "circuit_enabled"):
                         entity.circuit_enabled = True
                         if hasattr(entity, "set_circuit_condition"):
-                            entity.set_circuit_condition(
-                                signal_dict, comparator, right_constant
-                            )
+                            entity.set_circuit_condition(signal_dict, comparator, right_constant)
                         else:
                             if not hasattr(entity, "control_behavior"):
                                 entity.control_behavior = {}
@@ -418,9 +407,7 @@ class PlanEntityEmitter:
 
                 if prop_type == "inline_bundle_condition":
                     # Handle inlined all()/any() bundle conditions
-                    signal_name = prop_data.get(
-                        "signal"
-                    )  # signal-everything or signal-anything
+                    signal_name = prop_data.get("signal")  # signal-everything or signal-anything
                     comparator = prop_data.get("operator")
                     constant = prop_data.get("constant")
 
@@ -429,9 +416,7 @@ class PlanEntityEmitter:
                     if hasattr(entity, "circuit_enabled"):
                         entity.circuit_enabled = True
                         if hasattr(entity, "set_circuit_condition"):
-                            entity.set_circuit_condition(
-                                signal_dict, comparator, constant
-                            )
+                            entity.set_circuit_condition(signal_dict, comparator, constant)
                         else:
                             if not hasattr(entity, "control_behavior"):
                                 entity.control_behavior = {}
@@ -485,9 +470,7 @@ class PlanEntityEmitter:
                     else:
                         if not hasattr(entity, "control_behavior"):
                             entity.control_behavior = {}
-                        entity.control_behavior["circuit_enabled"] = bool(
-                            prop_data["value"]
-                        )
+                        entity.control_behavior["circuit_enabled"] = bool(prop_data["value"])
             else:
                 try:
                     setattr(entity, prop_name, prop_data.get("value"))

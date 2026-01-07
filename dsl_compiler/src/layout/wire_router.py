@@ -122,9 +122,7 @@ def plan_wire_colors(
     locked = locked_colors or {}
 
     graph: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
-    edge_sinks: dict[tuple[tuple[str, str], tuple[str, str]], set[str]] = defaultdict(
-        set
-    )
+    edge_sinks: dict[tuple[tuple[str, str], tuple[str, str]], set[str]] = defaultdict(set)
 
     # Ensure all nodes appear in the graph even if conflict-free
     for edge in edges:
@@ -145,7 +143,7 @@ def plan_wire_colors(
         )
 
     # Sort for deterministic iteration order
-    for (sink_id, resolved_name), nodes_with_merge in sorted(sink_groups.items()):
+    for (sink_id, _resolved_name), nodes_with_merge in sorted(sink_groups.items()):
         # Deduplicate by node_key, keeping first occurrence
         seen_nodes = {}
         for node_key, merge_id in nodes_with_merge:
@@ -211,9 +209,7 @@ def plan_wire_colors(
             if not neighbors:
                 continue
 
-            opposite_color = (
-                WIRE_COLORS[1] if desired_color == WIRE_COLORS[0] else WIRE_COLORS[0]
-            )
+            opposite_color = WIRE_COLORS[1] if desired_color == WIRE_COLORS[0] else WIRE_COLORS[0]
 
             # Sort neighbors for deterministic iteration order
             for neighbor in sorted(neighbors):
@@ -241,9 +237,7 @@ def plan_wire_colors(
 
                 queue.append((neighbor, neighbor_desired))
 
-    return ColoringResult(
-        assignments=assignments, conflicts=conflicts, is_bipartite=is_bipartite
-    )
+    return ColoringResult(assignments=assignments, conflicts=conflicts, is_bipartite=is_bipartite)
 
 
 def detect_merge_color_conflicts(

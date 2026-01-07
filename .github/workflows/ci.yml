@@ -33,24 +33,21 @@ jobs:
     - name: Run Ruff check
       run: |
         ruff check . --output-format=github
-      continue-on-error: true
+      continue-on-error: false
     
     - name: Run Ruff format check
       run: |
         ruff format --check --diff .
-      continue-on-error: true
+      continue-on-error: false
     
     - name: Run mypy type checking
       run: |
         mypy dsl_compiler/ compile.py --ignore-missing-imports
-      continue-on-error: true
+      continue-on-error: false
 
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.11', '3.12']
     
     steps:
     - name: Checkout code
@@ -58,10 +55,10 @@ jobs:
       with:
         submodules: recursive
     
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python 3.12
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: 3.12
         cache: 'pip'
     
     - name: Install dependencies
@@ -70,9 +67,34 @@ jobs:
         pip install -r requirements.txt
         pip install pytest pytest-cov
     
-    - name: Run unit tests
+    - name: Run unit tests with coverage
       run: |
-        python -m pytest -v -m "not end2end" --tb=short --cov=dsl_compiler --cov-report=xml --cov-report=term
+        python -m pytest -v -m "not end2end" --tb=short \
+          --cov=dsl_compiler \
+          --cov-report=xml \
+          --cov-report=term \
+          --cov-report=html
+    
+    - name: Generate coverage summary
+      if: matrix.python-version == '3.12'
+      run: |
+        COVERAGE=$(python -c "import xml.etree.ElementTree as ET; tree = ET.parse('coverage.xml'); root = tree.getroot(); print(f'{float(root.attrib[\"line-rate\"])*100:.2f}')")
+        echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Overall Coverage: ${COVERAGE}%**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Detailed coverage report available in artifacts." >> $GITHUB_STEP_SUMMARY
+        echo "COVERAGE=${COVERAGE}" >> $GITHUB_ENV
+    
+    - name: Upload coverage reports
+      if: matrix.python-version == '3.12'
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-reports
+        path: |
+          coverage.xml
+          htmlcov/
+        retention-days: 30
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
@@ -81,6 +103,8 @@ jobs:
         file: ./coverage.xml
         flags: unittests
         name: codecov-umbrella
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: false
       continue-on-error: true
 
   end2end-tests:

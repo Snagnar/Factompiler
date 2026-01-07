@@ -184,8 +184,6 @@ class ConstantFolder:
             right_const = cls.extract_constant_int(expr.right, diagnostics, symbol_resolver)
             if left_const is None or right_const is None:
                 return None
-            return cls.fold_binary_operation(
-                expr.op, left_const, right_const, expr, diagnostics
-            )
+            return cls.fold_binary_operation(expr.op, left_const, right_const, expr, diagnostics)
 
         return None

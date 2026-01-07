@@ -93,9 +93,7 @@ class DSLTransformer(Transformer):
         if len(items) == 1 and isinstance(items[0], Statement):
             return items[0]
         if len(items) >= 3:
-            raw_type = (
-                str(items[0].value) if hasattr(items[0], "value") else str(items[0])
-            )
+            raw_type = str(items[0].value) if hasattr(items[0], "value") else str(items[0])
             name = str(items[1].value) if hasattr(items[1], "value") else str(items[1])
             value = self._unwrap_tree(items[2])
             type_name = raw_type
@@ -122,16 +120,13 @@ class DSLTransformer(Transformer):
                     name_token = item
                 elif item.type == "STRING":
                     signal_type = item.value[1:-1]
-            elif isinstance(item, str):
-                if item.startswith('"') and item.endswith('"'):
-                    signal_type = item[1:-1]
+            elif isinstance(item, str) and item.startswith('"') and item.endswith('"'):
+                signal_type = item[1:-1]
 
         if name_token is None:
             raise ValueError("mem_decl missing memory name token")
 
-        name = (
-            str(name_token.value) if hasattr(name_token, "value") else str(name_token)
-        )
+        name = str(name_token.value) if hasattr(name_token, "value") else str(name_token)
         mem_node = MemDecl(name=name, signal_type=signal_type)
         self._set_position(mem_node, name_token)
         return mem_node
@@ -155,9 +150,7 @@ class DSLTransformer(Transformer):
                 result = StringLiteral(value=item.value[1:-1], raw_text=item.value)
                 return self._set_position(result, item)
             if item.type == "NUMBER":
-                result = NumberLiteral(
-                    value=self._parse_number(item.value), raw_text=item.value
-                )
+                result = NumberLiteral(value=self._parse_number(item.value), raw_text=item.value)
                 return self._set_position(result, item)
             return item.value
         return item
@@ -255,9 +248,7 @@ class DSLTransformer(Transformer):
                 ):
                     body.append(transformed)
 
-        return self._set_position(
-            FuncDecl(name=name, params=params, body=body), items[0]
-        )
+        return self._set_position(FuncDecl(name=name, params=params, body=body), items[0])
 
     def typed_param_list(self, items) -> list[TypedParam]:
         """typed_param_list: typed_param ("," typed_param)*"""
@@ -268,12 +259,8 @@ class DSLTransformer(Transformer):
         type_token = items[0]
         name_token = items[1]
 
-        type_name = (
-            str(type_token.value) if hasattr(type_token, "value") else str(type_token)
-        )
-        param_name = (
-            str(name_token.value) if hasattr(name_token, "value") else str(name_token)
-        )
+        type_name = str(type_token.value) if hasattr(type_token, "value") else str(type_token)
+        param_name = str(name_token.value) if hasattr(name_token, "value") else str(name_token)
 
         result = TypedParam(type_name=type_name, name=param_name)
         return self._set_position(result, name_token)
@@ -299,10 +286,13 @@ class DSLTransformer(Transformer):
                 iterator_data = item
             elif isinstance(item, Statement):
                 statements.append(item)
-            elif isinstance(item, Tree):
+            elif isinstance(item, Tree) and item.data in (
+                "range_iterator",
+                "list_iterator",
+                "for_iterator",
+            ):
                 # Could be for_iterator tree
-                if item.data in ("range_iterator", "list_iterator", "for_iterator"):
-                    iterator_data = self.transform(item)
+                iterator_data = self.transform(item)
 
         if iterator_name is None:
             raise ValueError(f"Could not find iterator name in for_stmt: {items}")
@@ -349,7 +339,7 @@ class DSLTransformer(Transformer):
 
     def range_bound(self, items):
         """range_bound: NUMBER | NAME
-        
+
         Returns either an int (for NUMBER) or a string (for NAME variable reference).
         """
         item = items[0]
@@ -374,12 +364,11 @@ class DSLTransformer(Transformer):
         i = 0
         while i < len(items):
             item = items[i]
-            if isinstance(item, Token):
-                if item.type == "STEP_KW":
-                    # Next item should be the step value
-                    if i + 1 < len(items):
-                        step_value = items[i + 1]
-                        i += 1
+            if isinstance(item, Token) and item.type == "STEP_KW":
+                # Next item should be the step value
+                if i + 1 < len(items):
+                    step_value = items[i + 1]
+                    i += 1
             elif isinstance(item, (int, str)):
                 bounds.append(item)
             i += 1
@@ -417,12 +406,8 @@ class DSLTransformer(Transformer):
             return result
 
         obj_token, prop_token = items[0], items[1]
-        object_name = (
-            obj_token.value if isinstance(obj_token, Token) else str(obj_token)
-        )
-        property_name = (
-            prop_token.value if isinstance(prop_token, Token) else str(prop_token)
-        )
+        object_name = obj_token.value if isinstance(obj_token, Token) else str(obj_token)
+        property_name = prop_token.value if isinstance(prop_token, Token) else str(prop_token)
         raw_text = f"{object_name}.{property_name}"
         result = PropertyAccess(
             object_name=object_name,
@@ -438,15 +423,11 @@ class DSLTransformer(Transformer):
 
     def logic_or(self, items) -> Expr:
         """logic_or: logic_and ( LOGIC_OR logic_and )*"""
-        return self._handle_binary_op_chain(
-            items, normalize_op=self._normalize_logical_op
-        )
+        return self._handle_binary_op_chain(items, normalize_op=self._normalize_logical_op)
 
     def logic_and(self, items) -> Expr:
         """logic_and: output_spec ( LOGIC_AND output_spec )*"""
-        return self._handle_binary_op_chain(
-            items, normalize_op=self._normalize_logical_op
-        )
+        return self._handle_binary_op_chain(items, normalize_op=self._normalize_logical_op)
 
     def output_spec(self, items) -> Expr:
         """output_spec: comparison [ OUTPUT_SPEC output_value ]"""
@@ -637,8 +618,8 @@ class DSLTransformer(Transformer):
         return self._set_position(write_node, items[0])
 
     def memory_write_when(self, items) -> WriteExpr:
-        """memory_write_when: NAME "." "write" "(" expr "," WHEN_KW "=" expr ")" 
-        
+        """memory_write_when: NAME "." "write" "(" expr "," WHEN_KW "=" expr ")"
+
         Items: [NAME, expr, WHEN_KW, expr]
         """
         memory_name = str(items[0])
@@ -650,7 +631,7 @@ class DSLTransformer(Transformer):
 
     def memory_latch_write(self, items) -> WriteExpr:
         """memory_latch_write: NAME "." "write" "(" expr "," latch_kwargs ")"
-        
+
         Items: [NAME, expr, (set_expr, reset_expr, set_priority)]
         """
         memory_name = str(items[0])
@@ -667,7 +648,7 @@ class DSLTransformer(Transformer):
 
     def latch_set_reset(self, items) -> tuple:
         """latch_kwargs: SET_KW "=" expr "," RESET_KW "=" expr -> latch_set_reset
-        
+
         SR latch (set priority) - set comes first.
         Items: [SET_KW, expr, RESET_KW, expr]
         """
@@ -677,7 +658,7 @@ class DSLTransformer(Transformer):
 
     def latch_reset_set(self, items) -> tuple:
         """latch_kwargs: RESET_KW "=" expr "," SET_KW "=" expr -> latch_reset_set
-        
+
         RS latch (reset priority) - reset comes first.
         Items: [RESET_KW, expr, SET_KW, expr]
         """
@@ -717,7 +698,7 @@ class DSLTransformer(Transformer):
 
     def empty_brace(self, items) -> BundleLiteral:
         """empty_brace: '{' '}'
-        
+
         Empty braces default to an empty bundle (since empty dicts make no sense).
         """
         return BundleLiteral(elements=[])
@@ -765,7 +746,7 @@ class DSLTransformer(Transformer):
 
     def bundle_any(self, items) -> BundleAnyExpr:
         """bundle_any: ANY_KW '(' expr ')'
-        
+
         items[0] is the ANY_KW token, items[1] is the bundle expression.
         """
         bundle_expr = self._unwrap_tree(items[1])
@@ -776,7 +757,7 @@ class DSLTransformer(Transformer):
 
     def bundle_all(self, items) -> BundleAllExpr:
         """bundle_all: ALL_KW '(' expr ')'
-        
+
         items[0] is the ALL_KW token, items[1] is the bundle expression.
         """
         bundle_expr = self._unwrap_tree(items[1])
@@ -810,7 +791,7 @@ class DSLTransformer(Transformer):
 
     def type_property_access(self, items) -> SignalTypeAccess:
         """type_property_access: NAME "." NAME
-        
+
         Returns a SignalTypeAccess node that will be resolved during semantic analysis
         to extract the signal type from a signal variable.
         """

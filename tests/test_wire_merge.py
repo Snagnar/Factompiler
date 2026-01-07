@@ -3,7 +3,7 @@
 import pytest
 
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
-from dsl_compiler.src.ir.builder import IR_Arith, IR_WireMerge
+from dsl_compiler.src.ir.builder import IRArith, IRWireMerge
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 from tests.test_helpers import emit_blueprint, lower_program
@@ -34,8 +34,8 @@ class TestWireMerge:
         """
         ir_operations, _ = _lower_ir(parser, code)
 
-        merges = [op for op in ir_operations if isinstance(op, IR_WireMerge)]
-        ariths = [op for op in ir_operations if isinstance(op, IR_Arith)]
+        merges = [op for op in ir_operations if isinstance(op, IRWireMerge)]
+        ariths = [op for op in ir_operations if isinstance(op, IRArith)]
 
         assert len(merges) == 1, "Expected one wire-merge operation"
         assert len(merges[0].sources) == 2
@@ -52,7 +52,7 @@ class TestWireMerge:
         """
 
         ir_operations, _ = _lower_ir(parser, code)
-        merges = [op for op in ir_operations if isinstance(op, IR_WireMerge)]
+        merges = [op for op in ir_operations if isinstance(op, IRWireMerge)]
 
         assert len(merges) == 1
         assert len(merges[0].sources) == 4
@@ -66,8 +66,8 @@ class TestWireMerge:
 
         ir_operations, _ = _lower_ir(parser, code)
 
-        assert not any(isinstance(op, IR_WireMerge) for op in ir_operations)
-        assert any(isinstance(op, IR_Arith) and op.op == "+" for op in ir_operations)
+        assert not any(isinstance(op, IRWireMerge) for op in ir_operations)
+        assert any(isinstance(op, IRArith) and op.op == "+" for op in ir_operations)
 
     def test_mixed_types_do_not_wire_merge(self, parser):
         code = """
@@ -78,7 +78,7 @@ class TestWireMerge:
 
         ir_operations, _ = _lower_ir(parser, code)
 
-        assert not any(isinstance(op, IR_WireMerge) for op in ir_operations)
+        assert not any(isinstance(op, IRWireMerge) for op in ir_operations)
 
     def test_blueprint_entity_count_reduced(self, parser):
         code_with_merge = """
@@ -127,4 +127,4 @@ class TestWireMerge:
 
         ir_operations, _ = _lower_ir(parser, code)
 
-        assert not any(isinstance(op, IR_WireMerge) for op in ir_operations)
+        assert not any(isinstance(op, IRWireMerge) for op in ir_operations)

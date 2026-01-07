@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from .nodes import (
-    IR_Arith,
-    IR_Const,
-    IR_Decider,
-    IR_EntityPropWrite,
-    IR_MemWrite,
+    IRArith,
+    IRConst,
+    IRDecider,
+    IREntityPropWrite,
+    IRMemWrite,
     IRNode,
     SignalRef,
 )
@@ -28,7 +28,7 @@ class ConstantPropagationOptimizer:
         self.replacements: dict[str, str] = {}  # old_id -> new_id
         self.dead_nodes: set[str] = set()  # nodes to remove
 
-    def _is_user_declared_operand(self, value, const_map: dict[str, IR_Const]) -> bool:
+    def _is_user_declared_operand(self, value, const_map: dict[str, IRConst]) -> bool:
         """Check if an operand references a user-declared constant."""
         if isinstance(value, SignalRef):
             node_id = value.source_id
@@ -45,7 +45,7 @@ class ConstantPropagationOptimizer:
         # Build a map of all constants and their node IDs
         const_map = {}
         for op in ir_operations:
-            if isinstance(op, IR_Const):
+            if isinstance(op, IRConst):
                 const_map[op.node_id] = op
 
         # Iterate until no more folding possible (fixed point)
@@ -57,7 +57,7 @@ class ConstantPropagationOptimizer:
                 if op.node_id in self.dead_nodes:
                     continue
 
-                if isinstance(op, IR_Arith):
+                if isinstance(op, IRArith):
                     # Skip folding if any operand is user-declared
                     if self._is_user_declared_operand(op.left, const_map):
                         continue
@@ -72,7 +72,7 @@ class ConstantPropagationOptimizer:
                         folded = self._fold_arithmetic(op.op, left_val, right_val)
                         if folded is not None:
                             # Create new constant or reuse existing
-                            new_const = IR_Const(
+                            new_const = IRConst(
                                 op.node_id + "_folded", op.output_type, op.source_ast
                             )
                             new_const.value = folded
@@ -89,17 +89,13 @@ class ConstantPropagationOptimizer:
 
                             # Mark operand constants as potentially dead
                             if isinstance(op.left, SignalRef):
-                                self._maybe_mark_dead(
-                                    op.left.source_id, const_map, ir_operations
-                                )
+                                self._maybe_mark_dead(op.left.source_id, const_map, ir_operations)
                             if isinstance(op.right, SignalRef):
-                                self._maybe_mark_dead(
-                                    op.right.source_id, const_map, ir_operations
-                                )
+                                self._maybe_mark_dead(op.right.source_id, const_map, ir_operations)
 
                             changed = True
 
-                elif isinstance(op, IR_Decider):
+                elif isinstance(op, IRDecider):
                     # Handle multi-condition deciders (from condition folding)
                     if op.conditions:
                         # Multi-condition deciders use ValueRef operands stored in conditions
@@ -126,15 +122,13 @@ class ConstantPropagationOptimizer:
                         if folded is not None:
                             # Decider outputs either output_value or 0
                             # If comparison is true and output_value is constant, output that
-                            output_val = self._get_const_value(
-                                op.output_value, const_map
-                            )
+                            output_val = self._get_const_value(op.output_value, const_map)
                             if output_val is None:
                                 output_val = 1  # Default output value
 
                             final_value = output_val if folded else 0
 
-                            new_const = IR_Const(
+                            new_const = IRConst(
                                 op.node_id + "_folded", op.output_type, op.source_ast
                             )
                             new_const.value = final_value
@@ -150,13 +144,9 @@ class ConstantPropagationOptimizer:
 
                             # Mark operand references as potentially dead
                             if isinstance(op.left, SignalRef):
-                                self._maybe_mark_dead(
-                                    op.left.source_id, const_map, ir_operations
-                                )
+                                self._maybe_mark_dead(op.left.source_id, const_map, ir_operations)
                             if isinstance(op.right, SignalRef):
-                                self._maybe_mark_dead(
-                                    op.right.source_id, const_map, ir_operations
-                                )
+                                self._maybe_mark_dead(op.right.source_id, const_map, ir_operations)
 
                             changed = True
 
@@ -168,7 +158,7 @@ class ConstantPropagationOptimizer:
             result.append(op)
 
         # Add any new constants we created
-        for node_id, replacement_id in self.replacements.items():
+        for _node_id, replacement_id in self.replacements.items():
             if replacement_id in const_map and const_map[replacement_id] not in result:
                 result.append(const_map[replacement_id])
 
@@ -178,7 +168,7 @@ class ConstantPropagationOptimizer:
 
         return result
 
-    def _get_const_value(self, value, const_map: dict[str, IR_Const]) -> int | None:
+    def _get_const_value(self, value, const_map: dict[str, IRConst]) -> int | None:
         """Extract constant value from a ValueRef."""
         if isinstance(value, int):
             return value
@@ -251,7 +241,7 @@ class ConstantPropagationOptimizer:
         return None
 
     def _maybe_mark_dead(
-        self, node_id: str, const_map: dict[str, IR_Const], all_ops: list[IRNode]
+        self, node_id: str, const_map: dict[str, IRConst], all_ops: list[IRNode]
     ) -> None:
         """Mark a constant as dead if it has no other consumers.
 
@@ -270,18 +260,17 @@ class ConstantPropagationOptimizer:
                 continue
 
             # Check all operands
-            if isinstance(op, IR_Arith):
+            if isinstance(op, IRArith):
                 if self._references_node(op.left, node_id) or self._references_node(
                     op.right, node_id
                 ):
                     return
-            elif isinstance(op, IR_Decider):
-                if (
-                    self._references_node(op.left, node_id)
-                    or self._references_node(op.right, node_id)
-                    or self._references_node(op.output_value, node_id)
-                ):
-                    return
+            elif isinstance(op, IRDecider) and (
+                self._references_node(op.left, node_id)
+                or self._references_node(op.right, node_id)
+                or self._references_node(op.output_value, node_id)
+            ):
+                return
 
         # No consumers found, mark as dead
         self.dead_nodes.add(node_id)
@@ -295,14 +284,14 @@ class ConstantPropagationOptimizer:
     def _update_references(self, operations: list[IRNode]) -> list[IRNode]:
         """Update all SignalRef references to use replacement nodes."""
         for op in operations:
-            if isinstance(op, IR_Arith):
+            if isinstance(op, IRArith):
                 op.left = self._update_value(op.left)
                 op.right = self._update_value(op.right)
-            elif isinstance(op, IR_Decider):
+            elif isinstance(op, IRDecider):
                 op.left = self._update_value(op.left)
                 op.right = self._update_value(op.right)
                 op.output_value = self._update_value(op.output_value)
-            elif isinstance(op, IR_MemWrite):
+            elif isinstance(op, IRMemWrite):
                 op.data_signal = self._update_value(op.data_signal)
                 op.write_enable = self._update_value(op.write_enable)
 
@@ -336,7 +325,7 @@ class CSEOptimizer:
         optimized: list[IRNode] = []
 
         for op in ir_operations:
-            if isinstance(op, (IR_Arith, IR_Decider)):
+            if isinstance(op, (IRArith, IRDecider)):
                 key = self._make_key(op)
                 if key and key in self.expr_cache:
                     self.replacements[op.node_id] = self.expr_cache[key]
@@ -352,12 +341,12 @@ class CSEOptimizer:
         return optimized
 
     def _make_key(self, op: IRNode) -> str:
-        if isinstance(op, IR_Arith):
+        if isinstance(op, IRArith):
             left_key = self._value_key(op.left)
             right_key = self._value_key(op.right)
             return f"arith:{op.op}:{left_key}:{right_key}:{op.output_type}"
 
-        if isinstance(op, IR_Decider):
+        if isinstance(op, IRDecider):
             # Multi-condition mode
             if op.conditions:
                 cond_keys = []
@@ -386,14 +375,7 @@ class CSEOptimizer:
             left_key = self._value_key(op.left)
             right_key = self._value_key(op.right)
             output_key = self._value_key(op.output_value)
-            return (
-                "decider:"
-                f"{op.test_op}:"
-                f"{left_key}:"
-                f"{right_key}:"
-                f"{output_key}:"
-                f"{op.output_type}"
-            )
+            return f"decider:{op.test_op}:{left_key}:{right_key}:{output_key}:{op.output_type}"
 
         return ""
 
@@ -412,10 +394,10 @@ class CSEOptimizer:
 
     def _update_references(self, operations: list[IRNode]) -> list[IRNode]:
         for op in operations:
-            if isinstance(op, IR_Arith):
+            if isinstance(op, IRArith):
                 op.left = self._update_value(op.left)
                 op.right = self._update_value(op.right)
-            elif isinstance(op, IR_Decider):
+            elif isinstance(op, IRDecider):
                 # Update legacy single-condition fields
                 op.left = self._update_value(op.left)
                 op.right = self._update_value(op.right)
@@ -426,10 +408,10 @@ class CSEOptimizer:
                         cond.first_operand = self._update_value(cond.first_operand)
                     if cond.second_operand is not None:
                         cond.second_operand = self._update_value(cond.second_operand)
-            elif isinstance(op, IR_MemWrite):
+            elif isinstance(op, IRMemWrite):
                 op.data_signal = self._update_value(op.data_signal)
                 op.write_enable = self._update_value(op.write_enable)
-            elif isinstance(op, IR_EntityPropWrite):
+            elif isinstance(op, IREntityPropWrite):
                 op.value = self._update_value(op.value)
 
         return operations

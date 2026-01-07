@@ -1,5 +1,10 @@
 # Factompiler
 
+[![CI Pipeline](https://github.com/Snagnar/Factompiler/actions/workflows/ci.yml/badge.svg)](https://github.com/Snagnar/Factompiler/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Snagnar/Factompiler/branch/main/graph/badge.svg)](https://codecov.io/gh/Snagnar/Factompiler)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A compiler for the **Facto** programming language, which compiles to Factorio blueprints.
 
 ## Quick Start
@@ -64,6 +69,55 @@ The Facto language supports:
 - **Type Safety**: Optional strict type checking
 
 See `tests/sample_programs/` for complete examples.
+
+## Development & Testing
+
+### Running Tests
+
+The project uses pytest with separate markers for unit and end-to-end tests:
+
+```bash
+# Run all tests
+pytest
+
+# Run only unit tests (faster, excludes end-to-end integration tests)
+pytest -m "not end2end"
+
+# Run only end-to-end tests
+pytest -m "end2end"
+
+# Run with coverage report
+pytest -m "not end2end" --cov=dsl_compiler --cov-report=html
+```
+
+### Code Quality
+
+The project uses modern Python tooling:
+
+- **Ruff**: Fast linting and code formatting
+- **mypy**: Static type checking
+- **pytest**: Test framework with coverage reporting
+
+```bash
+# Run linting
+ruff check .
+
+# Format code
+ruff format .
+
+# Type checking
+mypy dsl_compiler/ compile.py --ignore-missing-imports
+```
+
+### CI Pipeline
+
+The GitHub Actions CI pipeline runs on every push and pull request:
+
+1. **Linting**: Ruff check, format validation, and mypy type checking
+2. **Unit Tests**: Fast tests on Python 3.11 and 3.12 with coverage reporting
+3. **End-to-End Tests**: Full compilation tests of all sample programs
+
+Coverage reports are automatically uploaded to Codecov and available as artifacts in GitHub Actions.
 
 ## Command Line Options
 

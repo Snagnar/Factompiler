@@ -268,16 +268,10 @@ class LayoutPlanner:
             ):
                 continue
 
-            injected_count = self._inject_operand_wire_color(
-                placement, "left", injected_count
-            )
-            injected_count = self._inject_operand_wire_color(
-                placement, "right", injected_count
-            )
+            injected_count = self._inject_operand_wire_color(placement, "left", injected_count)
+            injected_count = self._inject_operand_wire_color(placement, "right", injected_count)
 
-        self.diagnostics.info(
-            f"Wire color injection: {injected_count} operands configured"
-        )
+        self.diagnostics.info(f"Wire color injection: {injected_count} operands configured")
 
     def _add_power_pole_grid(self) -> None:
         """Add power poles in a grid pattern BEFORE layout optimization.
@@ -395,18 +389,13 @@ class LayoutPlanner:
         locked = {}
 
         for module in self._memory_modules.values():
-            if isinstance(module, MemoryModule):
-                if module.optimization is None:
-                    if module.write_gate:
-                        locked[(module.write_gate.ir_node_id, module.signal_type)] = (
-                            "red"
-                        )
-                    if module.hold_gate:
-                        locked[(module.hold_gate.ir_node_id, module.signal_type)] = (
-                            "red"
-                        )
+            if isinstance(module, MemoryModule) and module.optimization is None:
+                if module.write_gate:
+                    locked[(module.write_gate.ir_node_id, module.signal_type)] = "red"
+                if module.hold_gate:
+                    locked[(module.hold_gate.ir_node_id, module.signal_type)] = "red"
 
-        for signal_id, source_ids, sink_ids in self.signal_graph.iter_edges():
+        for signal_id, source_ids, _sink_ids in self.signal_graph.iter_edges():
             usage = self.signal_usage.get(signal_id)
             resolved_name = usage.resolved_signal_name if usage else None
 
@@ -415,29 +404,30 @@ class LayoutPlanner:
                     locked[(source_id, "signal-W")] = "green"
 
         for module in self._memory_modules.values():
-            if isinstance(module, MemoryModule):
-                if module.optimization is None and module.write_gate:
-                    write_gate_id = module.write_gate.ir_node_id
-                    data_signal = module.signal_type  # e.g., "signal-B"
+            if (
+                isinstance(module, MemoryModule)
+                and module.optimization is None
+                and module.write_gate
+            ):
+                write_gate_id = module.write_gate.ir_node_id
+                data_signal = module.signal_type  # e.g., "signal-B"
 
-                    for (
-                        signal_id,
-                        source_ids,
-                        sink_ids,
-                    ) in self.signal_graph.iter_edges():
-                        if write_gate_id in sink_ids:
-                            usage = self.signal_usage.get(signal_id)
-                            resolved_name = (
-                                usage.resolved_signal_name if usage else None
-                            )
+                for (
+                    signal_id,
+                    source_ids,
+                    sink_ids,
+                ) in self.signal_graph.iter_edges():
+                    if write_gate_id in sink_ids:
+                        usage = self.signal_usage.get(signal_id)
+                        resolved_name = usage.resolved_signal_name if usage else None
 
-                            if resolved_name == data_signal or signal_id == data_signal:
-                                for source_id in source_ids:
-                                    if (
-                                        source_id != write_gate_id
-                                        and source_id != module.hold_gate.ir_node_id
-                                    ):
-                                        locked[(source_id, data_signal)] = "red"
+                        if resolved_name == data_signal or signal_id == data_signal:
+                            for source_id in source_ids:
+                                if (
+                                    source_id != write_gate_id
+                                    and source_id != module.hold_gate.ir_node_id
+                                ):
+                                    locked[(source_id, data_signal)] = "red"
 
         for entity_id, placement in self.layout_plan.entity_placements.items():
             if placement.properties.get("has_self_feedback"):
@@ -453,18 +443,19 @@ class LayoutPlanner:
         for entity_id, placement in self.layout_plan.entity_placements.items():
             if placement.properties.get("needs_wire_separation"):
                 # Get the source IDs for left and right operands
-                left_signal_id = placement.properties.get("left_operand_signal_id")
                 right_signal_id = placement.properties.get("right_operand_signal_id")
                 right_operand = placement.properties.get("right_operand")
 
                 # Lock the right operand source to green wire
-                if right_signal_id and isinstance(right_operand, str):
-                    # Get the source entity for the right operand
-                    if hasattr(right_signal_id, "source_id"):
-                        source_id = right_signal_id.source_id
-                        locked[(source_id, right_operand)] = "green"
-                        self.diagnostics.info(
-                            f"Bundle wire separation: locked {source_id}/{right_operand} to green for {entity_id}"
-                        )
+                if (
+                    right_signal_id
+                    and isinstance(right_operand, str)
+                    and hasattr(right_signal_id, "source_id")
+                ):
+                    source_id = right_signal_id.source_id
+                    locked[(source_id, right_operand)] = "green"
+                    self.diagnostics.info(
+                        f"Bundle wire separation: locked {source_id}/{right_operand} to green for {entity_id}"
+                    )
 
         return locked

@@ -107,9 +107,7 @@ class PowerPlanner:
         """
         config = POWER_POLE_CONFIG.get(pole_type.lower())
         if config is None:
-            self.diagnostics.warning(
-                f"Unknown power pole type '{pole_type}'; skipping power grid"
-            )
+            self.diagnostics.warning(f"Unknown power pole type '{pole_type}'; skipping power grid")
             return
 
         entity_count = len(self.layout_plan.entity_placements)
@@ -134,9 +132,7 @@ class PowerPlanner:
                 is_user = placement.properties.get("user_specified_position")
                 if is_user:
                     has_user_positions = True
-                    footprint_w, footprint_h = placement.properties.get(
-                        "footprint", (1, 1)
-                    )
+                    footprint_w, footprint_h = placement.properties.get("footprint", (1, 1))
                     px, py = placement.position
                     user_min_x = min(user_min_x, px)
                     user_min_y = min(user_min_y, py)
