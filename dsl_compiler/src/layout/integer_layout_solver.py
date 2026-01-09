@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from ortools.sat.python import cp_model
@@ -552,7 +553,9 @@ class IntegerLayoutEngine:
             bounding_perimeter = max_x + max_y
         else:
             # Fallback if all entities are power poles (unlikely)
-            bounding_perimeter = 0
+            bounding_perimeter_int = 0
+            bounding_perimeter = model.NewIntVar(0, 0, "bounding_perimeter")
+            model.Add(bounding_perimeter == bounding_perimeter_int)
 
         objective = (
             violation_weight * num_violations + 100 * total_wire_length + 100 * bounding_perimeter
@@ -563,7 +566,7 @@ class IntegerLayoutEngine:
     def _extract_result(
         self,
         solver: cp_model.CpSolver,
-        status: int,
+        status: Any,  # cp_model.CpSolverStatus
         positions: dict,
         span_violations: list,
         wire_lengths: list,
@@ -729,7 +732,7 @@ class IntegerLayoutEngine:
 
     def _find_connected_components(self) -> list[list[str]]:
         """Find connected components using depth-first search."""
-        adjacency = {entity_id: set() for entity_id in self.entity_ids}
+        adjacency: dict[str, set[str]] = {entity_id: set() for entity_id in self.entity_ids}
 
         for source, sink in self.connections:
             adjacency[source].add(sink)

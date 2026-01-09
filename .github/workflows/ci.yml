@@ -42,7 +42,7 @@ jobs:
     
     - name: Run mypy type checking
       run: |
-        mypy dsl_compiler/ compile.py --ignore-missing-imports
+        mypy dsl_compiler/ compile.py --explicit-package-bases
       continue-on-error: false
 
   unit-tests:

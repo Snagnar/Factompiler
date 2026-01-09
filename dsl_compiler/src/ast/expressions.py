@@ -63,6 +63,10 @@ class WriteExpr(Expr):
     - False (RS latch): reset wins when both conditions true
     """
 
+    # Added by semantic analysis
+    enable_type: Any  # ValueInfo - type of enable signal
+    value_type: Any  # ValueInfo - type of value being written
+
     def __init__(
         self,
         value: Expr,

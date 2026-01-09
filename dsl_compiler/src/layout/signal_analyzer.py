@@ -71,7 +71,9 @@ class SignalAnalyzer:
         self._allocated_signals: set[str] = set()
         for mapping in signal_type_map.values():
             if isinstance(mapping, dict):
-                self._allocated_signals.add(mapping.get("name"))
+                signal_name = mapping.get("name")
+                if signal_name is not None:
+                    self._allocated_signals.add(str(signal_name))
             elif isinstance(mapping, str):
                 self._allocated_signals.add(mapping)
 

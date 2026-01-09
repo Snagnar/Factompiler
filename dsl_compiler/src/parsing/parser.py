@@ -71,10 +71,11 @@ class DSLParser:
             if self.parser is None:
                 raise RuntimeError("Parser not initialized")
             ast = self.parser.parse(preprocessed_code)
-            self._attach_source_file(ast, filename)
 
             if not isinstance(ast, Program):
                 raise RuntimeError(f"Expected Program AST node, got {type(ast)}")
+
+            self._attach_source_file(ast, filename)
 
             return ast
 

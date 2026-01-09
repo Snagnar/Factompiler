@@ -153,7 +153,14 @@ class PowerPlanner:
             start_x_offset = 0.0
             start_y_offset = 0.0
 
-        supply_radius = float(config["supply_radius"])
+        supply_radius_raw = config["supply_radius"]
+        # Cast object to float, or use 0.0 if None
+        if supply_radius_raw is None:
+            supply_radius = 0.0
+        elif isinstance(supply_radius_raw, (int, float)):
+            supply_radius = float(supply_radius_raw)
+        else:
+            supply_radius = 0.0
         # This ensures overlapping coverage while leaving maximum room for entities
         spacing = 2.0 * supply_radius
 

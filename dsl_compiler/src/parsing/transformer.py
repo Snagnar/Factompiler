@@ -250,7 +250,9 @@ class DSLTransformer(Transformer):
                 ):
                     body.append(transformed)
 
-        return self._set_position(FuncDecl(name=name, params=params, body=body), items[0])
+        result = self._set_position(FuncDecl(name=name, params=params, body=body), items[0])
+        assert isinstance(result, FuncDecl)
+        return result
 
     def typed_param_list(self, items) -> list[TypedParam]:
         """typed_param_list: typed_param ("," typed_param)*"""
@@ -265,7 +267,11 @@ class DSLTransformer(Transformer):
         param_name = str(name_token.value) if hasattr(name_token, "value") else str(name_token)
 
         result = TypedParam(type_name=type_name, name=param_name)
-        return self._set_position(result, name_token)
+        # Set position directly since TypedParam doesn't inherit from ASTNode
+        if hasattr(name_token, "line"):
+            result.line = name_token.line
+            result.column = name_token.column
+        return result
 
     def for_stmt(self, items) -> ForStmt:
         """for_stmt: FOR_KW NAME IN_KW for_iterator "{" statement* "}"""
@@ -308,7 +314,7 @@ class DSLTransformer(Transformer):
         # Build ForStmt based on iterator type
         if "values" in iterator_data:
             # List iterator
-            return self._set_position(
+            result = self._set_position(
                 ForStmt(
                     iterator_name=iterator_name,
                     start=None,
@@ -319,9 +325,11 @@ class DSLTransformer(Transformer):
                 ),
                 position_token,
             )
+            assert isinstance(result, ForStmt)
+            return result
         else:
             # Range iterator
-            return self._set_position(
+            result = self._set_position(
                 ForStmt(
                     iterator_name=iterator_name,
                     start=iterator_data["start"],
@@ -332,6 +340,8 @@ class DSLTransformer(Transformer):
                 ),
                 position_token,
             )
+            assert isinstance(result, ForStmt)
+            return result
 
     def for_iterator(self, items):
         """for_iterator: range_iterator | list_iterator"""
@@ -395,6 +405,7 @@ class DSLTransformer(Transformer):
 
     def lvalue(self, items) -> LValue:
         """lvalue: NAME ("." NAME)?"""
+        result: LValue
         if len(items) == 1:
             token = items[0]
             if isinstance(token, Token):
@@ -449,7 +460,9 @@ class DSLTransformer(Transformer):
         output_value = items[2] if len(items) > 2 else items[1]
 
         node = OutputSpecExpr(condition=condition, output_value=output_value)
-        return self._set_position(node, condition)
+        result = self._set_position(node, condition)
+        assert isinstance(result, Expr)
+        return result
 
     def output_value(self, items) -> Expr:
         """output_value: primary"""
@@ -457,6 +470,7 @@ class DSLTransformer(Transformer):
         # Unwrap any Tree/Token objects to get proper AST nodes
         if not isinstance(result, Expr):
             result = self._unwrap_tree(result)
+        assert isinstance(result, Expr)
         return result
 
     def comparison(self, items) -> Expr:
@@ -591,7 +605,9 @@ class DSLTransformer(Transformer):
                 if arg is not None:
                     args.append(self._unwrap_tree(arg))
 
-        return self._set_position(CallExpr(name=name, args=args), items[0])
+        result = self._set_position(CallExpr(name=name, args=args), items[0])
+        assert isinstance(result, CallExpr)
+        return result
 
     def method_call(self, items) -> CallExpr:
         """method_call: NAME "." NAME "(" [arglist] ")" """
@@ -605,19 +621,25 @@ class DSLTransformer(Transformer):
                 args.append(self._unwrap_tree(arg))
 
         qualified_name = f"{module_name}.{method_name}"
-        return self._set_position(CallExpr(name=qualified_name, args=args), items[0])
+        result = self._set_position(CallExpr(name=qualified_name, args=args), items[0])
+        assert isinstance(result, CallExpr)
+        return result
 
     def memory_read(self, items) -> ReadExpr:
         """memory_read: NAME "." "read" "(" ")" """
         memory_name = str(items[0])
-        return self._set_position(ReadExpr(memory_name=memory_name), items[0])
+        result = self._set_position(ReadExpr(memory_name=memory_name), items[0])
+        assert isinstance(result, ReadExpr)
+        return result
 
     def memory_write(self, items) -> WriteExpr:
         """memory_write: NAME "." "write" "(" expr ")" """
         memory_name = str(items[0])
         value = self._unwrap_tree(items[1])
         write_node = WriteExpr(value=value, memory_name=memory_name, when=None)
-        return self._set_position(write_node, items[0])
+        result = self._set_position(write_node, items[0])
+        assert isinstance(result, WriteExpr)
+        return result
 
     def memory_write_when(self, items) -> WriteExpr:
         """memory_write_when: NAME "." "write" "(" expr "," WHEN_KW "=" expr ")"
@@ -629,7 +651,9 @@ class DSLTransformer(Transformer):
         # items[2] is the WHEN_KW token, items[3] is the condition expression
         condition = self._unwrap_tree(items[3])
         write_node = WriteExpr(value=value, memory_name=memory_name, when=condition)
-        return self._set_position(write_node, items[0])
+        result = self._set_position(write_node, items[0])
+        assert isinstance(result, WriteExpr)
+        return result
 
     def memory_latch_write(self, items) -> WriteExpr:
         """memory_latch_write: NAME "." "write" "(" expr "," latch_kwargs ")"
@@ -646,7 +670,9 @@ class DSLTransformer(Transformer):
             reset_signal=reset_expr,
             set_priority=set_priority,
         )
-        return self._set_position(write_node, items[0])
+        result = self._set_position(write_node, items[0])
+        assert isinstance(result, WriteExpr)
+        return result
 
     def latch_set_reset(self, items) -> tuple:
         """latch_kwargs: SET_KW "=" expr "," RESET_KW "=" expr -> latch_set_reset
@@ -681,9 +707,11 @@ class DSLTransformer(Transformer):
             if first_token is None:
                 first_token = token
 
-        literal = DictLiteral(entries=entries)
+        literal: DictLiteral = DictLiteral(entries=entries)
         if first_token is not None:
-            literal = self._set_position(literal, first_token)
+            result = self._set_position(literal, first_token)
+            assert isinstance(result, DictLiteral)
+            return result
         return literal
 
     def dict_item(self, items):
@@ -716,9 +744,11 @@ class DSLTransformer(Transformer):
             if first_token is None and hasattr(item, "line"):
                 first_token = item
 
-        literal = BundleLiteral(elements=elements)
+        literal: BundleLiteral = BundleLiteral(elements=elements)
         if first_token is not None:
-            literal = self._set_position(literal, first_token)
+            result = self._set_position(literal, first_token)
+            assert isinstance(result, BundleLiteral)
+            return result
         return literal
 
     def bundle_element(self, items) -> Expr:
@@ -741,9 +771,13 @@ class DSLTransformer(Transformer):
         else:
             signal_type = str(signal_type_token)[1:-1]
 
-        select_expr = BundleSelectExpr(bundle=bundle_expr, signal_type=signal_type)
+        select_expr: BundleSelectExpr = BundleSelectExpr(
+            bundle=bundle_expr, signal_type=signal_type
+        )
         if isinstance(bundle_name, Token):
-            select_expr = self._set_position(select_expr, bundle_name)
+            result = self._set_position(select_expr, bundle_name)
+            assert isinstance(result, BundleSelectExpr)
+            return result
         return select_expr
 
     def bundle_any(self, items) -> BundleAnyExpr:
@@ -752,9 +786,11 @@ class DSLTransformer(Transformer):
         items[0] is the ANY_KW token, items[1] is the bundle expression.
         """
         bundle_expr = self._unwrap_tree(items[1])
-        any_expr = BundleAnyExpr(bundle=bundle_expr)
+        any_expr: BundleAnyExpr = BundleAnyExpr(bundle=bundle_expr)
         if hasattr(items[0], "line"):
-            any_expr = self._set_position(any_expr, items[0])
+            result = self._set_position(any_expr, items[0])
+            assert isinstance(result, BundleAnyExpr)
+            return result
         return any_expr
 
     def bundle_all(self, items) -> BundleAllExpr:
@@ -763,9 +799,11 @@ class DSLTransformer(Transformer):
         items[0] is the ALL_KW token, items[1] is the bundle expression.
         """
         bundle_expr = self._unwrap_tree(items[1])
-        all_expr = BundleAllExpr(bundle=bundle_expr)
+        all_expr: BundleAllExpr = BundleAllExpr(bundle=bundle_expr)
         if hasattr(items[0], "line"):
-            all_expr = self._set_position(all_expr, items[0])
+            result = self._set_position(all_expr, items[0])
+            assert isinstance(result, BundleAllExpr)
+            return result
         return all_expr
 
     def signal_with_type(self, items) -> SignalLiteral:

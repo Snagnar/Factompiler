@@ -386,7 +386,7 @@ class MemoryBuilder:
         # ======================================================================
         value_is_signal = isinstance(op.value, SignalRef)
         latch_value: int | SignalRef = (
-            op.value if value_is_signal else (op.value if isinstance(op.value, int) else 1)
+            op.value if value_is_signal else (op.value if isinstance(op.value, int) else 1)  # type: ignore[assignment]
         )
         needs_multiplier = value_is_signal or (isinstance(latch_value, int) and latch_value != 1)
 

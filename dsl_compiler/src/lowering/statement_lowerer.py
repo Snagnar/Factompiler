@@ -16,6 +16,7 @@ from dsl_compiler.src.ast.literals import (
 )
 from dsl_compiler.src.ast.statements import (
     AssignStmt,
+    ASTNode,
     DeclStmt,
     ExprStmt,
     ForStmt,
@@ -40,6 +41,11 @@ class StatementLowerer:
 
     def __init__(self, parent: Any) -> None:
         self.parent = parent
+
+    def _error(self, msg: str, node: ASTNode | None = None) -> None:
+        """Emit an error through the parent's diagnostics."""
+        if hasattr(self.parent, "diagnostics") and self.parent.diagnostics:
+            self.parent.diagnostics.error(msg, stage="lowering", node=node)
 
     @property
     def ir_builder(self):
@@ -201,9 +207,11 @@ class StatementLowerer:
                 entity_name in self.parent.entity_refs
                 and prop_name == "enable"
                 and self._is_inlinable_bundle_condition(stmt.value)
+                and isinstance(stmt.value, BinaryOp)
             ):
                 entity_id = self.parent.entity_refs[entity_name]
-                self._lower_inlined_bundle_condition(entity_id, stmt.value, stmt, None)
+                value_ref = self.parent.expr_lowerer.lower_expr(stmt.value)
+                self._lower_inlined_bundle_condition(entity_id, stmt.value, stmt, value_ref)
                 return
 
         self.parent.push_expr_context(target_name, stmt)
@@ -401,8 +409,12 @@ class StatementLowerer:
         special_signal = "signal-everything" if func_name == "all" else "signal-anything"
 
         # Lower the bundle argument to get the source connection
-        bundle_arg = expr.left.bundle
-        bundle_ref = self.parent.expr_lowerer.lower_expr(bundle_arg)
+        if isinstance(expr.left, (BundleAllExpr, BundleAnyExpr)):
+            bundle_arg = expr.left.bundle
+            bundle_ref = self.parent.expr_lowerer.lower_expr(bundle_arg)
+        else:
+            self._error(f"Expected BundleAllExpr or BundleAnyExpr, got {type(expr.left)}", stmt)
+            return
 
         # Get the constant value
         constant = self._extract_constant(expr.right)

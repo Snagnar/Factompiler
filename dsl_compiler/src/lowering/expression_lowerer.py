@@ -154,7 +154,8 @@ class ExpressionLowerer:
         if isinstance(expr, NumberLiteral):
             return expr.value
         if isinstance(expr, StringLiteral):
-            return expr.value
+            # String literals shouldn't be ValueRef - this is likely an error
+            raise TypeError(f"Cannot use string literal as ValueRef: {expr.value}")
 
         handlers = {
             IdentifierExpr: self.lower_identifier,
@@ -175,7 +176,8 @@ class ExpressionLowerer:
         }
 
         if type(expr) in handlers:
-            return handlers[type(expr)](expr)  # type: ignore[arg-type]
+            result = handlers[type(expr)](expr)  # type: ignore[arg-type, operator]
+            return result
 
         if isinstance(expr, ReadExpr):
             return self.parent.mem_lowerer.lower_read_expr(expr)
@@ -671,7 +673,15 @@ class ExpressionLowerer:
                     else:
                         # Comparison is constant-true, but output is a signal
                         # Just return the output value (condition is always true)
-                        return self.lower_expr(expr.output_value)
+                        output_ref = self.lower_expr(expr.output_value)
+                        if isinstance(output_ref, SignalRef):
+                            return output_ref
+                        # If it's not a SignalRef, wrap it
+                        output_type = self.ir_builder.allocate_implicit_type()
+                        self.parent.ensure_signal_registered(output_type)
+                        return self.ir_builder.const(
+                            output_type, int(output_ref) if isinstance(output_ref, int) else 0, expr
+                        )
                 else:
                     # Condition is false - output 0
                     output_type = self.ir_builder.allocate_implicit_type()
@@ -856,7 +866,20 @@ class ExpressionLowerer:
         # Semantic returned IntValue - bare number constant, unwrap and return as integer
         # (e.g., "7" in "7 + a" should be integer constant)
         if isinstance(semantic_type, IntValue):
-            return self.lower_expr(expr.value)
+            inner_ref = self.lower_expr(expr.value)
+            if isinstance(inner_ref, SignalRef):
+                return inner_ref
+            # If we got an integer, we need to wrap it in a SignalRef with an implicit type
+            if isinstance(inner_ref, int):
+                signal_name = self.ir_builder.allocate_implicit_type()
+                self.parent.ensure_signal_registered(signal_name)
+                ref = self.ir_builder.const(signal_name, inner_ref, expr)
+                self._attach_expr_context(ref.source_id, expr)
+                ref.signal_type = signal_name
+                ref.output_type = signal_name
+                return ref
+            # If we got a BundleRef, this is an error - signal literal can't be a bundle
+            raise TypeError(f"Signal literal cannot be a bundle: {expr}")
 
         # Fallback: allocate fresh implicit (shouldn't happen in well-typed code)
         signal_name = self.ir_builder.allocate_implicit_type()
@@ -1439,7 +1462,7 @@ class ExpressionLowerer:
             left_val = self._try_extract_const_value(op.left)
             right_val = self._try_extract_const_value(op.right)
 
-            if left_val is not None and right_val is not None:
+            if left_val is not None and right_val is not None and op.source_ast is not None:
                 # Both operands are constants - fold the operation
                 return ConstantFolder.fold_binary_operation(
                     op.op, left_val, right_val, op.source_ast, self.diagnostics

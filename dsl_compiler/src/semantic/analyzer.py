@@ -373,8 +373,14 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
             # Validate latch write arguments
             if expr.is_latch_write():
-                set_type = self.get_expr_type(expr.set_signal)
-                reset_type = self.get_expr_type(expr.reset_signal)
+                if expr.set_signal is not None:
+                    set_type = self.get_expr_type(expr.set_signal)
+                else:
+                    set_type = None
+                if expr.reset_signal is not None:
+                    reset_type = self.get_expr_type(expr.reset_signal)
+                else:
+                    reset_type = None
 
                 # Validate set signal is a signal expression
                 if not isinstance(set_type, SignalValue):
@@ -979,12 +985,13 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
     def _get_function_return_type(self, function_name: str) -> ValueInfo:
         """Determine the return type of a function by analyzing its return statements."""
+        from dsl_compiler.src.ast.statements import FuncDecl, ReturnStmt
 
         func_symbol = self.current_scope.lookup(function_name)
         if not func_symbol or func_symbol.symbol_type != SymbolType.FUNCTION:
             return SignalValue(signal_type=self.allocate_implicit_type())
 
-        if hasattr(func_symbol, "function_def") and func_symbol.function_def:
+        if hasattr(func_symbol, "function_def") and isinstance(func_symbol.function_def, FuncDecl):
             for stmt in func_symbol.function_def.body:
                 if isinstance(stmt, ReturnStmt) and stmt.expr:
                     return_type = self.get_expr_type(stmt.expr)
@@ -1087,7 +1094,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 stage="semantic",
                 node=node.args[1],
             )
-        elif len(node.args) == 2:
+        elif len(node.args) == 2 and isinstance(node.args[1], StringLiteral):
             node.metadata["explicit_type"] = node.args[1].value
 
     def visit_MemDecl(self, node: MemDecl) -> None:
@@ -1365,11 +1372,17 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         value_type = self.get_expr_type(node.value)
 
         if isinstance(node.target, Identifier):
+            # Convert SymbolType enum to string if present
+            declared_type_str = (
+                target_symbol.symbol_type.name
+                if target_symbol and target_symbol.symbol_type
+                else None
+            )
             self._register_signal_metadata(
                 node.target.name,
                 node.target,
                 value_type,
-                target_symbol.symbol_type if target_symbol else None,
+                declared_type_str,
             )
 
     def visit_ImportStmt(self, node: ImportStmt) -> None:
@@ -1423,7 +1436,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
         func_def = func_symbol.function_def if hasattr(func_symbol, "function_def") else None
 
-        if func_def:
+        if func_def and isinstance(func_def, FuncDecl):
             expected_params = len(func_def.params)
             actual_args = len(node.args)
             if actual_args != expected_params:

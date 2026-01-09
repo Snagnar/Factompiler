@@ -289,13 +289,16 @@ class MemoryLowerer:
             source_type = getattr(value_ref, "signal_type", None) or "<unknown>"
 
             # Always emit warning for type mismatches
-            self._warning(
-                "Type mismatch in memory write:\n"
-                f"  Expected: '{signal_type}'\n"
-                f"  Got: '{source_type}'\n"
-                f'  Fix: Use projection: value | "{signal_type}"',
-                node,
-            )
+
+            if hasattr(self.parent, "diagnostics") and self.parent.diagnostics:
+                self.parent.diagnostics.warning(
+                    "Type mismatch in memory write:\n"
+                    f"  Expected: '{signal_type}'\n"
+                    f"  Got: '{source_type}'\n"
+                    f'  Fix: Use projection: value | "{signal_type}"',
+                    stage="lowering",
+                    node=node,
+                )
 
             return self.ir_builder.arithmetic("+", value_ref, 0, signal_type, node)
 

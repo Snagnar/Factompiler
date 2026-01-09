@@ -118,6 +118,9 @@ class LayoutPlanner:
         are assigned later by force-directed optimization.
         """
 
+        if self.signal_analyzer is None:
+            raise RuntimeError("Signal analyzer not initialized")
+
         placer = EntityPlacer(
             self.tile_grid,
             self.layout_plan,
@@ -240,7 +243,7 @@ class LayoutPlanner:
 
         source_entity = self._resolve_source_entity(signal_id)
 
-        if source_entity:
+        if source_entity and self.connection_planner is not None:
             color = self.connection_planner.get_wire_color_for_edge(
                 source_entity, placement.ir_node_id, signal
             )
@@ -315,7 +318,14 @@ class LayoutPlanner:
         if config is None:
             return
 
-        supply_radius = float(config["supply_radius"])
+        supply_radius_raw = config["supply_radius"]
+        # Cast object to float, or use 0.0 if None
+        if supply_radius_raw is None:
+            supply_radius = 0.0
+        elif isinstance(supply_radius_raw, (int, float)):
+            supply_radius = float(supply_radius_raw)
+        else:
+            supply_radius = 0.0
 
         entity_positions = []
         for placement in self.layout_plan.entity_placements.values():
@@ -408,6 +418,7 @@ class LayoutPlanner:
                 isinstance(module, MemoryModule)
                 and module.optimization is None
                 and module.write_gate
+                and module.hold_gate
             ):
                 write_gate_id = module.write_gate.ir_node_id
                 data_signal = module.signal_type  # e.g., "signal-B"
@@ -423,10 +434,14 @@ class LayoutPlanner:
 
                         if resolved_name == data_signal or signal_id == data_signal:
                             for source_id in source_ids:
-                                if (
-                                    source_id != write_gate_id
-                                    and source_id != module.hold_gate.ir_node_id
-                                ):
+                                hold_gate_placement = self.layout_plan.get_placement(
+                                    module.hold_gate.ir_node_id
+                                )
+                                if hold_gate_placement is not None:
+                                    hold_gate_ir_id = hold_gate_placement.ir_node_id
+                                else:
+                                    hold_gate_ir_id = None
+                                if source_id != write_gate_id and source_id != hold_gate_ir_id:
                                     locked[(source_id, data_signal)] = "red"
 
         for entity_id, placement in self.layout_plan.entity_placements.items():
