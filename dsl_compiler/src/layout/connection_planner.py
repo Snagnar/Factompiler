@@ -196,7 +196,9 @@ class RelayNetwork:
                 nodes[node.entity_id] = node.position
 
         # A* search from source
-        open_set: list[tuple[float, float, str, list]] = [(0.0, 0.0, "__source__", [])]  # (f_score, g_score, node_id, path)
+        open_set: list[tuple[float, float, str, list]] = [
+            (0.0, 0.0, "__source__", [])
+        ]  # (f_score, g_score, node_id, path)
         visited = set()
 
         while open_set:
@@ -1268,7 +1270,9 @@ class ConnectionPlanner:
             Both directions are included: if A↔B, returns {(A,B), (B,A)}.
         """
         pairs = set()
-        edge_set = {(e.source_entity_id, e.sink_entity_id) for e in edges if e.source_entity_id is not None}
+        edge_set = {
+            (e.source_entity_id, e.sink_entity_id) for e in edges if e.source_entity_id is not None
+        }
 
         for edge in edges:
             if edge.source_entity_id is None:
@@ -1284,7 +1288,7 @@ class ConnectionPlanner:
         """Route a single edge directly (no MST optimization)."""
         if edge.source_entity_id is None:
             return
-            
+
         edge_key = (
             edge.source_entity_id,
             edge.sink_entity_id,
@@ -1577,7 +1581,7 @@ class ConnectionPlanner:
         """Route a connection with relays if needed using shared relay infrastructure."""
         if edge.source_entity_id is None:
             return
-            
+
         source = self.layout_plan.get_placement(edge.source_entity_id)
         sink = self.layout_plan.get_placement(edge.sink_entity_id)
 
