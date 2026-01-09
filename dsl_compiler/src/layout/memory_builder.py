@@ -495,6 +495,7 @@ class MemoryBuilder:
         left_operand_wires = {"green"}
 
         # Determine right operand based on value type
+        right_operand: str | int
         if isinstance(multiplier_value, SignalRef):
             # Signal value: wire the source and use signal name
             right_operand = self.signal_analyzer.get_signal_name(multiplier_value.signal_type)
@@ -554,7 +555,7 @@ class MemoryBuilder:
         else:
             value_str = f"×{value}"
 
-        debug_info = {
+        debug_info: dict[str, Any] = {
             "variable": f"mem:{op.memory_id}",
             "operation": "latch_multiplier",
             "details": value_str,
@@ -722,7 +723,7 @@ class MemoryBuilder:
     def _make_latch_debug_info(self, op: IRLatchWrite) -> dict[str, Any]:
         """Build debug info dict for latch combinator."""
         latch_type = "SR" if op.latch_type == MEMORY_TYPE_SR_LATCH else "RS"
-        debug_info = {
+        debug_info: dict[str, Any] = {
             "variable": f"mem:{op.memory_id}",
             "operation": "latch",
             "details": f"{latch_type}_latch",

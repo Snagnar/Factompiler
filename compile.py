@@ -41,7 +41,7 @@ def validate_power_poles(ctx, param, value):
 
 def compile_dsl_file(
     input_path: Path,
-    program_name: str = None,
+    program_name: str | None = None,
     optimize: bool = True,
     log_level: str = "error",
     power_pole_type: str | None = None,

@@ -28,7 +28,7 @@ from dsl_compiler.src.ir.nodes import (
 )
 
 from .layout_plan import EntityPlacement, LayoutPlan
-from .memory_builder import MemoryBuilder
+from .memory_builder import MemoryBuilder, MemoryModule
 from .signal_analyzer import SignalAnalyzer
 from .signal_graph import SignalGraph
 from .tile_grid import TileGrid
@@ -53,7 +53,7 @@ class EntityPlacer:
 
         self.memory_builder = MemoryBuilder(tile_grid, layout_plan, signal_analyzer, diagnostics)
 
-        self._memory_modules: dict[str, dict[str, Any]] = {}
+        self._memory_modules: dict[str, MemoryModule] = {}
         self._wire_merge_junctions: dict[str, dict[str, Any]] = {}
         self._entity_property_signals: dict[str, str] = {}
         self._ir_nodes: dict[str, IRNode] = {}  # Track all IR nodes by ID for lookups
@@ -341,7 +341,7 @@ class EntityPlacer:
         # Build conditions list for the placement properties
         conditions_list = []
         for cond in op.conditions:
-            cond_dict = {
+            cond_dict: dict[str, Any] = {
                 "comparator": cond.comparator,
                 "compare_type": cond.compare_type,
             }
@@ -422,6 +422,7 @@ class EntityPlacer:
         user_specified = isinstance(op.x, int) and isinstance(op.y, int)
 
         if user_specified:
+            assert isinstance(op.x, int) and isinstance(op.y, int)
             desired = (int(op.x), int(op.y))
             pos = desired
         else:
@@ -629,7 +630,7 @@ class EntityPlacer:
         """Return merge membership info for wire color conflict detection."""
         return self._merge_membership
 
-    def _get_placement_position(self, value_ref: ValueRef) -> tuple[int, int] | None:
+    def _get_placement_position(self, value_ref: ValueRef) -> tuple[float, float] | None:
         """Get position of entity producing this value."""
         if isinstance(value_ref, SignalRef):
             placement = self.plan.get_placement(value_ref.source_id)
@@ -740,7 +741,7 @@ class EntityPlacer:
                 anchor_id = f"{signal_id}_{alias_name}_output_anchor"
 
                 # Build debug info for the anchor
-                debug_info = {
+                debug_info: dict[str, Any] = {
                     "variable": alias_name,
                     "operation": "output",
                     "details": "anchor",

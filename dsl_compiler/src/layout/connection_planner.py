@@ -16,6 +16,7 @@ from .tile_grid import TileGrid
 from .wire_router import (
     WIRE_COLORS,
     CircuitEdge,
+    ConflictEdge,
     collect_circuit_edges,
     plan_wire_colors,
 )
@@ -195,7 +196,7 @@ class RelayNetwork:
                 nodes[node.entity_id] = node.position
 
         # A* search from source
-        open_set = [(0.0, 0.0, "__source__", [])]  # (f_score, g_score, node_id, path)
+        open_set: list[tuple[float, float, str, list]] = [(0.0, 0.0, "__source__", [])]  # (f_score, g_score, node_id, path)
         visited = set()
 
         while open_set:
@@ -510,7 +511,7 @@ class ConnectionPlanner:
         self._circuit_edges: list[CircuitEdge] = []
         self._node_color_assignments: dict[tuple[str, str], str] = {}
         self._edge_color_map: dict[tuple[str, str, str], str] = {}
-        self._coloring_conflicts = []
+        self._coloring_conflicts: list[ConflictEdge] = []
         self._coloring_success = True
         self._relay_counter = 0
 
@@ -550,7 +551,7 @@ class ConnectionPlanner:
         if self.power_pole_type:
             config = POWER_POLE_CONFIG.get(self.power_pole_type.lower())
             if config:
-                supply_radius = float(config["supply_radius"])
+                supply_radius = float(config["supply_radius"])  # type: ignore[arg-type]
                 grid_spacing = 2.0 * supply_radius
                 # S/2 * 1.5 gives good coverage with safety margin
                 return grid_spacing * 0.75
@@ -652,7 +653,8 @@ class ConnectionPlanner:
         non_feedback_edges = [
             edge
             for edge in expanded_edges
-            if not self._is_memory_feedback_edge(
+            if edge.source_entity_id is not None
+            and not self._is_memory_feedback_edge(
                 edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name
             )
         ]
@@ -1161,20 +1163,20 @@ class ConnectionPlanner:
                 continue
 
             # Determine wire color
+            color: str
             if self._is_memory_feedback_edge(
                 edge.source_entity_id, edge.sink_entity_id, edge.resolved_signal_name
             ):
                 color = "red"
             else:
-                color = self._edge_color_map.get(
+                color_opt = self._edge_color_map.get(
                     (
                         edge.source_entity_id,
                         edge.sink_entity_id,
                         edge.resolved_signal_name,
                     )
                 )
-                if color is None:
-                    color = WIRE_COLORS[0]
+                color = color_opt if color_opt is not None else WIRE_COLORS[0]
 
             group_key = (edge.resolved_signal_name, color)
             if group_key not in signal_groups:
@@ -1202,6 +1204,8 @@ class ConnectionPlanner:
             # Group edges by source
             by_source: dict[str, list[CircuitEdge]] = {}
             for edge in edges:
+                if edge.source_entity_id is None:
+                    continue
                 if edge.source_entity_id not in by_source:
                     by_source[edge.source_entity_id] = []
                 by_source[edge.source_entity_id].append(edge)
@@ -1264,9 +1268,11 @@ class ConnectionPlanner:
             Both directions are included: if A↔B, returns {(A,B), (B,A)}.
         """
         pairs = set()
-        edge_set = {(e.source_entity_id, e.sink_entity_id) for e in edges}
+        edge_set = {(e.source_entity_id, e.sink_entity_id) for e in edges if e.source_entity_id is not None}
 
         for edge in edges:
+            if edge.source_entity_id is None:
+                continue
             reverse = (edge.sink_entity_id, edge.source_entity_id)
             if reverse in edge_set:
                 pairs.add((edge.source_entity_id, edge.sink_entity_id))
@@ -1276,6 +1282,9 @@ class ConnectionPlanner:
 
     def _route_edge_directly(self, edge: CircuitEdge, wire_color: str) -> None:
         """Route a single edge directly (no MST optimization)."""
+        if edge.source_entity_id is None:
+            return
+            
         edge_key = (
             edge.source_entity_id,
             edge.sink_entity_id,
@@ -1566,10 +1575,13 @@ class ConnectionPlanner:
         sink_side: str | None = None,
     ) -> None:
         """Route a connection with relays if needed using shared relay infrastructure."""
+        if edge.source_entity_id is None:
+            return
+            
         source = self.layout_plan.get_placement(edge.source_entity_id)
         sink = self.layout_plan.get_placement(edge.sink_entity_id)
 
-        if source is None or sink is None:
+        if source is None or sink is None or source.position is None or sink.position is None:
             self.diagnostics.info(
                 f"Skipped wiring for '{edge.resolved_signal_name}' due to missing placement ({edge.source_entity_id} -> {edge.sink_entity_id})."
             )
@@ -1622,7 +1634,7 @@ class ConnectionPlanner:
             source = self.layout_plan.get_placement(connection.source_entity_id)
             sink = self.layout_plan.get_placement(connection.sink_entity_id)
 
-            if not source or not sink:
+            if not source or not sink or not source.position or not sink.position:
                 continue
 
             distance = math.dist(source.position, sink.position)

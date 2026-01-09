@@ -111,9 +111,9 @@ def get_all_enums() -> dict[str, EnumInfo]:
                     if hasattr(val, "__int__"):
                         members[member_name] = int(val)
                     else:
-                        members[member_name] = str(val)
+                        members[member_name] = str(val)  # type: ignore[assignment]
                 except (ValueError, TypeError):
-                    members[member_name] = str(member.value)
+                    members[member_name] = str(member.value)  # type: ignore[assignment]
             enums[name] = EnumInfo(name=name, members=members)
     return enums
 
@@ -461,7 +461,7 @@ def get_example_value(prop_name: str, prop_type: Any, enum_info: EnumInfo | None
 
 
 def get_entity_properties(cls: type) -> list[PropertyInfo]:
-    properties = []
+    properties: list[PropertyInfo] = []
     if not attrs.has(cls):
         return properties
     docstrings = get_docstrings_from_source(cls)
@@ -492,7 +492,7 @@ def get_entity_properties(cls: type) -> list[PropertyInfo]:
 
         if fld.default is attrs.NOTHING:
             default = "required"
-        elif isinstance(fld.default, attrs.Factory):
+        elif isinstance(fld.default, attrs.Factory):  # type: ignore[arg-type]
             default = "(factory)"
         elif fld.default is None:
             default = "None"
@@ -605,7 +605,7 @@ def get_mixins(cls: type) -> list[str]:
 def get_entity_description(cls: type) -> str:
     doc = cls.__doc__ or ""
     lines = doc.strip().split("\n")
-    result = []
+    result: list[str] = []
     for line in lines:
         line = line.strip()
         if not line and result:

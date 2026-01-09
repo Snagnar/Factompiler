@@ -85,6 +85,7 @@ exclude = [
     "^temp/",
     "^output/",
     "^factorio-draftsman/",
+    "tests",
 ]
 
 [tool.coverage.run]
