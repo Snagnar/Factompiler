@@ -249,7 +249,7 @@ class IntegerLayoutEngine:
         # For small/medium graphs, try a very quick solve first with early stopping
         # This handles the common case where solutions are found in < 1 second
         if self.n_entities <= 100:
-            quick_result = self._solve_with_strategy(strategies[0], time_limit=1, early_stop=True)
+            quick_result = self._solve_with_strategy(strategies[0], time_limit=1, early_stop=False)
             if quick_result.success and quick_result.violations == 0:
                 self.diagnostics.info(f"Quick solution found in {quick_result.solve_time:.2f}s")
                 return quick_result.positions

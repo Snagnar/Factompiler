@@ -673,15 +673,7 @@ class ExpressionLowerer:
                     else:
                         # Comparison is constant-true, but output is a signal
                         # Just return the output value (condition is always true)
-                        output_ref = self.lower_expr(expr.output_value)
-                        if isinstance(output_ref, SignalRef):
-                            return output_ref
-                        # If it's not a SignalRef, wrap it
-                        output_type = self.ir_builder.allocate_implicit_type()
-                        self.parent.ensure_signal_registered(output_type)
-                        return self.ir_builder.const(
-                            output_type, int(output_ref) if isinstance(output_ref, int) else 0, expr
-                        )
+                        return self.lower_expr(expr.output_value)  # type: ignore[return-value]
                 else:
                     # Condition is false - output 0
                     output_type = self.ir_builder.allocate_implicit_type()
@@ -866,20 +858,7 @@ class ExpressionLowerer:
         # Semantic returned IntValue - bare number constant, unwrap and return as integer
         # (e.g., "7" in "7 + a" should be integer constant)
         if isinstance(semantic_type, IntValue):
-            inner_ref = self.lower_expr(expr.value)
-            if isinstance(inner_ref, SignalRef):
-                return inner_ref
-            # If we got an integer, we need to wrap it in a SignalRef with an implicit type
-            if isinstance(inner_ref, int):
-                signal_name = self.ir_builder.allocate_implicit_type()
-                self.parent.ensure_signal_registered(signal_name)
-                ref = self.ir_builder.const(signal_name, inner_ref, expr)
-                self._attach_expr_context(ref.source_id, expr)
-                ref.signal_type = signal_name
-                ref.output_type = signal_name
-                return ref
-            # If we got a BundleRef, this is an error - signal literal can't be a bundle
-            raise TypeError(f"Signal literal cannot be a bundle: {expr}")
+            return self.lower_expr(expr.value)  # type: ignore[return-value]
 
         # Fallback: allocate fresh implicit (shouldn't happen in well-typed code)
         signal_name = self.ir_builder.allocate_implicit_type()
