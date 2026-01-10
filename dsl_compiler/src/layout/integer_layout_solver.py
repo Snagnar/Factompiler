@@ -11,6 +11,32 @@ from .layout_plan import EntityPlacement
 from .signal_graph import SignalGraph
 
 
+class EarlyStopCallback(cp_model.CpSolverSolutionCallback):
+    """Callback to stop solver early when a good-enough solution is found."""
+
+    def __init__(self, max_violations: int = 0):
+        super().__init__()
+        self._solution_count = 0
+        self._max_violations = max_violations
+        self._stop_search = False
+
+    def on_solution_callback(self) -> None:
+        self._solution_count += 1
+        # Stop after finding any solution with acceptable violations
+        # The objective function already prioritizes minimizing violations
+        if self._solution_count >= 1:
+            obj = self.ObjectiveValue()
+            # If objective is low enough (few/no violations), stop early
+            # violation_weight is typically 10000, so obj < 10000 means 0 violations
+            if obj < 10000 * (self._max_violations + 1):
+                self._stop_search = True
+                self.StopSearch()
+
+    @property
+    def solution_count(self) -> int:
+        return self._solution_count
+
+
 @dataclass
 class LayoutConstraints:
     """Constraints for layout optimization."""
@@ -194,11 +220,11 @@ class IntegerLayoutEngine:
         """
         Optimize layout with progressive relaxation strategy.
 
-        Tries multiple strategies with increasing relaxation until a good
-        solution is found or all strategies are exhausted.
+        Uses early stopping when a good-enough solution is found. For small
+        graphs, tries a quick solve first before falling back to longer solves.
 
         Args:
-            time_limit_seconds: Time limit per strategy attempt
+            time_limit_seconds: Total time budget for all strategies
 
         Returns:
             Dict mapping entity_id to (x, y) integer coordinates
@@ -220,14 +246,33 @@ class IntegerLayoutEngine:
 
         strategies = self._get_relaxation_strategies()
 
+        # For small/medium graphs, try a very quick solve first with early stopping
+        # This handles the common case where solutions are found in < 1 second
+        if self.n_entities <= 100:
+            quick_result = self._solve_with_strategy(strategies[0], time_limit=1, early_stop=True)
+            if quick_result.success and quick_result.violations == 0:
+                self.diagnostics.info(f"Quick solution found in {quick_result.solve_time:.2f}s")
+                return quick_result.positions
+            if (
+                quick_result.success
+                and quick_result.violations <= self.config.acceptable_layout_violations
+            ):
+                self.diagnostics.info(
+                    f"Quick acceptable solution found with {quick_result.violations} violations "
+                    f"in {quick_result.solve_time:.2f}s"
+                )
+                return quick_result.positions
+
         best_result = None
+        # Distribute time budget across strategies, favoring earlier (stricter) ones
+        per_strategy_limit = max(1, time_limit_seconds // len(strategies))
 
         for i, strategy in enumerate(strategies):
             self.diagnostics.info(
                 f"Attempting strategy {i + 1}/{len(strategies)}: {strategy['name']}"
             )
 
-            result = self._solve_with_strategy(strategy, time_limit_seconds)
+            result = self._solve_with_strategy(strategy, per_strategy_limit, early_stop=True)
 
             if result.success and result.violations == 0:
                 self.diagnostics.info(
@@ -241,11 +286,10 @@ class IntegerLayoutEngine:
                     best_result = result
 
                 if result.violations <= self.config.acceptable_layout_violations:
-                    self.diagnostics.warning(
+                    self.diagnostics.info(
                         f"Acceptable solution found with {result.violations} violations "
-                        f"using strategy '{strategy['name']}'"
+                        f"using strategy '{strategy['name']}' in {result.solve_time:.2f}s"
                     )
-                    self._report_violations(result)
                     return result.positions
                 else:
                     self.diagnostics.info(
@@ -254,7 +298,7 @@ class IntegerLayoutEngine:
                     )
             else:
                 self.diagnostics.info(
-                    f"Strategy '{strategy['name']}' failed to find feasible solution: {result}"
+                    f"Strategy '{strategy['name']}' failed to find feasible solution"
                 )
 
         if best_result and best_result.success:
@@ -306,11 +350,22 @@ class IntegerLayoutEngine:
             },
         ]
 
-    def _solve_with_strategy(self, strategy: dict, time_limit: int) -> OptimizationResult:
-        """Solve layout with a specific strategy."""
+    def _solve_with_strategy(
+        self, strategy: dict, time_limit: int, early_stop: bool = True
+    ) -> OptimizationResult:
+        """Solve layout with a specific strategy.
+
+        Args:
+            strategy: Strategy configuration dict
+            time_limit: Maximum time in seconds
+            early_stop: If True, stop as soon as a good solution is found
+        """
         model = cp_model.CpModel()
 
         positions = self._create_position_variables(model, strategy["max_coord"])
+
+        # Add solution hints based on simple layout to speed up search
+        self._add_solution_hints(model, positions)
 
         # Add hard constraint: no overlaps
         self._add_no_overlap_constraint(model, positions)
@@ -336,7 +391,11 @@ class IntegerLayoutEngine:
         solver.parameters.max_time_in_seconds = float(time_limit)
         solver.parameters.log_search_progress = False
 
-        status = solver.Solve(model)
+        if early_stop:
+            callback = EarlyStopCallback(max_violations=self.config.acceptable_layout_violations)
+            status = solver.Solve(model, callback)
+        else:
+            status = solver.Solve(model)
 
         return self._extract_result(
             solver, status, positions, span_violations, wire_lengths, strategy["name"]
@@ -362,6 +421,32 @@ class IntegerLayoutEngine:
             positions[entity_id] = (x, y)
 
         return positions
+
+    def _add_solution_hints(self, model: cp_model.CpModel, positions: dict) -> None:
+        """Add solution hints based on a simple grid layout to speed up search.
+
+        Solution hints give the solver a starting point, which can dramatically
+        speed up finding an initial feasible solution.
+        """
+        # Compute a simple grid layout as hint
+        grid_size = max(1, int(np.ceil(np.sqrt(self.n_entities))))
+        spacing = 3  # Compact spacing for hints
+
+        idx = 0
+        for entity_id in self.entity_ids:
+            if entity_id in self.fixed_positions:
+                # Fixed positions already constrained, no hint needed
+                continue
+
+            x_var, y_var = positions[entity_id]
+            row = idx // grid_size
+            col = idx % grid_size
+            hint_x = col * spacing
+            hint_y = row * spacing
+
+            model.AddHint(x_var, hint_x)
+            model.AddHint(y_var, hint_y)
+            idx += 1
 
     def _add_no_overlap_constraint(self, model: cp_model.CpModel, positions: dict) -> None:
         """Add hard no-overlap constraint using AddNoOverlap2D."""
@@ -705,9 +790,11 @@ class IntegerLayoutEngine:
 
             strategies = self._get_relaxation_strategies()
             sub_positions = None
+            # Use shorter time limits for decomposed components
+            component_time_limit = max(1, time_limit // max(1, len(components)))
 
             for strategy in strategies:
-                result = self._solve_with_strategy(strategy, time_limit)
+                result = self._solve_with_strategy(strategy, component_time_limit, early_stop=True)
                 if result.success:
                     sub_positions = result.positions
                     break

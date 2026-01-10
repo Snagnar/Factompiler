@@ -220,7 +220,7 @@ lamp_hex3.enable = hex_check3 > 0;
 Signal mix_test1 = 255 == 0xFF;             # Decimal == Hex
 Signal mix_test2 = 0xFF == 0b11111111;      # Hex == Binary
 Signal mix_test3 = 0b11111111 == 0o377;     # Binary == Octal
-Signal mix_check = mix_test1 && mix_test2 && mix_test3 | "signal-A";
+Signal mix_check = (mix_test1 && mix_test2 && mix_test3) | "signal-A";
 Entity lamp_mix1 = place("small-lamp", 56, lamp_y);
 lamp_mix1.enable = mix_check > 0;
 

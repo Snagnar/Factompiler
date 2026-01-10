@@ -1,4 +1,146 @@
+# =============================================================================
+# Math Standard Library
+# =============================================================================
+# Common mathematical functions for Factorio circuit networks.
+# Import with: import "lib/math.facto";
+#
+# All functions work with 32-bit signed integers (Factorio's native type).
+# =============================================================================
 
+# -----------------------------------------------------------------------------
+# Absolute Value
+# -----------------------------------------------------------------------------
+# Returns the absolute value of x.
+# abs(-5) = 5, abs(5) = 5
+#
 func abs(Signal x) {
     return (x >= 0) * x + (x < 0) * (0 - x);
+}
+
+# -----------------------------------------------------------------------------
+# Sign
+# -----------------------------------------------------------------------------
+# Returns -1 if x < 0, 0 if x == 0, 1 if x > 0
+#
+func sign(Signal x) {
+    return (x > 0) * 1 + (x < 0) * (0 - 1);
+}
+
+# -----------------------------------------------------------------------------
+# Minimum of Two Values
+# -----------------------------------------------------------------------------
+# Returns the smaller of a and b.
+#
+func min(Signal a, Signal b) {
+    return (a <= b) * a + (a > b) * b;
+}
+
+# -----------------------------------------------------------------------------
+# Maximum of Two Values
+# -----------------------------------------------------------------------------
+# Returns the larger of a and b.
+#
+func max(Signal a, Signal b) {
+    return (a >= b) * a + (a < b) * b;
+}
+
+# -----------------------------------------------------------------------------
+# Clamp Value to Range
+# -----------------------------------------------------------------------------
+# Constrains x to be within [low, high].
+# clamp(5, 0, 10) = 5
+# clamp(-5, 0, 10) = 0
+# clamp(15, 0, 10) = 10
+#
+func clamp(Signal x, int low, int high) {
+    Signal above_low = (x >= low) * x + (x < low) * low;
+    return (above_low <= high) * above_low + (above_low > high) * high;
+}
+
+# -----------------------------------------------------------------------------
+# Linear Interpolation (Integer)
+# -----------------------------------------------------------------------------
+# Interpolates between a and b by factor t (0-100 representing 0%-100%).
+# lerp(0, 100, 50) = 50 (halfway between 0 and 100)
+# lerp(10, 20, 25) = 12 (25% of the way from 10 to 20)
+#
+func lerp(int a, int b, Signal t) {
+    return a + ((b - a) * t) / 100;
+}
+
+# -----------------------------------------------------------------------------
+# Check if Value is Between Two Bounds (Inclusive)
+# -----------------------------------------------------------------------------
+# Returns 1 if low <= x <= high, 0 otherwise.
+#
+func between(Signal x, int low, int high) {
+    return (x >= low) && (x <= high);
+}
+
+# -----------------------------------------------------------------------------
+# Get Bit at Position
+# -----------------------------------------------------------------------------
+# Returns 1 if bit at position pos is set, 0 otherwise.
+# Bit 0 is the least significant bit.
+# get_bit(0b1010, 1) = 1
+# get_bit(0b1010, 0) = 0
+#
+func get_bit(Signal value, int pos) {
+    return (value >> pos) AND 1;
+}
+
+# -----------------------------------------------------------------------------
+# Set Bit at Position
+# -----------------------------------------------------------------------------
+# Sets the bit at position pos to 1.
+# set_bit(0b0000, 2) = 0b0100 = 4
+#
+func set_bit(Signal value, int pos) {
+    return value OR (1 << pos);
+}
+
+# -----------------------------------------------------------------------------
+# Clear Bit at Position
+# -----------------------------------------------------------------------------
+# Clears the bit at position pos to 0.
+# clear_bit(0b1111, 2) = 0b1011 = 11
+#
+func clear_bit(Signal value, int pos) {
+    Signal mask = 0 - 1;  # All 1s (0xFFFFFFFF for 32-bit)
+    return value AND (mask XOR (1 << pos));
+}
+
+# -----------------------------------------------------------------------------
+# Toggle Bit at Position
+# -----------------------------------------------------------------------------
+# Flips the bit at position pos.
+# toggle_bit(0b1010, 1) = 0b1000 = 8
+#
+func toggle_bit(Signal value, int pos) {
+    return value XOR (1 << pos);
+}
+
+# -----------------------------------------------------------------------------
+# Integer Division (Rounding Down)
+# -----------------------------------------------------------------------------
+# Divides a by b, always rounding toward negative infinity.
+# div_floor(-7, 3) = -3 (not -2 like normal integer division)
+#
+func div_floor(Signal a, Signal b) {
+    Signal q = a / b;
+    Signal remainder = a % b;
+    Signal needs_adjust = (remainder != 0) && ((a < 0) XOR (b < 0));
+    return q - needs_adjust;
+}
+
+# -----------------------------------------------------------------------------
+# Modulo (Always Positive)
+# -----------------------------------------------------------------------------
+# Returns a % b, but always positive (like Python's % operator).
+# mod_positive(-7, 3) = 2 (not -1)
+#
+func mod_positive(Signal a, Signal b) {
+    Signal r = a % b;
+    Signal abs_b = (b >= 0) * b + (b < 0) * (0 - b);
+    return (r >= 0) * r + (r < 0) * (r + abs_b);
 }

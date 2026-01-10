@@ -381,6 +381,9 @@ class DSLTransformer(Transformer):
                 if i + 1 < len(items):
                     step_value = items[i + 1]
                     i += 1
+            elif isinstance(item, Token):
+                # Skip other tokens (like RANGE_OP) - Token inherits from str so must check first
+                pass
             elif isinstance(item, (int, str)):
                 bounds.append(item)
             i += 1
