@@ -76,7 +76,6 @@ jobs:
           --cov-report=html
     
     - name: Generate coverage summary
-      if: matrix.python-version == '3.12'
       run: |
         COVERAGE=$(python -c "import xml.etree.ElementTree as ET; tree = ET.parse('coverage.xml'); root = tree.getroot(); print(f'{float(root.attrib[\"line-rate\"])*100:.2f}')")
         echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
@@ -87,7 +86,6 @@ jobs:
         echo "COVERAGE=${COVERAGE}" >> $GITHUB_ENV
     
     - name: Upload coverage reports
-      if: matrix.python-version == '3.12'
       uses: actions/upload-artifact@v4
       with:
         name: coverage-reports
@@ -98,7 +96,6 @@ jobs:
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
-      if: matrix.python-version == '3.12'
       with:
         file: ./coverage.xml
         flags: unittests
