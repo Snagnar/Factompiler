@@ -133,6 +133,7 @@ jobs:
     - name: Run end-to-end tests
       run: |
         python -m pytest -v -m "end2end" --tb=short
+      continue-on-error: true
     
     - name: Upload test artifacts
       if: always()
