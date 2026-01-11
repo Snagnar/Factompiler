@@ -15,6 +15,7 @@ repos:
         
       - id: mypy
         name: mypy
-        entry: mypy
+        entry: mypy dsl_compiler/ compile.py --explicit-package-bases
         language: system
         types: [python]
+        pass_filenames: false

@@ -210,8 +210,7 @@ class StatementLowerer:
                 and isinstance(stmt.value, BinaryOp)
             ):
                 entity_id = self.parent.entity_refs[entity_name]
-                value_ref = self.parent.expr_lowerer.lower_expr(stmt.value)
-                self._lower_inlined_bundle_condition(entity_id, stmt.value, stmt, value_ref)
+                self._lower_inlined_bundle_condition(entity_id, stmt.value, stmt, None)  # type: ignore[arg-type]
                 return
 
         self.parent.push_expr_context(target_name, stmt)

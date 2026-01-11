@@ -516,6 +516,7 @@ class ConnectionPlanner:
         self._coloring_conflicts: list[ConflictEdge] = []
         self._coloring_success = True
         self._relay_counter = 0
+        self._routing_failed = False  # Track if any relay routing failed
 
         self._memory_modules: dict[str, Any] = {}
 
@@ -611,8 +612,13 @@ class ConnectionPlanner:
         wire_merge_junctions: dict[str, Any] | None = None,
         locked_colors: dict[tuple[str, str], str] | None = None,
         merge_membership: dict[str, set] | None = None,
-    ) -> None:
-        """Compute all wire connections with color assignments."""
+    ) -> bool:
+        """Compute all wire connections with color assignments.
+
+        Returns:
+            True if all connections were successfully routed, False if any relay
+            routing failed (layout may need to be retried with different parameters).
+        """
         self._register_power_poles_as_relays()
 
         self._add_self_feedback_connections()
@@ -622,6 +628,7 @@ class ConnectionPlanner:
         self._circuit_edges = []
         self._node_color_assignments = {}
         self._edge_color_map = {}
+        self._routing_failed = False  # Reset routing failure flag
         self._coloring_conflicts = []
         self._coloring_success = True
         self._relay_counter = 0
@@ -717,6 +724,8 @@ class ConnectionPlanner:
             self.layout_plan.wire_connections.extend(preserved_connections)
 
         self._validate_relay_coverage()
+
+        return not self._routing_failed
 
     def get_wire_color_for_edge(
         self, source_entity_id: str, sink_entity_id: str, signal_name: str
@@ -1284,10 +1293,14 @@ class ConnectionPlanner:
 
         return pairs
 
-    def _route_edge_directly(self, edge: CircuitEdge, wire_color: str) -> None:
-        """Route a single edge directly (no MST optimization)."""
+    def _route_edge_directly(self, edge: CircuitEdge, wire_color: str) -> bool:
+        """Route a single edge directly (no MST optimization).
+
+        Returns:
+            True if routing succeeded, False if relay placement failed.
+        """
         if edge.source_entity_id is None:
-            return
+            return True
 
         edge_key = (
             edge.source_entity_id,
@@ -1299,7 +1312,7 @@ class ConnectionPlanner:
         source_side = self._get_connection_side(edge.source_entity_id, is_source=True)
         sink_side = self._get_connection_side(edge.sink_entity_id, is_source=False)
 
-        self._route_connection_with_relays(edge, wire_color, source_side, sink_side)
+        return self._route_connection_with_relays(edge, wire_color, source_side, sink_side)
 
     def _apply_mst_to_source_fanout(
         self, source_id: str, sink_ids: list[str], signal_name: str, wire_color: str
@@ -1490,12 +1503,12 @@ class ConnectionPlanner:
 
         if relay_path is None:
             # Relay routing failed - connection cannot be established
-            # This is a critical error - the circuit will be broken without this connection
-            self.diagnostics.error(
+            self.diagnostics.warning(
                 f"MST edge for '{signal_name}' cannot be routed: "
                 f"relay placement failed between {entity_a} and {entity_b}. "
                 f"The layout may be too spread out for the available wire span."
             )
+            self._routing_failed = True
             return False
 
         self._create_relay_chain(
@@ -1577,10 +1590,14 @@ class ConnectionPlanner:
         wire_color: str,
         source_side: str | None = None,
         sink_side: str | None = None,
-    ) -> None:
-        """Route a connection with relays if needed using shared relay infrastructure."""
+    ) -> bool:
+        """Route a connection with relays if needed using shared relay infrastructure.
+
+        Returns:
+            True if routing succeeded, False if relay placement failed.
+        """
         if edge.source_entity_id is None:
-            return
+            return True
 
         source = self.layout_plan.get_placement(edge.source_entity_id)
         sink = self.layout_plan.get_placement(edge.sink_entity_id)
@@ -1589,7 +1606,7 @@ class ConnectionPlanner:
             self.diagnostics.info(
                 f"Skipped wiring for '{edge.resolved_signal_name}' due to missing placement ({edge.source_entity_id} -> {edge.sink_entity_id})."
             )
-            return
+            return True
 
         # Get network ID for this edge
         network_id = self.get_network_id_for_edge(
@@ -1606,13 +1623,13 @@ class ConnectionPlanner:
 
         if relay_path is None:
             # Relay routing failed - connection cannot be established
-            # This is a critical error - the circuit will be broken without this connection
-            self.diagnostics.error(
+            self.diagnostics.warning(
                 f"Connection for '{edge.resolved_signal_name}' cannot be routed: "
                 f"relay placement failed between {edge.source_entity_id} and {edge.sink_entity_id}. "
                 f"The layout may be too spread out for the available wire span."
             )
-            return
+            self._routing_failed = True
+            return False
 
         self._create_relay_chain(
             edge.source_entity_id,
@@ -1623,6 +1640,7 @@ class ConnectionPlanner:
             source_side,
             sink_side,
         )
+        return True
 
     def _validate_relay_coverage(self) -> None:
         """Validate that all wire connections have adequate relay coverage.

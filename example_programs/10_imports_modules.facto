@@ -1,0 +1,49 @@
+# Test 10: Import and module system (library usage)
+# Tests: import statements, modular design, reusable components
+
+import "lib/math.facto";
+import "lib/memory_patterns.facto";
+
+# Use imported math functions
+Signal input_signal = ("iron-plate", 0);
+Signal abs_value = abs(input_signal);
+Signal clamped = clamp(input_signal, 0, 100);
+
+# Use imported memory pattern functions
+Signal edge = edge_rising(input_signal);
+Signal tick = clock(20);
+
+# Local function that uses imported functions
+func production_controller(Signal demand, Signal supply, int buffer_size) {
+    Signal shortfall = demand - supply;
+    Signal clamped_shortfall = clamp(shortfall, 0, buffer_size);
+    Signal adjusted = max(clamped_shortfall, 0);
+    return adjusted;
+}
+
+# Entity configuration with imports
+Entity assembler1 = place("assembling-machine-1", 0, 0);
+Entity assembler2 = place("assembling-machine-1", 3, 0);
+
+Signal iron_demand = ("signal-D", 1);
+Signal iron_supply = ("signal-S", 2);
+
+Signal control_signal = production_controller(iron_demand, iron_supply, 100);
+
+# Use control signal for entity management
+assembler1.enable = control_signal > 0;
+assembler2.enable = control_signal > 50;
+
+# Combine imported functions
+Signal min_value = min(input_signal, control_signal);
+Signal max_value = max(input_signal, control_signal);
+Signal in_range = between(control_signal, 10, 90);
+
+# Export final results via individual projections
+Signal out_abs = abs_value | "signal-A";
+Signal out_clamp = clamped | "signal-B";
+Signal out_control = control_signal | "signal-C";
+Signal out_range = in_range | "signal-R";
+
+# Optional aggregate for downstream modules
+Signal system_output = (out_abs + out_clamp + out_control + out_range) | "signal-O";

@@ -33,6 +33,7 @@ class LayoutPlanner:
         max_wire_span: float = 9.0,
         config: CompilerConfig = DEFAULT_CONFIG,
         use_mst_optimization: bool = True,
+        max_layout_retries: int = 3,
     ) -> None:
         self.signal_type_map = signal_type_map
         self.signal_refs = signal_refs or {}
@@ -43,6 +44,7 @@ class LayoutPlanner:
         self.max_wire_span = max_wire_span
         self.config = config
         self.use_mst_optimization = use_mst_optimization
+        self.max_layout_retries = max_layout_retries
 
         self.tile_grid = TileGrid()
         self.layout_plan = LayoutPlan()
@@ -75,6 +77,9 @@ class LayoutPlanner:
         7. Plan connections with relay routing
         8. Set metadata
 
+        If relay routing fails, the layout is retried with relaxed parameters up to
+        max_layout_retries times before giving up.
+
         Args:
             ir_operations: List of IR nodes representing the program
             blueprint_label: Label for the resulting blueprint
@@ -85,21 +90,57 @@ class LayoutPlanner:
         """
         self._setup_signal_analysis(ir_operations)
 
-        self._create_entities(ir_operations)
+        for attempt in range(self.max_layout_retries + 1):
+            # Reset state for this attempt
+            self._reset_layout_state()
 
-        self._add_power_pole_grid()
+            # Run layout phases
+            self._create_entities(ir_operations)
+            self._add_power_pole_grid()
 
-        self._optimize_positions()
+            # Vary optimization parameters on retries for different results
+            time_multiplier = 1.0 + (attempt * 0.5)  # More time on retries
+            self._optimize_positions(time_multiplier=time_multiplier)
 
-        self._trim_power_poles()
+            self._trim_power_poles()
+            self._update_tile_grid()
 
-        self._update_tile_grid()
-        self._plan_connections()
-        self._update_tile_grid()  # Again after relays added
+            # Plan connections - returns False if relay routing failed
+            routing_succeeded = self._plan_connections()
 
+            if not routing_succeeded:
+                if attempt < self.max_layout_retries:
+                    self.diagnostics.warning(
+                        f"Layout attempt {attempt + 1} failed due to relay routing issues, "
+                        f"retrying with relaxed parameters ({self.max_layout_retries - attempt} retries remaining)..."
+                    )
+                    continue
+                # Final attempt failed
+                self.diagnostics.error(
+                    f"Layout failed after {self.max_layout_retries + 1} attempts: "
+                    f"relay routing could not find valid paths. "
+                    f"The layout may be too spread out for the available wire span."
+                )
+                break
+
+            # Success - no routing failures
+            if attempt > 0:
+                self.diagnostics.warning(f"Layout succeeded after {attempt + 1} attempt(s).")
+            break
+
+        self._update_tile_grid()  # Final update after relays added
         self._set_metadata(blueprint_label, blueprint_description)
 
         return self.layout_plan
+
+    def _reset_layout_state(self) -> None:
+        """Reset layout state for a fresh attempt."""
+        self.tile_grid = TileGrid()
+        self.layout_plan = LayoutPlan()
+        self.connection_planner = None
+        self._memory_modules = {}
+        self._wire_merge_junctions = {}
+        self._merge_membership = {}
 
     def _setup_signal_analysis(self, ir_operations: list[IRNode]) -> None:
         """Initialize and run signal analysis with materialization."""
@@ -140,8 +181,13 @@ class LayoutPlanner:
         self._wire_merge_junctions = placer._wire_merge_junctions
         self._merge_membership = placer.get_merge_membership()
 
-    def _optimize_positions(self) -> None:
-        """Optimize entity positions using force-directed layout."""
+    def _optimize_positions(self, time_multiplier: float = 1.0) -> None:
+        """Optimize entity positions using force-directed layout.
+
+        Args:
+            time_multiplier: Multiplier for the solver time limit, used during retries
+                           to give the solver more time to find better solutions.
+        """
         layout_engine = IntegerLayoutEngine(
             signal_graph=self.signal_graph,
             entity_placements=self.layout_plan.entity_placements,
@@ -149,9 +195,9 @@ class LayoutPlanner:
             config=self.config,
             wire_merge_junctions=self._wire_merge_junctions,
         )
-        optimized_positions = layout_engine.optimize(
-            time_limit_seconds=self.config.layout_solver_time_limit
-        )
+
+        time_limit = self.config.layout_solver_time_limit * time_multiplier
+        optimized_positions = layout_engine.optimize(time_limit_seconds=int(time_limit))
 
         for entity_id, (tile_x, tile_y) in optimized_positions.items():
             placement = self.layout_plan.entity_placements.get(entity_id)
@@ -170,8 +216,13 @@ class LayoutPlanner:
         """Update tile grid's occupied tiles from entity placements."""
         self.tile_grid.rebuild_from_placements(self.layout_plan.entity_placements)
 
-    def _plan_connections(self) -> None:
-        """Plan wire connections between entities."""
+    def _plan_connections(self) -> bool:
+        """Plan wire connections between entities.
+
+        Returns:
+            True if all connections were successfully routed, False if any
+            relay routing failed.
+        """
         self.connection_planner = ConnectionPlanner(
             self.layout_plan,
             self.signal_usage,
@@ -187,7 +238,7 @@ class LayoutPlanner:
 
         locked_colors = self._determine_locked_wire_colors()
 
-        self.connection_planner.plan_connections(
+        routing_succeeded = self.connection_planner.plan_connections(
             self.signal_graph,
             self.layout_plan.entity_placements,
             wire_merge_junctions=self._wire_merge_junctions,
@@ -196,6 +247,8 @@ class LayoutPlanner:
         )
 
         self._inject_wire_colors_into_placements()
+
+        return routing_succeeded
 
     def _resolve_source_entity(self, signal_id: Any) -> str | None:
         """Resolve source entity ID from a signal ID.

@@ -47,6 +47,7 @@ def compile_dsl_file(
     power_pole_type: str | None = None,
     use_json: bool = False,
     config: CompilerConfig = DEFAULT_CONFIG,
+    max_layout_retries: int = 3,
 ) -> tuple[bool, str, list]:
     """
     Compile a Facto source file to blueprint string.
@@ -59,6 +60,7 @@ def compile_dsl_file(
         power_pole_type: Type of power poles to add (or None for no power poles)
         use_json: If True, return JSON dict instead of compressed blueprint string
         config: Compiler configuration settings
+        max_layout_retries: Maximum retry attempts for layout planning on routing failures
 
     Returns:
         (success: bool, result: str, diagnostics: list)
@@ -113,6 +115,7 @@ def compile_dsl_file(
         power_pole_type=power_pole_type,
         config=config,
         use_mst_optimization=optimize,
+        max_layout_retries=max_layout_retries,
     )
 
     layout_plan = planner.plan_layout(
@@ -181,6 +184,12 @@ def setup_logging(level: str) -> None:
     is_flag=True,
     help="Output blueprint in JSON format instead of compressed string format",
 )
+@click.option(
+    "--layout-retries",
+    type=int,
+    default=3,
+    help="Maximum retries for layout planning on routing failures (default: 3)",
+)
 def main(
     input_file,
     output,
@@ -189,6 +198,7 @@ def main(
     no_optimize,
     power_poles,
     json,
+    layout_retries,
 ):
     """Compile Facto source files to blueprint format."""
     setup_logging(log_level)
@@ -204,6 +214,7 @@ def main(
         power_pole_type=power_poles,
         log_level=log_level,
         use_json=json,
+        max_layout_retries=layout_retries,
     )
     verbose = log_level in ["debug", "info"]
 
