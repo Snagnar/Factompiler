@@ -855,7 +855,7 @@ Compiled blueprints include combinators that need power:
 
 For complete details, see:
 - **[Language Specification](../LANGUAGE_SPEC.md)** – Complete syntax and semantics
-- **[Entity Reference](../ENTITY_REFERENCE.md)** – All entities and their properties
+- **[Entity Reference](ENTITY_REFERENCE.md)** – All entities and their properties
 
 ---
 

@@ -1,0 +1,16 @@
+# Bundle operations fixture
+# Tests: bundle literal, bundle arithmetic, bundle selection, any(), all()
+
+Bundle resources = { ("iron-plate", 100), ("copper-plate", 80), ("coal", 50) };
+
+# Bundle arithmetic
+Bundle doubled = resources * 2;
+
+# Extract signals from bundle
+Signal iron = resources["iron-plate"];
+
+# Use any() for "any signal matches"
+Signal anyLow = any(resources) < 60;
+
+# Use all() for "all signals match"
+Signal allPositive = all(resources) > 0;

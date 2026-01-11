@@ -11,7 +11,7 @@ This script creates educational documentation that helps users understand:
 All information is extracted dynamically from the Draftsman library.
 
 Usage:
-    python generate_entity_docs.py -o ENTITY_REFERENCE_DSL.md
+    python doc/generate_entity_docs.py -o doc/ENTITY_REFERENCE.md
 """
 
 from __future__ import annotations

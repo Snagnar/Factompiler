@@ -1,0 +1,7 @@
+# Mixed signal types and projections
+Signal virtual_a = 100;
+Signal virtual_b = 200;
+Signal item_signal = ("iron-plate", 50);
+
+Signal projected = virtual_a | "signal-output";
+Signal sum_mixed = virtual_a + virtual_b;

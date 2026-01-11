@@ -1,0 +1,11 @@
+# Complex expressions with many operators
+Signal a = 10;
+Signal b = 5;
+Signal c = 3;
+Signal d = 2;
+
+Signal expr1 = (a + b) * c;
+Signal expr2 = a * b + c * d;
+Signal expr3 = (a - b) / d;
+Signal expr4 = a * (b + c) - d;
+Signal expr5 = ((a + b) * (c + d)) / 2;

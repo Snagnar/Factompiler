@@ -1,0 +1,11 @@
+# Conditional (ternary) expressions - NOT SUPPORTED, using multiply trick
+Signal x = ("signal-A", 10);
+Signal y = ("signal-B", 5);
+Signal z = ("signal-C", 3);
+
+# Max(x,y) - select larger using conditional logic
+Signal cond_a = (x > y) | "signal-A";
+Signal result_a = x * cond_a;
+Signal cond_b = !(x > y) | "signal-B";
+Signal result_b = y * cond_b;
+Signal max_xy = (result_a + result_b) | "signal-A";

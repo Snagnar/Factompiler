@@ -134,3 +134,64 @@ class TestDSLParserErrorHandling:
         # Just verify it doesn't crash when using the default base path
         program = parser.parse("Signal x = 1;", "<string>")
         assert isinstance(program, Program)
+
+    def test_load_grammar_file_not_found(self, tmp_path):
+        """Test _load_grammar raises FileNotFoundError for missing grammar."""
+        nonexistent_grammar = tmp_path / "nonexistent.lark"
+        with pytest.raises(FileNotFoundError) as exc_info:
+            DSLParser(grammar_path=nonexistent_grammar)
+        assert "Grammar file not found" in str(exc_info.value)
+
+    def test_attach_source_file(self):
+        """Test _attach_source_file annotates AST nodes with source file."""
+        parser = DSLParser()
+        program = parser.parse("Signal x = 42;", "test.facto")
+
+        # Check that the program and its statements have source_file set
+        assert program.source_file == "test.facto"
+        assert len(program.statements) > 0
+        assert program.statements[0].source_file == "test.facto"
+
+    def test_parse_with_absolute_path(self, tmp_path):
+        """Test parsing with absolute file path."""
+        test_file = tmp_path / "test.facto"
+        test_file.write_text("Signal x = 10;", encoding="utf-8")
+
+        parser = DSLParser()
+        program = parser.parse("Signal x = 10;", str(test_file))
+
+        assert isinstance(program, Program)
+        assert len(program.statements) == 1
+
+    def test_parse_with_relative_path(self, tmp_path, monkeypatch):
+        """Test parsing with relative file path."""
+        # Change to tmp_path directory
+        monkeypatch.chdir(tmp_path)
+
+        test_file = tmp_path / "relative.facto"
+        test_file.write_text("Signal y = 20;", encoding="utf-8")
+
+        parser = DSLParser()
+        program = parser.parse("Signal y = 20;", "relative.facto")
+
+        assert isinstance(program, Program)
+        assert len(program.statements) == 1
+
+    def test_parse_file(self, tmp_path):
+        """Test parse_file method."""
+        test_file = tmp_path / "sample.facto"
+        test_file.write_text("Signal z = 30;", encoding="utf-8")
+
+        parser = DSLParser()
+        program = parser.parse_file(test_file)
+
+        assert isinstance(program, Program)
+        assert len(program.statements) == 1
+
+    def test_parser_raises_on_lex_error(self):
+        """Test parser raises SyntaxError on lexer error."""
+        parser = DSLParser()
+        # Use an invalid character that causes lex error
+        with pytest.raises(SyntaxError) as exc_info:
+            parser.parse("Signal x = @@@;")
+        assert "Parse error" in str(exc_info.value)

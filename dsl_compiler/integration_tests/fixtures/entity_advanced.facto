@@ -1,0 +1,16 @@
+# Entity interactions fixture
+# Tests: entity placement, property access, property write, enable conditions
+
+# Place entities
+Entity lamp1 = place("small-lamp", 0, 0, {use_colors: 1, always_on: 1});
+Entity lamp2 = place("small-lamp", 1, 0, {use_colors: 1});
+Entity chest = place("steel-chest", 2, 0, {read_contents: 1});
+
+# Signal for control
+Signal control = 50;
+
+# Set enable condition
+lamp2.enable = control > 30;
+
+# Read from entity output
+Bundle contents = chest.output;

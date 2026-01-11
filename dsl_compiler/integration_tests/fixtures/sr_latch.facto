@@ -1,0 +1,7 @@
+# SR Latch memory pattern using correct syntax
+Memory latch: "signal-A";
+Signal set_cond = 1;
+Signal reset_cond = 0;
+
+latch.write(100, set=set_cond > 0, reset=reset_cond > 0);
+Signal latch_output = latch.read();

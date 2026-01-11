@@ -1,0 +1,7 @@
+# Latch with value scaling (multiplier path)
+Memory latch: "signal-A";
+Signal set_cond = ("signal-S", 1);
+Signal reset_cond = ("signal-R", 0);
+
+latch.write(50, set=set_cond > 0, reset=reset_cond > 0);
+Signal latch_output = latch.read();

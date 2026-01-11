@@ -173,7 +173,7 @@ Ready to build your first circuit? Head to the **[Quick Start Guide](02_quick_st
 ## Reference Documentation
 
 - **[Language Specification](../LANGUAGE_SPEC.md)** - Complete language reference
-- **[Entity Reference](../ENTITY_REFERENCE.md)** - All entities and their properties
+- **[Entity Reference](ENTITY_REFERENCE.md)** - All entities and their properties
 
 ## Requirements
 

@@ -1,0 +1,7 @@
+# Memory with arithmetic feedback pattern (counter increment)
+Memory counter: "signal-A";
+
+Signal step = ("signal-A", 1);
+counter.write(counter.read() + step);
+
+Signal final_count = counter.read();

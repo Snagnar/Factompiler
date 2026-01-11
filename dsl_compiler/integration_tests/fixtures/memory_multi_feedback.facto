@@ -1,0 +1,8 @@
+# Multi-combinator feedback loop pattern
+Memory counter: "signal-A";
+
+Signal step = ("signal-A", 2);
+Signal scaled = counter.read() * 2;
+counter.write(scaled + step);
+
+Signal result = counter.read();

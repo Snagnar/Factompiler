@@ -1,0 +1,43 @@
+# Comprehensive operators fixture
+# Tests: arithmetic, bitwise, logical, comparison operations
+
+Signal a = 10;
+Signal b = 5;
+
+# Basic arithmetic
+Signal sum = a + b;
+Signal diff = a - b;
+Signal prod = a * b;
+Signal quot = a / b;
+Signal rem = a % b;
+
+# Power
+Signal powered = 2 ** 4;
+
+# Shift operations
+Signal left = a << 2;
+Signal right = a >> 1;
+
+# Bitwise operations
+Signal band = 0xFF AND 0x0F;
+Signal bor = 0xF0 OR 0x0F;
+Signal bxor = 0xFF XOR 0xAA;
+
+# Comparison operations
+Signal eq = a == b;
+Signal ne = a != b;
+Signal lt = a < b;
+Signal le = a <= b;
+Signal gt = a > b;
+Signal ge = a >= b;
+
+# Logical operations
+Signal both = (a > 0) && (b > 0);
+Signal either = (a > 0) || (b < 0);
+
+# Unary operations
+Signal negated = -a;
+Signal notted = !a;
+
+# Projection
+Signal projected = a | "copper-plate";

@@ -1,0 +1,11 @@
+# Bundle operations using correct Facto syntax
+Signal iron = ("iron-plate", 100);
+Signal copper = ("copper-plate", 80);
+Signal coal = ("coal", 50);
+
+# Combine into a single bundle-like aggregate
+Signal total_resources = iron + copper + coal;
+
+# Project to a specific signal type
+Signal doubled_resources = (total_resources * 2) | "iron-plate";
+Signal processed = (iron + copper) | "steel-plate";

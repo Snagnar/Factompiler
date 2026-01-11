@@ -1,0 +1,7 @@
+# Entity placement and property writes
+Entity lamp = place("small-lamp", 0, 0);
+Signal enable_signal = 1;
+lamp.enable = enable_signal > 0;
+
+Entity speaker = place("programmable-speaker", 2, 0);
+speaker.enable = 1;

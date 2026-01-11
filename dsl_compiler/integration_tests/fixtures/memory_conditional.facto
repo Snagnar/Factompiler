@@ -1,0 +1,8 @@
+# Memory with conditional write
+Memory counter: "signal-A";
+Signal step = 1;
+Signal threshold = 10;
+
+counter.write(counter.read() + step, when=counter.read() < threshold);
+
+Signal output_val = counter.read();

@@ -7,7 +7,7 @@ from pathlib import Path
 
 if "FACTORIO_IMPORT_PATH" not in os.environ:
     os.environ["FACTORIO_IMPORT_PATH"] = (
-        ".;tests/sample_programs;"
+        ".;example_programs;"
         + str(Path(__file__).resolve().parent.parent.parent)
         + ";"
         + str(Path(__file__).parent.parent.parent.parent / "lib")

@@ -13,16 +13,16 @@ Compile a Facto source file to a Factorio blueprint:
 
 ```bash
 # Compile and print blueprint to stdout
-python compile.py tests/sample_programs/01_basic_arithmetic.facto
+python compile.py example_programs/01_basic_arithmetic.facto
 
 # Save blueprint to file
-python compile.py tests/sample_programs/01_basic_arithmetic.facto -o output.blueprint
+python compile.py example_programs/01_basic_arithmetic.facto -o output.blueprint
 
 # Verbose output with diagnostics
-python compile.py tests/sample_programs/01_basic_arithmetic.facto --verbose
+python compile.py example_programs/01_basic_arithmetic.facto --verbose
 
 # Custom blueprint name
-python compile.py tests/sample_programs/01_basic_arithmetic.facto --name "My Circuit"
+python compile.py example_programs/01_basic_arithmetic.facto --name "My Circuit"
 ```
 
 ## Installation
@@ -39,7 +39,7 @@ pip install -r requirements.txt
 ### Basic Compilation
 ```bash
 # Compile a simple arithmetic circuit
-python compile.py tests/sample_programs/01_basic_arithmetic.facto
+python compile.py example_programs/01_basic_arithmetic.facto
 
 # Output: 0eNrFld9ugjAUxl/FnGRXww0QnJDsQudbLAspWmcTaFlbjIbw7jvgf4XFJkzDBdCeno...
 ```
@@ -47,13 +47,13 @@ python compile.py tests/sample_programs/01_basic_arithmetic.facto
 ### Save to File
 ```bash
 # Create a blueprint file
-python compile.py tests/sample_programs/05_entities.facto -o my_entities.blueprint
+python compile.py example_programs/05_entities.facto -o my_entities.blueprint
 ```
 
 ### Verbose Output
 ```bash
 # See detailed diagnostic information
-python compile.py tests/sample_programs/04_memory.facto --verbose
+python compile.py example_programs/04_memory.facto --verbose
 # Shows: warnings, compilation stages, output location
 ```
 
@@ -68,7 +68,7 @@ The Facto language supports:
 - **Functions**: Reusable circuit components
 - **Type Safety**: Optional strict type checking
 
-See `tests/sample_programs/` for complete examples.
+See `example_programs/` for complete examples.
 
 ## Development & Testing
 

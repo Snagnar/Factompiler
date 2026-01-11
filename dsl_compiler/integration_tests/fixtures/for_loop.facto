@@ -1,0 +1,14 @@
+# For loop that creates signals
+for i in 1..6 {
+    Signal term = i * 10;
+}
+
+# For loop with list iterator
+for val in [10, 20, 30] {
+    Signal scaled = val * 2;
+}
+
+# For loop with step
+for j in 0..10 step 2 {
+    Signal even = j;
+}

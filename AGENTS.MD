@@ -122,7 +122,7 @@ def compile_source(source: str) -> str:
     return blueprint.to_string()
 
 # Example usage:
-# source = Path("tests/sample_programs/01_basic_arithmetic.facto").read_text()
+# source = Path("example_programs/01_basic_arithmetic.facto").read_text()
 # print(compile_source(source))
 ```
 
@@ -145,7 +145,7 @@ But be aware that this is just for reference, and you should use the installed v
 
 # sample programs
 
-There is a collection of sample programs available in the `tests/sample_programs` directory within the factompiler repository. These programs denote what we want to be able to compile. You can refer to these samples for guidance on how to structure your own programs. They should only be changed if we remove or add new features to the language.
+There is a collection of sample programs available in the `example_programs` directory within the factompiler repository. These programs denote what we want to be able to compile. You can refer to these samples for guidance on how to structure your own programs. They should only be changed if we remove or add new features to the language.
 
 
 # language spec
@@ -186,3 +186,5 @@ Options:
 
 - also, when you want to test things, do not execute python in a cli command with python -c! Instead, create a temporary script file and run that. This way, the venv dependencies will be correctly picked up and you can iterate on that file.
 - all temporary scripts and files you create should be placed into the temp/ directory in the factompiler repo root. This directory is gitignored, so you don't have to worry about cleaning up after yourself.
+
+Also when running pytest, always append -n auto to make use of the xdist extension and run the tests in parallel.

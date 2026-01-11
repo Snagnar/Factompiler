@@ -1,0 +1,10 @@
+# Basic arithmetic operations
+Signal a = 100;
+Signal b = 200;
+Signal c = 50;
+
+Signal sum = a + b;
+Signal diff = a - c;
+Signal product = a * 2;
+Signal quotient = b / 4;
+Signal remainder = b % 7;

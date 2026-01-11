@@ -65,7 +65,7 @@ class DSLParser:
                     file_path = (Path.cwd() / file_path).resolve()
                 base_path = file_path.parent
             else:
-                base_path = Path("tests/sample_programs").resolve()
+                base_path = Path("example_programs").resolve()
 
             preprocessed_code = preprocess_imports(source_code, base_path)
             if self.parser is None:

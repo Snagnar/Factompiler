@@ -1,0 +1,35 @@
+// Statement coverage test
+// Covers: property access, entity assignments, function calls, for loops
+
+// Test entity with property assignment
+Entity lamp1 = place("lamp", 0, 0, {});
+
+// Test for loop with accumulator
+Signal accum = 0;
+for i in 0..5 {
+    accum = accum + i;
+}
+
+// Test for loop with bundle operations
+Bundle loop_bundle = {("signal-A", 0)};
+for j in 1..4 {
+    loop_bundle = loop_bundle + j;
+}
+
+// Test function definition and call
+func add_five(int val) {
+    return val + 5;
+}
+
+Signal fn_result = add_five(10);
+
+// Test nested function calls
+func double(int x) {
+    return x * 2;
+}
+
+Signal nested_fn = double(add_five(3));
+
+// Test conditional statement patterns
+Signal test_val = 20;
+Signal cond_result = (test_val > 10): test_val;

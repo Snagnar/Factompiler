@@ -1,0 +1,87 @@
+// Comprehensive coverage fixture - exercises many code paths
+// Tests: type coercion, conditionals, bundles, entities, functions
+
+// Basic signals with various types
+Signal int_val = 100;
+Signal named_sig = ("signal-A", 50);
+
+// Signal arithmetic
+Signal sum = int_val + named_sig;
+Signal diff = int_val - named_sig;
+Signal prod = int_val * 2;
+Signal quot = int_val / 10;
+Signal mod = int_val % 7;
+
+// Power and shifts
+Signal power = 2 ** 8;
+Signal lshift = int_val << 2;
+Signal rshift = int_val >> 1;
+
+// Bitwise operations
+Signal band = int_val AND named_sig;
+Signal bor = int_val OR named_sig;
+Signal bxor = int_val XOR named_sig;
+
+// Comparisons
+Signal eq = int_val == 100;
+Signal ne = int_val != 50;
+Signal lt = int_val < 200;
+Signal gt = int_val > 0;
+Signal le = int_val <= 100;
+Signal ge = int_val >= 100;
+
+// Conditional expressions
+Signal cond_result = (int_val > 50): 1;
+Signal cond_copy = (int_val >= 100): int_val;
+
+// Complex logical conditions
+Signal complex_cond = (lt > 0) && (gt > 0);
+Signal or_cond = (eq > 0) || (ne > 0);
+
+// Bundles
+Bundle items = {("iron-plate", 10), ("copper-plate", 20), ("coal", 5)};
+
+// Bundle projection
+Signal iron = items["iron-plate"];
+Signal copper = items | "copper-plate";
+
+// Bundle arithmetic
+Bundle scaled_items = items * 2;
+Bundle offset_items = items + 5;
+
+// Entity with output signal
+Entity lamp = place("small-lamp", 0, 0, {use_colors: 1, enabled: 1});
+
+// Entity property assignment
+Signal enable_val = 1;
+lamp.enable = enable_val > 0;
+lamp.color_r = 128;
+lamp.color_g = 64;
+lamp.color_b = 32;
+
+// Function definitions
+func double(int x) {
+    return x * 2;
+}
+
+func add(int a, int b) {
+    return a + b;
+}
+
+// Function calls
+Signal doubled = double(25);
+Signal added = add(10, 15);
+Signal nested = double(add(3, 4));
+
+// For loops
+for i in 0..3 {
+    Signal loop_val = i * 100;
+}
+
+for j in [5, 10, 15] {
+    Signal list_val = j + 1;
+}
+
+for k in 0..10 step 3 {
+    Signal step_val = k;
+}

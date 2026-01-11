@@ -1,0 +1,12 @@
+# Function definition and call using correct Facto syntax
+func double(Signal x) {
+    return x * 2;
+}
+
+func add_ten(Signal x) {
+    return x + 10;
+}
+
+Signal input_val = ("signal-A", 5);
+Signal doubled = double(input_val);
+Signal added = add_ten(doubled);

@@ -1,0 +1,35 @@
+// Memory edge case coverage
+// Covers: conditional writes, feedback patterns, multiple memories
+
+// Multiple memory cells
+Memory m1: "signal-A";
+Memory m2: "signal-B";
+
+// Signal source
+Signal input_val = 100;
+Signal threshold = 50;
+Signal write_enable = 1;
+
+// Write to first memory with condition
+m1.write(input_val, when=write_enable > 0);
+
+// Read from memory
+Signal m1_read = m1.read();
+
+// Write to second memory based on first
+m2.write(m1_read, when=m1_read > threshold);
+
+// Memory with arithmetic feedback
+Memory counter: "signal-C";
+Signal counter_val = counter.read();
+counter.write(counter_val + 1, when=counter_val < 100);
+
+// SR latch memory
+Memory latch: "signal-D";
+Signal set_signal = ("signal-S", 0);
+Signal reset_signal = ("signal-R", 0);
+latch.write(10, set=set_signal, reset=reset_signal);
+
+// RS latch memory
+Memory latch2: "signal-E";
+latch2.write(20, reset=reset_signal, set=set_signal);

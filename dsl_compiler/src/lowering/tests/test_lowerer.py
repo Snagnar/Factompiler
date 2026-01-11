@@ -181,3 +181,114 @@ class TestASTLowererSampleFiles:
 
                 assert isinstance(ir_operations, list)
                 assert len(ir_operations) > 0
+
+
+def lower_program_full(program, semantic_analyzer):
+    """Helper to lower a program and return lowerer instance."""
+    diagnostics = ProgramDiagnostics()
+    lowerer = ASTLowerer(semantic_analyzer, diagnostics)
+    ir_operations = lowerer.lower_program(program)
+    return lowerer, ir_operations
+
+
+class TestASTLowererSignalRegistry:
+    """Tests for signal registration during lowering."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    @pytest.fixture
+    def diagnostics(self):
+        return ProgramDiagnostics()
+
+    @pytest.fixture
+    def analyzer(self, diagnostics):
+        return SemanticAnalyzer(diagnostics)
+
+    def test_item_signal_registered(self, parser, analyzer, diagnostics):
+        """Test that item signals are properly registered in signal_refs."""
+        code = 'Signal iron = ("iron-plate", 100);'
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, ir_operations = lower_program_full(program, analyzer)
+
+        assert not lowerer.diagnostics.has_errors()
+        # Signal variable should be registered in signal_refs
+        assert "iron" in lowerer.signal_refs
+
+    def test_virtual_signal_registered(self, parser, analyzer, diagnostics):
+        """Test that virtual signals are properly registered in signal_refs."""
+        code = 'Signal sig = ("signal-A", 50);'
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, ir_operations = lower_program_full(program, analyzer)
+
+        assert not lowerer.diagnostics.has_errors()
+        # Signal variable should be registered in signal_refs
+        assert "sig" in lowerer.signal_refs
+
+    def test_implicit_signal_allocated(self, parser, analyzer, diagnostics):
+        """Test that implicit signals get allocated during lowering."""
+        code = "Signal x = 42;"
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, ir_operations = lower_program_full(program, analyzer)
+
+        assert not lowerer.diagnostics.has_errors()
+        # Signal variable should be registered in signal_refs
+        assert "x" in lowerer.signal_refs
+
+
+class TestASTLowererExpressionContext:
+    """Tests for expression context during lowering."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    @pytest.fixture
+    def diagnostics(self):
+        return ProgramDiagnostics()
+
+    @pytest.fixture
+    def analyzer(self, diagnostics):
+        return SemanticAnalyzer(diagnostics)
+
+    def test_nested_expressions(self, parser, analyzer, diagnostics):
+        """Test lowering nested expressions."""
+        code = """
+        Signal a = 10;
+        Signal b = 20;
+        Signal c = (a + b) * 2;
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors()
+        assert len(ir_operations) > 0
+
+    def test_comparison_expressions(self, parser, analyzer, diagnostics):
+        """Test lowering comparison expressions."""
+        code = """
+        Signal val = 50;
+        Signal result = (val > 25): 1;
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors()
+
+    def test_function_call_lowering(self, parser, analyzer, diagnostics):
+        """Test lowering function calls."""
+        code = """
+        func triple(int x) { return x * 3; }
+        Signal result = triple(10);
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors()

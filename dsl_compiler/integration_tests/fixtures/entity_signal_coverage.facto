@@ -1,0 +1,26 @@
+// Entity operation coverage test
+// Covers: entity output signals, entity property access
+
+// Entity that produces a signal output
+Entity lamp1 = place("small-lamp", 0, 0, {});
+Entity lamp2 = place("small-lamp", 2, 0, {});
+
+// Constant combinator for signals  
+Signal a = 10;
+Signal b = 20;
+Signal c = a + b;
+
+// Multiple arithmetic operations
+Signal d = c * 2;
+Signal e = d - a;
+Signal f = e / 2;
+Signal g = f % 3;
+
+// Bit shift operations
+Signal h = a << 2;
+Signal i = b >> 1;
+
+// Bitwise operations
+Signal j = a AND b;
+Signal k = a OR b;
+Signal l = a XOR b;

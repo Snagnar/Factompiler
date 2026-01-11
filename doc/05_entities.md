@@ -457,7 +457,7 @@ lamp_running.enable = should_produce; # On = producing
 
 ## Entity Reference
 
-For a complete list of all entities, their prototypes, and properties, see the **[Entity Reference](../ENTITY_REFERENCE.md)**.
+For a complete list of all entities, their prototypes, and properties, see the **[Entity Reference](ENTITY_REFERENCE.md)**.
 
 This reference includes:
 - All entity prototype names
@@ -521,7 +521,7 @@ Entity production_status = place("small-lamp", 4, 0);
 - Most entities support `enable` for on/off control
 - Lamps support RGB color control with `use_colors` mode
 - The compiler inlines simple comparisons into entity conditions
-- See the **[Entity Reference](../ENTITY_REFERENCE.md)** for all entity types
+- See the **[Entity Reference](ENTITY_REFERENCE.md)** for all entity types
 
 ---
 

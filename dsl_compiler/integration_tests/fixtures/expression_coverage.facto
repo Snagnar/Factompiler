@@ -1,0 +1,30 @@
+// Comprehensive expression coverage test
+// Covers: type access, projections, entity output, conditionals
+
+// Test .type access on signals
+Signal x = 10;
+Signal y = x.type: x;  // Use x's type in output
+
+// Test bundle projections
+Bundle b = {("signal-A", 5), ("signal-B", 10)};
+Signal proj_a = b["signal-A"];
+Signal proj_b = b | "signal-B";
+
+// Test conditional expressions with multiple paths
+Signal cond_val = 15;
+Signal result1 = (cond_val > 10): 1;
+Signal result2 = (cond_val < 5): 100;
+Signal result3 = (cond_val == 15): cond_val;
+
+// Test complex logical conditions
+Signal a = 5;
+Signal b2 = 10;
+Signal complex_cond = (a > 0 && b2 > 5): 1;
+Signal or_cond = (a < 0 || b2 > 5): 1;
+
+// Test bundle arithmetic
+Bundle arith_bundle = b + 5;
+Bundle mult_bundle = b * 2;
+
+// Test nested expressions
+Signal nested = (x + y) * 2 - 1;
