@@ -116,3 +116,21 @@ class TestDSLParserSampleFiles:
                 program = parser.parse(code)
                 assert isinstance(program, Program)
                 assert len(program.statements) > 0
+
+
+class TestDSLParserErrorHandling:
+    """Tests for parser error handling."""
+
+    def test_parse_file_not_found(self):
+        """Test parse_file raises FileNotFoundError for missing file."""
+        parser = DSLParser()
+        with pytest.raises(FileNotFoundError) as exc_info:
+            parser.parse_file(Path("/nonexistent/path/to/file.facto"))
+        assert "Source file not found" in str(exc_info.value)
+
+    def test_parse_with_string_filename_uses_default_base_path(self):
+        """Test parsing with <string> filename uses default base path."""
+        parser = DSLParser()
+        # Just verify it doesn't crash when using the default base path
+        program = parser.parse("Signal x = 1;", "<string>")
+        assert isinstance(program, Program)

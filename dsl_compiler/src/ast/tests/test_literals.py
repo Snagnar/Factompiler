@@ -5,6 +5,7 @@ Tests for ast/literals.py - Literal AST nodes.
 from dsl_compiler.src.ast.base import ASTNode
 from dsl_compiler.src.ast.expressions import Expr
 from dsl_compiler.src.ast.literals import (
+    DictLiteral,
     Identifier,
     LValue,
     NumberLiteral,
@@ -87,3 +88,25 @@ class TestLValueHierarchy:
         for lvalue in lvalues:
             assert isinstance(lvalue, LValue)
             assert isinstance(lvalue, ASTNode)
+
+
+class TestDictLiteral:
+    """Tests for DictLiteral node."""
+
+    def test_dict_literal_creation(self):
+        """Test DictLiteral node stores entries."""
+        entries = {"key1": NumberLiteral(1), "key2": NumberLiteral(2)}
+        node = DictLiteral(entries)
+        assert node.entries == entries
+        assert len(node.entries) == 2
+
+    def test_dict_literal_inherits_from_expr(self):
+        """DictLiteral should inherit from Expr."""
+        node = DictLiteral({})
+        assert isinstance(node, Expr)
+        assert isinstance(node, ASTNode)
+
+    def test_dict_literal_empty(self):
+        """Test DictLiteral with empty entries."""
+        node = DictLiteral({})
+        assert node.entries == {}

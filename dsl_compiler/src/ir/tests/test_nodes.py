@@ -4,18 +4,24 @@ Tests for ir/nodes.py - IR node classes.
 
 from dsl_compiler.src.ir.builder import SignalRef
 from dsl_compiler.src.ir.nodes import (
+    MEMORY_TYPE_RS_LATCH,
+    MEMORY_TYPE_SR_LATCH,
+    BundleRef,
     IRArith,
     IRConst,
     IRDecider,
     IREffect,
+    IREntityOutput,
     IREntityPropRead,
     IREntityPropWrite,
+    IRLatchWrite,
     IRMemCreate,
     IRMemRead,
     IRMemWrite,
     IRNode,
     IRPlaceEntity,
     IRValue,
+    IRWireMerge,
 )
 
 
@@ -32,6 +38,36 @@ class TestSignalRef:
         """Test SignalRef string representation."""
         ref = SignalRef("iron-plate", "input_1")
         assert str(ref) == "iron-plate@input_1"
+
+
+class TestBundleRef:
+    """Tests for BundleRef class."""
+
+    def test_bundle_ref_creation(self):
+        """Test BundleRef stores signal_types and source_id."""
+        signal_types = {"signal-A", "signal-B", "signal-C"}
+        ref = BundleRef(signal_types, "bundle_src_1")
+        assert ref.signal_types == signal_types
+        assert ref.source_id == "bundle_src_1"
+
+    def test_bundle_ref_optional_params(self):
+        """Test BundleRef optional parameters."""
+        signal_types = {"signal-X"}
+        ref = BundleRef(
+            signal_types,
+            "src",
+            debug_label="test label",
+            metadata={"key": "value"},
+        )
+        assert ref.debug_label == "test label"
+        assert ref.debug_metadata == {"key": "value"}
+
+    def test_bundle_ref_metadata_copy(self):
+        """Test BundleRef copies metadata dict."""
+        original = {"key": "value"}
+        ref = BundleRef({"signal-A"}, "src", metadata=original)
+        original["key"] = "modified"
+        assert ref.debug_metadata["key"] == "value"  # Should not be modified
 
 
 class TestIRConst:
@@ -203,3 +239,81 @@ class TestIRNodeHierarchy:
         for effect in effects:
             assert isinstance(effect, IREffect)
             assert isinstance(effect, IRNode)
+
+
+class TestIREntityOutput:
+    """Tests for IREntityOutput node."""
+
+    def test_ir_entity_output_creation(self):
+        """Test IREntityOutput stores entity_id."""
+        node = IREntityOutput("entity_out_1", "chest_1")
+        assert node.node_id == "entity_out_1"
+        assert node.entity_id == "chest_1"
+        assert node.output_type == "bundle"
+
+    def test_ir_entity_output_inherits_from_ir_value(self):
+        """IREntityOutput should inherit from IRValue."""
+        node = IREntityOutput("entity_out_1", "chest_1")
+        assert isinstance(node, IRValue)
+        assert isinstance(node, IRNode)
+
+
+class TestIRLatchWrite:
+    """Tests for IRLatchWrite node."""
+
+    def test_ir_latch_write_rs_creation(self):
+        """Test IRLatchWrite RS latch stores all fields."""
+        value = SignalRef("signal-A", "const_1")
+        set_signal = SignalRef("signal-B", "set_src")
+        reset_signal = SignalRef("signal-C", "reset_src")
+        node = IRLatchWrite("mem_1", value, set_signal, reset_signal, MEMORY_TYPE_RS_LATCH)
+        assert node.memory_id == "mem_1"
+        assert node.value == value
+        assert node.set_signal == set_signal
+        assert node.reset_signal == reset_signal
+        assert node.latch_type == MEMORY_TYPE_RS_LATCH
+
+    def test_ir_latch_write_sr_creation(self):
+        """Test IRLatchWrite SR latch stores all fields."""
+        value = SignalRef("signal-A", "const_1")
+        set_signal = SignalRef("signal-B", "set_src")
+        reset_signal = SignalRef("signal-C", "reset_src")
+        node = IRLatchWrite("mem_2", value, set_signal, reset_signal, MEMORY_TYPE_SR_LATCH)
+        assert node.latch_type == MEMORY_TYPE_SR_LATCH
+
+    def test_ir_latch_write_inherits_from_ir_effect(self):
+        """IRLatchWrite should inherit from IREffect."""
+        value = SignalRef("signal-A", "const_1")
+        set_signal = SignalRef("signal-B", "set_src")
+        reset_signal = SignalRef("signal-C", "reset_src")
+        node = IRLatchWrite("mem_1", value, set_signal, reset_signal, MEMORY_TYPE_RS_LATCH)
+        assert isinstance(node, IREffect)
+        assert isinstance(node, IRNode)
+
+
+class TestIRWireMerge:
+    """Tests for IRWireMerge node."""
+
+    def test_ir_wire_merge_creation(self):
+        """Test IRWireMerge stores node_id and output_type."""
+        node = IRWireMerge("merge_1", "signal-A")
+        assert node.node_id == "merge_1"
+        assert node.output_type == "signal-A"
+        assert node.sources == []
+
+    def test_ir_wire_merge_add_source(self):
+        """Test IRWireMerge can add sources."""
+        node = IRWireMerge("merge_1", "signal-A")
+        ref1 = SignalRef("signal-A", "src_1")
+        ref2 = SignalRef("signal-A", "src_2")
+        node.add_source(ref1)
+        node.add_source(ref2)
+        assert len(node.sources) == 2
+        assert ref1 in node.sources
+        assert ref2 in node.sources
+
+    def test_ir_wire_merge_inherits_from_ir_value(self):
+        """IRWireMerge should inherit from IRValue."""
+        node = IRWireMerge("merge_1", "signal-A")
+        assert isinstance(node, IRValue)
+        assert isinstance(node, IRNode)
