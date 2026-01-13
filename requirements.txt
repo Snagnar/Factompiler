@@ -25,6 +25,7 @@ sphinx>=5.0.0
 ruff
 mypy
 pre-commit
+pytest-xdist
 
 numpy
 scipy

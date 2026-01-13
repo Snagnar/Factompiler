@@ -73,7 +73,7 @@ jobs:
           --cov=dsl_compiler \
           --cov-report=xml \
           --cov-report=term \
-          --cov-report=html
+          --cov-report=html -n auto
     
     - name: Generate coverage summary
       run: |
