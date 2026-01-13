@@ -205,3 +205,317 @@ class TestPlanEntityEmitter:
         entity = emitter.create_entity(placement)
         assert entity is not None
         assert entity.player_description is not None
+
+    def test_create_decider_multi_condition(self, emitter):
+        """Test creating a decider with multi-condition mode (Factorio 2.0)."""
+        placement = EntityPlacement(
+            ir_node_id="decider_multi",
+            entity_type="decider-combinator",
+            position=(0, 0),
+            properties={
+                "conditions": [
+                    {
+                        "first_signal": "signal-A",
+                        "comparator": ">",
+                        "second_constant": 0,
+                        "compare_type": "or",
+                        "first_signal_wires": {"red"},
+                    },
+                    {
+                        "first_constant": 5,
+                        "comparator": "<",
+                        "second_signal": "signal-B",
+                        "compare_type": "and",
+                        "second_signal_wires": {"green"},
+                    },
+                ],
+                "output_signal": "signal-C",
+                "output_value": 1,
+                "copy_count_from_input": False,
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None
+        assert len(entity.conditions) == 2
+
+    def test_create_decider_multi_conditions_key(self, emitter):
+        """Test decider with multi_conditions key (from memory_builder)."""
+        placement = EntityPlacement(
+            ir_node_id="decider_latch",
+            entity_type="decider-combinator",
+            position=(0, 0),
+            properties={
+                "multi_conditions": [
+                    {"first_signal": "signal-S", "comparator": ">", "second_constant": 0},
+                ],
+                "output_signal": "signal-Q",
+                "copy_count_from_input": True,
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None
+        assert entity.outputs[0].copy_count_from_input is True
+
+
+class TestApplyPropertyWrites:
+    """Tests for _apply_property_writes method."""
+
+    @pytest.fixture
+    def emitter(self):
+        return PlanEntityEmitter(signal_type_map={"__sig": {"name": "signal-X", "type": "virtual"}})
+
+    def test_enable_inline_comparison(self, emitter):
+        """Test enable property with inline comparison."""
+        placement = EntityPlacement(
+            ir_node_id="lamp_cond",
+            entity_type="small-lamp",
+            position=(0, 0),
+            properties={
+                "property_writes": {
+                    "enable": {
+                        "type": "inline_comparison",
+                        "comparison_data": {
+                            "left_signal": "signal-A",
+                            "comparator": ">",
+                            "right_constant": 5,
+                        },
+                    },
+                },
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None
+        assert entity.circuit_enabled is True
+
+    def test_enable_inline_bundle_condition(self, emitter):
+        """Test enable property with bundle condition (all/any)."""
+        placement = EntityPlacement(
+            ir_node_id="lamp_bundle",
+            entity_type="small-lamp",
+            position=(0, 0),
+            properties={
+                "property_writes": {
+                    "enable": {
+                        "type": "inline_bundle_condition",
+                        "signal": "signal-everything",
+                        "operator": ">",
+                        "constant": 0,
+                    },
+                },
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None
+
+    def test_enable_signal_ref(self, emitter):
+        """Test enable property with signal reference."""
+        placement = EntityPlacement(
+            ir_node_id="lamp_sig",
+            entity_type="small-lamp",
+            position=(0, 0),
+            properties={
+                "property_writes": {
+                    "enable": {
+                        "type": "signal",
+                        "signal_ref": type("Ref", (), {"signal_type": "__sig"})(),
+                    },
+                },
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None
+
+    def test_enable_constant(self, emitter):
+        """Test enable property with constant value."""
+        placement = EntityPlacement(
+            ir_node_id="lamp_const",
+            entity_type="small-lamp",
+            position=(0, 0),
+            properties={
+                "property_writes": {
+                    "enable": {"type": "constant", "value": True},
+                },
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None
+
+    def test_generic_property_write(self, emitter):
+        """Test writing a generic property."""
+        placement = EntityPlacement(
+            ir_node_id="lamp_color",
+            entity_type="small-lamp",
+            position=(0, 0),
+            properties={
+                "use_colors": True,
+                "property_writes": {
+                    "use_colors": {"type": "constant", "value": False},
+                },
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None
+
+    def test_unknown_property_logs_info(self, emitter):
+        """Test that setting unknown property logs info message."""
+        placement = EntityPlacement(
+            ir_node_id="lamp_bad",
+            entity_type="small-lamp",
+            position=(0, 0),
+            properties={
+                "property_writes": {
+                    "nonexistent_prop": {"value": 123},
+                },
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None
+
+
+class TestFormatEntityDescriptionExtended:
+    """Extended tests for format_entity_description edge cases."""
+
+    def test_format_with_memory_operation(self):
+        """Test formatting memory operation."""
+        debug_info = {"variable": "mem", "operation": "memory", "details": "cell_0", "line": 5}
+        result = format_entity_description(debug_info)
+        assert "memory" in result
+        assert "cell_0" in result
+
+    def test_format_output_anchor(self):
+        """Test formatting output anchor."""
+        debug_info = {"variable": "out", "operation": "output", "line": 10}
+        result = format_entity_description(debug_info)
+        assert "output anchor" in result
+
+    def test_format_with_role(self):
+        """Test formatting with role."""
+        debug_info = {"variable": "x", "role": "merge", "line": 3}
+        result = format_entity_description(debug_info)
+        assert "merge" in result
+
+    def test_format_const_operation(self):
+        """Test formatting const operation."""
+        debug_info = {"variable": "c", "operation": "const", "details": "value=42", "line": 1}
+        result = format_entity_description(debug_info)
+        assert "value=42" in result
+
+    def test_format_intermediate_arith(self):
+        """Test formatting intermediate arithmetic."""
+        debug_info = {"variable": "arith_001", "expr_context": "result", "line": 5}
+        result = format_entity_description(debug_info)
+        assert "computing" in result
+        assert "result" in result
+
+    def test_format_with_signal_type(self):
+        """Test formatting with signal type."""
+        debug_info = {"variable": "x", "signal_type": "signal-A", "line": 1}
+        result = format_entity_description(debug_info)
+        assert "signal-A" in result
+
+    def test_format_file_only(self):
+        """Test formatting with file but no line."""
+        debug_info = {"variable": "x", "source_file": "test.facto"}
+        result = format_entity_description(debug_info)
+        assert "test.facto" in result
+
+
+class TestCreateEntityEdgeCases:
+    """Edge case tests for entity creation."""
+
+    @pytest.fixture
+    def emitter(self):
+        return PlanEntityEmitter()
+
+    def test_arithmetic_each_output_correction(self, emitter):
+        """Test that signal-each output is corrected when not using each input."""
+        placement = EntityPlacement(
+            ir_node_id="arith_each",
+            entity_type="arithmetic-combinator",
+            position=(0, 0),
+            properties={
+                "left_operand": "signal-A",
+                "operation": "+",
+                "right_operand": 5,
+                "output_signal": "signal-each",
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity.output_signal.name == "signal-0"
+
+    def test_constant_combinator_single_signal(self, emitter):
+        """Test constant combinator with single signal mode."""
+        placement = EntityPlacement(
+            ir_node_id="const_single",
+            entity_type="constant-combinator",
+            position=(0, 0),
+            properties={
+                "signal_name": "signal-A",
+                "value": 42,
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None
+
+    def test_entity_from_template(self, emitter):
+        """Test creating entity from template object."""
+        from draftsman.entity import new_entity
+
+        template = new_entity("small-lamp")
+        template.use_colors = True
+        placement = EntityPlacement(
+            ir_node_id="lamp_template",
+            entity_type="small-lamp",
+            position=(2, 3),
+            properties={"entity_obj": template},
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None
+        assert entity.use_colors is True
+
+    def test_generic_entity_property_setting(self, emitter):
+        """Test setting generic properties on non-combinator entities."""
+        placement = EntityPlacement(
+            ir_node_id="inserter_1",
+            entity_type="inserter",
+            position=(0, 0),
+            properties={
+                "direction": 4,
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None
+        assert entity.direction == 4
+
+    def test_decider_with_signal_operands(self, emitter):
+        """Test decider with signal-to-signal comparison."""
+        placement = EntityPlacement(
+            ir_node_id="decider_sig",
+            entity_type="decider-combinator",
+            position=(0, 0),
+            properties={
+                "left_operand": "signal-A",
+                "operation": "<",
+                "right_operand": "signal-B",
+                "output_signal": "signal-C",
+                "copy_count_from_input": True,
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None
+
+    def test_decider_with_constant_left_operand(self, emitter):
+        """Test decider with constant as left operand."""
+        placement = EntityPlacement(
+            ir_node_id="decider_const_left",
+            entity_type="decider-combinator",
+            position=(0, 0),
+            properties={
+                "left_operand": 10,
+                "operation": ">",
+                "right_operand": 5,
+                "output_signal": "signal-A",
+            },
+        )
+        entity = emitter.create_entity(placement)
+        assert entity is not None

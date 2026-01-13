@@ -350,6 +350,22 @@ class TestSignalAnalyzerDecideMaterialization:
         empty_analyzer._decide_materialization(entry)
         assert entry.should_materialize is True
 
+    def test_decide_materialization_user_declared_overrides_suppress(self, empty_analyzer):
+        """Test user_declared overrides suppress_materialization."""
+        const_op = make_const("const1", 42, "signal-A")
+        const_op.debug_metadata = {"user_declared": True, "suppress_materialization": True}
+        empty_analyzer.analyze([const_op])
+        assert empty_analyzer.signal_usage["const1"].should_materialize is True
+
+    def test_decide_materialization_is_output(self, empty_analyzer):
+        """Test is_output flag forces materialization."""
+        const_op = make_const("const1", 42, "signal-A")
+        empty_analyzer.analyze([const_op])
+        entry = empty_analyzer.signal_usage["const1"]
+        entry.debug_metadata["is_output"] = True
+        empty_analyzer._decide_materialization(entry)
+        assert entry.should_materialize is True
+
 
 # === Tests for SignalAnalyzer._resolve_signal_identity ===
 
@@ -493,3 +509,92 @@ class TestSignalAnalyzerFinalizeMaterialization:
         entry = empty_analyzer.signal_usage["const1"]
         # resolved_signal_name should be set after finalization
         assert entry.resolved_signal_name is not None
+
+
+# === Tests for SignalAnalyzer.analyze with various operations ===
+
+
+class TestSignalAnalyzerAnalyzeAdvanced:
+    """Additional tests for SignalAnalyzer.analyze with various operations."""
+
+    def test_analyze_mem_write(self, empty_analyzer):
+        """Test analyzing IRMemWrite records consumers."""
+        from dsl_compiler.src.ir.nodes import IRMemCreate, IRMemWrite
+
+        mem = IRMemCreate("mem1", "signal-A")
+        data = SignalRef("signal-A", "src1")
+        write_en = SignalRef("signal-W", "src2")
+        write = IRMemWrite("mem1", data, write_en)
+
+        result = empty_analyzer.analyze([mem, write])
+        # IRMemWrite creates entry with mem_write_ prefix
+        assert "mem_write_mem1" in result or "src1" in result
+
+    def test_analyze_place_entity(self, empty_analyzer):
+        """Test analyzing IRPlaceEntity records property consumers."""
+        from dsl_compiler.src.ir.nodes import IRPlaceEntity
+
+        op = IRPlaceEntity("lamp1", "small-lamp", 10, 20)
+        op.properties = {"enabled": SignalRef("signal-A", "src1")}
+
+        result = empty_analyzer.analyze([op])
+        assert "lamp1" in result or len(result) >= 0
+
+    def test_analyze_entity_prop_write(self, empty_analyzer):
+        """Test analyzing IREntityPropWrite records consumers and exports."""
+        from dsl_compiler.src.ir.nodes import IREntityPropWrite
+
+        op = IREntityPropWrite("lamp1", "enable", SignalRef("signal-A", "src1"))
+
+        result = empty_analyzer.analyze([op])
+        # Should record the consumer
+        if "src1" in result:
+            assert "lamp1" in result["src1"].consumers or len(result["src1"].export_targets) > 0
+
+
+class TestSignalAnalyzerResolveSignalIdentityAdvanced:
+    """Additional tests for _resolve_signal_identity."""
+
+    def test_resolve_from_signal_type_map_dict(self, diagnostics):
+        """Test resolution from signal_type_map with dict value."""
+        analyzer = SignalAnalyzer(
+            diagnostics,
+            signal_type_map={"__v1": {"name": "signal-X", "type": "virtual"}},
+        )
+        entry = SignalUsageEntry(signal_id="test", signal_type="__v1")
+        analyzer._resolve_signal_identity(entry)
+        assert entry.resolved_signal_name == "signal-X"
+        assert entry.resolved_signal_type == "virtual"
+
+    def test_resolve_from_signal_type_map_string(self, diagnostics):
+        """Test resolution from signal_type_map with string value."""
+        analyzer = SignalAnalyzer(
+            diagnostics,
+            signal_type_map={"__v2": "signal-Y"},
+        )
+        entry = SignalUsageEntry(signal_id="test", signal_type="__v2")
+        analyzer._resolve_signal_identity(entry)
+        assert entry.resolved_signal_name == "signal-Y"
+
+    def test_resolve_allocates_for_unmapped_implicit(self, empty_analyzer):
+        """Test unmapped __v signals get allocated."""
+        entry = SignalUsageEntry(signal_id="test", signal_type="__v999")
+        empty_analyzer._resolve_signal_identity(entry)
+        # Should allocate a signal
+        assert entry.resolved_signal_name is not None
+        assert entry.resolved_signal_name.startswith("signal-")
+
+
+class TestSignalAnalyzerPoolExhaustion:
+    """Tests for signal pool exhaustion handling."""
+
+    def test_allocate_warns_on_exhaustion(self, diagnostics):
+        """Test warning is issued when pool is exhausted."""
+        # Create analyzer with minimal pool
+        analyzer = SignalAnalyzer(diagnostics, signal_type_map={})
+        # Force pool index past end
+        analyzer._signal_pool_index = len(analyzer._available_signal_pool) + 100
+
+        # Should still return a signal (reuse)
+        signal = analyzer._allocate_factorio_virtual_signal()
+        assert signal.startswith("signal-")

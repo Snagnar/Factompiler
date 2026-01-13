@@ -12,13 +12,7 @@ from dsl_compiler.src.lowering.lowerer import ASTLowerer
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 
-
-def lower_program(program, semantic_analyzer):
-    """Helper to lower a program to IR."""
-    diagnostics = ProgramDiagnostics()
-    lowerer = ASTLowerer(semantic_analyzer, diagnostics)
-    ir_operations = lowerer.lower_program(program)
-    return ir_operations, lowerer.diagnostics, lowerer.ir_builder.signal_type_map
+from .conftest import lower_program
 
 
 class TestASTLowerer:
@@ -292,3 +286,131 @@ class TestASTLowererExpressionContext:
         ir_operations, lower_diags, _ = lower_program(program, analyzer)
 
         assert not lower_diags.has_errors()
+
+
+class TestSignalCategoryInference:
+    """Tests for _infer_signal_category (lines 136-173)."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    @pytest.fixture
+    def diagnostics(self):
+        return ProgramDiagnostics()
+
+    @pytest.fixture
+    def analyzer(self, diagnostics):
+        return SemanticAnalyzer(diagnostics)
+
+    def test_infer_item_signal_category(self, parser, analyzer, diagnostics):
+        """Test inferring item signal category."""
+        code = 'Signal iron = ("iron-plate", 100);'
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, ir_operations = lower_program_full(program, analyzer)
+
+        # iron-plate is an item type
+        category = lowerer._infer_signal_category("iron-plate")
+        assert category == "item"
+
+    def test_infer_fluid_signal_category(self, parser, analyzer, diagnostics):
+        """Test inferring fluid signal category."""
+        code = 'Signal water = ("water", 100);'
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, ir_operations = lower_program_full(program, analyzer)
+
+        category = lowerer._infer_signal_category("water")
+        assert category == "fluid"
+
+    def test_infer_virtual_signal_category(self, parser, analyzer, diagnostics):
+        """Test inferring virtual signal category."""
+        code = 'Signal sig = ("signal-A", 50);'
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, ir_operations = lower_program_full(program, analyzer)
+
+        category = lowerer._infer_signal_category("signal-A")
+        assert category == "virtual"
+
+    def test_infer_implicit_signal_category(self, parser, analyzer, diagnostics):
+        """Test inferring category for implicit signal (__v*)."""
+        code = "Signal x = 42;"
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, ir_operations = lower_program_full(program, analyzer)
+
+        # __v* signals should be virtual
+        category = lowerer._infer_signal_category("__v1")
+        assert category == "virtual"
+
+    def test_infer_unknown_signal_defaults_to_virtual(self, parser, analyzer, diagnostics):
+        """Test that unknown signals default to virtual category."""
+        code = "Signal x = 42;"
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, ir_operations = lower_program_full(program, analyzer)
+
+        category = lowerer._infer_signal_category("unknown-signal-xyz")
+        assert category == "virtual"
+
+
+class TestEnsureSignalRegistered:
+    """Tests for ensure_signal_registered (lines 176-198)."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    @pytest.fixture
+    def diagnostics(self):
+        return ProgramDiagnostics()
+
+    @pytest.fixture
+    def analyzer(self, diagnostics):
+        return SemanticAnalyzer(diagnostics)
+
+    def test_register_known_item_signal(self, parser, analyzer, diagnostics):
+        """Test registering a known item signal."""
+        code = 'Signal iron = ("iron-plate", 100);'
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, _ = lower_program_full(program, analyzer)
+
+        # Should not raise for known signal
+        lowerer.ensure_signal_registered("iron-plate")
+
+    def test_register_custom_signal(self, parser, analyzer, diagnostics):
+        """Test registering a custom signal name."""
+        code = "Signal x = 42;"
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, _ = lower_program_full(program, analyzer)
+
+        # Register a custom signal
+        lowerer.ensure_signal_registered("custom-signal", "virtual")
+        # Should be registered in signal registry
+        assert lowerer.ir_builder.signal_registry.resolve("custom-signal") is not None
+
+    def test_skip_implicit_signal_registration(self, parser, analyzer, diagnostics):
+        """Test that __v* implicit signals are not registered."""
+        code = "Signal x = 42;"
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, _ = lower_program_full(program, analyzer)
+
+        # This should be a no-op
+        lowerer.ensure_signal_registered("__v99")
+        # __v signals should not be in the registry
+        assert lowerer.ir_builder.signal_registry.resolve("__v99") is None
+
+    def test_signal_already_in_data(self, parser, analyzer, diagnostics):
+        """Test that signals already in data are not re-registered."""
+        code = 'Signal iron = ("iron-plate", 100);'
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, _ = lower_program_full(program, analyzer)
+
+        # iron-plate is in signal_data, should not raise
+        lowerer.ensure_signal_registered("iron-plate")

@@ -1,8 +1,10 @@
 """Tests for emitter.py - Blueprint emission."""
 
+import pytest
+
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.emission.emitter import EDGE_LAYOUT_NOTE, BlueprintEmitter
-from dsl_compiler.src.layout.layout_plan import LayoutPlan, WireConnection
+from dsl_compiler.src.layout.layout_plan import LayoutPlan, PowerPolePlacement, WireConnection
 
 
 class TestBlueprintEmitterInit:
@@ -224,3 +226,141 @@ class TestEdgeLayoutNote:
         assert "constants" in EDGE_LAYOUT_NOTE
         assert "north" in EDGE_LAYOUT_NOTE
         assert "south" in EDGE_LAYOUT_NOTE
+
+
+class TestPowerGridMaterialization:
+    """Tests for power pole materialization and connections."""
+
+    def test_legacy_power_poles_list(self):
+        """Test creating power poles from legacy power_poles list."""
+        diagnostics = ProgramDiagnostics()
+        emitter = BlueprintEmitter(diagnostics)
+        layout_plan = LayoutPlan()
+
+        # Add poles via legacy power_poles list
+        layout_plan.power_poles.append(
+            PowerPolePlacement(pole_id="pole_1", pole_type="medium-electric-pole", position=(0, 0))
+        )
+        layout_plan.power_poles.append(
+            PowerPolePlacement(pole_id="pole_2", pole_type="medium-electric-pole", position=(5, 0))
+        )
+
+        blueprint = emitter.emit_from_plan(layout_plan)
+
+        # Both poles should be in the blueprint
+        assert len(blueprint.entities) == 2
+
+    def test_pole_connections_within_range(self):
+        """Test that poles within range get connected."""
+        diagnostics = ProgramDiagnostics()
+        emitter = BlueprintEmitter(diagnostics)
+        layout_plan = LayoutPlan()
+
+        # Create entity placements for poles (not legacy list)
+        layout_plan.create_and_add_placement(
+            ir_node_id="pole_a",
+            entity_type="medium-electric-pole",
+            position=(0.5, 0.5),
+            footprint=(1, 1),
+            role="power",
+        )
+        layout_plan.create_and_add_placement(
+            ir_node_id="pole_b",
+            entity_type="medium-electric-pole",
+            position=(5.5, 0.5),
+            footprint=(1, 1),
+            role="power",
+        )
+
+        blueprint = emitter.emit_from_plan(layout_plan)
+        assert len(blueprint.entities) == 2
+
+    def test_relay_poles_get_minimal_connections(self):
+        """Test that relay poles only connect to nearest neighbors."""
+        diagnostics = ProgramDiagnostics()
+        emitter = BlueprintEmitter(diagnostics)
+        layout_plan = LayoutPlan()
+
+        # Create a relay pole (uses wire_relay_ prefix)
+        layout_plan.create_and_add_placement(
+            ir_node_id="wire_relay_pole",
+            entity_type="medium-electric-pole",
+            position=(0.5, 0.5),
+            footprint=(1, 1),
+            role="power",
+        )
+        layout_plan.create_and_add_placement(
+            ir_node_id="pole_grid",
+            entity_type="medium-electric-pole",
+            position=(5.5, 0.5),
+            footprint=(1, 1),
+            role="power",
+        )
+
+        blueprint = emitter.emit_from_plan(layout_plan)
+        assert len(blueprint.entities) == 2
+
+
+class TestConnectionErrors:
+    """Tests for connection error handling."""
+
+    def test_circuit_connection_error_logs_error(self):
+        """Test that circuit connection errors are logged."""
+        diagnostics = ProgramDiagnostics()
+        emitter = BlueprintEmitter(diagnostics)
+        layout_plan = LayoutPlan()
+
+        # Create two entities
+        layout_plan.create_and_add_placement(
+            ir_node_id="const_1",
+            entity_type="constant-combinator",
+            position=(0.5, 0.5),
+            footprint=(1, 1),
+            role="constant",
+        )
+        layout_plan.create_and_add_placement(
+            ir_node_id="arith_1",
+            entity_type="arithmetic-combinator",
+            position=(3.0, 0.5),
+            footprint=(2, 1),
+            role="arithmetic",
+        )
+
+        # Create invalid connection with bad side number
+        layout_plan.add_wire_connection(
+            WireConnection(
+                source_entity_id="const_1",
+                sink_entity_id="arith_1",
+                signal_name="signal-A",
+                wire_color="red",
+                source_side=99,  # Invalid side
+                sink_side=99,  # Invalid side
+            )
+        )
+
+        # Should not raise, but should log an error
+        blueprint = emitter.emit_from_plan(layout_plan)
+        assert blueprint is not None
+
+
+class TestEntityCreationFailure:
+    """Tests for entity creation failure handling."""
+
+    def test_failed_entity_creation_logs_error(self):
+        """Test that unknown entity type still creates a generic entity with warning."""
+        diagnostics = ProgramDiagnostics()
+        emitter = BlueprintEmitter(diagnostics)
+        layout_plan = LayoutPlan()
+
+        # Create a placement with an unknown entity type (draftsman creates generic Entity)
+        layout_plan.create_and_add_placement(
+            ir_node_id="unknown_entity",
+            entity_type="nonexistent-entity-type-xyz",
+            position=(0.5, 0.5),
+            footprint=(1, 1),
+            role="unknown",
+        )
+
+        blueprint = emitter.emit_from_plan(layout_plan)
+        # Draftsman creates a generic entity for unknown types
+        assert len(blueprint.entities) == 1

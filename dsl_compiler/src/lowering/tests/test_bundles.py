@@ -17,18 +17,11 @@ from dsl_compiler.src.ast.expressions import (
 )
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.ir.nodes import IRArith, IRConst, IRDecider
-from dsl_compiler.src.lowering.lowerer import ASTLowerer
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 from dsl_compiler.src.semantic.type_system import BundleValue, SignalValue
 
-
-def lower_program(program, semantic_analyzer):
-    """Helper to lower a program to IR."""
-    diagnostics = ProgramDiagnostics()
-    lowerer = ASTLowerer(semantic_analyzer, diagnostics)
-    ir_operations = lowerer.lower_program(program)
-    return ir_operations, lowerer.diagnostics, lowerer.ir_builder.signal_type_map
+from .conftest import lower_program
 
 
 class TestBundleParsing:

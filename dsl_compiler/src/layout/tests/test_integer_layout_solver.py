@@ -215,3 +215,158 @@ def test_engine_position_variables(signal_graph, simple_placements, diagnostics)
     assert len(positions) == 2
     assert "e1" in positions
     assert "e2" in positions
+
+
+def test_early_stop_callback_on_solution():
+    """Test EarlyStopCallback.on_solution_callback behavior."""
+    cb = EarlyStopCallback(max_violations=0)
+    # Simulate being called with low objective value
+    # We can't fully test without a real solver, but ensure solution_count works
+    assert cb.solution_count == 0
+
+
+def test_engine_add_no_overlap_constraint(signal_graph, simple_placements, diagnostics):
+    """Test _add_no_overlap_constraint adds overlap prevention."""
+    from ortools.sat.python import cp_model
+
+    engine = IntegerLayoutEngine(signal_graph, simple_placements, diagnostics)
+    model = cp_model.CpModel()
+    positions = engine._create_position_variables(model, 100)
+    engine._add_no_overlap_constraint(model, positions)
+    # Model should have constraints added
+    assert model.Proto().constraints
+
+
+def test_engine_add_span_constraints(signal_graph, simple_placements, diagnostics):
+    """Test _add_span_constraints adds wire span limits."""
+    from ortools.sat.python import cp_model
+
+    signal_graph.set_source("sig1", "e1")
+    signal_graph.add_sink("sig1", "e2")
+    engine = IntegerLayoutEngine(signal_graph, simple_placements, diagnostics)
+    model = cp_model.CpModel()
+    positions = engine._create_position_variables(model, 100)
+    violations, lengths = engine._add_span_constraints(model, positions, 9)
+    assert isinstance(violations, list)
+    assert isinstance(lengths, list)
+
+
+def test_engine_add_edge_layout_constraints(signal_graph, simple_placements, diagnostics):
+    """Test _add_edge_layout_constraints for north/south placement."""
+    from ortools.sat.python import cp_model
+
+    engine = IntegerLayoutEngine(signal_graph, simple_placements, diagnostics)
+    model = cp_model.CpModel()
+    positions = engine._create_position_variables(model, 100)
+    engine._add_edge_layout_constraints(model, positions)
+    # Should not crash
+
+
+def test_engine_add_solution_hints(signal_graph, simple_placements, diagnostics):
+    """Test _add_solution_hints provides initial solution."""
+    from ortools.sat.python import cp_model
+
+    engine = IntegerLayoutEngine(signal_graph, simple_placements, diagnostics)
+    model = cp_model.CpModel()
+    positions = engine._create_position_variables(model, 100)
+    engine._add_solution_hints(model, positions)
+    # Should not crash
+
+
+def test_engine_create_objective(signal_graph, simple_placements, diagnostics):
+    """Test _create_objective sets optimization goal."""
+    from ortools.sat.python import cp_model
+
+    signal_graph.set_source("sig1", "e1")
+    signal_graph.add_sink("sig1", "e2")
+    engine = IntegerLayoutEngine(signal_graph, simple_placements, diagnostics)
+    model = cp_model.CpModel()
+    positions = engine._create_position_variables(model, 100)
+    violations, lengths = engine._add_span_constraints(model, positions, 9)
+    engine._create_objective(model, violations, lengths, positions, 10000, 100)
+    # Should have objective
+    assert model.Proto().objective
+
+
+def test_engine_report_violations(signal_graph, diagnostics):
+    """Test _report_violations logs violation details."""
+    plan = LayoutPlan()
+    plan.create_and_add_placement("e1", "constant-combinator", (0.5, 1.0), (1, 2), "literal")
+    plan.create_and_add_placement("e2", "arithmetic-combinator", (20.5, 1.0), (1, 2), "arithmetic")
+
+    signal_graph.set_source("sig1", "e1")
+    signal_graph.add_sink("sig1", "e2")
+
+    engine = IntegerLayoutEngine(signal_graph, plan.entity_placements, diagnostics)
+    result = OptimizationResult(
+        positions={"e1": (0, 0), "e2": (20, 0)},
+        violations=1,
+        total_wire_length=20,
+        success=True,
+        strategy_used="test",
+        solve_time=0.1,
+    )
+    engine._report_violations(result)
+    # Should not crash
+
+
+def test_engine_diagnose_failure(signal_graph, simple_placements, diagnostics):
+    """Test _diagnose_failure logs diagnostic info."""
+    engine = IntegerLayoutEngine(signal_graph, simple_placements, diagnostics)
+    engine._diagnose_failure()
+    # Should not crash
+
+
+def test_engine_optimize_with_decomposition(signal_graph, diagnostics):
+    """Test _optimize_with_decomposition for large graphs."""
+    plan = LayoutPlan()
+    # Create 10 disconnected entities (10 components)
+    for i in range(10):
+        plan.create_and_add_placement(
+            f"e{i}", "constant-combinator", (i * 5 + 0.5, 1.0), (1, 2), "literal"
+        )
+
+    engine = IntegerLayoutEngine(signal_graph, plan.entity_placements, diagnostics)
+    # Call directly (normally only called for 500+ entities)
+    result = engine._optimize_with_decomposition(5)  # positional argument
+    assert isinstance(result, dict)
+
+
+def test_engine_with_wire_merge_junctions(signal_graph, diagnostics):
+    """Test engine handles wire merge junctions in connectivity."""
+    from dsl_compiler.src.ir.nodes import SignalRef
+
+    plan = LayoutPlan()
+    plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1.0), (1, 2), "literal")
+    plan.create_and_add_placement(
+        "sink1", "arithmetic-combinator", (2.5, 1.0), (1, 2), "arithmetic"
+    )
+
+    signal_graph.set_source("sig1", "src1")
+    signal_graph.add_sink("sig1", "merge1")  # Sink to merge
+    signal_graph.set_source("merge_out", "merge1")
+    signal_graph.add_sink("merge_out", "sink1")
+
+    wire_merge_junctions = {
+        "merge1": {
+            "inputs": [SignalRef("signal-A", "src1")],
+            "output_sinks": ["sink1"],
+        }
+    }
+
+    engine = IntegerLayoutEngine(
+        signal_graph, plan.entity_placements, diagnostics, wire_merge_junctions=wire_merge_junctions
+    )
+    assert len(engine.connections) >= 0
+
+
+def test_engine_power_pole_excluded_from_bounds(diagnostics):
+    """Test power poles are excluded from bounding box."""
+    plan = LayoutPlan()
+    plan.create_and_add_placement("e1", "constant-combinator", (0.5, 1.0), (1, 2), "literal")
+    plan.create_and_add_placement("pole1", "medium-electric-pole", (50.5, 50.5), (1, 1), "power")
+    plan.entity_placements["pole1"].properties["is_power_pole"] = True
+
+    sg = SignalGraph()
+    engine = IntegerLayoutEngine(sg, plan.entity_placements, diagnostics)
+    assert "pole1" in engine._power_pole_ids

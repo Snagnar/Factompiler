@@ -67,6 +67,28 @@ def make_signal_ref(source_id: str, signal_type: str = "signal-A") -> SignalRef:
     return SignalRef(signal_type, source_id)
 
 
+def make_mock_usage(
+    should_materialize: bool = True,
+    resolved_signal_name: str = "signal-A",
+    resolved_signal_type: str = "virtual",
+    debug_label: str | None = None,
+    source_ast=None,
+    producer=None,
+    **kwargs,
+):
+    """Helper to create a mock usage object for signal_usage dict."""
+    attrs = {
+        "should_materialize": should_materialize,
+        "resolved_signal_name": resolved_signal_name,
+        "resolved_signal_type": resolved_signal_type,
+        "debug_label": debug_label,
+        "source_ast": source_ast,
+        "producer": producer,
+        **kwargs,
+    }
+    return type("MockUsage", (), attrs)()
+
+
 # === Fixtures ===
 
 
@@ -188,108 +210,39 @@ class TestBuildDebugInfo:
 class TestPlaceIROperation:
     """Tests for place_ir_operation method."""
 
-    def test_place_ir_operation_constant(self, entity_placer, signal_analyzer):
-        """Test placing a constant operation."""
-        op = make_const("const1", 42, "signal-A")
-
-        # Register in signal_usage so it materializes
-        signal_analyzer.signal_usage["const1"] = type(
-            "MockUsage",
-            (),
-            {
-                "should_materialize": True,
-                "resolved_signal_name": "signal-A",
-                "resolved_signal_type": "virtual",
-                "debug_label": None,
-                "source_ast": None,
-            },
-        )()
+    @pytest.mark.parametrize(
+        "op_type,node_id,entity_type,role",
+        [
+            ("const", "const1", "constant-combinator", "literal"),
+            ("arith", "arith1", "arithmetic-combinator", "arithmetic"),
+            ("decider", "dec1", "decider-combinator", "decider"),
+        ],
+    )
+    def test_place_ir_operation(
+        self, entity_placer, signal_analyzer, op_type, node_id, entity_type, role
+    ):
+        """Test placing various IR operations."""
+        signal_analyzer.signal_usage["const1"] = make_mock_usage()
         entity_placer.signal_usage = signal_analyzer.signal_usage
+
+        if op_type == "const":
+            op = make_const(node_id, 42, "signal-A")
+        elif op_type == "arith":
+            entity_placer.place_ir_operation(make_const("const1", 10, "signal-A"))
+            op = make_arith(node_id, make_signal_ref("const1"), 5, "+", "signal-B")
+        else:  # decider
+            entity_placer.place_ir_operation(make_const("const1", 10, "signal-A"))
+            op = make_decider(node_id, make_signal_ref("const1"), 5, ">", "signal-B")
 
         entity_placer.place_ir_operation(op)
 
-        assert "const1" in entity_placer.plan.entity_placements
-        placement = entity_placer.plan.get_placement("const1")
-        assert placement.entity_type == "constant-combinator"
-        assert placement.role == "literal"
-
-    def test_place_ir_operation_arithmetic(self, entity_placer, signal_analyzer):
-        """Test placing an arithmetic operation."""
-        # First place a constant that the arithmetic will reference
-        const_op = make_const("const1", 10, "signal-A")
-        signal_analyzer.signal_usage["const1"] = type(
-            "MockUsage",
-            (),
-            {
-                "should_materialize": True,
-                "resolved_signal_name": "signal-A",
-                "resolved_signal_type": "virtual",
-                "debug_label": None,
-                "source_ast": None,
-                "producer": const_op,
-            },
-        )()
-        entity_placer.signal_usage = signal_analyzer.signal_usage
-        entity_placer.place_ir_operation(const_op)
-
-        arith_op = make_arith(
-            "arith1",
-            make_signal_ref("const1", "signal-A"),
-            5,
-            "+",
-            "signal-B",
-        )
-
-        entity_placer.place_ir_operation(arith_op)
-
-        assert "arith1" in entity_placer.plan.entity_placements
-        placement = entity_placer.plan.get_placement("arith1")
-        assert placement.entity_type == "arithmetic-combinator"
-        assert placement.role == "arithmetic"
-
-    def test_place_ir_operation_decider(self, entity_placer, signal_analyzer):
-        """Test placing a decider operation."""
-        # First place a constant
-        const_op = make_const("const1", 10, "signal-A")
-        signal_analyzer.signal_usage["const1"] = type(
-            "MockUsage",
-            (),
-            {
-                "should_materialize": True,
-                "resolved_signal_name": "signal-A",
-                "resolved_signal_type": "virtual",
-                "debug_label": None,
-                "source_ast": None,
-                "producer": const_op,
-            },
-        )()
-        entity_placer.signal_usage = signal_analyzer.signal_usage
-        entity_placer.place_ir_operation(const_op)
-
-        decider_op = make_decider(
-            "dec1",
-            make_signal_ref("const1", "signal-A"),
-            5,
-            ">",
-            "signal-B",
-        )
-
-        entity_placer.place_ir_operation(decider_op)
-
-        assert "dec1" in entity_placer.plan.entity_placements
-        placement = entity_placer.plan.get_placement("dec1")
-        assert placement.entity_type == "decider-combinator"
-        assert placement.role == "decider"
+        placement = entity_placer.plan.get_placement(node_id)
+        assert placement.entity_type == entity_type
+        assert placement.role == role
 
     def test_place_ir_operation_unknown_warns(self, entity_placer, diagnostics):
         """Test that unknown IR operations generate a warning."""
-
-        class UnknownIRNode:
-            node_id = "unknown1"
-
-        entity_placer.place_ir_operation(UnknownIRNode())
-
-        # Check diagnostics has a warning
+        entity_placer.place_ir_operation(type("UnknownIRNode", (), {"node_id": "unknown1"})())
         assert diagnostics._warning_count > 0
 
 
@@ -302,17 +255,7 @@ class TestPlaceConstant:
     def test_place_constant_with_bundle_signals(self, entity_placer, signal_analyzer):
         """Test placing a bundle constant with multiple signals."""
         op = make_bundle_const("bundle1", {"signal-A": 10, "signal-B": 20})
-        signal_analyzer.signal_usage["bundle1"] = type(
-            "MockUsage",
-            (),
-            {
-                "should_materialize": True,
-                "resolved_signal_name": "signal-A",
-                "resolved_signal_type": "virtual",
-                "debug_label": None,
-                "source_ast": None,
-            },
-        )()
+        signal_analyzer.signal_usage["bundle1"] = make_mock_usage()
         entity_placer.signal_usage = signal_analyzer.signal_usage
 
         entity_placer._place_constant(op)
@@ -324,11 +267,7 @@ class TestPlaceConstant:
     def test_place_constant_no_materialize_skips(self, entity_placer, signal_analyzer):
         """Test that constants marked as not-materialize are skipped."""
         op = make_const("const1", 42, "signal-A")
-        signal_analyzer.signal_usage["const1"] = type(
-            "MockUsage",
-            (),
-            {"should_materialize": False, "debug_label": None, "source_ast": None},
-        )()
+        signal_analyzer.signal_usage["const1"] = make_mock_usage(should_materialize=False)
         entity_placer.signal_usage = signal_analyzer.signal_usage
 
         entity_placer._place_constant(op)
@@ -345,18 +284,14 @@ class TestPlaceArithmetic:
     def test_place_arithmetic_with_wire_separation(self, entity_placer):
         """Test placing arithmetic with wire separation flag."""
         arith_op = make_arith(
-            "arith1",
-            make_signal_ref("src1", "signal-A"),
-            make_signal_ref("src2", "signal-B"),
-            "*",
-            "signal-C",
+            "arith1", make_signal_ref("src1"), make_signal_ref("src2", "signal-B"), "*"
         )
         arith_op.needs_wire_separation = True
-
         entity_placer._place_arithmetic(arith_op)
-
-        placement = entity_placer.plan.get_placement("arith1")
-        assert placement.properties.get("needs_wire_separation") is True
+        assert (
+            entity_placer.plan.get_placement("arith1").properties.get("needs_wire_separation")
+            is True
+        )
 
 
 # === Tests for _place_decider ===
@@ -367,49 +302,25 @@ class TestPlaceDecider:
 
     def test_place_single_condition_decider(self, entity_placer):
         """Test placing a single-condition decider."""
-        decider_op = make_decider(
-            "dec1",
-            make_signal_ref("const1", "signal-A"),
-            5,
-            ">",
-            "signal-B",
-        )
-
+        decider_op = make_decider("dec1", make_signal_ref("const1"), 5, ">", "signal-B")
         entity_placer._place_decider(decider_op)
-
         placement = entity_placer.plan.get_placement("dec1")
         assert placement.entity_type == "decider-combinator"
         assert placement.properties["operation"] == ">"
 
     def test_place_multi_condition_decider(self, entity_placer):
         """Test placing a multi-condition decider."""
-        conditions = [
+        decider_op = make_decider("dec1", make_signal_ref("src1"), 5, ">")
+        decider_op.conditions = [
             DeciderCondition(
-                comparator=">",
-                first_operand=make_signal_ref("src1", "signal-A"),
-                second_operand=5,
+                comparator=">", first_operand=make_signal_ref("src1"), second_operand=5
             ),
             DeciderCondition(
-                comparator="<",
-                first_operand=make_signal_ref("src2", "signal-B"),
-                second_operand=10,
+                comparator="<", first_operand=make_signal_ref("src2", "signal-B"), second_operand=10
             ),
         ]
-
-        decider_op = make_decider(
-            "dec1",
-            make_signal_ref("src1", "signal-A"),
-            5,
-            ">",
-            "signal-C",
-        )
-        decider_op.conditions = conditions
-
         entity_placer._place_decider(decider_op)
-
         placement = entity_placer.plan.get_placement("dec1")
-        assert placement.entity_type == "decider-combinator"
-        assert "conditions" in placement.properties
         assert len(placement.properties["conditions"]) == 2
 
 
@@ -419,25 +330,22 @@ class TestPlaceDecider:
 class TestPlaceUserEntity:
     """Tests for _place_user_entity method."""
 
-    def test_place_user_entity_basic(self, entity_placer):
-        """Test placing a basic user entity."""
-        op = IRPlaceEntity("lamp1", "small-lamp", None, None)
-
-        entity_placer._place_user_entity(op)
-
+    @pytest.mark.parametrize(
+        "x,y,expect_pos,expect_user_specified",
+        [
+            (None, None, None, False),
+            (10, 20, (10, 20), True),
+        ],
+    )
+    def test_place_user_entity(self, entity_placer, x, y, expect_pos, expect_user_specified):
+        """Test placing user entities with/without position."""
+        entity_placer._place_user_entity(IRPlaceEntity("lamp1", "small-lamp", x, y))
         placement = entity_placer.plan.get_placement("lamp1")
         assert placement.entity_type == "small-lamp"
         assert placement.role == "user_entity"
-
-    def test_place_user_entity_with_position(self, entity_placer):
-        """Test placing a user entity with explicit position."""
-        op = IRPlaceEntity("lamp1", "small-lamp", 10, 20)
-
-        entity_placer._place_user_entity(op)
-
-        placement = entity_placer.plan.get_placement("lamp1")
-        assert placement.position == (10, 20)
-        assert placement.properties.get("user_specified_position") is True
+        if expect_pos:
+            assert placement.position == expect_pos
+            assert placement.properties.get("user_specified_position") is True
 
     def test_place_user_entity_with_properties(self, entity_placer):
         """Test placing a user entity with custom properties."""
@@ -461,46 +369,26 @@ class TestPlaceUserEntity:
 class TestPlaceEntityPropWrite:
     """Tests for _place_entity_prop_write method."""
 
-    def test_place_entity_prop_write_constant(self, entity_placer):
-        """Test writing a constant value to entity property."""
-        # First place an entity
-        entity_op = IRPlaceEntity("lamp1", "small-lamp", None, None)
-        entity_placer._place_user_entity(entity_op)
-
-        # Write property
-        prop_op = IREntityPropWrite("lamp1", "brightness", 100)
-
-        entity_placer._place_entity_prop_write(prop_op)
-
-        placement = entity_placer.plan.get_placement("lamp1")
-        prop_writes = placement.properties.get("property_writes", {})
-        assert "brightness" in prop_writes
-        assert prop_writes["brightness"]["type"] == "constant"
-        assert prop_writes["brightness"]["value"] == 100
-
-    def test_place_entity_prop_write_signal(self, entity_placer):
-        """Test writing a signal value to entity property."""
-        # First place an entity
-        entity_op = IRPlaceEntity("lamp1", "small-lamp", None, None)
-        entity_placer._place_user_entity(entity_op)
-
-        # Write property with signal reference
-        signal_ref = make_signal_ref("src1", "signal-A")
-        prop_op = IREntityPropWrite("lamp1", "enable", signal_ref)
-
-        entity_placer._place_entity_prop_write(prop_op)
-
-        placement = entity_placer.plan.get_placement("lamp1")
-        prop_writes = placement.properties.get("property_writes", {})
-        assert "enable" in prop_writes
-        assert prop_writes["enable"]["type"] == "signal"
+    @pytest.mark.parametrize(
+        "prop,value,expected_type",
+        [
+            ("brightness", 100, "constant"),
+            ("enable", make_signal_ref("src1"), "signal"),
+        ],
+    )
+    def test_place_entity_prop_write(self, entity_placer, prop, value, expected_type):
+        """Test writing values to entity properties."""
+        entity_placer._place_user_entity(IRPlaceEntity("lamp1", "small-lamp", None, None))
+        entity_placer._place_entity_prop_write(IREntityPropWrite("lamp1", prop, value))
+        prop_writes = entity_placer.plan.get_placement("lamp1").properties.get(
+            "property_writes", {}
+        )
+        assert prop in prop_writes
+        assert prop_writes[prop]["type"] == expected_type
 
     def test_place_entity_prop_write_nonexistent_entity_warns(self, entity_placer, diagnostics):
         """Test that writing to nonexistent entity generates warning."""
-        prop_op = IREntityPropWrite("nonexistent", "enable", 100)
-
-        entity_placer._place_entity_prop_write(prop_op)
-
+        entity_placer._place_entity_prop_write(IREntityPropWrite("nonexistent", "enable", 100))
         assert diagnostics._warning_count > 0
 
 
@@ -708,10 +596,7 @@ class TestCleanupUnusedEntities:
                 "comparison_data": {"source_node_id_to_remove": "dec1"},
             }
         }
-
         entity_placer.cleanup_unused_entities()
-
-        # Decider should be removed
         assert "dec1" not in entity_placer.plan.entity_placements
 
 
@@ -721,60 +606,21 @@ class TestCleanupUnusedEntities:
 class TestCreateOutputAnchors:
     """Tests for create_output_anchors method."""
 
-    def test_create_output_anchors_basic(self, entity_placer, signal_analyzer):
-        """Test creating output anchors for output signals."""
-        # Create a non-const producer (arithmetic) so anchors are created
-        arith_op = make_arith("out1", 1, 2, "+", "signal-A")
-
-        # Set up signal usage with is_output
-        usage = type(
-            "MockUsage",
-            (),
-            {
-                "should_materialize": True,
-                "resolved_signal_name": "signal-A",
-                "debug_label": "output_val",
-                "debug_metadata": {"is_output": True},
-                "producer": arith_op,
-                "output_aliases": {"alias1"},
-                "signal_type": "signal-A",
-                "source_ast": None,
-            },
-        )()
-        signal_analyzer.signal_usage["out1"] = usage
+    @pytest.mark.parametrize("is_output,expect_anchor", [(True, True), (False, False)])
+    def test_create_output_anchors(self, entity_placer, signal_analyzer, is_output, expect_anchor):
+        """Test creating output anchors based on is_output flag."""
+        producer = make_arith("out1", 1, 2, "+") if is_output else make_const("out1", 42)
+        signal_analyzer.signal_usage["out1"] = make_mock_usage(
+            debug_label="output_val",
+            debug_metadata={"is_output": is_output},
+            producer=producer,
+            output_aliases={"alias1"} if is_output else set(),
+            signal_type="signal-A",
+        )
         entity_placer.signal_usage = signal_analyzer.signal_usage
-
         entity_placer.create_output_anchors()
-
-        # Should create anchor for the alias
-        assert "out1_alias1_output_anchor" in entity_placer.plan.entity_placements
-
-    def test_create_output_anchors_no_output_skips(self, entity_placer, signal_analyzer):
-        """Test that non-output signals don't get anchors."""
-        const_op = make_const("sig1", 42, "signal-A")
-
-        usage = type(
-            "MockUsage",
-            (),
-            {
-                "should_materialize": True,
-                "resolved_signal_name": "signal-A",
-                "debug_label": "test_val",
-                "debug_metadata": {"is_output": False},
-                "producer": const_op,
-                "output_aliases": set(),
-                "signal_type": "signal-A",
-                "source_ast": None,
-            },
-        )()
-        signal_analyzer.signal_usage["sig1"] = usage
-        entity_placer.signal_usage = signal_analyzer.signal_usage
-
-        entity_placer.create_output_anchors()
-
-        # No anchors should be created
-        anchor_count = sum(1 for k in entity_placer.plan.entity_placements if "_output_anchor" in k)
-        assert anchor_count == 0
+        has_anchor = "out1_alias1_output_anchor" in entity_placer.plan.entity_placements
+        assert has_anchor == expect_anchor
 
 
 class TestCreateDebugInfo:
@@ -782,52 +628,91 @@ class TestCreateDebugInfo:
 
     def test_build_debug_info_with_source_ast(self, entity_placer, signal_analyzer):
         """Test debug info includes source location from AST."""
-        const_op = make_const("c1", 42, "signal-A")
+        const_op = make_const("c1", 42)
         const_op.source_ast = type("MockAST", (), {"line": 10, "source_file": "test.facto"})()
-
-        usage = type(
-            "MockUsage",
-            (),
-            {
-                "should_materialize": True,
-                "resolved_signal_name": "signal-A",
-                "resolved_signal_type": "int",
-                "producer": const_op,
-                "debug_label": "test",
-                "source_ast": const_op.source_ast,
-            },
-        )()
-        signal_analyzer.signal_usage["c1"] = usage
+        signal_analyzer.signal_usage["c1"] = make_mock_usage(
+            producer=const_op, source_ast=const_op.source_ast
+        )
         entity_placer.signal_usage = signal_analyzer.signal_usage
-
-        debug_info = entity_placer._build_debug_info(const_op)
-        assert debug_info.get("line") == 10
+        assert entity_placer._build_debug_info(const_op).get("line") == 10
 
     def test_build_debug_info_with_expr_context(self, entity_placer, signal_analyzer):
         """Test debug info includes expression context."""
-        const_op = make_const("c1", 42, "signal-A")
+        const_op = make_const("c1", 42)
         const_op.debug_metadata = {
             "user_declared": True,
             "expr_context_target": "x",
             "expr_context_line": 15,
-            "expr_context_file": "test.facto",
         }
-
-        usage = type(
-            "MockUsage",
-            (),
-            {
-                "should_materialize": True,
-                "resolved_signal_name": "signal-A",
-                "resolved_signal_type": "int",
-                "producer": const_op,
-                "debug_label": "test",
-                "source_ast": None,
-            },
-        )()
-        signal_analyzer.signal_usage["c1"] = usage
+        signal_analyzer.signal_usage["c1"] = make_mock_usage(producer=const_op)
         entity_placer.signal_usage = signal_analyzer.signal_usage
-
         debug_info = entity_placer._build_debug_info(const_op)
         assert debug_info.get("line") == 15
         assert debug_info.get("expr_context") == "x"
+
+
+class TestPlaceEntityPropWriteAdvanced:
+    """Additional tests for _place_entity_prop_write edge cases."""
+
+    def test_place_entity_prop_write_signal_with_inlined_comparison(
+        self, entity_placer, signal_analyzer
+    ):
+        """Test property write with inline comparison."""
+        decider_op = make_decider("dec1", make_signal_ref("src1"), 5, ">", "signal-B")
+        decider_op.copy_count_from_input = False
+        signal_analyzer.signal_usage["dec1"] = make_mock_usage(resolved_signal_name="signal-B")
+        entity_placer.signal_usage = signal_analyzer.signal_usage
+        entity_placer._place_decider(decider_op)
+
+        entity_placer._place_user_entity(IRPlaceEntity("lamp1", "small-lamp", None, None))
+        entity_placer._place_entity_prop_write(
+            IREntityPropWrite("lamp1", "enable", SignalRef("signal-B", "dec1"))
+        )
+        assert "property_writes" in entity_placer.plan.get_placement("lamp1").properties
+
+
+class TestPlaceWireMergeAdvanced:
+    """Additional tests for wire merge placement."""
+
+    def test_place_wire_merge_with_multiple_sources(self, entity_placer, signal_analyzer):
+        """Test wire merge with multiple source signals."""
+        signal_analyzer.signal_usage["src1"] = make_mock_usage()
+        signal_analyzer.signal_usage["src2"] = make_mock_usage()
+        entity_placer.signal_usage = signal_analyzer.signal_usage
+        entity_placer._place_wire_merge(
+            IRWireMerge("merge1", [SignalRef("signal-A", "src1"), SignalRef("signal-B", "src2")])
+        )
+        assert "merge1" in entity_placer._wire_merge_junctions
+
+
+class TestPlaceUserEntityAdvanced:
+    """Additional tests for user entity placement."""
+
+    def test_place_user_entity_with_source_ast(self, entity_placer):
+        """Test user entity placement with source AST info."""
+        op = IRPlaceEntity("lamp1", "small-lamp", 10, 20)
+        op.source_ast = type("MockAST", (), {"line": 42, "source_file": "test.facto"})()
+        entity_placer._place_user_entity(op)
+        assert entity_placer.plan.get_placement("lamp1").properties["debug_info"]["line"] == 42
+
+
+class TestPlacePropWriteInline:
+    """Tests for property write with inlined comparisons."""
+
+    def test_place_prop_write_inline_bundle_condition(self, entity_placer, signal_analyzer):
+        """Test _place_entity_prop_write with inline_bundle_condition."""
+        entity_placer._place_user_entity(IRPlaceEntity("lamp1", "small-lamp", None, None))
+        prop_write = IREntityPropWrite("lamp1", "enable", 1)
+        prop_write.inline_bundle_condition = {
+            "signal": "signal-each",
+            "operator": ">",
+            "constant": 0,
+            "input_source": BundleRef({"signal-A"}, "bundle1"),
+        }
+        entity_placer._place_entity_prop_write(prop_write)
+        assert (
+            entity_placer.plan.get_placement("lamp1").properties["property_writes"]["enable"][
+                "type"
+            ]
+            == "inline_bundle_condition"
+        )

@@ -5,23 +5,9 @@ This module tests the MemoryLowerer class which handles converting
 memory declarations and operations to IR.
 """
 
-from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.ir.nodes import IRMemCreate, IRMemRead, IRMemWrite
-from dsl_compiler.src.lowering.lowerer import ASTLowerer
-from dsl_compiler.src.parsing.parser import DSLParser
-from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 
-
-def compile_to_ir(source: str):
-    """Helper to compile source to IR operations."""
-    parser = DSLParser()
-    diagnostics = ProgramDiagnostics()
-    analyzer = SemanticAnalyzer(diagnostics)
-    program = parser.parse(source)
-    analyzer.visit(program)
-    lowerer = ASTLowerer(analyzer, diagnostics)
-    ir_ops = lowerer.lower_program(program)
-    return ir_ops, lowerer, diagnostics
+from .conftest import compile_to_ir
 
 
 class TestLowerMemDecl:
@@ -142,3 +128,178 @@ class TestMemoryFeedbackPatterns:
         counter.write(counter.read() + 1, when=enable > 0);
         """)
         assert not diags.has_errors()
+
+
+class TestMemoryEdgeCases:
+    """Tests for memory lowering edge cases."""
+
+    def test_memory_write_int_value(self):
+        """Test memory write with integer value (lines 308-318)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory m: "signal-A";
+        m.write(100);
+        """)
+        assert not diags.has_errors()
+        mem_writes = [op for op in ir_ops if isinstance(op, IRMemWrite)]
+        assert len(mem_writes) >= 1
+
+    def test_memory_signal_type_lookup(self):
+        """Test _memory_signal_type lookups (lines 268-278)."""
+        ir_ops, lowerer, diags = compile_to_ir("""
+        Memory m: "iron-plate";
+        Signal x = m.read();
+        """)
+        assert not diags.has_errors()
+
+    def test_latch_with_signal_ref(self):
+        """Test latch with signal reference set/reset (lines 157-161)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory latch: "signal-A";
+        Signal s = ("signal-B", 1);
+        Signal r = ("signal-C", 1);
+        latch.write(1, set=s, reset=r);
+        """)
+        assert not diags.has_errors()
+
+    def test_coerce_signal_ref_type_mismatch(self):
+        """Test coercing SignalRef with different signal type (lines 285-305)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory m: "signal-A";
+        Signal x = ("signal-B", 50);
+        m.write(x);
+        """)
+        # May have warnings about type mismatch
+        assert len(ir_ops) > 0
+
+
+class TestMemorySignalTypeLookup:
+    """Tests for _memory_signal_type lookups."""
+
+    def test_lookup_from_memory_types_dict(self):
+        """Test lookup from parent.memory_types."""
+        ir_ops, lowerer, diags = compile_to_ir("""
+        Memory m: "signal-A";
+        m.write(42);
+        """)
+        assert not diags.has_errors()
+        assert "m" in lowerer.memory_types
+
+    def test_lookup_from_semantic_memory_types(self):
+        """Test lookup from semantic.memory_types."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory counter: "signal-B";
+        Signal x = counter.read() + 1;
+        """)
+        assert not diags.has_errors()
+
+    def test_lookup_from_symbol_table(self):
+        """Test lookup from symbol table."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory items: "iron-plate";
+        Signal val = items.read();
+        """)
+        assert not diags.has_errors()
+
+
+class TestLatchWithNonSignalRef:
+    """Tests for latch operations (lines 157-161)."""
+
+    def test_latch_set_signal_type_extraction(self):
+        """Test that latch extracts signal type from set reference."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory latch: "signal-A";
+        latch.write(1, set=("signal-B", 1), reset=("signal-C", 0));
+        """)
+        assert not diags.has_errors()
+
+    def test_latch_with_value_not_one(self):
+        """Test latch with value != 1 (needs multiplier)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory latch: "signal-A";
+        latch.write(5, set=("signal-B", 1), reset=("signal-C", 0));
+        """)
+        assert not diags.has_errors()
+
+
+class TestCoerceToSignalType:
+    """Tests for _coerce_to_signal_type (lines 281-319)."""
+
+    def test_coerce_int_to_signal(self):
+        """Test coercing integer value to signal type."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory m: "signal-A";
+        m.write(100);
+        """)
+        assert not diags.has_errors()
+
+    def test_coerce_matching_signal_type(self):
+        """Test coercing SignalRef with matching type (no conversion)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory m: "signal-A";
+        Signal x = ("signal-A", 50);
+        m.write(x);
+        """)
+        assert not diags.has_errors()
+
+    def test_coerce_mismatched_signal_emits_warning(self):
+        """Test coercing SignalRef with mismatched type emits warning."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory m: "signal-A";
+        Signal y = ("signal-C", 30);
+        m.write(y);
+        """)
+        # Should have warnings
+        assert len(ir_ops) > 0
+
+    def test_coerce_signal_ref_same_type(self):
+        """Test that same signal type returns the ref unchanged."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory m: "signal-0";
+        Signal x = ("signal-0", 42);
+        m.write(x);
+        """)
+        assert not diags.has_errors()
+
+
+class TestMemoryDeclSignalType:
+    """Tests for memory declaration signal type handling (lines 58-67)."""
+
+    def test_memory_with_explicit_signal_type(self):
+        """Test memory declaration with explicit signal type."""
+        ir_ops, lowerer, diags = compile_to_ir("""
+        Memory counter: "signal-red";
+        counter.write(1);
+        """)
+        assert not diags.has_errors()
+
+    def test_memory_from_symbol_table_lookup(self):
+        """Test memory signal type from symbol table lookup."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory m: "signal-white";
+        Signal x = m.read();
+        """)
+        assert not diags.has_errors()
+
+
+class TestWriteEnableCondition:
+    """Tests for write enable condition handling."""
+
+    def test_write_with_complex_when_condition(self):
+        """Test memory write with complex when condition."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory m: "signal-A";
+        Signal a = 5;
+        Signal b = 10;
+        m.write(42, when=a < b);
+        """)
+        assert not diags.has_errors()
+
+    def test_write_without_when(self):
+        """Test memory write without when condition (always enabled)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory m: "signal-A";
+        m.write(123);
+        """)
+        assert not diags.has_errors()
+        mem_writes = [op for op in ir_ops if isinstance(op, IRMemWrite)]
+        assert len(mem_writes) >= 1

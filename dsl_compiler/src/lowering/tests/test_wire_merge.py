@@ -6,17 +6,10 @@ import pytest
 
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.ir.builder import IRArith, IRWireMerge
-from dsl_compiler.src.lowering.lowerer import ASTLowerer
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 
-
-def lower_program(program, semantic_analyzer):
-    """Helper to lower a program to IR."""
-    diagnostics = ProgramDiagnostics()
-    lowerer = ASTLowerer(semantic_analyzer, diagnostics)
-    ir_operations = lowerer.lower_program(program)
-    return ir_operations, lowerer.diagnostics, lowerer.ir_builder.signal_type_map
+from .conftest import lower_program
 
 
 @pytest.fixture

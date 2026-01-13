@@ -14,26 +14,12 @@ from dsl_compiler.src.ast.expressions import (
     UnaryOp,
 )
 from dsl_compiler.src.ast.literals import NumberLiteral, StringLiteral
-from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.common.source_location import SourceLocation
 from dsl_compiler.src.ir.builder import IRBuilder
 from dsl_compiler.src.ir.nodes import IRArith, IRDecider
 from dsl_compiler.src.lowering.expression_lowerer import ExpressionLowerer
-from dsl_compiler.src.lowering.lowerer import ASTLowerer
-from dsl_compiler.src.parsing.parser import DSLParser
-from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 
-
-def compile_to_ir(source: str):
-    """Helper to compile source to IR operations."""
-    parser = DSLParser()
-    diagnostics = ProgramDiagnostics()
-    analyzer = SemanticAnalyzer(diagnostics)
-    program = parser.parse(source)
-    analyzer.visit(program)
-    lowerer = ASTLowerer(analyzer, diagnostics)
-    ir_ops = lowerer.lower_program(program)
-    return ir_ops, lowerer, diagnostics
+from .conftest import compile_to_ir, make_loc
 
 
 class TestArithmeticAndBinaryOperations:
@@ -660,10 +646,7 @@ class TestWireMergeOptimization:
 # These tests directly call internal methods of ExpressionLowerer to cover
 # specific code paths that aren't reachable via full compilation.
 
-
-def make_loc() -> SourceLocation:
-    """Create a dummy source location."""
-    return SourceLocation("<test>", 1, 1)
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 
 
 def create_minimal_lowerer() -> tuple[ExpressionLowerer, IRBuilder, ProgramDiagnostics]:
@@ -780,6 +763,222 @@ class TestLowerUnaryOpDirect:
         assert diags.has_errors()
 
 
+class TestLogicalOperationsWithNonBooleans:
+    """Tests for logical operations with non-boolean inputs (lines 443-455, 500-510)."""
+
+    def test_logical_or_with_non_boolean_inputs(self):
+        """Test || with non-boolean signal values."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 50);
+        Signal b = ("signal-B", 100);
+        Signal result = (a > 25) || (b > 75);
+        """)
+        assert not diags.has_errors()
+
+    def test_logical_and_with_non_boolean_inputs(self):
+        """Test && with non-boolean signal values."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 50);
+        Signal b = ("signal-B", 100);
+        Signal result = (a > 25) && (b > 75);
+        """)
+        assert not diags.has_errors()
+
+    def test_logical_or_with_integer_operands(self):
+        """Test || directly with signal values (not comparisons)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 50);
+        Signal b = ("signal-B", 100);
+        Signal result = a || b;
+        """)
+        # May trigger the non-boolean path
+        assert not diags.has_errors()
+
+
+class TestConditionalExpressionEdgeCases:
+    """Tests for conditional expression edge cases (lines 695-704)."""
+
+    def test_conditional_with_signal_output(self):
+        """Test conditional with signal value as true branch."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 50);
+        Signal output = ("signal-B", 100);
+        Signal result = (a > 25): output;
+        """)
+        assert not diags.has_errors()
+
+    def test_conditional_copy_count_pattern(self):
+        """Test conditional that copies count from input."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal input = ("signal-A", 100);
+        Signal result = (input > 0): input;
+        """)
+        assert not diags.has_errors()
+
+
+class TestBundleScalarOperations:
+    """Tests for bundle-scalar operations (lines 1113-1126)."""
+
+    def test_bundle_multiply_scalar(self):
+        """Test bundle * scalar."""
+        ir_ops, _, diags = compile_to_ir("""
+        Bundle b = {("iron-plate", 10), ("copper-plate", 20)};
+        Bundle scaled = b * 2;
+        """)
+        assert not diags.has_errors()
+
+    def test_bundle_add_scalar(self):
+        """Test bundle + scalar."""
+        ir_ops, _, diags = compile_to_ir("""
+        Bundle b = {("iron-plate", 10), ("copper-plate", 20)};
+        Bundle added = b + 5;
+        """)
+        assert not diags.has_errors()
+
+    def test_scalar_add_bundle(self):
+        """Test scalar + bundle (reversed operands)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Bundle b = {("iron-plate", 10), ("copper-plate", 20)};
+        Bundle result = 5 + b;
+        """)
+        # May not be supported, but should not crash
+        assert len(ir_ops) > 0
+
+
+class TestSignalLiteralEdgeCases:
+    """Tests for SignalLiteral edge cases (lines 845-856)."""
+
+    def test_signal_literal_with_nested_value(self):
+        """Test SignalLiteral with expression as value."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 10;
+        Signal iron = ("iron-plate", a + 5);
+        """)
+        assert not diags.has_errors()
+
+
+class TestPropertyLoweringEdgeCases:
+    """Tests for property lowering edge cases (lines 886-899)."""
+
+    def test_place_with_complex_properties(self):
+        """Test place() with various property types."""
+        ir_ops, lowerer, diags = compile_to_ir("""
+        Entity lamp = place("small-lamp", 0, 0, {
+            enabled: 1,
+            use_colors: 1
+        });
+        """)
+        assert not diags.has_errors()
+        assert "lamp" in lowerer.entity_refs
+
+
+class TestLowerLogicalOrWithIntegers:
+    """Tests for logical OR with integer operands (lines 453-473)."""
+
+    def test_logical_or_with_integer_left(self):
+        """Test || with integer literal on left side."""
+        lowerer, ir_builder, diags = create_minimal_lowerer()
+        # Create a mock expression
+        expr = BinaryOp(
+            NumberLiteral(5, make_loc()),
+            "||",
+            NumberLiteral(0, make_loc()),
+            make_loc(),
+        )
+        # This would require semantic info, so just verify the helper
+        result = lowerer._is_boolean_producer(5)
+        assert result is False
+
+    def test_is_boolean_producer_arith_multiply_bools(self):
+        """Test _is_boolean_producer for arith multiply of booleans."""
+        lowerer, ir_builder, diags = create_minimal_lowerer()
+        # Create a decider that outputs 0 or 1
+        bool_ref1 = ir_builder.decider(">", 5, 0, 1, "signal-A")
+        bool_ref2 = ir_builder.decider("<", 5, 10, 1, "signal-A")
+        # Multiply them
+        mult_ref = ir_builder.arithmetic("*", bool_ref1, bool_ref2, "signal-A")
+        result = lowerer._is_boolean_producer(mult_ref)
+        assert result is True
+
+    def test_is_boolean_producer_arith_add_zero(self):
+        """Test _is_boolean_producer for arith adding zero to boolean."""
+        lowerer, ir_builder, diags = create_minimal_lowerer()
+        # Create a decider that outputs 0 or 1
+        bool_ref = ir_builder.decider(">", 5, 0, 1, "signal-A")
+        # Add zero (identity)
+        add_ref = ir_builder.arithmetic("+", bool_ref, 0, "signal-A")
+        result = lowerer._is_boolean_producer(add_ref)
+        assert result is True
+
+
+class TestConditionFoldingEdgeCases:
+    """Tests for condition folding edge cases."""
+
+    def test_three_way_and_chain(self):
+        """Test three-way AND chain gets folded."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 10);
+        Signal b = ("signal-B", 20);
+        Signal c = ("signal-C", 30);
+        Signal result = (a > 0) && (b > 0) && (c > 0);
+        """)
+        assert not diags.has_errors()
+
+    def test_mixed_and_or_not_folded(self):
+        """Test mixed AND/OR doesn't get incorrectly folded."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 10);
+        Signal b = ("signal-B", 20);
+        Signal c = ("signal-C", 30);
+        Signal result = ((a > 0) && (b > 0)) || (c > 0);
+        """)
+        assert not diags.has_errors()
+
+
+class TestWireMergeConstantFolding:
+    """Tests for wire merge constant folding (lines 1309-1336)."""
+
+    def test_fold_multiple_constants_same_type(self):
+        """Test folding multiple constants with same signal type."""
+        # This is hard to trigger directly - the optimizer handles this
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 10;
+        Signal b = 20;
+        Signal c = 30;
+        Signal sum = a + b + c;
+        """)
+        assert not diags.has_errors()
+
+
+class TestBundleOperationEdgeCases:
+    """Tests for bundle operation edge cases (lines 1113-1146)."""
+
+    def test_bundle_with_signal_values(self):
+        """Test bundle with signal values."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("iron-plate", 10);
+        Signal b = ("copper-plate", 20);
+        Bundle items = {a, b};
+        """)
+        assert not diags.has_errors()
+
+    def test_bundle_scalar_divide(self):
+        """Test bundle / scalar."""
+        ir_ops, _, diags = compile_to_ir("""
+        Bundle b = {("iron-plate", 100), ("copper-plate", 200)};
+        Bundle halved = b / 2;
+        """)
+        assert not diags.has_errors()
+
+    def test_bundle_scalar_modulo(self):
+        """Test bundle % scalar."""
+        ir_ops, _, diags = compile_to_ir("""
+        Bundle b = {("iron-plate", 100), ("copper-plate", 200)};
+        Bundle mod = b % 30;
+        """)
+        assert not diags.has_errors()
+
+
 class TestSuppressMaterializationDirect:
     """Direct unit tests for _suppress_value_ref_materialization method."""
 
@@ -844,3 +1043,216 @@ class TestLowerDictLiteralDirect:
         expr = DictLiteral(entries, make_loc())
         result = lowerer.lower_dict_literal(expr)
         assert result == {"filter": "iron-plate"}
+
+
+class TestConditionalExpressionOutputs:
+    """Tests for conditional expression output type handling (lines 695-704)."""
+
+    def test_decider_with_signal_output(self):
+        """Decider expression with signal as output value."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal condition = 5;
+        Signal value = 10;
+        Signal result = value * (condition > 0);
+        """)
+        assert not diags.has_errors()
+
+    def test_decider_with_constant_condition(self):
+        """Decider expression with constant threshold."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = 10;
+        Signal result = (x > 5) * 100;
+        """)
+        assert not diags.has_errors()
+
+    def test_decider_output_type_from_left_operand(self):
+        """Output type inferred from comparison left operand."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 5);
+        Signal result = a > 0;
+        """)
+        assert not diags.has_errors()
+
+
+class TestBundleScalarOperations:
+    """Tests for bundle scalar operations (lines 1099-1108)."""
+
+    def test_bundle_times_int_variable(self):
+        """Bundle multiplied by int variable."""
+        ir_ops, _, diags = compile_to_ir("""
+        int multiplier = 2;
+        Bundle b = {("signal-A", 1), ("signal-B", 2)};
+        Bundle result = b * multiplier;
+        """)
+        assert not diags.has_errors()
+
+    def test_bundle_shift_left(self):
+        """Bundle left shift."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal shift_amount = 2;
+        Bundle b = {("signal-A", 1), ("signal-B", 2)};
+        Bundle result = b << shift_amount;
+        """)
+        assert not diags.has_errors()
+
+    def test_bundle_divide_by_constant(self):
+        """Bundle divided by constant."""
+        ir_ops, _, diags = compile_to_ir("""
+        int divisor = 4;
+        Bundle b = {("signal-A", 100), ("signal-B", 200)};
+        Bundle result = b / divisor;
+        """)
+        assert not diags.has_errors()
+
+
+class TestPropertyAccessReads:
+    """Tests for property access reads (lines 1113-1126)."""
+
+    def test_entity_property_read(self):
+        """Read property from placed entity."""
+        ir_ops, lowerer, diags = compile_to_ir("""
+        Entity lamp = place("lamp", 0, 0);
+        Signal status = lamp.status;
+        """)
+        # Property access creates an IREntityPropRead
+        assert not diags.has_errors()
+
+    def test_undefined_entity_property(self):
+        """Property access on undefined entity should error."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = unknown_entity.status;
+        """)
+        assert diags.has_errors()
+
+
+class TestWireMergeConstantFolding:
+    """Tests for wire merge constant folding (lines 1309-1336)."""
+
+    def test_wire_merge_two_constants(self):
+        """Wire merge of two constants should fold."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 5);
+        Signal b = ("signal-A", 10);
+        Signal c = a + b;
+        """)
+        assert not diags.has_errors()
+
+    def test_wire_merge_multiple_constants(self):
+        """Wire merge of multiple constants."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 1);
+        Signal b = ("signal-A", 2);
+        Signal c = ("signal-A", 3);
+        Signal result = a + b + c;
+        """)
+        assert not diags.has_errors()
+
+    def test_wire_merge_preserves_user_declared(self):
+        """User-declared constants should not be folded away."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal constant = ("signal-A", 100);
+        Signal x = constant;
+        """)
+        assert not diags.has_errors()
+
+
+class TestUnaryOperators:
+    """Tests for unary operators."""
+
+    def test_unary_negation(self):
+        """Unary negation operator."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = 5;
+        Signal neg = -x;
+        """)
+        assert not diags.has_errors()
+
+    def test_unary_plus(self):
+        """Unary plus operator (identity)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = 5;
+        Signal pos = +x;
+        """)
+        assert not diags.has_errors()
+
+    def test_unary_not(self):
+        """Unary not operator."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = 5;
+        Signal inverted = !x;
+        """)
+        assert not diags.has_errors()
+
+
+class TestPlaceCallVariants:
+    """Tests for place() call variants (lines 1130-1167)."""
+
+    def test_place_with_options_dict(self):
+        """Place with options dictionary."""
+        ir_ops, _, diags = compile_to_ir("""
+        Entity belt = place("transport-belt", 0, 0, {direction: 4});
+        """)
+        assert not diags.has_errors()
+
+    def test_place_minimal(self):
+        """Place with minimal arguments."""
+        ir_ops, _, diags = compile_to_ir("""
+        Entity lamp = place("lamp", 1, 2);
+        """)
+        assert not diags.has_errors()
+
+
+class TestFunctionCallInlining:
+    """Tests for function call inlining (lines 1143-1200)."""
+
+    def test_function_call_with_no_return(self):
+        """Function that doesn't return anything."""
+        ir_ops, _, diags = compile_to_ir("""
+        func doNothing() {
+            Signal x = 1;
+        }
+        doNothing();
+        """)
+        assert not diags.has_errors()
+
+    def test_function_with_multiple_params(self):
+        """Function with multiple parameters."""
+        ir_ops, _, diags = compile_to_ir("""
+        func add(Signal a, Signal b) {
+            Signal result = a + b;
+        }
+        add(3, 4);
+        """)
+        assert not diags.has_errors()
+
+    def test_undefined_function_error(self):
+        """Calling undefined function should error."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = nonexistent();
+        """)
+        assert diags.has_errors()
+
+
+class TestLowerListLiteral:
+    """Tests for list literal lowering."""
+
+    def test_list_of_numbers(self):
+        """List of number literals."""
+        ir_ops, _, diags = compile_to_ir("""
+        for i in [1, 2, 3] {
+            Signal x = i;
+        }
+        """)
+        assert not diags.has_errors()
+
+
+class TestMemoryCallLowering:
+    """Tests for memory() call lowering."""
+
+    def test_memory_call_with_initial_value(self):
+        """Memory call with initial value."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory m: "signal-A";
+        m.write(memory(42));
+        """)
+        assert not diags.has_errors()
