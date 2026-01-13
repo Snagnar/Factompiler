@@ -99,9 +99,9 @@ controlled_lamp.enable = input_signal > 5;
 
 # Train stop with circuit control
 # Rail entities - signals and stations
-Entity rail_signal = place("rail-signal", 20, 0);
-Entity rail_chain_signal = place("rail-chain-signal", 22, 0);
-Entity train_station = place("train-stop", 24, 0);
+Entity rail_signal = place("rail-signal", 20, 5);
+Entity rail_chain_signal = place("rail-chain-signal", 22, 5);
+Entity train_station = place("train-stop", 24, 5);
 train_station.read_from_train = 1;
 train_station.send_to_train = 1;
 

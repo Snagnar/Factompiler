@@ -695,6 +695,12 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             if left_is_virtual and right_is_virtual:
                 return left_type, None
 
+            # Don't warn if either side is an implicit (compiler-allocated) signal
+            left_is_implicit = getattr(left_type.signal_type, "is_implicit", False)
+            right_is_implicit = getattr(right_type.signal_type, "is_implicit", False)
+            if left_is_implicit or right_is_implicit:
+                return left_type, None
+
             warning_msg = f"Mixed signal types in binary operation at line {node.line}:"
             warning_msg += (
                 f"\n  Left operand:  '{left_type.signal_type.name}' {op}"

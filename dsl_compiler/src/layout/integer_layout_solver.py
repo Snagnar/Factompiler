@@ -710,7 +710,8 @@ class IntegerLayoutEngine:
 
     def _diagnose_failure(self) -> None:
         """Provide detailed diagnostic information about optimization failure."""
-        self.diagnostics.error("Failed to find feasible layout with all strategies")
+
+        error_msg = "Failed to find feasible layout with all strategies.\n"
 
         # Calculate areas excluding power poles for more accurate diagnostics
         non_pole_footprints = {
@@ -723,7 +724,7 @@ class IntegerLayoutEngine:
         total_area_needed = total_entity_area + total_pole_area
         available_area = self.constraints.max_coordinate**2
 
-        self.diagnostics.error(
+        error_msg += (
             f"Diagnostic information:\n"
             f"  Total entities: {self.n_entities}\n"
             f"    - Circuit entities: {len(non_pole_footprints)}\n"
@@ -738,7 +739,7 @@ class IntegerLayoutEngine:
         )
 
         if total_area_needed > available_area * 0.8:
-            self.diagnostics.error(
+            error_msg += (
                 "  → Area utilization >80%: entities may not fit\n"
                 "     Solution: Increase max_coordinate constraint"
             )
@@ -746,7 +747,7 @@ class IntegerLayoutEngine:
         if len(self.fixed_positions) > self.n_entities * 0.3:
             fixed_poles = len([p for p in self.fixed_positions if p in self._power_pole_ids])
             fixed_other = len(self.fixed_positions) - fixed_poles
-            self.diagnostics.error(
+            error_msg += (
                 f"  → Many fixed positions ({len(self.fixed_positions)}/{self.n_entities})\n"
                 f"     - Fixed power poles: {fixed_poles}\n"
                 f"     - Fixed circuit entities: {fixed_other}\n"
@@ -756,12 +757,12 @@ class IntegerLayoutEngine:
         if self.connections:
             avg_degree = 2 * len(self.connections) / self.n_entities
             if avg_degree > 4:
-                self.diagnostics.error(
+                error_msg += (
                     f"  → Dense connectivity (avg degree: {avg_degree:.1f})\n"
                     "     Solution: Relax wire span constraint"
                 )
 
-        self.diagnostics.error("Falling back to simple grid layout")
+        self.diagnostics.error(error_msg)
 
     def _optimize_with_decomposition(self, time_limit: int) -> dict[str, tuple[int, int]]:
         """Optimize large graphs using connected component decomposition."""

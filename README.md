@@ -1,154 +1,295 @@
-# Factompiler
+<p align="center">
+  <img src="doc/img/facto-logo-placeholder.png" alt="Facto Logo" width="200"/>
+</p>
 
-[![CI Pipeline](https://github.com/Snagnar/Factompiler/actions/workflows/ci.yml/badge.svg)](https://github.com/Snagnar/Factompiler/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/Snagnar/Factompiler/branch/main/graph/badge.svg)](https://codecov.io/gh/Snagnar/Factompiler)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<h1 align="center">Facto</h1>
 
-A compiler for the **Facto** programming language, which compiles to Factorio blueprints.
+<p align="center">
+  <strong>A programming language that compiles to Factorio circuit network blueprints</strong>
+</p>
 
-## Quick Start
+<p align="center">
+  <a href="https://github.com/Snagnar/Factompiler/actions/workflows/ci.yml"><img src="https://github.com/Snagnar/Factompiler/actions/workflows/ci.yml/badge.svg" alt="CI Pipeline"/></a>
+  <a href="https://codecov.io/gh/Snagnar/Factompiler"><img src="https://codecov.io/gh/Snagnar/Factompiler/branch/main/graph/badge.svg" alt="codecov"/></a>
+  <a href="https://pypi.org/project/factompile/"><img src="https://img.shields.io/pypi/v/factompile.svg" alt="PyPI version"/></a>
+  <a href="https://pypi.org/project/factompile/"><img src="https://img.shields.io/pypi/pyversions/factompile.svg" alt="Python versions"/></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
+</p>
 
-Compile a Facto source file to a Factorio blueprint:
+<p align="center">
+  <a href="#-quick-example">Quick Example</a> •
+  <a href="#-installation">Installation</a> •
+  <a href="#-documentation">Documentation</a> •
+  <a href="#-features">Features</a> •
+  <a href="#-contributing">Contributing</a>
+</p>
 
-```bash
-# Compile and print blueprint to stdout
-python compile.py example_programs/01_basic_arithmetic.facto
+---
 
-# Save blueprint to file
-python compile.py example_programs/01_basic_arithmetic.facto -o output.blueprint
+## 🎮 What is Facto?
 
-# Verbose output with diagnostics
-python compile.py example_programs/01_basic_arithmetic.facto --verbose
+**Facto** is a high-level programming language designed specifically for building complex Factorio circuit networks. Instead of manually wiring hundreds of combinators together, you write clean, readable code — and the Facto compiler generates an optimized blueprint you can paste directly into your game.
 
-# Custom blueprint name
-python compile.py example_programs/01_basic_arithmetic.facto --name "My Circuit"
+<!-- [IMAGE PLACEHOLDER: Screenshot of a complex circuit in Factorio built with Facto, showing organized combinators and clean wiring] -->
+
+**Write this:**
+
+```facto
+# A blinking lamp that cycles every 20 ticks
+Memory counter: "signal-A";
+counter.write((counter.read() + 1) % 20);
+
+Signal blink = counter.read() < 10;
+
+Entity lamp = place("small-lamp", 0, 0);
+lamp.enable = blink;
 ```
 
-## Installation
+**Get a working Factorio blueprint** → Import it and watch your lamp blink! ✨
 
-1. Install requirements:
-```bash
-pip install -r requirements.txt
+<!-- [IMAGE PLACEHOLDER: Side-by-side showing the code above and the resulting blueprint placed in Factorio] -->
+
+---
+
+## 🚀 Quick Example
+
+Here's a practical example — a **smart backup power controller** with hysteresis to prevent flickering:
+
+```facto
+# Steam backup power with hysteresis control
+# Turns ON when batteries drop below 20%, stays on until they reach 80%
+
+# Read accumulator charge level (wire this in-game)
+Signal battery = ("signal-A", 0);
+
+# SR Latch: set priority means "stay ON" wins ties
+Memory steam_on: "signal-S";
+steam_on.write(1, set=battery < 20, reset=battery >= 80);
+
+# Control the power switch
+Entity power_switch = place("power-switch", 0, 0);
+power_switch.enable = steam_on.read() > 0;
+
+# Status indicator lamp
+Entity status_lamp = place("small-lamp", 2, 0, {use_colors: 1, color_mode: 1});
+status_lamp.r = steam_on.read() * 255;      # Red when steam is running
+status_lamp.g = (1 - steam_on.read()) * 255; # Green when on battery
 ```
 
-2. Ensure `factorio-draftsman` is available (included in workspace)
+**Compile it:**
 
-## Usage Examples
-
-### Basic Compilation
 ```bash
-# Compile a simple arithmetic circuit
-python compile.py example_programs/01_basic_arithmetic.facto
-
-# Output: 0eNrFld9ugjAUxl/FnGRXww0QnJDsQudbLAspWmcTaFlbjIbw7jvgf4XFJkzDBdCeno...
+factompile backup_power.facto -o backup_power.blueprint
 ```
 
-### Save to File
+<!-- [IMAGE PLACEHOLDER: The backup power circuit in Factorio, showing the power switch and status lamp] -->
+
+---
+
+## 📦 Installation
+
+### From PyPI (Recommended)
+
 ```bash
-# Create a blueprint file
-python compile.py example_programs/05_entities.facto -o my_entities.blueprint
+pip install factompile
 ```
 
-### Verbose Output
+### From Source
+
 ```bash
-# See detailed diagnostic information
-python compile.py example_programs/04_memory.facto --verbose
-# Shows: warnings, compilation stages, output location
+git clone https://github.com/Snagnar/Factompiler.git
+cd Factompiler
+pip install -e .
 ```
 
-## Facto Language Features
+### Verify Installation
 
-The Facto language supports:
+```bash
+factompile --help
+```
 
-- **Signals**: `Signal a = ("iron-plate", 0);`
-- **Arithmetic**: `Signal result = a + b * 2;`
-- **Memory**: `Memory counter = memory(0);`
-- **Entities**: `Entity lamp = place("small-lamp", 10, 5);`
-- **Functions**: Reusable circuit components
-- **Type Safety**: Optional strict type checking
+---
 
-See `example_programs/` for complete examples.
+## 📖 Documentation
 
-## Development & Testing
+| Guide | Description |
+|-------|-------------|
+| **[🚀 Quick Start](doc/02_quick_start.md)** | Get your first circuit running in 5 minutes |
+| **[📘 Introduction](doc/01_introduction.md)** | Understand what Facto is and why it exists |
+| **[📊 Signals & Types](doc/03_signals_and_types.md)** | Learn the type system, bundles, and operations |
+| **[💾 Memory](doc/04_memory.md)** | Counters, latches, and state management |
+| **[🏗️ Entities](doc/05_entities.md)** | Placing and controlling Factorio entities |
+| **[🔧 Functions](doc/06_functions.md)** | Reusable code and module imports |
+| **[⚡ Advanced Concepts](doc/07_advanced_concepts.md)** | Optimizations, patterns, and debugging |
+| **[📋 Entity Reference](doc/ENTITY_REFERENCE.md)** | Complete list of all entities and properties |
+| **[📜 Language Specification](LANGUAGE_SPEC.md)** | Formal language reference |
+
+---
+
+## ✨ Features
+
+### 🎯 Focus on Logic, Not Wiring
+Write what your circuit should *do*, not how to wire it. The compiler handles entity placement, signal routing, and wire connections automatically.
+
+### 🔒 Type Safety
+Catch signal type mismatches, undefined variables, and other errors at compile time — before you paste anything into your game.
+
+### ⚡ Automatic Optimizations
+- **Common Subexpression Elimination** — Identical expressions share combinators
+- **Condition Folding** — Chains of comparisons become single multi-condition deciders
+- **Wire Merge** — Same-type additions skip arithmetic combinators entirely
+- **Memory Optimization** — Simple counters use efficient feedback loops
+
+### 🧩 Reusable Functions
+Define logic once, use it everywhere:
+
+```facto
+func clamp(Signal value, int min, int max) {
+    return (value < min) * min 
+         + (value > max) * max 
+         + ((value >= min) && (value <= max)) * value;
+}
+
+Signal safe_speed = clamp(raw_speed, 0, 100);
+```
+
+### 📦 Bundles for Parallel Operations
+Operate on multiple signals at once using Factorio's "each" signal:
+
+```facto
+Bundle resources = { ("iron-plate", 0), ("copper-plate", 0), ("coal", 0) };
+Signal anyLow = any(resources) < 100;  # True if any resource is low
+Bundle scaled = resources * 2;          # Double all values at once
+```
+
+### 🔄 Compile-Time Loops
+Generate multiple entities or repeated logic with for loops:
+
+```facto
+for i in 0..8 {
+    Entity lamp = place("small-lamp", i * 2, 0);
+    lamp.enable = counter == i;  # Chaser effect
+}
+```
+
+---
+
+## 🛠️ CLI Usage
+
+```
+Usage: factompile [OPTIONS] INPUT_FILE
+
+  Compile Facto source files to Factorio blueprints.
+
+Options:
+  -o, --output PATH               Save blueprint to file (default: stdout)
+  --name TEXT                     Blueprint name (default: from filename)
+  --log-level [debug|info|warning|error]
+                                  Set logging verbosity
+  --no-optimize                   Disable optimizations
+  --power-poles [small|medium|big|substation]
+                                  Add power poles to blueprint
+  --json                          Output raw JSON instead of encoded string
+  --help                          Show this message and exit.
+```
+
+### Examples
+
+```bash
+# Compile and print to terminal
+factompile my_circuit.facto
+
+# Save to file with custom name
+factompile my_circuit.facto -o circuit.blueprint --name "My Awesome Circuit"
+
+# Add power poles and see debug output
+factompile my_circuit.facto --power-poles medium --log-level debug
+
+# Export as JSON for inspection
+factompile my_circuit.facto --json | jq '.blueprint.entities | length'
+```
+
+---
+
+## 🎨 Example Programs
+
+The [`example_programs/`](example_programs/) directory contains many working examples:
+
+| Example | Description |
+|---------|-------------|
+| `01_basic_arithmetic.facto` | Simple signal arithmetic and type projection |
+| `03_blinker.facto` | Classic blinking lamp with memory |
+| `04_memory.facto` | Counters, latches, and state patterns |
+| `05_entities.facto` | Placing and controlling various entities |
+| `06_lamp_array.facto` | LED bar graphs and displays |
+| `07_colored_lamp.facto` | RGB color cycling and effects |
+| `08_functions.facto` | Reusable functions and modules |
+
+<!-- [IMAGE PLACEHOLDER: A gallery of 4 screenshots showing different example circuits in Factorio] -->
+
+---
+
+## 🧪 Development
 
 ### Running Tests
 
-The project uses pytest with separate markers for unit and end-to-end tests:
-
 ```bash
-# Run all tests
-pytest
+# Install dev dependencies
+pip install -e ".[dev]"
 
-# Run only unit tests (faster, excludes end-to-end integration tests)
-pytest -m "not end2end"
+# Run all tests (parallel execution)
+pytest -n auto
 
-# Run only end-to-end tests
-pytest -m "end2end"
+# Run only unit tests (faster)
+pytest -m "not end2end" -n auto
 
-# Run with coverage report
-pytest -m "not end2end" --cov=dsl_compiler --cov-report=html
+# Run with coverage
+pytest -m "not end2end" --cov=dsl_compiler --cov-report=html -n auto
 ```
 
 ### Code Quality
 
-The project uses modern Python tooling:
-
-- **Ruff**: Fast linting and code formatting
-- **mypy**: Static type checking
-- **pytest**: Test framework with coverage reporting
-
 ```bash
-# Run linting
+# Lint and format
 ruff check .
-
-# Format code
 ruff format .
 
 # Type checking
 mypy dsl_compiler/ compile.py --ignore-missing-imports
 ```
 
-### CI Pipeline
+---
 
-The GitHub Actions CI pipeline runs on every push and pull request:
+## 🤝 Contributing
 
-1. **Linting**: Ruff check, format validation, and mypy type checking
-2. **Unit Tests**: Fast tests on Python 3.11 and 3.12 with coverage reporting
-3. **End-to-End Tests**: Full compilation tests of all sample programs
+Contributions are welcome! Whether it's:
+- 🐛 Bug reports and fixes
+- ✨ New features and improvements
+- 📖 Documentation updates
+- 🧪 Additional test cases
 
-Coverage reports are automatically uploaded to Codecov and available as artifacts in GitHub Actions.
+Please check out the [GitHub Issues](https://github.com/Snagnar/Factompiler/issues) for open tasks or create a new issue to discuss your ideas.
 
-## Command Line Options
+---
 
-```
-Usage: compile.py [OPTIONS] INPUT_FILE
+## 📄 License
 
-Options:
-  -o, --output PATH  Output file for the blueprint (default: print to stdout)
-  --name TEXT        Blueprint name (default: derived from input filename)
-  -v, --verbose      Show detailed diagnostic messages
-  --help             Show this message and exit.
-```
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Advanced Configuration
+---
 
-Programmatic consumers can customize the emitter when embedding the compiler. The `BlueprintEmitter` accepts `WireRelayOptions` to adjust automatic relay pole insertion (enable/disable, Euclidean vs. Manhattan planning, relay caps):
+## 🙏 Acknowledgments
 
-```python
-from dsl_compiler.src.emission import BlueprintEmitter
-from dsl_compiler.src.emission.emitter import WireRelayOptions
+- **[factorio-draftsman](https://github.com/redruin1/factorio-draftsman)** — The excellent Python library that makes blueprint generation possible
+- **The Factorio community** — For endless inspiration and incredible circuit creations
+- **Wube Software** — For creating the best factory game ever made
 
-relay_options = WireRelayOptions(placement_strategy="manhattan", max_relays=4)
-emitter = BlueprintEmitter(signal_type_map=signal_map, wire_relay_options=relay_options)
-```
-```
+---
 
-## Blueprint Output
+<p align="center">
+  <strong>Happy automating! 🏭</strong>
+</p>
 
-The compiler generates Factorio-compatible blueprint strings that can be:
-- Imported directly into Factorio
-- Shared with other players
-- Modified with blueprint editing tools
-
-All blueprints are generated using the `factorio-draftsman` library for maximum compatibility.
+<p align="center">
+  <sub>The factory must grow.</sub>
+</p>

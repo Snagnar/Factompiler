@@ -263,7 +263,7 @@ If your circuit behaves unexpectedly, check for:
 Use `--json` to inspect the raw blueprint and see wire connections:
 
 ```bash
-python compile.py program.facto --json | jq '.blueprint.entities[].connections'
+factompile program.facto --json | jq '.blueprint.entities[].connections'
 ```
 
 ## Wire Distance and Relay Poles
@@ -300,7 +300,7 @@ Entity pole3 = place("medium-electric-pole", 18, 5);
 Add power poles to the entire blueprint:
 
 ```bash
-python compile.py program.facto --power-poles medium
+factompile program.facto --power-poles medium
 ```
 
 Options: `small`, `medium`, `big`, `substation`
@@ -611,7 +611,7 @@ for i in 0..4 {
 See detailed compilation information:
 
 ```bash
-python compile.py program.facto --log-level debug
+factompile program.facto --log-level debug
 ```
 
 This shows:
@@ -626,7 +626,7 @@ This shows:
 Inspect the raw blueprint:
 
 ```bash
-python compile.py program.facto --json > blueprint.json
+factompile program.facto --json > blueprint.json
 ```
 
 Then examine with `jq` or a JSON viewer:
@@ -644,7 +644,7 @@ jq '.blueprint.entities[] | {name, connections}' blueprint.json
 See the unoptimized output:
 
 ```bash
-python compile.py program.facto --no-optimize
+factompile program.facto --no-optimize
 ```
 
 Useful for understanding what combinators each expression creates.

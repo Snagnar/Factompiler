@@ -3,27 +3,45 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "factompiler"
+name = "factompile"
 version = "0.1.0"
-description = "Compiler for Facto - A DSL for Factorio circuit networks"
+description = "Factompile - A compiler for the Facto programming language that generates Factorio circuit network blueprints"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "Paul", email = "paul@example.com"}
+    {name = "Snagnar"}
+]
+keywords = [
+    "factorio",
+    "blueprint",
+    "circuit",
+    "combinator",
+    "dsl",
+    "compiler",
+    "game",
+    "automation",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
     "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Games/Entertainment",
+    "Topic :: Software Development :: Compilers",
+    "Topic :: Software Development :: Code Generators",
+    "Typing :: Typed",
 ]
 
 dependencies = [
     "lark>=1.1.0",
-    "draftsman>=2.0.0",
+    "factorio-draftsman>=2.0.0",
     "click>=8.0.0",
 ]
 
@@ -31,12 +49,27 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Snagnar/Factompiler"
+Documentation = "https://github.com/Snagnar/Factompiler/tree/main/doc"
+Repository = "https://github.com/Snagnar/Factompiler"
+Issues = "https://github.com/Snagnar/Factompiler/issues"
+Changelog = "https://github.com/Snagnar/Factompiler/releases"
+
 [project.scripts]
-factompiler = "compile:main"
+factompile = "dsl_compiler.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dsl_compiler*"]
+
+[tool.setuptools.package-data]
+"dsl_compiler" = ["grammar/*.lark", "lib/*.facto"]
 
 [tool.ruff]
 # Ruff replaces black, isort, flake8, and other tools

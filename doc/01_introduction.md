@@ -4,7 +4,7 @@ Welcome to **Facto**, a high-level programming language that compiles to Factori
 
 ## What is Facto?
 
-Facto is a **domain-specific language** designed to make building complex circuit networks in Factorio accessible, maintainable, and fun. Instead of manually wiring hundreds of combinators together, you write code that describes *what* you want your circuit to do, and the **Factompiler** compiler figures out *how* to build it.
+Facto is a **domain-specific language** designed to make building complex circuit networks in Factorio accessible, maintainable, and fun. Instead of manually wiring hundreds of combinators together, you write code that describes *what* you want your circuit to do, and the Facto compiler figures out *how* to build it.
 
 **Write this:**
 ```facto
@@ -157,7 +157,7 @@ The result is a blueprint string you can import directly into Factorio!
 
 ## Getting Started
 
-Ready to build your first circuit? Head to the **[Quick Start Guide](02_quick_start.md)** to create your first blinking lamp!
+Ready to build your first circuit? Head to the **[Quick Start Guide](02_quick_start.md)** to get up and running in 5 minutes!
 
 ## Documentation Map
 
@@ -177,9 +177,9 @@ Ready to build your first circuit? Head to the **[Quick Start Guide](02_quick_st
 
 ## Requirements
 
-- **Python 3.8+**
+- **Python 3.11+**
 - **Factorio 2.0** (for importing blueprints)
-- The `factorio-draftsman` library (installed automatically with requirements)
+- The `factorio-draftsman` library (installed automatically via pip)
 
 ## Community & Support
 

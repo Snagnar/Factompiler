@@ -4,31 +4,36 @@ Get your first Facto circuit running in under 5 minutes!
 
 ## Installation
 
-### 1. Clone the Repository
+### Option 1: Install from PyPI (Recommended)
+
+The easiest way to get started is to install Factompile from PyPI:
+
+```bash
+pip install factompile
+```
+
+That's it! You're ready to compile your first program.
+
+### Option 2: Install from Source
+
+If you want to contribute or use the latest development version:
 
 ```bash
 git clone https://github.com/Snagnar/Factompiler.git
 cd Factompiler
+pip install -e .
 ```
 
-### 2. Set Up the Virtual Environment
+### Verify Installation
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### 3. Verify Installation
-
-```bash
-python compile.py --help
+factompile --help
 ```
 
 You should see the compiler's help output:
 
 ```
-Usage: compile.py [OPTIONS] INPUT_FILE
+Usage: factompile [OPTIONS] INPUT_FILE
 
   Compile Facto source files to blueprint format.
 
@@ -70,7 +75,7 @@ lamp.enable = blink;
 ### Step 2: Compile It
 
 ```bash
-python compile.py blink.facto
+factompile blink.facto
 ```
 
 The compiler outputs a base64-encoded blueprint string to your terminal.
@@ -122,10 +127,10 @@ Places a lamp at coordinates (0, 0) and connects its enable condition to our bli
 Instead of copying from the terminal, you can save directly to a file:
 
 ```bash
-python compile.py blink.facto -o blink.blueprint
+factompile blink.facto -o blink.blueprint
 ```
 
-Then open `blink.blueprint` in any text editor to copy the string.
+Then open `blink.blueprint` in any text editor to copy the string, or use the file directly with blueprint sharing tools.
 
 ## Example: Simple Arithmetic
 
@@ -154,7 +159,7 @@ Signal output_quot = quotient | "signal-4";
 Compile and import:
 
 ```bash
-python compile.py arithmetic.facto -o arithmetic.blueprint
+factompile arithmetic.facto -o arithmetic.blueprint
 ```
 
 > **[IMAGE PLACEHOLDER]**: Screenshot of the arithmetic circuit in Factorio, with a view showing the constant combinators and arithmetic combinators.
@@ -207,41 +212,41 @@ See [Memory](04_memory.md) for more on latches and hysteresis patterns.
 ### See What's Happening (Debug Mode)
 
 ```bash
-python compile.py blink.facto --log-level debug
+factompile blink.facto --log-level debug
 ```
 
-This shows you the compilation stages and what the compiler is doing.
+This shows you the compilation stages, optimizations applied, and what the compiler is doing internally.
 
 ### Add Power Poles
 
 ```bash
-python compile.py blink.facto --power-poles medium
+factompile blink.facto --power-poles medium
 ```
 
-Automatically adds power poles to your blueprint. Options: `small`, `medium`, `big`, `substation`.
+Automatically adds power poles to your blueprint so the combinators have power. Options: `small`, `medium`, `big`, `substation`.
 
 ### Custom Blueprint Name
 
 ```bash
-python compile.py blink.facto --name "My Awesome Blinker"
+factompile blink.facto --name "My Awesome Blinker"
 ```
 
-The blueprint will have this name when imported.
+The blueprint will have this name when imported into Factorio's blueprint library.
 
 ### View as JSON
 
 ```bash
-python compile.py blink.facto --json
+factompile blink.facto --json
 ```
 
-Outputs the raw blueprint JSON instead of the encoded string. Useful for debugging or integration with other tools.
+Outputs the raw blueprint JSON instead of the encoded string. Useful for debugging, inspection, or integration with other tools.
 
 ---
 
 ## Common Questions
 
 **What version of Factorio does this work with?**
-Factompiler (the compiler) generates blueprints for Factorio 2.0 and later.
+Facto generates blueprints for Factorio 2.0 and later. The multi-condition decider combinators and other features require the latest version.
 
 **What's the difference between `int` and `Signal`?**
 - `int` is a compile-time constant – just a number, no combinator created
