@@ -248,7 +248,7 @@ class IntegerLayoutEngine:
 
         # For small/medium graphs, try a very quick solve first with early stopping
         # This handles the common case where solutions are found in < 1 second
-        if self.n_entities <= 50:
+        if self.n_entities <= 20:
             quick_result = self._solve_with_strategy(strategies[0], time_limit=1, early_stop=True)
             if quick_result.success and quick_result.violations == 0:
                 self.diagnostics.info(f"Quick solution found in {quick_result.solve_time:.2f}s")
@@ -643,7 +643,7 @@ class IntegerLayoutEngine:
             model.Add(bounding_perimeter == bounding_perimeter_int)
 
         objective = (
-            violation_weight * num_violations + 100 * total_wire_length + 100 * bounding_perimeter
+            violation_weight * num_violations + 300 * total_wire_length + 100 * bounding_perimeter
         )
 
         model.Minimize(objective)

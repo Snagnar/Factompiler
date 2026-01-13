@@ -146,6 +146,87 @@ class TestASTLowererProjection:
         ariths = [op for op in ir_operations if isinstance(op, IRArith)]
         assert len(ariths) == 0
 
+    def test_projection_folding_simple(self, parser, analyzer, diagnostics):
+        """Test that simple projections are folded into operations."""
+        code = """
+        Signal a = ("signal-A", 100);
+        Signal b = a * 255 | "iron-plate";
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
+
+        # Should have 1 IRArith (multiply with direct output to iron-plate), not 2
+        ariths = [op for op in ir_operations if isinstance(op, IRArith)]
+        assert len(ariths) == 1, f"Expected 1 IRArith, got {len(ariths)}"
+        assert ariths[0].output_type == "iron-plate", (
+            f"Expected iron-plate output, got {ariths[0].output_type}"
+        )
+
+    def test_projection_folding_chained_operations(self, parser, analyzer, diagnostics):
+        """Test projection folding with chained arithmetic operations."""
+        code = """
+        Signal a = ("signal-A", 10);
+        Signal b = ("signal-B", 20);
+        Signal result = (a + b) * 2 | "copper-plate";
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
+
+        # Should have 2 IRArith: add and multiply (with copper-plate output)
+        # Without folding: would have 3 (add, multiply, projection)
+        ariths = [op for op in ir_operations if isinstance(op, IRArith)]
+        assert len(ariths) == 2, f"Expected 2 IRArith, got {len(ariths)}"
+
+        # Find the multiply operation and verify it outputs to copper-plate
+        multiply_ops = [op for op in ariths if op.op == "*"]
+        assert len(multiply_ops) == 1
+        assert multiply_ops[0].output_type == "copper-plate"
+
+    def test_projection_no_fold_user_declared(self, parser, analyzer, diagnostics):
+        """Test that user-declared signals are NOT folded."""
+        code = """
+        Signal a = ("signal-A", 100);
+        Signal intermediate = a * 255;
+        Signal b = intermediate | "iron-plate";
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
+
+        # 'intermediate' is user-declared, so projection should create a separate operation
+        # Should have 2 IRArith: one for multiply, one for projection
+        ariths = [op for op in ir_operations if isinstance(op, IRArith)]
+        assert len(ariths) == 2, (
+            f"Expected 2 IRArith (no folding for user-declared), got {len(ariths)}"
+        )
+
+    def test_projection_folding_with_decider(self, parser, analyzer, diagnostics):
+        """Test projection folding works with decider operations."""
+        code = """
+        Signal a = ("signal-A", 100);
+        Signal result = (a > 50 : 1) | "signal-X";
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
+
+        # Should have 1 IRDecider with direct output to signal-X
+        from dsl_compiler.src.ir.nodes import IRDecider
+
+        deciders = [op for op in ir_operations if isinstance(op, IRDecider)]
+        assert len(deciders) == 1
+        assert deciders[0].output_type == "signal-X"
+
 
 class TestASTLowererSampleFiles:
     """Tests for lowering sample files."""

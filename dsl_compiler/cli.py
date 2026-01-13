@@ -5,7 +5,8 @@ Factompile CLI - Command-line interface for the Facto compiler.
 This module provides the entry point for the 'factompile' command installed via pip.
 
 Usage:
-    factompile input.facto                      # Print blueprint to stdout
+    factompile input.facto                      # Compile from file
+    factompile --input "Signal a = 5;"         # Compile from string
     factompile input.facto -o output.blueprint  # Save blueprint to file
     factompile input.facto --power-poles        # Add medium power poles
     factompile input.facto --power-poles big    # Add big power poles
@@ -39,8 +40,9 @@ def validate_power_poles(ctx, param, value):
     return value.lower()
 
 
-def compile_dsl_file(
-    input_path: Path,
+def compile_dsl_source(
+    source_code: str,
+    source_name: str = "<string>",
     program_name: str | None = None,
     optimize: bool = True,
     log_level: str = "error",
@@ -50,11 +52,12 @@ def compile_dsl_file(
     max_layout_retries: int = 3,
 ) -> tuple[bool, str, list]:
     """
-    Compile a Facto source file to blueprint string.
+    Compile Facto source code to blueprint string.
 
     Args:
-        input_path: Path to the .facto source file
-        program_name: Name for the blueprint (default: derived from filename)
+        source_code: The Facto source code to compile
+        source_name: Name of the source (for error messages)
+        program_name: Name for the blueprint (default: derived from source_name)
         optimize: Enable IR optimizations and MST wire optimization
         log_level: Logging verbosity level
         power_pole_type: Type of power poles to add (or None for no power poles)
@@ -65,24 +68,19 @@ def compile_dsl_file(
     Returns:
         (success: bool, result: str, diagnostics: list)
     """
-    if not input_path.exists():
-        return False, f"Input file '{input_path}' does not exist", []
-
-    # Read source file
-    try:
-        dsl_code = input_path.read_text(encoding="utf-8")
-    except Exception as e:
-        return False, f"Failed to read input file: {e}", []
-
     if program_name is None:
-        program_name = input_path.stem.replace("_", " ").title()
+        if source_name == "<string>":
+            program_name = "Facto Circuit"
+        else:
+            # Extract name from path-like string
+            program_name = Path(source_name).stem.replace("_", " ").title()
 
     # Create unified diagnostics collector
     diagnostics = ProgramDiagnostics(log_level=log_level, raise_errors=True)
 
     # Parse
     parser = DSLParser()
-    program = parser.parse(dsl_code.strip(), str(input_path.resolve()))
+    program = parser.parse(source_code.strip(), source_name)
     if diagnostics.has_errors():
         return False, "Parsing failed", diagnostics.get_messages()
 
@@ -156,7 +154,14 @@ def setup_logging(level: str) -> None:
 
 
 @click.command()
-@click.argument("input_file", type=click.Path(exists=True, path_type=Path))
+@click.argument("input_file", type=click.Path(exists=True, path_type=Path), required=False)
+@click.option(
+    "-i",
+    "--input",
+    "input_string",
+    type=str,
+    help="Compile from string instead of file",
+)
 @click.option(
     "-o",
     "--output",
@@ -192,6 +197,7 @@ def setup_logging(level: str) -> None:
 )
 def main(
     input_file,
+    input_string,
     output,
     name,
     log_level,
@@ -200,15 +206,39 @@ def main(
     json,
     layout_retries,
 ):
-    """Compile Facto source files to Factorio blueprint format."""
+    """Compile Facto source files or strings to Factorio blueprint format."""
     setup_logging(log_level)
 
-    if log_level == "debug" or log_level == "info":
-        click.echo(f"Compiling {input_file}...")
+    # Validate input source
+    if input_file and input_string:
+        click.echo("Error: Cannot specify both input file and --input string", err=True)
+        sys.exit(1)
+
+    if not input_file and not input_string:
+        click.echo("Error: Must specify either an input file or --input string", err=True)
+        sys.exit(1)
+
+    # Read source code
+    if input_string:
+        source_code = input_string
+        source_name = "<string>"
+        if log_level in ["debug", "info"]:
+            click.echo("Compiling from string input...")
+    else:
+        # Read from file
+        try:
+            source_code = input_file.read_text(encoding="utf-8")
+            source_name = str(input_file.resolve())
+            if log_level in ["debug", "info"]:
+                click.echo(f"Compiling {input_file}...")
+        except Exception as e:
+            click.echo(f"Failed to read input file: {e}", err=True)
+            sys.exit(1)
 
     # Compile
-    success, result, diagnostic_messages = compile_dsl_file(
-        input_file,
+    success, result, diagnostic_messages = compile_dsl_source(
+        source_code,
+        source_name=source_name,
         program_name=name,
         optimize=not no_optimize,
         power_pole_type=power_poles,

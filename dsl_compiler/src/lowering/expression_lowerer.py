@@ -790,6 +790,12 @@ class ExpressionLowerer:
         if getattr(source_ref, "signal_type", None) == target_type:
             return source_ref
 
+        # Try to fold projection into the source operation if possible
+        folded_ref = self._try_fold_projection_into_source(source_ref, target_type, expr)
+        if folded_ref is not None:
+            return folded_ref
+
+        # Fallback: create projection combinator
         self.parent.ensure_signal_registered(target_type, getattr(source_ref, "signal_type", None))
         result_ref = self.ir_builder.arithmetic("+", source_ref, 0, target_type, expr)
         self._attach_expr_context(result_ref.source_id, expr)
@@ -817,6 +823,73 @@ class ExpressionLowerer:
         """Handle projection from integer literal to signal type."""
         self.parent.ensure_signal_registered(target_type)
         return self.ir_builder.const(target_type, source_value, expr)
+
+    def _try_fold_projection_into_source(
+        self, source_ref: SignalRef, target_type: str, proj_expr: ProjectionExpr
+    ) -> SignalRef | None:
+        """Try to fold a projection into the source operation's output type.
+
+        If the source operation:
+        - Was just created (exists in IR)
+        - Is an arithmetic or decider operation
+        - Is not user-declared (doesn't have a user-specified name)
+        - Source signal type differs from target type
+
+        Then we can change its output type directly instead of creating a projection combinator.
+
+        Returns:
+            SignalRef with target_type if folding succeeded, None otherwise
+        """
+        source_op = self.ir_builder.get_operation(source_ref.source_id)
+        if source_op is None:
+            return None
+
+        # Only fold IRArith and IRDecider operations
+        from dsl_compiler.src.ir.nodes import IRArith, IRDecider
+
+        if not isinstance(source_op, (IRArith, IRDecider)):
+            return None
+
+        # Don't fold user-declared signals - they have explicit names
+        # User-declared signals have "user_declared" metadata set
+        if source_op.debug_metadata.get("user_declared"):
+            return None
+
+        # Check if this is the only operation writing to this specific source_id
+        # If the signal is named in signal_refs at the top level, don't fold
+        # (it's been assigned to a variable and might be used elsewhere)
+        for _name, ref in self.parent.signal_refs.items():
+            if isinstance(ref, SignalRef) and ref.source_id == source_ref.source_id:
+                # This signal has been given a name - it's a user-declared variable
+                # Don't fold it
+                return None
+
+        # Safe to fold! Update the operation's output type
+        old_signal_type = source_op.output_type
+        source_op.output_type = target_type
+
+        # Update signal type map
+        # Only delete if it's not used elsewhere
+        # For implicit types, it's safe to remove
+        if old_signal_type in self.ir_builder.signal_type_map and old_signal_type.startswith(
+            "__implicit_"
+        ):
+            del self.ir_builder.signal_type_map[old_signal_type]
+
+        self.ir_builder.signal_type_map[target_type] = target_type
+        self.parent.ensure_signal_registered(target_type, old_signal_type)
+
+        # Return a new SignalRef with the target type
+        folded_ref = SignalRef(
+            target_type,
+            source_ref.source_id,
+            debug_label=source_ref.debug_label,
+            source_ast=proj_expr,
+            metadata=source_ref.debug_metadata,
+        )
+        self._attach_expr_context(source_ref.source_id, proj_expr)
+
+        return folded_ref
 
     def lower_signal_literal(self, expr: SignalLiteral) -> SignalRef:
         if expr.signal_type is not None:

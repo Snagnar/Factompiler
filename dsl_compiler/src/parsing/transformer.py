@@ -758,30 +758,54 @@ class DSLTransformer(Transformer):
         """bundle_element: expr"""
         return self._unwrap_tree(items[0])
 
-    def bundle_select(self, items) -> BundleSelectExpr:
-        """bundle_select: NAME '[' STRING ']'"""
-        bundle_name = items[0]
-        signal_type_token = items[1]
+    def bundle_select_chain(self, items) -> Expr:
+        """bundle_select_chain: atom ( '[' STRING ']' )*
 
-        if isinstance(bundle_name, Token):
-            bundle_expr = IdentifierExpr(name=str(bundle_name.value))
-            self._set_position(bundle_expr, bundle_name)
+        Handles chained subscript operations like: entity.output["signal-A"]
+        items[0] is the base expression (atom)
+        items[1:] are STRING tokens for each subscript operation
+        """
+        base = self._unwrap_tree(items[0])
+
+        # Convert LValue types to Expr types
+        if isinstance(base, Identifier):
+            current_expr: Expr = IdentifierExpr(
+                name=base.name,
+                raw_text=getattr(base, "raw_text", base.name),
+            )
+        elif isinstance(base, PropertyAccess):
+            # Check for entity.output - creates EntityOutputExpr
+            if base.property_name == "output":
+                current_expr = EntityOutputExpr(
+                    entity_name=base.object_name,
+                    raw_text=getattr(base, "raw_text", None),
+                )
+            else:
+                current_expr = PropertyAccessExpr(
+                    object_name=base.object_name,
+                    property_name=base.property_name,
+                    raw_text=getattr(base, "raw_text", None),
+                )
+        elif isinstance(base, Expr):
+            current_expr = base
         else:
-            bundle_expr = IdentifierExpr(name=str(bundle_name))
+            # Fallback - shouldn't happen but handle gracefully
+            current_expr = base  # type: ignore
 
-        if isinstance(signal_type_token, Token):
-            signal_type = signal_type_token.value[1:-1]  # Remove quotes
-        else:
-            signal_type = str(signal_type_token)[1:-1]
+        # Apply each subscript operation left-to-right
+        for signal_type_token in items[1:]:
+            if isinstance(signal_type_token, Token):
+                signal_type = signal_type_token.value[1:-1]  # Remove quotes
+            else:
+                signal_type = str(signal_type_token)[1:-1]
 
-        select_expr: BundleSelectExpr = BundleSelectExpr(
-            bundle=bundle_expr, signal_type=signal_type
-        )
-        if isinstance(bundle_name, Token):
-            result = self._set_position(select_expr, bundle_name)
-            assert isinstance(result, BundleSelectExpr)
-            return result
-        return select_expr
+            select_expr = BundleSelectExpr(bundle=current_expr, signal_type=signal_type)
+            # Set position from the signal type token if available
+            if hasattr(signal_type_token, "line"):
+                self._set_position(select_expr, signal_type_token)
+            current_expr = select_expr
+
+        return current_expr
 
     def bundle_any(self, items) -> BundleAnyExpr:
         """bundle_any: ANY_KW '(' expr ')'

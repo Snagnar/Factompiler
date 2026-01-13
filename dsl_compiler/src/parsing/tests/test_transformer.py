@@ -1216,20 +1216,49 @@ class TestDSLTransformerBundleElement:
         assert result == expr
 
 
-class TestDSLTransformerBundleSelect:
-    """Tests for DSLTransformer.bundle_select"""
+class TestDSLTransformerBundleSelectChain:
+    """Tests for DSLTransformer.bundle_select_chain"""
 
-    def test_bundle_select(self):
-        """Test bundle_select creates BundleSelectExpr."""
+    def test_bundle_select_simple_identifier(self):
+        """Test bundle_select_chain with simple identifier."""
         transformer = DSLTransformer()
-        bundle_token = Token("NAME", "my_bundle")
+        identifier = Identifier(name="my_bundle")
         type_token = Token("STRING", '"item"')
 
-        result = transformer.bundle_select([bundle_token, type_token])
+        result = transformer.bundle_select_chain([identifier, type_token])
 
         assert isinstance(result, BundleSelectExpr)
+        assert isinstance(result.bundle, IdentifierExpr)
         assert result.bundle.name == "my_bundle"
         assert result.signal_type == "item"
+
+    def test_bundle_select_property_access(self):
+        """Test bundle_select_chain with property access (entity.output)."""
+        transformer = DSLTransformer()
+        prop_access = PropertyAccess(object_name="chest", property_name="output")
+        type_token = Token("STRING", '"iron-plate"')
+
+        result = transformer.bundle_select_chain([prop_access, type_token])
+
+        assert isinstance(result, BundleSelectExpr)
+        assert isinstance(result.bundle, EntityOutputExpr)
+        assert result.bundle.entity_name == "chest"
+        assert result.signal_type == "iron-plate"
+
+    def test_bundle_select_chained(self):
+        """Test bundle_select_chain with multiple subscripts."""
+        transformer = DSLTransformer()
+        identifier = Identifier(name="nested")
+        type_token1 = Token("STRING", '"first"')
+        type_token2 = Token("STRING", '"second"')
+
+        result = transformer.bundle_select_chain([identifier, type_token1, type_token2])
+
+        # Should create nested BundleSelectExpr
+        assert isinstance(result, BundleSelectExpr)
+        assert result.signal_type == "second"
+        assert isinstance(result.bundle, BundleSelectExpr)
+        assert result.bundle.signal_type == "first"
 
 
 class TestDSLTransformerBundleAny:

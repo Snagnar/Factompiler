@@ -1081,6 +1081,43 @@ class TestBundleAnalysis:
         analyzer.visit(program)
         assert not diagnostics.has_errors()
 
+    def test_entity_output_direct_indexing(self, parser):
+        """Test direct indexing of entity.output (entity.output['signal-A'])."""
+        code = """
+        Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
+        Signal iron = chest.output["iron-plate"];
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert not diagnostics.has_errors(), diagnostics.get_messages()
+
+    def test_entity_output_indirect_indexing(self, parser):
+        """Test indirect indexing of entity.output (assign to Bundle first)."""
+        code = """
+        Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
+        Bundle contents = chest.output;
+        Signal iron = contents["iron-plate"];
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert not diagnostics.has_errors(), diagnostics.get_messages()
+
+    def test_entity_output_chained_indexing(self, parser):
+        """Test chained indexing on entity output."""
+        code = """
+        Entity accumulator = place("accumulator", 0, 0, {read_contents: 1});
+        Signal charge = accumulator.output["signal-A"];
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert not diagnostics.has_errors(), diagnostics.get_messages()
+
 
 class TestProjectionAnalysis:
     """Tests for projection expression analysis."""

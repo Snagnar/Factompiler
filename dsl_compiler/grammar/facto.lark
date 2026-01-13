@@ -158,20 +158,24 @@ unary: UNARY_OP unary
      | primary
 
 // primary expressions (constructors, calls, memory ops, property access, bundle operations)
-primary: literal
-     | signal_literal                       // New signal literal syntax
-     | bundle_select                        // Bundle selection: bundle["type"]
-     | bundle_any                           // any(bundle) for anything comparisons
-     | bundle_all                           // all(bundle) for everything comparisons
-     | memory_read                          // mem.read() method
-     | memory_write                         // mem.write(value) method
-     | memory_write_when                    // mem.write(value, when=cond) method
-     | memory_latch_write                   // mem.write(value, set=s, reset=r) latch method
-     | brace_literal                        // Either dict { k: v } or bundle { elem, elem }
-     | call_expr                            // General function calls after specific forms
-     | method_call
-     | lvalue                               // Simple identifiers last
-     | "(" expr ")"
+primary: postfix_expr
+
+// Postfix expressions allow chaining: entity.output["signal-A"]
+postfix_expr: atom ( "[" STRING "]" )*       -> bundle_select_chain
+
+atom: literal
+    | signal_literal                       // New signal literal syntax
+    | bundle_any                           // any(bundle) for anything comparisons
+    | bundle_all                           // all(bundle) for everything comparisons
+    | memory_read                          // mem.read() method
+    | memory_write                         // mem.write(value) method
+    | memory_write_when                    // mem.write(value, when=cond) method
+    | memory_latch_write                   // mem.write(value, set=s, reset=r) latch method
+    | brace_literal                        // Either dict { k: v } or bundle { elem, elem }
+    | call_expr                            // General function calls after specific forms
+    | method_call
+    | lvalue                               // Simple identifiers last
+    | "(" expr ")"
 
 // Memory method calls (must come before generic method_call to take precedence)
 memory_read: NAME "." "read" "(" ")"
@@ -203,9 +207,6 @@ brace_literal: "{" "}"                                      -> empty_brace
 dict_item: (STRING | NAME) ":" expr
 
 bundle_element: expr
-
-// Bundle selection: bundle["signal-type"]
-bundle_select: NAME "[" STRING "]"
 
 // Bundle comparison functions
 bundle_any: ANY_KW "(" expr ")"

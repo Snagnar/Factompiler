@@ -30,7 +30,9 @@
 
 **Facto** is a high-level programming language designed specifically for building complex Factorio circuit networks. Instead of manually wiring hundreds of combinators together, you write clean, readable code — and the Facto compiler generates an optimized blueprint you can paste directly into your game.
 
-<!-- [IMAGE PLACEHOLDER: Screenshot of a complex circuit in Factorio built with Facto, showing organized combinators and clean wiring] -->
+<p align="center">
+  <img src="doc/img/header_bp.png" alt="Facto Intro Screenshot" width="1200"/>
+</p>
 
 **Write this:**
 
@@ -59,21 +61,23 @@ Here's a practical example — a **smart backup power controller** with hysteres
 # Steam backup power with hysteresis control
 # Turns ON when batteries drop below 20%, stays on until they reach 80%
 
-# Read accumulator charge level (wire this in-game)
-Signal battery = ("signal-A", 0);
+# Place accumulator and read its charge level (outputs 0-100 on signal-A)
+Entity accumulator = place("accumulator", 0, 0);
+Bundle acc_output = accumulator.output;
+Signal battery_charge = acc_output["signal-A"];
 
 # SR Latch: set priority means "stay ON" wins ties
-Memory steam_on: "signal-S";
-steam_on.write(1, set=battery < 20, reset=battery >= 80);
+Memory steam_on: "signal-A";
+steam_on.write(1, set=battery_charge < 20, reset=battery_charge >= 80);
 
-# Control the power switch
-Entity power_switch = place("power-switch", 0, 0);
+# Control the power switch to connect backup power when needed
+Entity power_switch = place("power-switch", 4, 0);
 power_switch.enable = steam_on.read() > 0;
 
-# Status indicator lamp
-Entity status_lamp = place("small-lamp", 2, 0, {use_colors: 1, color_mode: 1});
-status_lamp.r = steam_on.read() * 255;      # Red when steam is running
-status_lamp.g = (1 - steam_on.read()) * 255; # Green when on battery
+# Status indicator lamp - red when backup is active, green when on main power
+Entity status_lamp = place("small-lamp", 8, 0, {use_colors: 1, color_mode: 1});
+status_lamp.r = steam_on.read() * 255 | "signal-red";      # Red when backup is running
+status_lamp.g = (1 - steam_on.read()) * 255 | "signal-green"; # Green when on main power
 ```
 
 **Compile it:**
