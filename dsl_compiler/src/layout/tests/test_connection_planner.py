@@ -262,8 +262,8 @@ def test_connection_planner_expand_merge_edges(planner, plan):
 
 def test_connection_planner_expand_merge_edges_with_junctions(planner, plan):
     """Test _expand_merge_edges with actual wire merge junctions."""
-    from dsl_compiler.src.layout.wire_router import CircuitEdge
     from dsl_compiler.src.ir.nodes import SignalRef
+    from dsl_compiler.src.layout.wire_router import CircuitEdge
 
     plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
     plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
@@ -456,7 +456,7 @@ def test_compute_edge_locked_colors_transitive_conflict(planner, plan):
     # Should detect transitive conflict (mid is sink of merge1 AND source of merge2)
     # and lock colors for src1 in both merges
     if len(result) > 0:
-        assert any(k[0] == "src1" for k in result.keys())
+        assert any(k[0] == "src1" for k in result)
 
 
 def test_compute_edge_locked_colors_no_conflict(planner, plan):
@@ -527,7 +527,7 @@ def test_log_unresolved_conflicts_with_conflicts(planner):
     assert planner._coloring_conflicts  # conflicts remain
 
 
-def test_relay_network_route_signal(plan, diagnostics):
+def test_relay_network_route_signal2(plan, diagnostics):
     """Test route_signal creates relay nodes when distance exceeds span."""
     tile_grid = TileGrid()
     net = RelayNetwork(tile_grid, None, {}, 9.0, plan, diagnostics)

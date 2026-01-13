@@ -1,7 +1,5 @@
 """Tests for emitter.py - Blueprint emission."""
 
-import pytest
-
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.emission.emitter import EDGE_LAYOUT_NOTE, BlueprintEmitter
 from dsl_compiler.src.layout.layout_plan import LayoutPlan, PowerPolePlacement, WireConnection

@@ -7,13 +7,13 @@ AST statement nodes to IR operations.
 
 from unittest.mock import MagicMock
 
-from dsl_compiler.src.ast.expressions import BinaryOp, CallExpr
+from dsl_compiler.src.ast.expressions import CallExpr
 from dsl_compiler.src.ast.literals import Identifier, NumberLiteral, PropertyAccess
-from dsl_compiler.src.ast.statements import AssignStmt, DeclStmt
-from dsl_compiler.src.ir.nodes import IRConst, IREntityPropWrite, IRMemWrite, BundleRef, SignalRef
+from dsl_compiler.src.ast.statements import AssignStmt
+from dsl_compiler.src.ir.nodes import BundleRef, IRConst, IREntityPropWrite, IRMemWrite, SignalRef
 from dsl_compiler.src.lowering.statement_lowerer import StatementLowerer
 
-from .conftest import compile_to_ir, make_loc, create_mock_parent
+from .conftest import compile_to_ir, create_mock_parent, make_loc
 
 
 class TestLowerDeclStmt:

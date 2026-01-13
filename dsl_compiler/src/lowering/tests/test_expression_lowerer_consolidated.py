@@ -14,7 +14,7 @@ from dsl_compiler.src.ast.expressions import (
     UnaryOp,
 )
 from dsl_compiler.src.ast.literals import NumberLiteral, StringLiteral
-from dsl_compiler.src.common.source_location import SourceLocation
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.ir.builder import IRBuilder
 from dsl_compiler.src.ir.nodes import IRArith, IRDecider
 from dsl_compiler.src.lowering.expression_lowerer import ExpressionLowerer
@@ -646,8 +646,6 @@ class TestWireMergeOptimization:
 # These tests directly call internal methods of ExpressionLowerer to cover
 # specific code paths that aren't reachable via full compilation.
 
-from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
-
 
 def create_minimal_lowerer() -> tuple[ExpressionLowerer, IRBuilder, ProgramDiagnostics]:
     """Create a minimal ExpressionLowerer for direct testing."""
@@ -879,7 +877,7 @@ class TestLowerLogicalOrWithIntegers:
         """Test || with integer literal on left side."""
         lowerer, ir_builder, diags = create_minimal_lowerer()
         # Create a mock expression
-        expr = BinaryOp(
+        BinaryOp(
             NumberLiteral(5, make_loc()),
             "||",
             NumberLiteral(0, make_loc()),
@@ -1073,8 +1071,6 @@ class TestConditionalExpressionOutputs:
         """)
         assert not diags.has_errors()
 
-
-class TestBundleScalarOperations:
     """Tests for bundle scalar operations (lines 1099-1108)."""
 
     def test_bundle_times_int_variable(self):
@@ -1123,10 +1119,6 @@ class TestPropertyAccessReads:
         Signal x = unknown_entity.status;
         """)
         assert diags.has_errors()
-
-
-class TestWireMergeConstantFolding:
-    """Tests for wire merge constant folding (lines 1309-1336)."""
 
     def test_wire_merge_two_constants(self):
         """Wire merge of two constants should fold."""

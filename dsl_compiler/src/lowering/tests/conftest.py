@@ -11,7 +11,6 @@ import pytest
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.common.source_location import SourceLocation
 from dsl_compiler.src.ir.builder import IRBuilder
-from dsl_compiler.src.ir.nodes import BundleRef, SignalRef
 from dsl_compiler.src.lowering.lowerer import ASTLowerer
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer

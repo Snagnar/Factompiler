@@ -170,7 +170,7 @@ def test_handle_latch_write_set_remap(builder):
     # Memory uses signal-A, set signal is signal-S (different)
     op = IRMemCreate("mem1", "signal-A")
     sg = SignalGraph()
-    module = builder.create_memory(op, sg)
+    builder.create_memory(op, sg)
 
     # Set signal uses different type than memory signal
     set_signal = SignalRef("signal-S", "set_src")
@@ -251,7 +251,7 @@ def test_handle_read_with_latch(builder):
 
     op = IRMemCreate("mem1", "signal-A")
     sg = SignalGraph()
-    module = builder.create_memory(op, sg)
+    builder.create_memory(op, sg)
 
     # Upgrade to latch
     set_signal = SignalRef("signal-S", "set_src")
@@ -291,7 +291,7 @@ def test_handle_latch_write_reset_remap(builder):
     # Memory uses signal-A, and reset will also be signal-A (needs remapping)
     op = IRMemCreate("mem1", "signal-A")
     sg = SignalGraph()
-    module = builder.create_memory(op, sg)
+    builder.create_memory(op, sg)
 
     set_signal = SignalRef("signal-S", "set_src")
     reset_signal = SignalRef("signal-A", "reset_src")  # Same as memory signal!

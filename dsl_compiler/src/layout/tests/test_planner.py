@@ -1,7 +1,6 @@
 """Tests for layout/planner.py - one test per function."""
 
 import pytest
-from pathlib import Path
 
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.ir.nodes import IRArith, IRConst, SignalRef
@@ -148,7 +147,7 @@ def test_inject_operand_wire_color():
     planner._plan_connections()
 
     # Check placement has wire color info
-    placement = planner.layout_plan.get_placement("add1")
+    planner.layout_plan.get_placement("add1")
     # May or may not have wire colors depending on connection planning
 
 
@@ -198,9 +197,7 @@ def test_add_power_pole_grid():
     planner._add_power_pole_grid()
 
     # Should have some power poles
-    has_pole = any(
-        p.properties.get("is_power_pole") for p in planner.layout_plan.entity_placements.values()
-    )
+    any(p.properties.get("is_power_pole") for p in planner.layout_plan.entity_placements.values())
     # May or may not add poles depending on entity bounds
 
 
@@ -309,13 +306,14 @@ def test_inject_operand_wire_color_no_source():
     placement = planner.layout_plan.get_placement("add1")
     if placement:
         # Inject wire color for missing source
-        count = planner._inject_operand_wire_color(placement, "left", 0)
+        planner._inject_operand_wire_color(placement, "left", 0)
         # Should handle gracefully
 
 
 def test_trim_power_poles_removes_unused():
     """Test _trim_power_poles removes poles that don't cover any entities."""
     from unittest.mock import MagicMock
+
     from dsl_compiler.src.layout.layout_plan import EntityPlacement
 
     # Use "medium" not "medium-electric-pole" - config uses short names
@@ -363,7 +361,7 @@ def test_trim_power_poles_removes_unused():
 
 def test_determine_locked_wire_colors_sr_latch():
     """Test _determine_locked_wire_colors for SR latch memory modules."""
-    from dsl_compiler.src.ir.nodes import MEMORY_TYPE_SR_LATCH, IRMemCreate, IRLatchWrite
+    from dsl_compiler.src.ir.nodes import MEMORY_TYPE_SR_LATCH, IRLatchWrite, IRMemCreate
 
     planner = LayoutPlanner({}, ProgramDiagnostics(), max_layout_retries=0)
     mem_op = IRMemCreate("mem1", "signal-A")
@@ -403,7 +401,7 @@ def test_plan_layout_chain_of_operations():
 
 def test_plan_layout_with_decider():
     """Test plan_layout with decider combinator."""
-    from dsl_compiler.src.ir.nodes import IRDecider, DeciderCondition
+    from dsl_compiler.src.ir.nodes import DeciderCondition, IRDecider
 
     planner = LayoutPlanner({}, ProgramDiagnostics(), max_layout_retries=0)
 
@@ -435,7 +433,7 @@ def test_plan_layout_with_memory():
 
     result = planner.plan_layout([mem_create, c1, mem_write, mem_read])
     # Memory module should be created
-    assert any("write" in k or "hold" in k for k in result.entity_placements.keys())
+    assert any("write" in k or "hold" in k for k in result.entity_placements)
 
 
 def test_plan_layout_with_multiple_constants():
@@ -457,9 +455,9 @@ def test_plan_layout_with_multiple_constants():
 
 def compile_facto_source(source: str):
     """Compile Facto source code through the full pipeline."""
+    from dsl_compiler.src.lowering.lowerer import ASTLowerer
     from dsl_compiler.src.parsing.parser import DSLParser
     from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
-    from dsl_compiler.src.lowering.lowerer import ASTLowerer
 
     diagnostics = ProgramDiagnostics()
     parser = DSLParser()
