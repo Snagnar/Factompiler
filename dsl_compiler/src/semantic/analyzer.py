@@ -826,15 +826,27 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         return output_type
 
     def _is_comparison_expr(self, expr: Expr) -> bool:
-        """Check if expression is a comparison operation."""
+        """Check if expression is a valid decider condition.
+
+        Valid conditions include:
+        - Simple comparisons (a > b, x == y, etc.)
+        - Logical AND/OR of comparisons ((a > b) && (c < d))
+        """
         if isinstance(expr, BinaryOp):
-            return expr.op in self.COMPARISON_OPS
+            if expr.op in self.COMPARISON_OPS:
+                return True
+            # Logical AND/OR chains are valid if both sides are comparison expressions
+            if expr.op in ("&&", "||", "and", "or"):
+                return self._is_comparison_expr(expr.left) and self._is_comparison_expr(expr.right)
         return False
 
     def _get_comparison_left_type(self, expr: Expr) -> ValueInfo:
         """Get the type of the left operand in a comparison."""
         if isinstance(expr, BinaryOp) and expr.op in self.COMPARISON_OPS:
             return self.get_expr_type(expr.left)
+        # For compound conditions, get the type from the first comparison
+        if isinstance(expr, BinaryOp) and expr.op in ("&&", "||", "and", "or"):
+            return self._get_comparison_left_type(expr.left)
         return IntValue()
 
     def visit(self, node: ASTNode) -> Any:

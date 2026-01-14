@@ -309,6 +309,37 @@ class LayoutPlanner:
             )
             return injected_count
 
+    def _inject_output_value_wire_color(self, placement: Any, injected_count: int) -> int:
+        """Inject wire color for decider output_value when copy_count_from_input is True.
+
+        When a decider copies a signal value from input to output, the emitter needs
+        to know which wire network provides that signal value. This is critical when
+        the same signal type arrives on both red and green wires with different values.
+        """
+        if not placement.properties.get("copy_count_from_input", False):
+            return injected_count
+
+        output_value = placement.properties.get("output_value")
+        signal_id = placement.properties.get("output_value_signal_id")
+
+        if not output_value or isinstance(output_value, int) or not signal_id:
+            return injected_count
+
+        source_entity = self._resolve_source_entity(signal_id)
+
+        if source_entity and self.connection_planner is not None:
+            color = self.connection_planner.get_wire_color_for_edge(
+                source_entity, placement.ir_node_id, output_value
+            )
+            placement.properties["output_value_wires"] = {color}
+            return injected_count + 1
+        else:
+            placement.properties["output_value_wires"] = {"red", "green"}
+            self.diagnostics.info(
+                f"No source found for output_value signal {signal_id} of {placement.ir_node_id}"
+            )
+            return injected_count
+
     def _inject_wire_colors_into_placements(self) -> None:
         """Store wire color information in combinator placement properties.
 
@@ -326,6 +357,10 @@ class LayoutPlanner:
 
             injected_count = self._inject_operand_wire_color(placement, "left", injected_count)
             injected_count = self._inject_operand_wire_color(placement, "right", injected_count)
+
+            # For deciders with copy_count_from_input, inject wire color for output_value
+            if placement.entity_type == "decider-combinator":
+                injected_count = self._inject_output_value_wire_color(placement, injected_count)
 
         self.diagnostics.info(f"Wire color injection: {injected_count} operands configured")
 

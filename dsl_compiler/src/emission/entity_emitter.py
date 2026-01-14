@@ -226,12 +226,18 @@ class PlanEntityEmitter:
 
         entity.conditions = [DeciderCombinator.Condition(**condition_kwargs)]
 
-        output_kwargs = {
+        output_kwargs: dict[str, Any] = {
             "signal": output_signal,
             "copy_count_from_input": copy_count,
         }
         if not copy_count and isinstance(output_value, int):
             output_kwargs["constant"] = output_value
+
+        # When copying from input, specify which wire network to read the value from
+        if copy_count:
+            output_value_wires = props.get("output_value_wires")
+            if output_value_wires:
+                output_kwargs["networks"] = self._wires_to_network_selection(output_value_wires)
 
         entity.outputs = [DeciderCombinator.Output(**output_kwargs)]
 
@@ -305,6 +311,12 @@ class PlanEntityEmitter:
         }
         if not copy_count and isinstance(output_value, int):
             output_kwargs["constant"] = output_value
+
+        # When copying from input, specify which wire network to read the value from
+        if copy_count:
+            output_value_wires = props.get("output_value_wires")
+            if output_value_wires:
+                output_kwargs["networks"] = self._wires_to_network_selection(output_value_wires)
 
         entity.outputs = [DeciderCombinator.Output(**output_kwargs)]
 

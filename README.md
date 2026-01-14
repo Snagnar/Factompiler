@@ -58,23 +58,46 @@ lamp.enable = blink;
 Here's a fun example — an **LED chaser display** (Knight Rider style) where a light bounces back and forth:
 
 ```facto
-# LED Chaser - a light that bounces back and forth across 8 lamps
+Signal speed = ("signal-S", 1);  # Increment per tick (adjustable in-game!)
+int N = 32;      # Number of lamps
+int M = 10;       # Number of columns
+int PERIOD = 2 * N;  # Full cycle length
 
-int NUM_LAMPS = 8;
-
-# Timer counts 0-13 for a complete back-and-forth cycle
+# Counter: 0 to PERIOD-1, wrapping
 Memory tick: "signal-T";
-tick.write((tick.read() + 1) % 14);
+Signal raw = tick.read();
+tick.write((raw + speed) % PERIOD);
 
-# Convert to bounce position: 0→7→0 pattern using arithmetic
-Signal t = tick.read();
-Signal position = (t < 8) * t + (t >= 8) * (14 - t);
+# Ping-pong wave: 0→15→0→15→...
+Signal level_up = (raw < N) : raw;
+Signal level_down = (raw >= N) : (PERIOD - 1 - raw);
+Signal level = level_up + level_down;
 
-# Create the lamp row - each lamp lights when position matches
-for i in 0..NUM_LAMPS {
-    Entity lamp = place("small-lamp", i, 0);
-    lamp.enable = position == i;
+# Packed RGB colors (0xBBGGRR format - blue in high byte, red in low byte)
+int COLOR_GREEN = 0x32FF32;
+int COLOR_CYAN = 0xFFFF32;
+int COLOR_YELLOW = 0x32FFFF;
+int COLOR_RED = 0xFF3232;
+
+# Select color based on level zone using compound conditions
+Signal color = (level < 8) : COLOR_GREEN;
+Signal color_cyan = ((level >= 8) && (level < 16)) : COLOR_CYAN;
+Signal color_yellow = ((level >= 16) && (level < 24)) : COLOR_YELLOW;
+Signal color_red = (level >= 24) : COLOR_RED;
+
+# Sum (only one zone is active, others output 0)
+Signal rgb = (color + color_cyan + color_yellow + color_red) | "signal-white";
+
+# Create N lamps in a vertical stack (bottom = lamp 0, top = lamp N-1)
+for i in 0..N {
+    for j in 0..M {
+
+        Entity lamp = place("small-lamp", i, j, {use_colors: 1, color_mode: 2});
+        lamp.enable = level < i;
+        lamp.rgb = rgb;
+    }
 }
+
 ```
 
 This example demonstrates:

@@ -1390,9 +1390,17 @@ class ConnectionPlanner:
             side_a = self._get_connection_side(ent_a, is_source=(ent_a == source_id))
             side_b = self._get_connection_side(ent_b, is_source=(ent_b == source_id))
 
-            # Store wire color for both directions (MST edges are undirected)
-            self._edge_wire_colors[(ent_a, ent_b, signal_name)] = wire_color
-            self._edge_wire_colors[(ent_b, ent_a, signal_name)] = wire_color
+            # Store wire color for MST edges, but DON'T overwrite existing assignments.
+            # This prevents MST routing from clobbering wire colors that were already
+            # correctly assigned for edges belonging to a different signal group (color).
+            # Example: arith_7 -> decider_8 might be GREEN for output_spec copying,
+            # but arith_3's MST might include arith_7 ↔ decider_8 as a routing path.
+            edge_key_ab = (ent_a, ent_b, signal_name)
+            edge_key_ba = (ent_b, ent_a, signal_name)
+            if edge_key_ab not in self._edge_wire_colors:
+                self._edge_wire_colors[edge_key_ab] = wire_color
+            if edge_key_ba not in self._edge_wire_colors:
+                self._edge_wire_colors[edge_key_ba] = wire_color
 
             # Get network ID from the first original edge (all share the same network)
             network_id = self.get_network_id_for_edge(source_id, sink_ids[0], signal_name)
