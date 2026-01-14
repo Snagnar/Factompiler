@@ -55,38 +55,42 @@ lamp.enable = blink;
 
 ## 🚀 Quick Example
 
-Here's a practical example — a **smart backup power controller** with hysteresis to prevent flickering:
+Here's a fun example — an **LED chaser display** (Knight Rider style) where a light bounces back and forth:
 
 ```facto
-# Steam backup power with hysteresis control
-# Turns ON when batteries drop below 20%, stays on until they reach 80%
+# LED Chaser - a light that bounces back and forth across 8 lamps
 
-# Place accumulator and read its charge level (outputs 0-100 on signal-A)
-Entity accumulator = place("accumulator", 0, 0);
-Bundle acc_output = accumulator.output;
-Signal battery_charge = acc_output["signal-A"];
+int NUM_LAMPS = 8;
 
-# SR Latch: set priority means "stay ON" wins ties
-Memory steam_on: "signal-A";
-steam_on.write(1, set=battery_charge < 20, reset=battery_charge >= 80);
+# Timer counts 0-13 for a complete back-and-forth cycle
+Memory tick: "signal-T";
+tick.write((tick.read() + 1) % 14);
 
-# Control the power switch to connect backup power when needed
-Entity power_switch = place("power-switch", 4, 0);
-power_switch.enable = steam_on.read() > 0;
+# Convert to bounce position: 0→7→0 pattern using arithmetic
+Signal t = tick.read();
+Signal position = (t < 8) * t + (t >= 8) * (14 - t);
 
-# Status indicator lamp - red when backup is active, green when on main power
-Entity status_lamp = place("small-lamp", 8, 0, {use_colors: 1, color_mode: 1});
-status_lamp.r = steam_on.read() * 255 | "signal-red";      # Red when backup is running
-status_lamp.g = (1 - steam_on.read()) * 255 | "signal-green"; # Green when on main power
+# Create the lamp row - each lamp lights when position matches
+for i in 0..NUM_LAMPS {
+    Entity lamp = place("small-lamp", i, 0);
+    lamp.enable = position == i;
+}
 ```
+
+This example demonstrates:
+- **For loops** — create 8 lamps with a single loop
+- **Memory** — persistent counter that survives across game ticks
+- **Arithmetic conditions** — `(t < 8) * t` acts as an inline conditional
 
 **Compile it:**
 
 ```bash
-factompile backup_power.facto -o backup_power.blueprint
+factompile led_chaser.facto -o chaser.blueprint
 ```
 
-<!-- [IMAGE PLACEHOLDER: The backup power circuit in Factorio, showing the power switch and status lamp] -->
+Import the blueprint, add power, and watch the light chase! ✨
+
+<!-- [IMAGE PLACEHOLDER: The LED chaser in Factorio showing the bouncing light effect] -->
 
 ---
 
