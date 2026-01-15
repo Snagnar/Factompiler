@@ -55,44 +55,54 @@ lamp.enable = blink;
 
 ## 🚀 Quick Example
 
-Here's a fun example — an **LED chaser display** (Knight Rider style) where a light bounces back and forth:
+Here's a fun example — an **Animated Bar Meter** where a vertical bar chart that fills and empties in a smooth ping-pong wave.  All lit lamps share the same color based on current fill level: green (high) → cyan → yellow → red (low).
 
 ```facto
-Signal speed = ("signal-S", 1);  # Increment per tick (adjustable in-game!)
-int N = 32;      # Number of lamps
-int M = 10;       # Number of columns
+# Animated Bar Meter
+# ===================
+
+# facto comes with some standard functions in lib/
+import "math.facto";
+
+# Configuration - Signal literal creates visible constant combinator that you can change in-game
+Signal speed = ("signal-S", 4);  # Ticks per increment (adjustable in-game!)
+int N = 50;      # Number of lamps in a row
+int M = 10;       # Number of rows
 int PERIOD = 2 * N;  # Full cycle length
 
-# Counter: 0 to PERIOD-1, wrapping
-Memory tick: "signal-T";
-Signal raw = tick.read();
-tick.write((raw + speed) % PERIOD);
+# unconditional memory updates every tick
+Memory raw_tick: "signal-T";
+raw_tick.write(raw_tick.read() + 1);
 
-# Ping-pong wave: 0→15→0→15→...
-Signal level_up = (raw < N) : raw;
-Signal level_down = (raw >= N) : (PERIOD - 1 - raw);
-Signal level = level_up + level_down;
+# conditional memory only updates when condition is met
+Memory timed_tick: "signal-T";
+Signal raw = timed_tick.read();
+timed_tick.write((raw + 1) % PERIOD, when=(raw_tick.read() % speed) == 0);
+
+# Ping-pong wave: N -> 0 -> N -> 0 ...
+# This uses an imported abs function from math.facto
+Signal level = abs(raw - N);
 
 # Packed RGB colors (0xBBGGRR format - blue in high byte, red in low byte)
 int COLOR_GREEN = 0x32FF32;
-int COLOR_CYAN = 0xFFFF32;
-int COLOR_YELLOW = 0x32FFFF;
+int COLOR_CYAN = 0x32FFFF;
+int COLOR_YELLOW = 0xFFFF32;
 int COLOR_RED = 0xFF3232;
 
 # Select color based on level zone using compound conditions
-Signal color = (level < 8) : COLOR_GREEN;
+Signal color_green = (level < 8) : COLOR_GREEN;
 Signal color_cyan = ((level >= 8) && (level < 16)) : COLOR_CYAN;
 Signal color_yellow = ((level >= 16) && (level < 24)) : COLOR_YELLOW;
 Signal color_red = (level >= 24) : COLOR_RED;
 
-# Sum (only one zone is active, others output 0)
-Signal rgb = (color + color_cyan + color_yellow + color_red) | "signal-white";
+# Sum (only one zone is active, others output 0). rgb is projected to white channel,
+# as this is the standard input signal type for packed rgb color mode.
+Signal rgb = (color_green + color_cyan + color_yellow + color_red) | "signal-white";
 
-# Create N lamps in a vertical stack (bottom = lamp 0, top = lamp N-1)
+# Create N lamps in a horizontal matrix
 for i in 0..N {
     for j in 0..M {
-
-        Entity lamp = place("small-lamp", i, j, {use_colors: 1, color_mode: 2});
+        Entity lamp = place("small-lamp", i, j - M, {use_colors: 1, color_mode: 2});
         lamp.enable = level < i;
         lamp.rgb = rgb;
     }
@@ -101,14 +111,14 @@ for i in 0..N {
 ```
 
 This example demonstrates:
-- **For loops** — create 8 lamps with a single loop
-- **Memory** — persistent counter that survives across game ticks
-- **Arithmetic conditions** — `(t < 8) * t` acts as an inline conditional
+- **For loops** — creates entities with a loop
+- **Memory** — persistent counter that survives across game ticks and can be updated based on conditions.
+- **Arithmetic operations and Conditions** — direct signal processing with binary operators. Conditions are either 0 or 1, and condition : value is semantically the same as condition * value. But the `:` uses in game optimizations, so that condition : value only uses one combinator, while condition * value will use at least two (one for the condition computation, one for the `*` arithmetic operation). 
 
 **Compile it:**
 
 ```bash
-factompile led_chaser.facto -o chaser.blueprint
+factompile bar_chart.facto
 ```
 
 Import the blueprint, add power, and watch the light chase! ✨

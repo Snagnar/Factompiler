@@ -827,7 +827,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
     def _is_comparison_expr(self, expr: Expr) -> bool:
         """Check if expression is a valid decider condition.
-
+        
         Valid conditions include:
         - Simple comparisons (a > b, x == y, etc.)
         - Logical AND/OR of comparisons ((a > b) && (c < d))
