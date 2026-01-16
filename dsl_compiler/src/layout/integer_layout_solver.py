@@ -12,25 +12,71 @@ from .signal_graph import SignalGraph
 
 
 class EarlyStopCallback(cp_model.CpSolverSolutionCallback):
-    """Callback to stop solver early when a good-enough solution is found."""
+    """Callback to stop solver early when optimization plateaus.
 
-    def __init__(self, max_violations: int = 0):
+    The callback tracks objective value improvements across solutions. It stops
+    when:
+    1. A solution with zero violations is found AND
+    2. The objective has not improved significantly for several consecutive solutions
+
+    This allows the solver to continue optimizing wire length even after finding
+    a feasible (zero-violation) solution.
+    """
+
+    def __init__(
+        self,
+        max_violations: int = 0,
+        plateau_threshold: int = 10,
+        min_improvement: float = 0.005,
+    ):
+        """Initialize the callback.
+
+        Args:
+            max_violations: Maximum acceptable violations for early stopping
+            plateau_threshold: Stop after this many solutions without improvement
+            min_improvement: Minimum relative improvement to count as "improving"
+        """
         super().__init__()
         self._solution_count = 0
         self._max_violations = max_violations
+        self._plateau_threshold = plateau_threshold
+        self._min_improvement = min_improvement
+        self._best_objective = float("inf")
+        self._solutions_without_improvement = 0
+        self._has_feasible_solution = False
         self._stop_search = False
 
     def on_solution_callback(self) -> None:
         self._solution_count += 1
-        # Stop after finding any solution with acceptable violations
-        # The objective function already prioritizes minimizing violations
-        if self._solution_count >= 1:
-            obj = self.ObjectiveValue()
-            # If objective is low enough (few/no violations), stop early
-            # violation_weight is typically 10000, so obj < 10000 means 0 violations
-            if obj < 10000 * (self._max_violations + 1):
-                self._stop_search = True
-                self.StopSearch()
+        obj = self.ObjectiveValue()
+
+        # Check for improvement
+        if self._best_objective > 0:
+            improvement = (self._best_objective - obj) / self._best_objective
+        else:
+            improvement = 1.0 if obj < self._best_objective else 0.0
+
+        if improvement >= self._min_improvement:
+            # Significant improvement - reset plateau counter
+            self._best_objective = obj
+            self._solutions_without_improvement = 0
+        else:
+            # No significant improvement
+            self._solutions_without_improvement += 1
+
+        # Check if solution is feasible (has acceptable violations)
+        # violation_weight is 10000, so we can check thresholds
+        violation_threshold = 10000 * (self._max_violations + 1)
+        if obj < violation_threshold:
+            self._has_feasible_solution = True
+
+        # Stop only if we have a feasible solution AND optimization has plateaued
+        if (
+            self._has_feasible_solution
+            and self._solutions_without_improvement >= self._plateau_threshold
+        ):
+            self._stop_search = True
+            self.StopSearch()
 
     @property
     def solution_count(self) -> int:
@@ -223,6 +269,11 @@ class IntegerLayoutEngine:
         Uses early stopping when a good-enough solution is found. For small
         graphs, tries a quick solve first before falling back to longer solves.
 
+        The solver uses a violation progression where earlier (stricter) stages
+        aim for fewer violations, while later stages accept more. This allows
+        the solver to try harder for optimal solutions before accepting
+        compromises.
+
         Args:
             time_limit_seconds: Total time budget for all strategies
 
@@ -253,10 +304,9 @@ class IntegerLayoutEngine:
             if quick_result.success and quick_result.violations == 0:
                 self.diagnostics.info(f"Quick solution found in {quick_result.solve_time:.2f}s")
                 return quick_result.positions
-            if (
-                quick_result.success
-                and quick_result.violations <= self.config.acceptable_layout_violations
-            ):
+            # Use strategy-specific threshold for early acceptance
+            max_acceptable = strategies[0].get("max_acceptable_violations", 0)
+            if quick_result.success and quick_result.violations <= max_acceptable:
                 self.diagnostics.info(
                     f"Quick acceptable solution found with {quick_result.violations} violations "
                     f"in {quick_result.solve_time:.2f}s"
@@ -264,10 +314,17 @@ class IntegerLayoutEngine:
                 return quick_result.positions
 
         best_result = None
-        # Distribute time budget across strategies, favoring earlier (stricter) ones
-        per_strategy_limit = max(1, time_limit_seconds // len(strategies))
+        # Distribute time budget across strategies, but give more to earlier (stricter) ones
+        # Early stopping will handle convergence, so we don't need to worry about wasting time
+        strict_time = max(5, time_limit_seconds // 2)  # Half the budget for strict strategy
+        remaining_time = time_limit_seconds - strict_time
+        remaining_per_strategy = (
+            max(1, remaining_time // (len(strategies) - 1)) if len(strategies) > 1 else 0
+        )
 
         for i, strategy in enumerate(strategies):
+            per_strategy_limit = strict_time if i == 0 else remaining_per_strategy
+
             self.diagnostics.info(
                 f"Attempting strategy {i + 1}/{len(strategies)}: {strategy['name']}"
             )
@@ -285,7 +342,11 @@ class IntegerLayoutEngine:
                 if best_result is None or result.violations < best_result.violations:
                     best_result = result
 
-                if result.violations <= self.config.acceptable_layout_violations:
+                # Use strategy-specific threshold from progression
+                max_acceptable = strategy.get(
+                    "max_acceptable_violations", self.config.acceptable_layout_violations
+                )
+                if result.violations <= max_acceptable:
                     self.diagnostics.info(
                         f"Acceptable solution found with {result.violations} violations "
                         f"using strategy '{strategy['name']}' in {result.solve_time:.2f}s"
@@ -313,40 +374,63 @@ class IntegerLayoutEngine:
         return self._fallback_grid_layout()
 
     def _get_relaxation_strategies(self) -> list[dict]:
-        """Define progressive relaxation strategies."""
+        """Define progressive relaxation strategies.
+
+        Each strategy has:
+        - max_span: Wire span limit for violation detection
+        - max_coord: Maximum coordinate for entity placement
+        - violation_weight: Weight for violations in objective function
+        - max_acceptable_violations: Threshold for early stopping
+
+        The strict strategy uses the firm wire span limit (9.0 tiles in Factorio).
+        No safety margins are applied - if Euclidean distance exceeds 9.0, it's
+        a violation that requires relay poles.
+        """
+        # Use the firm wire span limit - no safety margins
         max_span = int(self.constraints.max_wire_span)
         max_coord = self.constraints.max_coordinate
+
+        # Get violation progression from config, with fallback defaults
+        progression = self.config.violation_progression
+        if len(progression) < 5:
+            # Extend with increasing values if too short
+            progression = progression + tuple(range(len(progression), 5))
 
         return [
             {
                 "name": "Strict",
-                "max_span": max_span,
+                "max_span": max_span,  # Firm 9.0 limit
                 "max_coord": max_coord,
                 "violation_weight": 10000,
+                "max_acceptable_violations": progression[0],
             },
             {
                 "name": "Relaxed span (+33%)",
-                "max_span": int(max_span * 1.33),
+                "max_span": int(max_span * 1.33),  # Allow longer spans to find feasible layout
                 "max_coord": max_coord,
                 "violation_weight": 10000,
+                "max_acceptable_violations": progression[1],
             },
             {
                 "name": "Larger area (+50%)",
                 "max_span": max_span,
                 "max_coord": int(max_coord * 1.5),
                 "violation_weight": 10000,
+                "max_acceptable_violations": progression[2],
             },
             {
                 "name": "Both relaxed",
                 "max_span": int(max_span * 1.5),
                 "max_coord": int(max_coord * 1.5),
                 "violation_weight": 5000,
+                "max_acceptable_violations": progression[3],
             },
             {
                 "name": "Very relaxed",
-                "max_span": int(max_span * 2),
+                "max_span": int(max_span * 2),  # Allow very long spans for desperate cases
                 "max_coord": int(max_coord * 2),
                 "violation_weight": 1000,
+                "max_acceptable_violations": progression[4],
             },
         ]
 
@@ -392,7 +476,11 @@ class IntegerLayoutEngine:
         solver.parameters.log_search_progress = False
 
         if early_stop:
-            callback = EarlyStopCallback(max_violations=self.config.acceptable_layout_violations)
+            # Use strategy-specific max acceptable violations for early stopping
+            max_acceptable = strategy.get(
+                "max_acceptable_violations", self.config.acceptable_layout_violations
+            )
+            callback = EarlyStopCallback(max_violations=max_acceptable)
             status = solver.Solve(model, callback)
         else:
             status = solver.Solve(model)
@@ -468,27 +556,60 @@ class IntegerLayoutEngine:
     def _add_span_constraints(
         self, model: cp_model.CpModel, positions: dict, max_span: int
     ) -> tuple[list, list]:
-        """Add soft wire span constraints with violation tracking."""
+        """Add soft wire span constraints with violation tracking.
+
+        Uses squared Euclidean distance for BOTH violation detection AND
+        wire length optimization. This matches how Factorio actually calculates
+        wire spans - wires are drawn as straight lines, not along grid axes.
+
+        The squared Euclidean distance dx² + dy² is used directly since:
+        1. It correctly models actual wire length in Factorio
+        2. CP-SAT can't do sqrt(), but minimizing sum(d²) still prefers shorter wires
+        3. The violation check d² > span² is equivalent to d > span
+
+        NOTE: Wire lengths for fixed-to-fixed connections are excluded from the
+        optimization objective since they can't be changed. They are constant terms
+        that just inflate the objective value without providing useful signal.
+        """
         span_violations = []
         wire_lengths = []
+        max_span_squared = max_span * max_span
 
         for i, (source, sink) in enumerate(self.connections):
             x1, y1 = positions[source]
             x2, y2 = positions[sink]
 
+            # Check if both entities are fixed (connection can't be optimized)
+            source_fixed = source in self.fixed_positions
+            sink_fixed = sink in self.fixed_positions
+            is_fixed_to_fixed = source_fixed and sink_fixed
+
+            # Compute absolute differences for distance calculations
             dx = model.NewIntVar(0, max_span * 2, f"dx_{i}")
             dy = model.NewIntVar(0, max_span * 2, f"dy_{i}")
             model.AddAbsEquality(dx, x1 - x2)
             model.AddAbsEquality(dy, y1 - y2)
 
-            distance = model.NewIntVar(0, max_span * 4, f"dist_{i}")
-            model.Add(distance == dx + dy)
+            # Squared Euclidean distance for both optimization and violation detection
+            # This matches the actual wire length in Factorio (straight line distance)
+            dx_squared = model.NewIntVar(0, max_span_squared * 4, f"dx2_{i}")
+            dy_squared = model.NewIntVar(0, max_span_squared * 4, f"dy2_{i}")
+            model.AddMultiplicationEquality(dx_squared, [dx, dx])
+            model.AddMultiplicationEquality(dy_squared, [dy, dy])
 
-            wire_lengths.append(distance)
+            distance_squared = model.NewIntVar(0, max_span_squared * 8, f"dist2_{i}")
+            model.Add(distance_squared == dx_squared + dy_squared)
 
+            # Only include in wire_lengths if connection can be optimized
+            # (skip fixed-to-fixed connections as they're constant)
+            if not is_fixed_to_fixed:
+                wire_lengths.append(distance_squared)
+
+            # Violation when squared Euclidean distance exceeds squared span limit
+            # (still track violations for all connections, even fixed ones)
             is_violation = model.NewBoolVar(f"viol_{i}")
-            model.Add(distance > max_span).OnlyEnforceIf(is_violation)
-            model.Add(distance <= max_span).OnlyEnforceIf(is_violation.Not())
+            model.Add(distance_squared > max_span_squared).OnlyEnforceIf(is_violation)
+            model.Add(distance_squared <= max_span_squared).OnlyEnforceIf(is_violation.Not())
 
             span_violations.append(is_violation)
 
@@ -615,9 +736,18 @@ class IntegerLayoutEngine:
     ) -> None:
         """Create multi-objective optimization function with priorities.
 
-        The bounding box is computed excluding power poles, since they are
-        infrastructure and should not affect the compactness goal for the
-        actual circuit entities.
+        Objective priorities (highest to lowest):
+        1. Minimize span violations (connections exceeding 9 tiles)
+        2. Minimize total wire length (sum of squared Euclidean distances)
+        3. Minimize bounding box (perimeter = max_x + max_y)
+
+        The weights are tuned so that:
+        - A single violation is much worse than any wire length increase
+        - Wire length and bounding box are balanced (both matter)
+
+        Since wire_lengths contains squared distances (e.g., 43 connections
+        with avg squared dist ~9 = 387), and bounding perimeter is typically
+        20-50, we need to balance the weights accordingly.
         """
         num_violations = sum(span_violations) if span_violations else 0
 
@@ -642,8 +772,22 @@ class IntegerLayoutEngine:
             bounding_perimeter = model.NewIntVar(0, 0, "bounding_perimeter")
             model.Add(bounding_perimeter == bounding_perimeter_int)
 
+        # Weight tuning:
+        # - violation_weight: 10000 per violation (ensures violations are avoided first)
+        # - wire_length_weight: Applied to sum of squared distances
+        # - perimeter_weight: Applied to max_x + max_y
+        #
+        # For a typical circuit with 40 connections:
+        # - Wire length sum: ~40 * 9 (avg d²) = 360, * 100 = 36,000
+        # - Perimeter: ~30, * 1000 = 30,000
+        # This makes them roughly equally important.
+        wire_length_weight = 300
+        perimeter_weight = 100
+
         objective = (
-            violation_weight * num_violations + 300 * total_wire_length + 100 * bounding_perimeter
+            violation_weight * num_violations
+            + wire_length_weight * total_wire_length
+            + perimeter_weight * bounding_perimeter
         )
 
         model.Minimize(objective)

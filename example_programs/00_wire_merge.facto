@@ -7,3 +7,57 @@ Signal input3 = 20 | "signal-A";
 Signal input4 = 20 | "signal-A";
 
 Signal total_A = input1 + input2 + input3 + input4;
+
+# Test 0: MST fan-out behavior
+# Tests: Multiple connections from one signal to many entities using MST routing
+
+Signal a = 5;
+
+Signal result = a * a;
+
+Signal out_0 = result;
+Signal out_1 = result;
+Signal out_2 = result;
+Signal out_3 = result;
+Signal out_4 = result;
+Signal out_5 = result;
+Signal out_6 = result;
+Signal out_7 = result;
+Signal out_8 = result;
+Signal out_9 = result;
+
+# Test 0: Wire separation behavior
+# Tests: Multiple connections to the same signal, wire separation
+
+Signal input12 = 50 | "signal-A";
+Signal input22 = 30 | "signal-A";
+Signal input32 = 20 | "signal-A";
+
+Signal total_A2 = input12 * input22 * input32;
+# Test 0: MST fan-in behavior
+# Tests: Multiple connections from multiple sources to the same signal
+# there needs to be no optimization merging these connections, as all computations are usually with only 2 inputs
+
+Signal in_0 = 2;
+Signal in_1 = 2;
+Signal in_2 = 2;
+Signal in_3 = 2;
+Signal in_4 = 2;
+Signal in_5 = 2;
+Signal in_6 = 2;
+Signal in_7 = 2;
+Signal in_8 = 2;
+Signal in_9 = 2;
+
+Signal total = in_0 * in_1 * in_2 * in_3 * in_4 * in_5 * in_6 * in_7 * in_8 * in_9;
+
+# Signal test = 2 ** 3 * 4 + 0x10 - 0o5 << 2 >> 1 AND 0b1111 OR 0x10 XOR 0b0101;
+
+# Test 0: Wire separation behavior
+# Tests: Multiple connections to the same signal, wire separation
+
+Signal input13 = 50 | "signal-A";
+Signal input23 = 30 | "signal-B";
+Signal input33 = 20 | "signal-C";
+
+Signal total_A3 = (input13 == 50) && (input23 == 30) && (input33 == 20);

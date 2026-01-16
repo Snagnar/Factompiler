@@ -24,6 +24,11 @@ class CompilerConfig:
             acceptable before the solver gives up on finding a perfect layout
             and returns the best solution found.
 
+        violation_progression: Tuple of max acceptable violations per strategy
+            stage. Earlier stages (stricter constraints) should aim for fewer
+            violations. The solver will stop early if a solution meets the
+            current stage's threshold.
+
         default_blueprint_label: Default label applied to generated blueprints
             when no explicit name is provided.
 
@@ -43,6 +48,9 @@ class CompilerConfig:
     layout_solver_time_limit: int = 20
     max_layout_coordinate: int = 200
     acceptable_layout_violations: int = 1
+    # Per-stage violation limits: (strict, relaxed_span, larger_area, both_relaxed, very_relaxed)
+    # Earlier stages aim for 0, later stages accept more
+    violation_progression: tuple[int, ...] = (0, 0, 1, 2, 5)
 
     # Blueprint Output
     default_blueprint_label: str = "DSL Generated"

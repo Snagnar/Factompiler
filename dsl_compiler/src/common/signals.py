@@ -113,7 +113,8 @@ AVAILABLE_VIRTUAL_SIGNALS: list[str] = [
     "signal-check",
     "signal-deny",
     "signal-info",
-    "signal-unknown",
+    # Note: signal-unknown is excluded - it's a hidden signal in Factorio
+    # and shows up as "unknown signal" in the game UI
     "signal-alarm",
     "signal-alert",
     "signal-clock",

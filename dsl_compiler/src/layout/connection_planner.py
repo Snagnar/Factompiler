@@ -88,8 +88,8 @@ class RelayNetwork:
 
     @property
     def span_limit(self) -> float:
-        """Effective span limit with safety margin."""
-        return max(1.0, float(self.max_span) - self.config.wire_span_safety_margin)
+        """Maximum wire span limit (firm 9.0 tiles for Factorio)."""
+        return float(self.max_span)
 
     def add_relay_node(
         self, position: tuple[float, float], entity_id: str, pole_type: str
@@ -148,7 +148,7 @@ class RelayNetwork:
         """
         distance = math.dist(source_pos, sink_pos)
 
-        if distance <= self.span_limit * 0.95:
+        if distance <= self.span_limit:
             return []  # No relays needed
 
         # Phase 1: Try to find a path through existing relays
@@ -211,7 +211,7 @@ class RelayNetwork:
             current_pos = nodes[current]
 
             # Check if we can reach sink directly
-            if math.dist(current_pos, sink_pos) <= span_limit * 0.95:
+            if math.dist(current_pos, sink_pos) <= span_limit:
                 return [(relay_id, wire_color) for relay_id in path]
 
             # Explore neighbors
@@ -220,7 +220,7 @@ class RelayNetwork:
                     continue
 
                 dist = math.dist(current_pos, node_pos)
-                if dist > span_limit * 0.95:
+                if dist > span_limit:
                     continue  # Too far
 
                 new_g = g + dist
@@ -264,7 +264,7 @@ class RelayNetwork:
         for i in range(num_relays + 5):  # +5 for safety margin if relays get placed off-path
             # Calculate remaining distance and direction FROM CURRENT POSITION
             remaining_dist = math.dist(current_pos, sink_pos)
-            if remaining_dist <= span_limit * 0.95:
+            if remaining_dist <= span_limit:
                 break  # Can already reach sink, no more relays needed
 
             # Recalculate direction vector from current position to sink
@@ -298,7 +298,7 @@ class RelayNetwork:
 
             # Verify the relay is reachable from current position
             relay_dist = math.dist(current_pos, relay_node.position)
-            if relay_dist > span_limit * 0.95:
+            if relay_dist > span_limit:
                 self.diagnostics.info(
                     f"Relay {relay_node.entity_id} at {relay_node.position} is too far "
                     f"({relay_dist:.1f}) from current position {current_pos}"
@@ -316,9 +316,9 @@ class RelayNetwork:
 
         # Verify we can reach sink from the last relay
         final_dist = math.dist(current_pos, sink_pos)
-        if final_dist > span_limit * 0.95:
+        if final_dist > span_limit:
             self.diagnostics.info(
-                f"Cannot reach sink from last relay, distance {final_dist:.1f} > {span_limit * 0.95:.1f}"
+                f"Cannot reach sink from last relay, distance {final_dist:.1f} > {span_limit:.1f}"
             )
             return None
 
@@ -359,7 +359,7 @@ class RelayNetwork:
             # - Within 3 tiles of ideal position
             # - Can route this network
             if (
-                node_dist_to_source <= span_limit * 0.95
+                node_dist_to_source <= span_limit
                 and node_dist_to_ideal <= 3.0
                 and node.can_route_network(network_id, wire_color)
             ):
@@ -410,7 +410,7 @@ class RelayNetwork:
 
                 # Check if reachable from source
                 dist_to_source = math.dist(center, source_pos)
-                if dist_to_source > span_limit * 0.95:
+                if dist_to_source > span_limit:
                     continue  # Too far from source
 
                 # Score: prefer positions that are
@@ -1362,7 +1362,7 @@ class ConnectionPlanner:
                 return False
 
             distance = math.dist(placement_a.position, placement_b.position)
-            if distance > span_limit * 0.95:
+            if distance > span_limit:
                 # This edge would need relays - skip MST to avoid relay conflicts
                 self.diagnostics.info(
                     f"MST skipped for {signal_name}: edge {ent_a} ↔ {ent_b} "
