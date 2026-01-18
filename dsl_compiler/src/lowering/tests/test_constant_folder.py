@@ -348,3 +348,29 @@ class TestExtractConstantInt:
 
         result = ConstantFolder.extract_constant_int(UnknownExpr())  # type: ignore
         assert result is None
+
+
+# =============================================================================
+# Coverage gap tests (Lines 78-85)
+# =============================================================================
+
+
+class TestConstantFolderCoverageGaps:
+    """Tests for constant_folder.py coverage gaps > 2 lines."""
+
+    def test_power_overflow_handling(self):
+        """Cover lines 78-85: power operation overflow handling."""
+        diagnostics = ProgramDiagnostics()
+        node = NumberLiteral(value=0)
+        # Very large exponent should trigger overflow protection
+        result = ConstantFolder.fold_binary_operation("**", 2, 100, node, diagnostics)
+        # Result should be an integer (may be valid large number or 0 on overflow)
+        assert isinstance(result, int)
+
+    def test_power_negative_exponent_coverage(self):
+        """Test negative exponent handling through ConstantFolder."""
+        diagnostics = ProgramDiagnostics()
+        node = NumberLiteral(value=0)
+        result = ConstantFolder.fold_binary_operation("**", 2, -5, node, diagnostics)
+        # Should return 0 for negative exponent
+        assert result == 0

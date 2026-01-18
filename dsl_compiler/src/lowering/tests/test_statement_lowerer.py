@@ -889,3 +889,80 @@ class TestConstantExtractionMethods:
         Signal result = x * multiplier;
         """)
         assert not diags.has_errors()
+
+
+# =============================================================================
+# Coverage gap tests (Lines 121-123, 244-246, 284-286, 376-378, 388-397)
+# =============================================================================
+
+
+class TestStatementLowererCoverageGaps:
+    """Tests for statement_lowerer.py coverage gaps > 2 lines."""
+
+    def test_lower_function_decl_creates_context(self):
+        """Cover lines 121-123: function declaration lowering."""
+        ir_ops, _, diags = compile_to_ir("""
+        func double(Signal x) {
+            return x * 2;
+        }
+        Signal result = double(5);
+        """)
+        assert not diags.has_errors()
+
+    def test_lower_return_stmt_in_function(self):
+        """Cover lines 244-246: return statement lowering."""
+        ir_ops, _, diags = compile_to_ir("""
+        func add_one(Signal x) {
+            return x + 1;
+        }
+        Signal r = add_one(10);
+        """)
+        assert not diags.has_errors()
+
+    def test_entity_statement_with_attribute(self):
+        """Cover lines 284-286: entity attribute assignment."""
+        ir_ops, _, diags = compile_to_ir("""
+        Entity lamp = place("small-lamp", 0, 0, {enabled: 1});
+        Signal cond = 5;
+        lamp.enable = cond > 3;
+        """)
+        assert not diags.has_errors()
+
+    def test_entity_input_assignment(self):
+        """Cover lines 376-378: entity input assignment lowering."""
+        ir_ops, _, diags = compile_to_ir("""
+        Entity lamp = place("small-lamp", 0, 0, {enabled: 1});
+        Signal input_val = 10;
+        lamp.input = input_val;
+        """)
+        assert not diags.has_errors()
+
+    def test_for_loop_with_complex_body(self):
+        """Cover lines 388-397: for loop body lowering."""
+        ir_ops, _, diags = compile_to_ir("""
+        for i in 1..4 {
+            Signal step = i * 10;
+        }
+        """)
+        assert not diags.has_errors()
+
+    def test_for_loop_with_entity_placement(self):
+        """Test for loop that places entities."""
+        ir_ops, _, diags = compile_to_ir("""
+        for i in 0..3 {
+            Entity lamp = place("small-lamp", i, 0, {enabled: 1});
+        }
+        """)
+        assert not diags.has_errors()
+
+    def test_function_with_multiple_statements(self):
+        """Test function with multiple statements in body."""
+        ir_ops, _, diags = compile_to_ir("""
+        func compute(Signal a, Signal b) {
+            Signal temp = a + b;
+            Signal doubled = temp * 2;
+            return doubled;
+        }
+        Signal r = compute(3, 4);
+        """)
+        assert not diags.has_errors()

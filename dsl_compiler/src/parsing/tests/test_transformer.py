@@ -41,6 +41,7 @@ from dsl_compiler.src.ast.statements import (
     ReturnStmt,
     TypedParam,
 )
+from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.parsing.transformer import DSLTransformer
 
 
@@ -1426,3 +1427,60 @@ class TestDSLTransformerPrimary:
         assert isinstance(result, PropertyAccessExpr)
         assert result.object_name == "my_entity"
         assert result.property_name == "enabled"
+
+
+# =============================================================================
+# Coverage gap tests (Lines 210-216, 246-251, 297-303, 364-368, 911-913)
+# =============================================================================
+
+
+class TestTransformerCoverageGaps:
+    """Tests for transformer.py coverage gaps > 2 lines."""
+
+    def test_memory_decl_with_signal(self):
+        """Cover lines 210-216: memory declaration parsing."""
+        parser = DSLParser()
+        result = parser.parse('Memory counter: "signal-A";')
+        assert len(result.statements) == 1
+        stmt = result.statements[0]
+        assert hasattr(stmt, "name")
+        assert stmt.name == "counter"
+
+    def test_signal_decl_with_type_annotation(self):
+        """Cover lines 246-251: signal declaration with type annotation."""
+        parser = DSLParser()
+        result = parser.parse('Signal items = ("iron-plate", 100);')
+        assert len(result.statements) == 1
+        stmt = result.statements[0]
+        assert hasattr(stmt, "value")
+
+    def test_for_loop_parsing(self):
+        """Cover lines 297-303: for loop parsing."""
+        parser = DSLParser()
+        result = parser.parse("""
+        for i in 0..5 {
+            Signal x = i;
+        }
+        """)
+        assert len(result.statements) == 1
+        stmt = result.statements[0]
+        assert hasattr(stmt, "iterator_name")
+        assert stmt.iterator_name == "i"
+
+    def test_entity_option_parsing(self):
+        """Cover lines 364-368: entity option parsing."""
+        parser = DSLParser()
+        result = parser.parse('Entity lamp = place("small-lamp", 0, 0, {enabled: 1});')
+        assert len(result.statements) == 1
+        stmt = result.statements[0]
+        # Entity is declared as DeclStmt with a CallExpr value
+        assert hasattr(stmt, "value")
+
+    def test_negative_number_literal(self):
+        """Cover lines 911-913: negative number literal parsing."""
+        parser = DSLParser()
+        result = parser.parse("Signal x = -42;")
+        assert len(result.statements) == 1
+        # The value should be negative
+        stmt = result.statements[0]
+        assert hasattr(stmt, "value")

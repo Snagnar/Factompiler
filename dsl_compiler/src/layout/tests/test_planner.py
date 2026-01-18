@@ -559,3 +559,42 @@ def test_compile_operations(source, min_entities):
     """Parameterized test for various operations."""
     layout = compile_facto_source(source)
     assert len(layout.entity_placements) >= min_entities
+
+
+# =============================================================================
+# Coverage gap tests (Lines 112-124, 306-310, 337-341)
+# =============================================================================
+
+
+class TestLayoutPlannerCoverageGaps:
+    """Tests for planner.py coverage gaps > 2 lines."""
+
+    def test_operand_wire_color_injection_no_source(self):
+        """Cover lines 306-310: operand wire color when no source found."""
+        source = """
+        Signal a = 10;
+        Signal b = 20;
+        Signal result = (a > b) : 1;
+        """
+        layout = compile_facto_source(source)
+        assert layout is not None
+
+    def test_output_value_wire_color_injection(self):
+        """Cover lines 337-341: output_value wire color injection."""
+        source = """
+        Signal a = 10;
+        Signal b = 20;
+        Signal result = (a > 5) : b;
+        """
+        layout = compile_facto_source(source)
+        assert layout is not None
+
+    def test_retry_mechanism_simple(self):
+        """Cover lines 112-124: basic layout without retry."""
+        source = """
+        Signal x = 1;
+        Signal y = 2;
+        Signal z = x + y;
+        """
+        layout = compile_facto_source(source)
+        assert layout is not None

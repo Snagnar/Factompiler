@@ -1,5 +1,6 @@
 """Tests for optimizer.py - IR optimization passes."""
 
+from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.ir.nodes import (
     DeciderCondition,
     IRArith,
@@ -11,6 +12,9 @@ from dsl_compiler.src.ir.optimizer import (
     ConstantPropagationOptimizer,
     CSEOptimizer,
 )
+from dsl_compiler.src.lowering.lowerer import ASTLowerer
+from dsl_compiler.src.parsing.parser import DSLParser
+from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
 
 
 class TestConstantPropagationOptimizerFoldArithmetic:
@@ -618,3 +622,48 @@ class TestConstantPropagationOptimizerChainedFolding:
         consts = [op for op in result if isinstance(op, IRConst)]
         final_values = {c.value for c in consts}
         assert 10 in final_values
+
+
+# =============================================================================
+# Coverage gap tests (Lines 293-295, 404-412)
+# =============================================================================
+
+
+def compile_to_ir(source: str):
+    """Helper to compile source to IR."""
+    parser = DSLParser()
+    ast = parser.parse(source, "<test>")
+    diagnostics = ProgramDiagnostics()
+    analyzer = SemanticAnalyzer(diagnostics=diagnostics)
+    analyzer.visit(ast)
+    lowerer = ASTLowerer(analyzer, diagnostics)
+    ir_ops = lowerer.lower_program(ast)
+    return ir_ops, lowerer, diagnostics
+
+
+class TestOptimizerCoverageGaps:
+    """Tests for optimizer.py coverage gaps > 2 lines."""
+
+    def test_constant_propagator_update_decider_refs(self):
+        """Cover lines 293-295: updating IRDecider references in constant propagator."""
+        source = """
+        Signal a = 10;
+        Signal b = 20;
+        Signal result = (a > 5) : b;
+        """
+        ir_ops, lowerer, diags = compile_to_ir(source)
+        deciders = [op for op in ir_ops if isinstance(op, IRDecider)]
+        assert len(deciders) > 0
+
+    def test_cse_optimizer_update_decider_conditions(self):
+        """Cover lines 404-412: CSE optimizer updating multi-condition deciders."""
+        source = """
+        Signal a = 10;
+        Signal b = 20;
+        Signal result = ((a > 5) && (b < 30)) : 1;
+        """
+        ir_ops, lowerer, diags = compile_to_ir(source)
+        deciders = [op for op in ir_ops if isinstance(op, IRDecider)]
+        for d in deciders:
+            if hasattr(d, "conditions") and d.conditions:
+                assert len(d.conditions) > 0

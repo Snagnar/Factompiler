@@ -1398,3 +1398,130 @@ class TestWireMergeFolding:
         """)
         assert not diags.has_errors()
         assert len(ir_ops) > 0
+
+
+# =============================================================================
+# Coverage gap tests (Lines 284-286, 713-722, 760-795, 833-836, etc.)
+# =============================================================================
+
+
+class TestExpressionLowererCoverageGaps:
+    """Tests for expression_lowerer.py coverage gaps > 2 lines."""
+
+    def test_signal_type_inference_from_right(self):
+        """Cover lines 284-286: inferring signal type from right operand."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 10);
+        Signal result = 5 + a;
+        """)
+        assert not diags.has_errors()
+
+    def test_output_spec_with_integer_output_value(self):
+        """Cover lines 713-722: output spec with integer constant output."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 10;
+        Signal result = (a > 5) : 1;
+        """)
+        assert not diags.has_errors()
+
+    def test_output_spec_with_signal_output_value(self):
+        """Cover lines 760-795: output spec with signal output value."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 10;
+        Signal b = 20;
+        Signal result = (a > 5) : b;
+        """)
+        assert not diags.has_errors()
+
+    def test_compound_output_spec_and(self):
+        """Cover lines 833-836: compound AND output spec."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 10;
+        Signal b = 20;
+        Signal result = ((a > 5) && (b < 30)) : 1;
+        """)
+        assert not diags.has_errors()
+
+    def test_compound_output_spec_or(self):
+        """Cover compound OR output spec."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 10;
+        Signal b = 20;
+        Signal result = ((a > 15) || (b > 15)) : 1;
+        """)
+        assert not diags.has_errors()
+
+    def test_signal_literal_with_type_coercion(self):
+        """Cover lines 1047-1058: signal literal type handling."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 10);
+        Signal b = a;
+        """)
+        assert not diags.has_errors()
+
+    def test_bundle_select_from_signal_ref(self):
+        """Cover lines 1221-1227: bundle select when source is SignalRef."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 10);
+        Signal b = ("signal-B", 20);
+        Bundle inputs = { a, b };
+        Signal selected = inputs["signal-A"];
+        """)
+        assert not diags.has_errors()
+
+    def test_function_call_entity_parameter(self):
+        """Cover lines 1392-1394: function call with entity parameter."""
+        ir_ops, _, diags = compile_to_ir("""
+        func setup_lamp(Entity e, Signal val) {
+            e.enabled = val;
+        }
+        Entity lamp = place("small-lamp", 0, 0);
+        Signal brightness = 100;
+        setup_lamp(lamp, brightness);
+        """)
+        assert not diags.has_errors()
+
+    def test_wire_merge_constant_folding(self):
+        """Cover lines 1511-1538: wire merge constant folding."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 5;
+        Signal b = 10;
+        Signal sum = a + b;
+        """)
+        assert not diags.has_errors()
+
+    def test_place_with_properties(self):
+        """Cover lines 1701-1703: place() with properties."""
+        ir_ops, _, diags = compile_to_ir("""
+        Entity lamp = place("small-lamp", 0, 0, { use_colors: 1 });
+        """)
+        assert not diags.has_errors()
+
+    def test_output_spec_identifier_condition(self):
+        """Cover identifier condition in output spec (lines 760-795)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = 10;
+        Signal cond = x > 5;
+        Signal result = (cond) : 42;
+        """)
+        assert not diags.has_errors()
+
+    def test_bundle_all_in_condition(self):
+        """Test all(bundle) in condition context."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 10;
+        Signal b = 20;
+        Bundle inputs = { a, b };
+        Signal result = (all(inputs) > 5) : 1;
+        """)
+        assert not diags.has_errors()
+
+    def test_bundle_any_in_condition(self):
+        """Test any(bundle) in condition context."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 10;
+        Signal b = 20;
+        Bundle inputs = { a, b };
+        Signal result = (any(inputs) > 0) : 1;
+        """)
+        assert not diags.has_errors()

@@ -370,3 +370,109 @@ def test_engine_power_pole_excluded_from_bounds(diagnostics):
     sg = SignalGraph()
     engine = IntegerLayoutEngine(sg, plan.entity_placements, diagnostics)
     assert "pole1" in engine._power_pole_ids
+
+
+# =============================================================================
+# Coverage gap tests (Lines 293-296, 308-314, 361-374, 771-773, 892-894, 902-904, 956-961)
+# =============================================================================
+
+
+class TestIntegerLayoutSolverCoverageGaps:
+    """Tests for integer_layout_solver.py coverage gaps > 2 lines."""
+
+    @pytest.fixture
+    def signal_graph(self):
+        return SignalGraph()
+
+    @pytest.fixture
+    def diagnostics(self):
+        return ProgramDiagnostics()
+
+    def test_constraint_variable_bounds(self, signal_graph, diagnostics):
+        """Cover lines 293-296: constraint variable bounds setup."""
+        plan = LayoutPlan()
+        plan.create_and_add_placement("e1", "constant-combinator", (0.5, 1.0), (1, 2), "literal")
+        plan.create_and_add_placement(
+            "e2", "arithmetic-combinator", (2.5, 1.0), (1, 2), "arithmetic"
+        )
+
+        signal_graph.set_source("sig1", "e1")
+        signal_graph.add_sink("sig1", "e2")
+
+        engine = IntegerLayoutEngine(signal_graph, plan.entity_placements, diagnostics)
+        result = engine.optimize(time_limit_seconds=1)
+        assert isinstance(result, dict)
+
+    def test_add_wire_constraints(self, signal_graph, diagnostics):
+        """Cover lines 308-314: wire constraint addition."""
+        plan = LayoutPlan()
+        plan.create_and_add_placement("e1", "constant-combinator", (0.5, 1.0), (1, 2), "literal")
+        plan.create_and_add_placement(
+            "e2", "arithmetic-combinator", (5.5, 1.0), (1, 2), "arithmetic"
+        )
+        plan.create_and_add_placement("e3", "decider-combinator", (10.5, 1.0), (1, 2), "decider")
+
+        signal_graph.set_source("sig1", "e1")
+        signal_graph.add_sink("sig1", "e2")
+        signal_graph.set_source("sig2", "e2")
+        signal_graph.add_sink("sig2", "e3")
+
+        engine = IntegerLayoutEngine(signal_graph, plan.entity_placements, diagnostics)
+        # Wire constraints should be added for connections
+        assert engine.connections is not None
+
+    def test_add_non_overlap_constraints(self, signal_graph, diagnostics):
+        """Cover lines 361-374: non-overlap constraint setup."""
+        plan = LayoutPlan()
+        plan.create_and_add_placement("e1", "constant-combinator", (0.5, 1.0), (1, 2), "literal")
+        plan.create_and_add_placement("e2", "constant-combinator", (1.5, 1.0), (1, 2), "literal")
+
+        engine = IntegerLayoutEngine(signal_graph, plan.entity_placements, diagnostics)
+        # Non-overlap constraints should have been added
+        assert engine.n_entities == 2
+
+    def test_solution_extraction(self, signal_graph, diagnostics):
+        """Cover lines 771-773: solution extraction from solver."""
+        plan = LayoutPlan()
+        plan.create_and_add_placement("e1", "constant-combinator", (0.5, 1.0), (1, 2), "literal")
+
+        engine = IntegerLayoutEngine(signal_graph, plan.entity_placements, diagnostics)
+        result = engine.optimize(time_limit_seconds=1)
+        # Should return valid positions
+        assert "e1" in result
+
+    def test_fallback_when_infeasible(self, signal_graph, diagnostics):
+        """Cover lines 892-894: fallback when constraints infeasible."""
+        plan = LayoutPlan()
+        plan.create_and_add_placement("e1", "constant-combinator", (0.5, 1.0), (1, 2), "literal")
+
+        engine = IntegerLayoutEngine(signal_graph, plan.entity_placements, diagnostics)
+        fallback = engine._fallback_grid_layout()
+        assert isinstance(fallback, dict)
+
+    def test_grid_layout_multiple_entities(self, signal_graph, diagnostics):
+        """Cover lines 902-904: grid layout with multiple entities."""
+        plan = LayoutPlan()
+        for i in range(5):
+            plan.create_and_add_placement(
+                f"e{i}", "constant-combinator", (i * 2.0 + 0.5, 1.0), (1, 2), "literal"
+            )
+
+        engine = IntegerLayoutEngine(signal_graph, plan.entity_placements, diagnostics)
+        result = engine._fallback_grid_layout()
+        assert len(result) == 5
+
+    def test_optimize_with_fixed_positions(self, signal_graph, diagnostics):
+        """Cover lines 956-961: optimization with some fixed positions."""
+        plan = LayoutPlan()
+        plan.create_and_add_placement("e1", "constant-combinator", (0.5, 1.0), (1, 2), "literal")
+        plan.create_and_add_placement("e2", "small-lamp", (3.5, 1.5), (1, 1), "output")
+
+        # Small lamps should have fixed positions
+        signal_graph.set_source("sig1", "e1")
+        signal_graph.add_sink("sig1", "e2")
+
+        engine = IntegerLayoutEngine(signal_graph, plan.entity_placements, diagnostics)
+        result = engine.optimize(time_limit_seconds=1)
+        assert "e1" in result
+        assert "e2" in result

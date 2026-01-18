@@ -561,3 +561,55 @@ class TestInferSignalCategory:
 
         result = lowerer._infer_signal_category("__v99")
         assert result == "virtual"
+
+
+# =============================================================================
+# Coverage gap tests (Lines 144-158, 164-168)
+# =============================================================================
+
+
+class TestLowererCoverageGaps:
+    """Tests for lowerer.py coverage gaps > 2 lines."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    @pytest.fixture
+    def diagnostics(self):
+        return ProgramDiagnostics()
+
+    @pytest.fixture
+    def analyzer(self, diagnostics):
+        return SemanticAnalyzer(diagnostics=diagnostics)
+
+    def test_signal_category_inference_from_prototype(self, parser, analyzer, diagnostics):
+        """Cover lines 144-158: signal category inference from signal_data."""
+        code = 'Signal ore = ("iron-ore", 100); Signal result = ore + 1;'
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, _ = lower_program_full(program, analyzer)
+        # Should infer item category for iron-ore
+        cat = lowerer._infer_signal_category("iron-ore")
+        assert cat == "item"
+
+    def test_signal_category_inference_from_map(self, parser, analyzer, diagnostics):
+        """Cover lines 164-168: signal category inference from signal_type_map."""
+        code = "Signal a = 10; Signal b = a + 5;"
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, ir_ops = lower_program_full(program, analyzer)
+        # Implicit signals should be virtual
+        for sig in lowerer.ir_builder.signal_type_map:
+            if sig.startswith("__v"):
+                cat = lowerer._infer_signal_category(sig)
+                assert cat == "virtual"
+
+    def test_signal_category_virtual_signal(self, parser, analyzer, diagnostics):
+        """Test virtual signal category inference."""
+        code = 'Signal a = ("signal-A", 10);'
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, _ = lower_program_full(program, analyzer)
+        cat = lowerer._infer_signal_category("signal-A")
+        assert cat == "virtual"
