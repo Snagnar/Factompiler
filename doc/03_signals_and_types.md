@@ -176,7 +176,7 @@ Comparisons create **decider combinators** in your blueprint.
 
 ## Conditional Values (The `:` Operator)
 
-**This is one of Facto's most powerful features.** The output specifier creates efficient conditional logic:
+This is often a very useful feature. The output specifier creates efficient conditional logic:
 
 ```facto
 Signal result = condition : value;
@@ -214,9 +214,9 @@ Signal x = ("signal-X", 75);
 # Else if x > 50: output 2
 # Else: output 1
 Signal result = 
-    (x > 100) : 3 +
-    (x > 50 && x <= 100) : 2 +
-    (x <= 50) : 1;
+    ((x > 100) : 3) +
+    ((x > 50 && x <= 100) : 2) +
+    ((x <= 50) : 1);
 ```
 
 ### Signal Gating
@@ -236,7 +236,7 @@ Signal gated = (enable > 0) : input;  # Passes input only when enabled
 Signal speed = ("signal-S", 150);
 
 # Cap speed at 100
-Signal capped = (speed > 100) : 100 + (speed <= 100) : speed;
+Signal capped = ((speed > 100) : 100) + ((speed <= 100) : speed);
 ```
 
 ### Selection (Choose A or B)
@@ -246,7 +246,7 @@ Signal flag = ("signal-F", 1);
 Signal value_a = ("signal-A", 100);
 Signal value_b = ("signal-B", 200);
 
-Signal result = (flag > 0) : value_a + (flag == 0) : value_b;
+Signal result = ((flag > 0) : value_a) + ((flag == 0) : value_b);
 ```
 
 ---
@@ -327,10 +327,10 @@ Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 80);
 Signal coal = ("coal", 50);
 
-Signal total = (iron | "signal-total")
-             + (copper | "signal-total")  
-             + (coal | "signal-total");
-# Result: signal-total with value 230
+Signal total = (iron | "signal-T")
+             + (copper | "signal-T")  
+             + (coal | "signal-T");
+# Result: signal-T with value 230
 ```
 
 ### Type Annotation Shorthand
@@ -540,9 +540,9 @@ Signal warning = (temp > too_hot) && (temp < critical);
 Signal danger = temp >= critical;
 
 # Labeled outputs using conditional values
-Signal status_normal = normal : 1 | "signal-green";
-Signal status_warning = warning : 1 | "signal-yellow";
-Signal status_danger = danger : 1 | "signal-red";
+Signal status_normal = (normal != 0) : 1 | "signal-G";
+Signal status_warning = (warning != 0) : 1 | "signal-Y";
+Signal status_danger = (danger != 0) : 1 | "signal-R";
 ```
 
 ### Resource Ratio Calculator
@@ -556,8 +556,8 @@ Signal iron_limited = iron;
 Signal copper_limited = copper / 3;
 
 # Minimum determines capacity — using conditional values
-Signal can_make = (iron_limited < copper_limited) : iron_limited
-               + (copper_limited <= iron_limited) : copper_limited;
+Signal can_make = ((iron_limited < copper_limited) : iron_limited)
+               + ((copper_limited <= iron_limited) : copper_limited);
 ```
 
 ### RGB Color Packer

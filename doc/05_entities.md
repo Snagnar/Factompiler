@@ -2,6 +2,8 @@
 
 Entities are physical objects in Factorio — lamps, inserters, train stops, assemblers, and more. Facto lets you place entities in blueprints and control them with circuit signals.
 
+> **📖 Quick Reference:** See [ENTITY_REFERENCE.md](ENTITY_REFERENCE.md) for a complete list of supported entity types and their properties.
+
 ---
 
 ## Placing Entities
@@ -357,22 +359,22 @@ Signal falling = 255 - position;
 
 # Calculate RGB using conditional values
 Signal red_val = 
-    (sector == 0) : 255 +
-    (sector == 1) : falling +
-    (sector == 4) : rising +
-    (sector == 5) : 255;
+    ((sector == 0) : 255) +
+    ((sector == 1) : falling) +
+    ((sector == 4) : rising) +
+    ((sector == 5) : 255);
 
 Signal green_val = 
-    (sector == 0) : rising +
-    (sector == 1) : 255 +
-    (sector == 2) : 255 +
-    (sector == 3) : falling;
+    ((sector == 0) : rising) +
+    ((sector == 1) : 255) +
+    ((sector == 2) : 255) +
+    ((sector == 3) : falling);
 
 Signal blue_val = 
-    (sector == 2) : rising +
-    (sector == 3) : 255 +
-    (sector == 4) : 255 +
-    (sector == 5) : falling;
+    ((sector == 2) : rising) +
+    ((sector == 3) : 255) +
+    ((sector == 4) : 255) +
+    ((sector == 5) : falling);
 
 Entity lamp = place("small-lamp", 0, 0, {
     use_colors: 1,

@@ -1,12 +1,9 @@
-<p align="center">
-  <img src="doc/img/facto-logo-placeholder.png" alt="Facto Logo" width="200"/>
-</p>
-
-<h1 align="center">Facto</h1>
 
 <p align="center">
-  <strong>Write code. Get Factorio circuits.</strong>
+  <img src="doc/img/header_bp.png" alt="Facto compiled blueprint in Factorio" width="800"/>
 </p>
+<h1 align="center">Facto - Write code. Get Factorio circuits.</h1>
+
 
 <p align="center">
   <a href="https://github.com/Snagnar/Factompiler/actions/workflows/ci.yml"><img src="https://github.com/Snagnar/Factompiler/actions/workflows/ci.yml/badge.svg" alt="CI Pipeline"/></a>
@@ -16,11 +13,12 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
 </p>
 
-<p align="center">
-  <img src="doc/img/header_bp.png" alt="Facto compiled blueprint in Factorio" width="800"/>
-</p>
 
-**Facto** is a programming language that compiles to Factorio circuit network blueprints. You write readable code describing the logic you want, and the compiler generates optimized combinators that you paste directly into your game. No manual wiring, no layout headaches, no remembering signal types, no debugging visual spaghetti.
+<table>
+<tr>
+<td>
+
+**Facto** is a programming language that compiles to Factorio circuit network blueprints. You write readable code describing the logic you want, and the compiler generates optimized combinators that you paste directly into your game. No manual wiring, no layout headaches, no remembering signal types, no memory frustration, no debugging visual spaghetti.
 
 ```facto
 Memory counter: "signal-A";
@@ -32,9 +30,12 @@ lamp.enable = counter.read() < 30;
 
 Run `factompile blink.facto`, copy the output, import it into Factorio, and watch your lamp blink. That's the whole workflow.
 
-<p align="center">
-  <img src="doc/img/small_example.gif" alt="Facto compiled blueprint in Factorio" width="400"/>
-</p>
+</td>
+<td>
+<img src="doc/img/small_example.gif" width="1000" alt="RGB color cycling lamp grid in Factorio"/>
+</td>
+</tr>
+</table>
 
 ---
 
@@ -78,6 +79,8 @@ Signals are values that flow through circuit networks. Every signal has a type (
 Signal iron = ("iron-plate", 100);    # Explicit type and value
 Signal count = 42;                     # Compiler picks a type
 Signal doubled = count * 2;            # Arithmetic combinator
+Signal isHigh = count > 50;            # Comparison combinator
+Signal copper = iron | "copper-plate";  # Type cast
 ```
 
 ### Conditional Values
@@ -135,7 +138,7 @@ Bundles let you operate on multiple signals at once, using Factorio's "each" wil
 ```facto
 Bundle resources = { ("iron-plate", 100), ("copper-plate", 80), ("coal", 50) };
 Bundle doubled = resources * 2;           # Double all values
-Signal total = sum(resources);            # Add them up
+Signal iron = resources["iron-plate"];    # Access a single signal
 Signal anyLow = any(resources) < 20;      # True if any resource is below 20
 ```
 
@@ -173,110 +176,7 @@ This places 8 lamps, each enabled when the counter matches its index.
 
 ---
 
-## Practical Examples
-
-### Backup Steam Power
-
-A circuit that turns on backup steam when accumulators drop below 20%, and keeps it running until they reach 80%. The hysteresis prevents flickering when power hovers near the threshold:
-
-```facto
-Signal battery = ("signal-A", 0);  # Wire this to your accumulator
-
-Memory steam_on: "signal-A";
-steam_on.write(1, set=battery < 20, reset=battery >= 80);
-
-Entity steam_switch = place("power-switch", 0, 0);
-steam_switch.enable = steam_on.read() > 0;
-```
-
-### Resource Warning System
-
-A simple bundle-based monitor that lights up when any resource runs low:
-
-```facto
-# Wire these from your storage chests
-Bundle resources = { ("iron-plate", 0), ("copper-plate", 0), ("coal", 0) };
-
-Entity warning_lamp = place("small-lamp", 0, 0);
-Entity good_lamp = place("small-lamp", 2, 0);
-
-warning_lamp.enable = any(resources) < 100;
-good_lamp.enable = all(resources) > 500;
-```
-
-### RGB Color Cycling Display
-
-A 5×5 lamp grid that smoothly cycles through all colors:
-
-<table>
-<tr>
-<td>
-
-```facto
-Memory hue: "signal-H";
-hue.write((hue.read() + 1) % 1530);  # Full HSV cycle
-
-Signal h = hue.read();
-Signal sector = h / 255;
-Signal pos = h % 255;
-
-# HSV to RGB conversion using conditional values
-Signal r = (sector == 0 || sector == 5) : 255
-         + (sector == 1) : (255 - pos)
-         + (sector == 4) : pos;
-Signal g = (sector == 0) : pos
-         + (sector == 1 || sector == 2) : 255
-         + (sector == 3) : (255 - pos);
-Signal b = (sector == 2) : pos
-         + (sector == 3 || sector == 4) : 255
-         + (sector == 5) : (255 - pos);
-
-for y in 0..5 {
-    for x in 0..5 {
-        Entity lamp = place("small-lamp", x, y, 
-            {use_colors: 1, color_mode: 1});
-        lamp.r = r;
-        lamp.g = g;
-        lamp.b = b;
-    }
-}
-```
-
-</td>
-<td>
-<img src="doc/img/placeholder_rgb_cycle.png" width="300" alt="RGB color cycling lamp grid in Factorio"/>
-</td>
-</tr>
-</table>
-
-### Balanced Train Loader
-
-The classic MadZuri pattern—inserters only activate when their chest is below the average:
-
-```facto
-Entity c1 = place("steel-chest", 0, 0);
-Entity c2 = place("steel-chest", 1, 0);
-Entity c3 = place("steel-chest", 2, 0);
-
-Bundle total = {c1.output, c2.output, c3.output};
-Bundle neg_avg = total / -3;
-
-Entity i1 = place("fast-inserter", 0, 1);
-Bundle diff1 = {neg_avg, c1.output};
-i1.enable = any(diff1) < 0;
-
-Entity i2 = place("fast-inserter", 1, 1);
-Bundle diff2 = {neg_avg, c2.output};
-i2.enable = any(diff2) < 0;
-
-Entity i3 = place("fast-inserter", 2, 1);
-Bundle diff3 = {neg_avg, c3.output};
-i3.enable = any(diff3) < 0;
-```
-
----
-
-## What the Compiler Does For You
+## Automatic optimizations
 
 The compiler applies several optimizations automatically. Common subexpressions are shared—if you compute `counter.read() + 1` in three places, it only generates one arithmetic combinator. Compound conditions like `(a > 5) && (b < 10)` fold into a single multi-condition decider combinator (a Factorio 2.0 feature). Adding signals of the same type uses wire merging instead of extra combinators.
 
@@ -291,7 +191,24 @@ WARNING: Mixed signal types in binary operation: 'iron-plate' + 'copper-plate'
 
 ---
 
-## CLI Reference
+## Documentation
+
+For deeper coverage, see the documentation in the `doc/` directory:
+
+- **[Quick Start](doc/02_quick_start.md)** covers installation and your first program
+- **[Signals & Types](doc/03_signals_and_types.md)** explains the type system, arithmetic, and projection
+- **[Memory](doc/04_memory.md)** covers counters, latches, and state machines
+- **[Entities](doc/05_entities.md)** details placing and controlling Factorio objects
+- **[Functions](doc/06_functions.md)** explains reusable logic and imports
+- **[Advanced Concepts](doc/07_advanced_concepts.md)** covers optimizations, patterns, and debugging
+- **[Library Reference](doc/LIBRARY_REFERENCE.md)** documents the standard library functions
+
+The complete language reference is in [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md), and all available entities and their properties are documented in [doc/ENTITY_REFERENCE.md](doc/ENTITY_REFERENCE.md).
+
+
+---
+
+## Command Line Usage
 
 ```bash
 # Compile a file
@@ -314,31 +231,146 @@ The `-i` / `--input` flag is great for quick experiments—try out circuit ideas
 
 ---
 
-## Documentation
+## Practical Examples
 
-For deeper coverage, see the documentation in the `doc/` directory:
+Here are some useful circuits you can build with Facto. If you want a broader range of examples, check the `example_programs/` directory for more.
 
-- **[Quick Start](doc/02_quick_start.md)** covers installation and your first program
-- **[Signals & Types](doc/03_signals_and_types.md)** explains the type system, arithmetic, and projection
-- **[Memory](doc/04_memory.md)** covers counters, latches, and state machines
-- **[Entities](doc/05_entities.md)** details placing and controlling Factorio objects
-- **[Functions](doc/06_functions.md)** explains reusable logic and imports
-- **[Advanced Concepts](doc/07_advanced_concepts.md)** covers optimizations, patterns, and debugging
-- **[Library Reference](doc/LIBRARY_REFERENCE.md)** documents the standard library functions
 
-The complete language reference is in [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md), and all available entities and their properties are documented in [doc/ENTITY_REFERENCE.md](doc/ENTITY_REFERENCE.md).
+### RGB Color Cycling Display
 
----
+A 5×5 lamp grid that smoothly cycles through all colors:
 
-## Example Programs
+<table>
+<tr>
+<td>
 
-The [`example_programs/`](example_programs/) directory contains working examples you can compile and try immediately. Start with `03_blinker.facto` for basic memory and lamp control, then explore `04_binary_clock.facto` for a 16-bit counter display, `23_hsv_to_rgb.facto` for the color cycling grid, `33_balanced_loader.facto` for the MadZuri pattern, and `34_digit_display.facto` for 7-segment displays using magic numbers.
+```facto
+Memory hue: "signal-H";
+hue.write((hue.read() + 1) % 1530);  # Full HSV cycle
 
----
+Signal h = hue.read();
+Signal sector = h / 255;
+Signal pos = h % 255;
 
-## Requirements
+# HSV to RGB conversion using conditional values
+Signal r = ((sector == 0 || sector == 5) : 255)
+         + ((sector == 1) : (255 - pos))
+         + ((sector == 4) : pos);
+Signal g = ((sector == 0) : pos)
+         + ((sector == 1 || sector == 2) : 255)
+         + ((sector == 3) : (255 - pos));
+Signal b = ((sector == 2) : pos)
+         + ((sector == 3 || sector == 4) : 255)
+         + ((sector == 5) : (255 - pos));
 
-Facto requires Python 3.11 or later. The generated blueprints target Factorio 2.0, which introduced multi-condition decider combinators that the compiler uses for efficient condition folding.
+for y in 0..5 {
+    for x in 0..5 {
+        Entity lamp = place("small-lamp", x, y, 
+            {use_colors: 1, always_on: 1, color_mode: 1});
+        lamp.r = r | "signal-red";
+        lamp.g = g | "signal-green";
+        lamp.b = b | "signal-blue";
+    }
+}
+```
+
+</td>
+<td>
+<img src="doc/img/hsv_to_rgb.gif" width="600" alt="RGB color cycling lamp grid in Factorio"/>
+</td>
+</tr>
+</table>
+
+### Backup Steam Power
+
+A circuit that turns on backup steam when accumulators drop below 20%, and keeps it running until they reach 80%. The hysteresis prevents flickering when power hovers near the threshold:
+
+<table>
+<tr>
+<td>
+
+```facto
+Signal battery = ("signal-A", 0);  # Wire this to your accumulator
+
+Memory steam_on: "signal-A";
+steam_on.write(1, set=battery < 20, reset=battery >= 80);
+
+Entity steam_switch = place("power-switch", 0, 0);
+steam_switch.enable = steam_on.read() > 0;
+```
+
+
+</td>
+<td>
+<img src="doc/img/sr_latch.png" width="300" alt="Resource warning lamps in Factorio"/>
+</td>
+</tr>
+</table>
+
+### Resource Warning System
+
+A simple bundle-based monitor that lights up when any resource runs low:
+
+<table>
+<tr>
+<td>
+
+```facto
+# Wire these from your storage chests
+Bundle resources = { ("iron-plate", 0), ("copper-plate", 0), ("coal", 0) };
+
+Entity warning_lamp = place("small-lamp", 0, 0);
+Entity good_lamp = place("small-lamp", 2, 0);
+
+warning_lamp.enable = any(resources) < 100;
+good_lamp.enable = all(resources) > 500;
+```
+
+
+</td>
+<td>
+<img src="doc/img/resource_lamps.png" width="400" alt="Resource warning lamps in Factorio"/>
+</td>
+</tr>
+</table>
+
+
+### Balanced Train Loader
+
+The classic MadZuri pattern—inserters only activate when their chest is below the average:
+
+<table>
+<tr>
+<td>
+
+```facto
+Entity c1 = place("steel-chest", 0, 0);
+Entity c2 = place("steel-chest", 1, 0);
+Entity c3 = place("steel-chest", 2, 0);
+
+Bundle total = {c1.output, c2.output, c3.output};
+Bundle neg_avg = total / -3;
+
+Entity i1 = place("fast-inserter", 0, 1);
+Bundle diff1 = {neg_avg, c1.output};
+i1.enable = any(diff1) < 0;
+
+Entity i2 = place("fast-inserter", 1, 1);
+Bundle diff2 = {neg_avg, c2.output};
+i2.enable = any(diff2) < 0;
+
+Entity i3 = place("fast-inserter", 2, 1);
+Bundle diff3 = {neg_avg, c3.output};
+i3.enable = any(diff3) < 0;
+```
+
+
+</td>
+<td>
+<img src="doc/img/balanced_loader.png" width="500" alt="Balanced train loader in Factorio"/>
+</td>
+</tr>
+</table>
 
 ---
 

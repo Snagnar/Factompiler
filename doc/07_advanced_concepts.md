@@ -2,6 +2,8 @@
 
 This chapter covers optimization, design patterns, debugging techniques, and advanced features for building sophisticated circuits.
 
+> **🔮 Looking for future features?** See [08_missing_features.md](08_missing_features.md) for planned features and current limitations.
+
 ---
 
 ## Understanding the Compiler
@@ -160,7 +162,7 @@ The `:` operator (conditional value) is more efficient than multiplication for c
 Signal result = (x > 0) * a + (x <= 0) * b;
 
 # New (conditional values) — 2 combinators
-Signal result = (x > 0) : a + (x <= 0) : b;
+Signal result = ((x > 0) : a) + ((x <= 0) : b);
 ```
 
 **Clamping:**
@@ -170,7 +172,7 @@ Signal result = (x > 0) : a + (x <= 0) : b;
 Signal clamped = (x < min) * min + (x > max) * max + (x >= min && x <= max) * x;
 
 # New  
-Signal clamped = (x < min) : min + (x > max) : max + (x >= min && x <= max) : x;
+Signal clamped = ((x < min) : min) + ((x > max) : max) + ((x >= min && x <= max) : x);
 ```
 
 **State machines:**
@@ -180,7 +182,7 @@ Signal clamped = (x < min) : min + (x > max) : max + (x >= min && x <= max) : x;
 Signal next = (state == 0 && start) * 1 + (state == 1 && stop) * 2 + (!change) * state;
 
 # New
-Signal next = (state == 0 && start) : 1 + (state == 1 && stop) : 2 + (!change) : state;
+Signal next = ((state == 0 && start) : 1) + ((state == 1 && stop) : 2) + ((!change) : state);
 ```
 
 ---
@@ -277,7 +279,7 @@ Signal input = ("signal-input", 0);
 int stability_threshold = 3;
 
 Signal input_changed = input != last_input.read();
-Signal count = (input_changed) : 0 + (!input_changed) : (stable_count.read() + 1);
+Signal count = ((input_changed != 0) : 0) + ((input_changed == 0) : (stable_count.read() + 1));
 stable_count.write(count);
 last_input.write(input);
 
@@ -305,7 +307,7 @@ Signal to_stopped = (current == 1) && (stop > 0);
 Signal to_idle = (current == 2) && (reset > 0);
 Signal stay = (!to_running) && (!to_stopped) && (!to_idle);
 
-Signal next = (to_running) : 1 + (to_stopped) : 2 + (stay) : current;
+Signal next = ((to_running) : 1) + ((to_stopped) : 2) + ((stay) : current);
 state.write(next);
 
 # Outputs
@@ -325,10 +327,10 @@ Signal priority2 = ("signal-2", 0);
 Signal priority3 = ("signal-3", 0);  # Lowest
 
 Signal selected = 
-    (priority0 > 0) : 0 +
-    (priority0 == 0 && priority1 > 0) : 1 +
-    (priority0 == 0 && priority1 == 0 && priority2 > 0) : 2 +
-    (priority0 == 0 && priority1 == 0 && priority2 == 0 && priority3 > 0) : 3;
+    ((priority0 > 0) : 0) +
+    ((priority0 == 0 && priority1 > 0) : 1) +
+    ((priority0 == 0 && priority1 == 0 && priority2 > 0) : 2) +
+    ((priority0 == 0 && priority1 == 0 && priority2 == 0 && priority3 > 0) : 3);
 ```
 
 ### Multiplexer
@@ -342,10 +344,10 @@ Signal input1 = ("signal-B", 0);
 Signal input2 = ("signal-C", 0);
 Signal input3 = ("signal-D", 0);
 
-Signal output = (selector == 0) : input0
-              + (selector == 1) : input1
-              + (selector == 2) : input2
-              + (selector == 3) : input3;
+Signal output = ((selector == 0) : input0)
+              + ((selector == 1) : input1)
+              + ((selector == 2) : input2)
+              + ((selector == 3) : input3);
 ```
 
 ### Timer
@@ -672,6 +674,7 @@ factompile program.facto --power-poles medium
 - **[Language Specification](../LANGUAGE_SPEC.md)** — Complete syntax and semantics
 - **[Entity Reference](ENTITY_REFERENCE.md)** — All entities and properties
 - **[Library Reference](LIBRARY_REFERENCE.md)** — Standard library functions
+- **[Missing Features](08_missing_features.md)** — Planned features and current limitations
 
 ---
 

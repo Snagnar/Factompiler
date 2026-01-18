@@ -176,8 +176,8 @@ Memory maximum: "signal-A";
 Signal input = ("signal-input", 0);
 
 Signal current_max = maximum.read();
-Signal new_max = (input > current_max) : input 
-              + (input <= current_max) : current_max;
+Signal new_max = ((input > current_max) : input) 
+              + ((input <= current_max) : current_max);
 
 maximum.write(new_max);
 ```
@@ -192,9 +192,9 @@ Signal input = ("signal-input", 0);
 Signal current_min = minimum.read();
 Signal is_first = initialized.read() == 0;
 
-Signal new_min = (is_first) : input
-              + (!is_first && input < current_min) : input
-              + (!is_first && input >= current_min) : current_min;
+Signal new_min = ((is_first != 0) : input)
+              + ((is_first == 0 && input < current_min) : input)
+              + ((is_first == 0 && input >= current_min) : current_min);
 
 minimum.write(new_min);
 initialized.write(1, when=is_first);

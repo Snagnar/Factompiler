@@ -85,7 +85,7 @@ Signal passed = (count <= 100) : count;   # count if within, else 0
 Signal clamped = capped + passed;         # Combined: max 100
 
 # Selection pattern (if-then-else)
-Signal selected = (flag > 0) : value_a + (flag == 0) : value_b;
+Signal selected = ((flag > 0) : value_a) + ((flag == 0) : value_b);
 ```
 
 This is more efficient than the `condition * value` pattern because it uses the decider combinator's native "copy input" mode.
@@ -1577,8 +1577,8 @@ lamp.enable = count > 10;  # No decider; uses lamp's circuit condition
 
 **DO:** Use `condition : value` syntax for conditional logic:
 ```facto
-Signal result = (x > 0) : x + (x <= 0) : 0;  # Efficient: uses decider copy mode
-Signal clamped = (value > max) : max + (value <= max) : value;
+Signal result = ((x > 0) : x) + ((x <= 0) : 0);  # Efficient: uses decider copy mode
+Signal clamped = ((value > max) : max) + ((value <= max) : value);
 ```
 
 **DON'T:** Use multiplication for conditional logic:
@@ -1770,11 +1770,11 @@ Signal error_signal = ("signal-error", 2);
 
 # State transitions using condition : value syntax
 Signal next_state = 
-    (current_state == 0 && start_signal > 0) : 1 +      # Idle → Running
-    (current_state == 1 && stop_signal > 0) : 2 +       # Running → Stopped
-    (current_state == 1 && error_signal > 0) : 3 +      # Running → Error
-    (current_state == 2 && start_signal > 0) : 1 +      # Stopped → Running
-    (current_state == 3 && start_signal > 0) : 0 +      # Error → Idle
+    ((current_state == 0 && start_signal > 0) : 1) +      # Idle → Running
+    ((current_state == 1 && stop_signal > 0) : 2) +       # Running → Stopped
+    ((current_state == 1 && error_signal > 0) : 3) +      # Running → Error
+    ((current_state == 2 && start_signal > 0) : 1) +      # Stopped → Running
+    ((current_state == 3 && start_signal > 0) : 0) +      # Error → Idle
     # Stay in current state if no transition matches
     ((current_state == 0 && start_signal == 0) ||
      (current_state == 1 && stop_signal == 0 && error_signal == 0) ||
@@ -1840,8 +1840,8 @@ func smooth_filter(Signal input, int window_size) {
     
     # Use condition : value syntax for efficient branching
     Signal should_reset = current_count >= window_size;
-    Signal new_sum = (should_reset) : input + (!should_reset) : (current_sum + input);
-    Signal new_count = (should_reset) : 1 + (!should_reset) : (current_count + 1);
+    Signal new_sum = ((should_reset) : input) + ((!should_reset) : (current_sum + input));
+    Signal new_count = ((should_reset) : 1) + ((!should_reset) : (current_count + 1));
     
     sum.write(new_sum);
     count.write(new_count);

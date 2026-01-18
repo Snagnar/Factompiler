@@ -43,9 +43,9 @@ Functions can return signals or entities:
 ```facto
 # Returns a Signal
 func clamp(Signal value, int min_val, int max_val) {
-    return (value < min_val) : min_val
-         + (value > max_val) : max_val
-         + (value >= min_val && value <= max_val) : value;
+    return ((value < min_val) : min_val)
+         + ((value > max_val) : max_val)
+         + ((value >= min_val && value <= max_val) : value);
 }
 
 # Returns an Entity
@@ -85,9 +85,9 @@ Restrict a value to a range using conditional values:
 
 ```facto
 func clamp(Signal value, int min_val, int max_val) {
-    return (value < min_val) : min_val 
-         + (value > max_val) : max_val 
-         + (value >= min_val && value <= max_val) : value;
+    return ((value < min_val) : min_val) 
+         + ((value > max_val) : max_val) 
+         + ((value >= min_val && value <= max_val) : value);
 }
 
 Signal raw_input = ("signal-input", 0);
@@ -100,7 +100,7 @@ Choose between values based on condition:
 
 ```facto
 func select(Signal condition, Signal if_true, Signal if_false) {
-    return (condition != 0) : if_true + (condition == 0) : if_false;
+    return ((condition != 0) : if_true) + ((condition == 0) : if_false);
 }
 
 Signal temperature = ("signal-T", 0);
@@ -111,10 +111,10 @@ Signal status = select(temperature > 100, 1, 0);
 
 ```facto
 func abs(Signal value) {
-    return (value >= 0) : value + (value < 0) : (0 - value);
+    return ((value >= 0) : value) + ((value < 0) : (0 - value));
 }
 
-Signal diff = value1 - value2;
+Signal diff = ("signal-A", 50) - ("signal-B", 20);
 Signal distance = abs(diff);
 ```
 
@@ -124,7 +124,7 @@ Returns -1, 0, or 1:
 
 ```facto
 func sign(Signal value) {
-    return (value > 0) : 1 + (value < 0) : (-1);
+    return ((value > 0) : 1) + ((value < 0) : (-1));
     # Returns 0 when value == 0 (both conditions false)
 }
 ```
@@ -133,11 +133,11 @@ func sign(Signal value) {
 
 ```facto
 func min(Signal a, Signal b) {
-    return (a < b) : a + (a >= b) : b;
+    return ((a < b) : a) + ((a >= b) : b);
 }
 
 func max(Signal a, Signal b) {
-    return (a > b) : a + (a <= b) : b;
+    return ((a > b) : a) + ((a <= b) : b);
 }
 
 Signal low = min(sensor1, sensor2);
@@ -292,13 +292,13 @@ Signal safe_input = clamp(input, 0, 100);  # From utils
 **utils.facto:**
 ```facto
 func clamp(Signal value, int min_val, int max_val) {
-    return (value < min_val) : min_val
-         + (value > max_val) : max_val
-         + (value >= min_val && value <= max_val) : value;
+    return ((value < min_val) : min_val)
+         + ((value > max_val) : max_val)
+         + ((value >= min_val && value <= max_val) : value);
 }
 
 func abs(Signal value) {
-    return (value >= 0) : value + (value < 0) : (0 - value);
+    return ((value >= 0) : value) + ((value < 0) : (0 - value));
 }
 ```
 
@@ -349,9 +349,10 @@ func is_in_range(Signal value, int min_val, int max_val) {
 }
 
 func clamp(Signal value, int min_val, int max_val) {
-    return (value < min_val) : min_val
-         + (value > max_val) : max_val
-         + (is_in_range(value, min_val, max_val)) : value;
+    Signal in_range = is_in_range(value, min_val, max_val);
+    return ((value < min_val) : min_val)
+         + ((value > max_val) : max_val)
+         + ((in_range != 0) : value);
 }
 ```
 
@@ -368,7 +369,7 @@ func calc(Signal a, Signal b) { ... }
 ```facto
 # Efficient — one decider combinator
 func select(Signal cond, Signal a, Signal b) {
-    return (cond != 0) : a + (cond == 0) : b;
+    return ((cond != 0) : a) + ((cond == 0) : b);
 }
 
 # Less efficient — extra arithmetic
@@ -403,8 +404,8 @@ func make_status_indicator(int x, int y, Signal status) {
     });
     
     # Using conditional values for color selection
-    lamp.r = (status == 1) : 255 + (status == 2) : 255;  # yellow or red
-    lamp.g = (status == 0) : 255 + (status == 1) : 255;  # green or yellow
+    lamp.r = ((status == 1) : 255) + ((status == 2) : 255);  # yellow or red
+    lamp.g = ((status == 0) : 255) + ((status == 1) : 255);  # green or yellow
     lamp.b = 0;
     
     return lamp;
@@ -430,10 +431,10 @@ func deadband(Signal input, int threshold) {
     Memory last_output: "signal-L";
     Signal current = last_output.read();
     Signal diff = input - current;
-    Signal abs_diff = (diff >= 0) : diff + (diff < 0) : (0 - diff);
+    Signal abs_diff = ((diff >= 0) : diff) + ((diff < 0) : (0 - diff));
     
     Signal should_update = abs_diff > threshold;
-    Signal new_output = (should_update) : input + (!should_update) : current;
+    Signal new_output = ((should_update != 0) : input) + ((should_update == 0) : current);
     last_output.write(new_output);
     
     return new_output;
@@ -446,9 +447,9 @@ func rate_limit(Signal input, int max_change) {
     Signal diff = input - current;
     
     # Clamp the change using conditional values
-    Signal clamped_diff = (diff > max_change) : max_change
-                        + (diff < -max_change) : (-max_change)
-                        + (diff >= -max_change && diff <= max_change) : diff;
+    Signal clamped_diff = ((diff > max_change) : max_change)
+                        + ((diff < -max_change) : (-max_change))
+                        + ((diff >= -max_change && diff <= max_change) : diff);
     
     Signal new_value = current + clamped_diff;
     last.write(new_value);

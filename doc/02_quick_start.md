@@ -56,6 +56,7 @@ Let's build a classic circuit — a lamp that blinks on and off.
 
 Create `blink.facto`:
 
+
 ```facto
 # A simple blinking lamp
 
@@ -90,7 +91,7 @@ The compiler outputs a blueprint string.
 
 <table>
 <tr>
-<td width="50%">
+<td>
 
 **Your lamp is now blinking!**
 
@@ -103,7 +104,7 @@ All automatically wired together.
 
 </td>
 <td>
-<img src="img/placeholder_blink.gif" width="250" alt="Blinking lamp circuit in Factorio"/>
+<img src="img/small_example.gif" width="300" alt="Blinking lamp circuit in Factorio"/>
 </td>
 </tr>
 </table>
@@ -130,6 +131,8 @@ Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = blink;
 ```
 Places a lamp at position (0,0) and wires it to the blink signal.
+
+> **Tip:** For a complete list of all entity types and their controllable properties, see [ENTITY_REFERENCE.md](ENTITY_REFERENCE.md).
 
 ---
 
@@ -162,10 +165,14 @@ Signal value_a = ("signal-A", 100);
 Signal value_b = ("signal-B", 200);
 
 # Choose based on flag
-Signal result = (flag > 0) : value_a + (flag == 0) : value_b;
+Signal result = ((flag > 0) : value_a) + ((flag == 0) : value_b);
 ```
 
 You'll use this pattern constantly. It's the foundation of conditional logic in Facto.
+
+### Note: Changing Signal Types with Projections
+
+Sometimes you need to output a value using a different signal type. The projection operator (`|`) lets you do this: `value | "signal-type"`. For example, `counter.read() | "iron-plate"` outputs the counter's value on the `iron-plate` signal. See [Signals and Types](03_signals_and_types.md#the-projection-operator-) for full details.
 
 ---
 
@@ -224,9 +231,9 @@ Signal input = ("signal-I", 75);
 
 # Output different values based on input ranges
 Signal output = 
-    (input >= 100) : 3 +    # High priority
-    (input >= 50 && input < 100) : 2 +   # Medium priority
-    (input < 50) : 1;       # Low priority
+    ((input >= 100) : 3) +    # High priority
+    ((input >= 50 && input < 100) : 2) +   # Medium priority
+    ((input < 50) : 1);       # Low priority
 ```
 
 ---
