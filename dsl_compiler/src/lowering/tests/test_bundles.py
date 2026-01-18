@@ -16,6 +16,7 @@ from dsl_compiler.src.ast.expressions import (
     BundleSelectExpr,
 )
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.ir.builder import SignalRef
 from dsl_compiler.src.ir.nodes import IRArith, IRConst, IRDecider
 from dsl_compiler.src.parsing.parser import DSLParser
 from dsl_compiler.src.semantic.analyzer import SemanticAnalyzer
@@ -251,7 +252,7 @@ class TestBundleLowering:
         assert bundle_arith.op == "*"
 
     def test_bundle_any_comparison_creates_decider(self, parser, analyzer, diagnostics):
-        """any(bundle) comparison should create decider with signal-anything output."""
+        """any(bundle) comparison should create decider with signal-anything input."""
         code = """
         Bundle b = { ("iron-plate", 100) };
         Signal x = any(b) > 0;
@@ -266,12 +267,19 @@ class TestBundleLowering:
         deciders = [op for op in ir_operations if isinstance(op, IRDecider)]
         assert len(deciders) >= 1
 
-        # Find the any() decider (outputs signal-anything)
-        any_decider = next((d for d in deciders if d.output_type == "signal-anything"), None)
+        # Find the any() decider (uses signal-anything as left input)
+        any_decider = next(
+            (
+                d
+                for d in deciders
+                if isinstance(d.left, SignalRef) and d.left.signal_type == "signal-anything"
+            ),
+            None,
+        )
         assert any_decider is not None
 
     def test_bundle_all_comparison_creates_decider(self, parser, analyzer, diagnostics):
-        """all(bundle) comparison should create decider with signal-everything output."""
+        """all(bundle) comparison should create decider with signal-everything input."""
         code = """
         Bundle b = { ("iron-plate", 100) };
         Signal x = all(b) > 0;
@@ -286,6 +294,13 @@ class TestBundleLowering:
         deciders = [op for op in ir_operations if isinstance(op, IRDecider)]
         assert len(deciders) >= 1
 
-        # Find the all() decider (outputs signal-everything)
-        all_decider = next((d for d in deciders if d.output_type == "signal-everything"), None)
+        # Find the all() decider (uses signal-everything as left input)
+        all_decider = next(
+            (
+                d
+                for d in deciders
+                if isinstance(d.left, SignalRef) and d.left.signal_type == "signal-everything"
+            ),
+            None,
+        )
         assert all_decider is not None

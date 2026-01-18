@@ -751,21 +751,35 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             if isinstance(left_type, SignalValue) and self._is_virtual_channel(
                 left_type.signal_type
             ):
-                return left_type
+                return SignalValue(signal_type=left_type.signal_type, is_comparison_result=True)
             if isinstance(right_type, SignalValue) and self._is_virtual_channel(
                 right_type.signal_type
             ):
-                return right_type
+                return SignalValue(signal_type=right_type.signal_type, is_comparison_result=True)
             signal_type = self.allocate_implicit_type()
-            return SignalValue(signal_type=signal_type)
+            return SignalValue(signal_type=signal_type, is_comparison_result=True)
 
-        # Logical operators return a signal
+        # Logical operators return a signal (comparison result for AND/OR of comparisons)
         if expr.op in self.LOGICAL_OPS:
+            # Logical AND/OR of comparisons produces a comparison result
+            left_is_comparison = (
+                isinstance(left_type, SignalValue) and left_type.is_comparison_result
+            )
+            right_is_comparison = (
+                isinstance(right_type, SignalValue) and right_type.is_comparison_result
+            )
+            is_comparison = left_is_comparison or right_is_comparison
             if isinstance(left_type, SignalValue):
-                return left_type
+                return SignalValue(
+                    signal_type=left_type.signal_type, is_comparison_result=is_comparison
+                )
             if isinstance(right_type, SignalValue):
-                return right_type
-            return SignalValue(signal_type=self.allocate_implicit_type())
+                return SignalValue(
+                    signal_type=right_type.signal_type, is_comparison_result=is_comparison
+                )
+            return SignalValue(
+                signal_type=self.allocate_implicit_type(), is_comparison_result=is_comparison
+            )
 
         # Bitwise operators follow same rules as arithmetic
         if expr.op in self.BITWISE_OPS:
@@ -802,12 +816,24 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         """
         # Validate that condition is a comparison
         if not self._is_comparison_expr(expr.condition):
-            self.diagnostics.error(
-                "Output specifier (:) requires a comparison expression on the left. "
-                f"Got: {type(expr.condition).__name__}",
-                stage="semantic",
-                node=expr,
-            )
+            # Generate a helpful error message
+            if isinstance(expr.condition, IdentifierExpr):
+                self.diagnostics.error(
+                    f"Output specifier (:) requires a comparison expression on the left, "
+                    f"but '{expr.condition.name}' is not a comparison result.\n"
+                    f"  Hint: Use an explicit comparison like '({expr.condition.name} != 0) : value'\n"
+                    f"        or assign from a comparison: 'Signal cond = x > 5; ... cond : value'",
+                    stage="semantic",
+                    node=expr,
+                )
+            else:
+                self.diagnostics.error(
+                    f"Output specifier (:) requires a comparison expression on the left. "
+                    f"Got: {type(expr.condition).__name__}\n"
+                    f"  Hint: Use a comparison like '(x > 0) : value' or '(flag != 0) : value'",
+                    stage="semantic",
+                    node=expr,
+                )
 
         # Analyze both parts
         self.get_expr_type(expr.condition)
@@ -827,10 +853,11 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
     def _is_comparison_expr(self, expr: Expr) -> bool:
         """Check if expression is a valid decider condition.
-        
+
         Valid conditions include:
         - Simple comparisons (a > b, x == y, etc.)
         - Logical AND/OR of comparisons ((a > b) && (c < d))
+        - Identifiers that reference a comparison result
         """
         if isinstance(expr, BinaryOp):
             if expr.op in self.COMPARISON_OPS:
@@ -838,6 +865,11 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             # Logical AND/OR chains are valid if both sides are comparison expressions
             if expr.op in ("&&", "||", "and", "or"):
                 return self._is_comparison_expr(expr.left) and self._is_comparison_expr(expr.right)
+        # Check if identifier references a comparison result
+        if isinstance(expr, IdentifierExpr):
+            symbol = self.current_scope.lookup(expr.name)
+            if symbol and isinstance(symbol.value_type, SignalValue):
+                return symbol.value_type.is_comparison_result
         return False
 
     def _get_comparison_left_type(self, expr: Expr) -> ValueInfo:
@@ -847,6 +879,11 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         # For compound conditions, get the type from the first comparison
         if isinstance(expr, BinaryOp) and expr.op in ("&&", "||", "and", "or"):
             return self._get_comparison_left_type(expr.left)
+        # For identifiers, return the signal type if it's a comparison result
+        if isinstance(expr, IdentifierExpr):
+            symbol = self.current_scope.lookup(expr.name)
+            if symbol and isinstance(symbol.value_type, SignalValue):
+                return symbol.value_type
         return IntValue()
 
     def visit(self, node: ASTNode) -> Any:

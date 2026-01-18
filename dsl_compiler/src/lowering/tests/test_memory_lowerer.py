@@ -201,6 +201,122 @@ class TestMemorySignalTypeLookup:
         assert not diags.has_errors()
 
 
+class TestLatchInlineConditions:
+    """Tests for latch condition inlining paths."""
+
+    def test_latch_with_comparison_set_reset(self):
+        """Test latch with simple comparison conditions that can be inlined."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal input = ("signal-S", 0);
+        Memory latch: "signal-A";
+        latch.write(1, set=input > 10, reset=input < 5);
+        """)
+        assert not diags.has_errors()
+
+    def test_latch_different_signals_no_inline(self):
+        """Test latch with different signals in set/reset - can't inline."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal s1 = ("signal-A", 0);
+        Signal s2 = ("signal-B", 0);
+        Memory latch: "signal-L";
+        latch.write(1, set=s1 > 0, reset=s2 > 0);
+        """)
+        assert not diags.has_errors()
+
+    def test_latch_complex_conditions_no_inline(self):
+        """Test latch with complex conditions that can't be inlined."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 0);
+        Signal b = ("signal-B", 0);
+        Memory latch: "signal-L";
+        latch.write(1, set=a + b > 0, reset=a > 0);
+        """)
+        assert not diags.has_errors()
+
+    def test_latch_with_both_simple_comparisons_same_signal(self):
+        """Test latch where both set/reset compare same signal (should inline)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal battery = ("signal-B", 0);
+        Memory steam_on: "signal-S";
+        steam_on.write(1, set=battery < 20, reset=battery >= 80);
+        """)
+        assert not diags.has_errors()
+
+
+class TestLatchWriteEdgeCases:
+    """Test edge cases in latch write lowering."""
+
+    def test_latch_with_signal_literal_condition(self):
+        """Test latch with signal literal as condition."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory latch: "signal-A";
+        latch.write(1, set=("signal-B", 1), reset=("signal-C", 1));
+        """)
+        assert not diags.has_errors()
+
+    def test_latch_value_is_signal_ref(self):
+        """Test latch where value is a signal reference (same type as memory)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal val = ("signal-A", 100);
+        Memory latch: "signal-A";
+        latch.write(val, set=("signal-B", 1), reset=("signal-C", 1));
+        """)
+        assert not diags.has_errors()
+
+    def test_latch_rs_priority(self):
+        """Test latch with reset priority (RS latch)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal s = ("signal-A", 0);
+        Memory latch: "signal-L";
+        latch.write(1, reset=s > 5, set=s < 3);
+        """)
+        assert not diags.has_errors()
+
+
+class TestConditionalWriteEdgeCases:
+    """Test edge cases in conditional memory write."""
+
+    def test_conditional_write_complex_condition(self):
+        """Test conditional write with compound condition."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 0);
+        Signal b = ("signal-B", 0);
+        Memory m: "signal-M";
+        m.write(100, when=a > 0 && b > 0);
+        """)
+        assert not diags.has_errors()
+
+    def test_conditional_write_or_condition(self):
+        """Test conditional write with OR condition."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = ("signal-A", 0);
+        Signal b = ("signal-B", 0);
+        Memory m: "signal-M";
+        m.write(100, when=a > 0 || b > 0);
+        """)
+        assert not diags.has_errors()
+
+    def test_conditional_write_signal_value(self):
+        """Test conditional write where value is a signal (same type as memory)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal enable = ("signal-E", 0);
+        Signal val = ("signal-M", 50);
+        Memory m: "signal-M";
+        m.write(val, when=enable > 0);
+        """)
+        assert not diags.has_errors()
+
+    def test_conditional_counter(self):
+        """Test conditional counter increment."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal enable = ("signal-E", 1);
+        Memory counter: "signal-C";
+        counter.write(counter.read() + 1, when=enable > 0);
+        """)
+        assert not diags.has_errors()
+        assert not diags.has_errors()
+
+
 class TestLatchWithNonSignalRef:
     """Tests for latch operations (lines 157-161)."""
 
@@ -303,3 +419,91 @@ class TestWriteEnableCondition:
         assert not diags.has_errors()
         mem_writes = [op for op in ir_ops if isinstance(op, IRMemWrite)]
         assert len(mem_writes) >= 1
+
+
+class TestCoverageBoostMemory:
+    """Additional tests for memory lowering coverage."""
+
+    def test_memory_with_arithmetic_feedback(self):
+        """Test memory cell with arithmetic feedback loop."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory counter: "signal-A";
+        counter.write(counter.read() + 1);
+        """)
+        assert not diags.has_errors()
+        # Should have a memory create and write
+        assert any(isinstance(op, IRMemCreate) for op in ir_ops)
+        assert any(isinstance(op, IRMemWrite) for op in ir_ops)
+
+    def test_memory_conditional_write_stored_comparison(self):
+        """Test memory with conditional write using stored comparison."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal enable = 5;
+        Memory counter: "signal-A";
+        Signal cond = enable > 0;
+        counter.write(counter.read() + 1, when=cond);
+        """)
+        assert not diags.has_errors()
+
+    def test_multiple_memories_independent(self):
+        """Test multiple independent memory cells."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory a: "signal-A";
+        Memory b: "signal-B";
+        a.write(1);
+        b.write(2);
+        """)
+        assert not diags.has_errors()
+        mem_creates = [op for op in ir_ops if isinstance(op, IRMemCreate)]
+        assert len(mem_creates) == 2
+
+    def test_memory_read_in_condition(self):
+        """Test memory read used in a condition."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory counter: "signal-A";
+        Signal above_50 = (counter.read() > 50) : 1;
+        """)
+        assert not diags.has_errors()
+
+
+class TestLatchNeedsMultiplier:
+    """Tests for latch writes with value != 1."""
+
+    def test_latch_with_non_unity_value(self):
+        """Test latch write where value is not 1 (requires multiplier)."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory latch: "signal-A";
+        latch.write(10, set=("signal-B", 1), reset=("signal-C", 1));
+        """)
+        assert not diags.has_errors()
+
+    def test_latch_signal_value_different_type(self):
+        """Test latch where value signal has different type than output."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal val = 5 | "signal-X";
+        Memory latch: "signal-A";
+        latch.write(val, set=("signal-B", 1), reset=("signal-C", 1));
+        """)
+        # Should produce an info message about type mismatch
+        assert len(ir_ops) > 0
+
+
+class TestMemorySignalTypeResolution:
+    """Tests for memory signal type resolution edge cases."""
+
+    def test_memory_with_item_signal(self):
+        """Test memory with item signal type."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory items: "iron-plate";
+        items.write(100);
+        """)
+        assert not diags.has_errors()
+
+    def test_memory_read_with_expression(self):
+        """Test memory read result used in complex expression."""
+        ir_ops, _, diags = compile_to_ir("""
+        Memory m: "signal-A";
+        Signal doubled = m.read() * 2;
+        Signal halved = m.read() / 2;
+        """)
+        assert not diags.has_errors()

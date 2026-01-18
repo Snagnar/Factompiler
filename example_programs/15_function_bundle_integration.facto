@@ -27,9 +27,9 @@ func stateful_mix_creator(Signal base_value) {
     accumulator.write(current_accum + base_value);
     type_selector.write((selector + 1) % 3);
 
-    Signal iron_channel = ((selector == 0) * current_accum) | "iron-plate";
-    Signal copper_channel = ((selector == 1) * current_accum) | "copper-plate";
-    Signal coal_channel = ((selector == 2) * current_accum) | "coal";
+    Signal iron_channel = ((selector == 0) : current_accum) | "iron-plate";
+    Signal copper_channel = ((selector == 1) : current_accum) | "copper-plate";
+    Signal coal_channel = ((selector == 2) : current_accum) | "coal";
 
     return iron_channel + copper_channel + coal_channel;
 }

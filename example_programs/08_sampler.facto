@@ -10,23 +10,23 @@ Signal ONE = 1;
 tick.write(tick.read() + ONE);
 
 Signal tick_mod = tick.read() % 100;
-Signal sample_now = (tick_mod == 0);
+Signal sample_now = tick_mod == 0;
 
 Signal v = 100;           # implicit signal type __v1
 Signal rem = v % 2;
-Signal is_even = (rem == 0);
+Signal is_even = rem == 0;
 
-Signal do_output = sample_now * is_even;    # 0/1 gate
+Signal do_output = sample_now : is_even;    # 0/1 gate
 
 Signal scaled = v * 10;
-Signal out_value = scaled * do_output;
+Signal out_value = do_output : scaled;
 
 # Additional complexity: multiple sampling rates
-Signal fast_sample = (tick.read() % 10 == 0);
-Signal slow_sample = (tick.read() % 1000 == 0);
+Signal fast_sample = tick.read() % 10 == 0;
+Signal slow_sample = tick.read() % 1000 == 0;
 
-Signal fast_output = v * fast_sample;
-Signal slow_output = (v / 5) * slow_sample;
+Signal fast_output = fast_sample : v;
+Signal slow_output = slow_sample : (v / 5);
 
 # Project outputs onto distinct channels without bundles
 Signal out_red = out_value | "signal-red";

@@ -6,12 +6,16 @@ func double_signal(Signal x) {
 }
 
 func conditional_add(Signal a, Signal b, Signal condition) {
-    Signal result = a + (b * condition);
+    # Use condition : value for efficient conditional addition
+    # condition must be compared to use with output specifier
+    Signal result = a + ((condition != 0) : b);
     return result;
 }
 
 func choose(Signal a, Signal b, Signal condition) {
-    return a * condition + b * !condition;
+    # Use condition : value syntax for efficient selection
+    # condition must be used in a comparison to be valid
+    return ((condition != 0) : a) + ((condition == 0) : b);
 }
 
 func memory_toggle() {

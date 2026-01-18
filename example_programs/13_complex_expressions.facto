@@ -27,11 +27,11 @@ Signal complex_projection = (((a + b) | "iron-plate") + ((b * c) | "copper-plate
 # Complex logical expressions
 Signal complex_logic = (a > b && b > c) || (c > a && a > 0) || (b == 0 && c > 5);
 
-# Conditional arithmetic using boolean results as multipliers
+# Conditional arithmetic using condition : value syntax (more efficient than boolean * value)
 Signal conditional_value = 
-    (a > 10) * 100 +
-    (b > 20) * 200 + 
-    (c > 30) * 300;
+    ((a > 10) : 100) +
+    ((b > 20) : 200) + 
+    ((c > 30) : 300);
 
 # Mixed multi-channel operations without bundles
 Signal mixed_result = (a + (b | "iron-plate") + (c | "iron-plate") + (a * 2)) | "iron-ore";

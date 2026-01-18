@@ -16,27 +16,28 @@ Signal all_active = (sensor_a > 0) && (sensor_b > 0) && (sensor_c > 0);
 # Operator precedence test: | binds looser than +
 Signal precedence_test = sensor_a + sensor_b * 2 | "iron-plate";
 
-# Nested conditions with arithmetic
+# Nested conditions with arithmetic - using condition : value syntax
 Signal priority_value = 
-    (sensor_a > 50) * 100 +
-    (sensor_b > 30) * 50 +
-    (sensor_c > 10) * 25;
+    ((sensor_a > 50) : 100) +
+    ((sensor_b > 30) : 50) +
+    ((sensor_c > 10) : 25);
 
 # State-based decisions
 Memory decision_state: "signal-0";
 
 Signal state = decision_state.read();
 
+# State machine using condition : value syntax
 Signal next_state = 
-    (state == 0 && sensor_a > 0) * 1 +
-    (state == 1 && sensor_b > 0) * 2 +
-    (state == 2 && sensor_c > 0) * 0 +
-    (state * (sensor_a == 0 && sensor_b == 0 && sensor_c == 0));
+    ((state == 0 && sensor_a > 0) : 1) +
+    ((state == 1 && sensor_b > 0) : 2) +
+    ((state == 2 && sensor_c > 0) : 0) +
+    ((state != 0 && state != 1 && state != 2) : ((sensor_a == 0 && sensor_b == 0 && sensor_c == 0) : state));
 
 decision_state.write(next_state);
 
-# Output based on state and sensors
+# Output based on state and sensors - using condition : value syntax
 Signal output_value = 
-    (state == 0) * sensor_a +
-    (state == 1) * sensor_b * 2 +
-    (state == 2) * sensor_c * 3;
+    ((state == 0) : sensor_a) +
+    ((state == 1) : (sensor_b * 2)) +
+    ((state == 2) : (sensor_c * 3));

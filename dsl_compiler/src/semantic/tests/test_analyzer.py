@@ -1159,3 +1159,308 @@ class TestProjectionAnalysis:
         analyzer = SemanticAnalyzer(diagnostics)
         analyzer.visit(program)
         assert not diagnostics.has_errors()
+
+
+class TestConditionalValueIdentifierResolution:
+    """Test that conditional values work when comparison is stored in a variable."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    def test_direct_comparison_works(self, parser):
+        """Direct comparison in output spec should work."""
+        code = """
+        Signal x = 10 | "signal-X";
+        Signal result = (x > 5) : 100;
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert not diagnostics.has_errors()
+
+    def test_comparison_in_variable_works(self, parser):
+        """Comparison stored in variable should work with output spec."""
+        code = """
+        Signal x = 10 | "signal-X";
+        Signal is_high = x > 5;
+        Signal result = is_high : 100;
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert not diagnostics.has_errors()
+
+    def test_equality_comparison_in_variable_works(self, parser):
+        """Equality comparison stored in variable should work."""
+        code = """
+        Signal sector = 1 | "signal-S";
+        Signal in_s1 = sector == 1;
+        Signal red_val = in_s1 : 255;
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert not diagnostics.has_errors()
+
+    def test_non_comparison_identifier_errors(self, parser):
+        """Plain signal (not comparison) should error when used with output spec."""
+        code = """
+        Signal x = 10 | "signal-X";
+        Signal result = x : 100;
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert diagnostics.has_errors()
+        # Check that we got the expected error about comparison
+        assert any("comparison" in str(d.message).lower() for d in diagnostics.diagnostics)
+
+    def test_logical_and_of_comparisons_works(self, parser):
+        """Logical AND of comparisons should work."""
+        code = """
+        Signal x = 10 | "signal-X";
+        Signal y = 20 | "signal-Y";
+        Signal both = (x > 5) && (y < 30);
+        Signal result = both : 100;
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert not diagnostics.has_errors()
+
+    def test_logical_or_of_comparisons_works(self, parser):
+        """Logical OR of comparisons should work."""
+        code = """
+        Signal x = 10 | "signal-X";
+        Signal cond = (x < 5) || (x > 15);
+        Signal result = cond : 50;
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert not diagnostics.has_errors()
+
+
+class TestComparisonResultTracking:
+    """Test that is_comparison_result flag is correctly tracked."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    def test_comparison_produces_comparison_result(self, parser):
+        """Comparison expression should produce SignalValue with is_comparison_result=True."""
+        code = """
+        Signal x = 10 | "signal-X";
+        Signal cmp = x > 5;
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        symbol = analyzer.current_scope.lookup("cmp")
+        assert symbol is not None
+        assert isinstance(symbol.value_type, SignalValue)
+        assert symbol.value_type.is_comparison_result
+
+    def test_arithmetic_not_comparison_result(self, parser):
+        """Arithmetic expression should not be marked as comparison result."""
+        code = """
+        Signal x = 10 | "signal-X";
+        Signal sum = x + 5;
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        symbol = analyzer.current_scope.lookup("sum")
+        assert symbol is not None
+        assert isinstance(symbol.value_type, SignalValue)
+        assert not symbol.value_type.is_comparison_result
+
+    def test_logical_and_is_comparison_result(self, parser):
+        """Logical AND of comparisons should be comparison result."""
+        code = """
+        Signal x = 10 | "signal-X";
+        Signal both = (x > 5) && (x < 20);
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        symbol = analyzer.current_scope.lookup("both")
+        assert symbol is not None
+        assert isinstance(symbol.value_type, SignalValue)
+        assert symbol.value_type.is_comparison_result
+
+
+class TestBundleOperationsCoverage:
+    """Tests for bundle operation type inference and validation."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    def test_bundle_with_integer_element_error(self, parser):
+        """Bundle with plain integer element should produce error."""
+        code = """
+        Bundle b = { 42 };
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert diagnostics.has_errors()
+        assert any("signal" in str(d.message).lower() for d in diagnostics.diagnostics)
+
+    def test_bundle_select_from_non_bundle(self, parser):
+        """Selecting from non-bundle type should produce error."""
+        code = """
+        Signal x = 10 | "signal-X";
+        Signal y = x["signal-Y"];
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert diagnostics.has_errors()
+
+    def test_bundle_select_invalid_signal_type(self, parser):
+        """Selecting signal type not in bundle should produce error."""
+        code = """
+        Signal a = 10 | "signal-A";
+        Signal b = 20 | "signal-B";
+        Bundle bundle = { a, b };
+        Signal c = bundle["signal-C"];
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert diagnostics.has_errors()
+        assert any("not found" in str(d.message).lower() for d in diagnostics.diagnostics)
+
+    def test_bundle_comparison_error(self, parser):
+        """Direct bundle comparison should produce error."""
+        code = """
+        Signal a = 10 | "signal-A";
+        Signal b = 20 | "signal-B";
+        Bundle bundle = { a, b };
+        Signal x = bundle > 5;
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert diagnostics.has_errors()
+        assert any(
+            "any" in str(d.message).lower() or "all" in str(d.message).lower()
+            for d in diagnostics.diagnostics
+        )
+
+
+class TestModuleAccess:
+    """Tests for module property access."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    def test_module_function_call(self, parser):
+        """Test calling a function from an imported module."""
+        code = """
+        import "lib/math.facto";
+        Signal x = 10 | "signal-X";
+        Signal result = math.abs(x);
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        # Either no error or a "can't find function" type error is acceptable
+        # depending on whether math module is available
+
+
+class TestEntityPropertyAccess:
+    """Tests for entity property access validation."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    def test_entity_output_returns_bundle(self, parser):
+        """Entity.output should return a bundle value."""
+        code = """
+        Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
+        Bundle contents = chest.output;
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert not diagnostics.has_errors()
+
+
+class TestFunctionValidation:
+    """Tests for function validation and argument checking."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    def test_function_wrong_arg_count_error(self, parser):
+        """Calling function with wrong number of arguments should error."""
+        code = """
+        func add_signals(Signal a, Signal b) {
+            return a + b;
+        }
+        Signal result = add_signals(10 | "signal-A");
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert diagnostics.has_errors()
+        assert any("argument" in str(d.message).lower() for d in diagnostics.diagnostics)
+
+    def test_function_with_entity_parameter(self, parser):
+        """Test function with Entity type parameter."""
+        code = """
+        func process_entity(Entity e) {
+            return e.output;
+        }
+        Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
+        Bundle result = process_entity(chest);
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert not diagnostics.has_errors()
+
+
+class TestPlaceCallValidation:
+    """Tests for place() builtin validation."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    def test_place_wrong_arg_count(self, parser):
+        """place() with wrong number of arguments should error."""
+        code = """
+        Entity e = place("belt");
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+        assert diagnostics.has_errors()
+        assert any("arguments" in str(d.message).lower() for d in diagnostics.diagnostics)

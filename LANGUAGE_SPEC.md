@@ -69,6 +69,27 @@ python compile.py hello_lamp.facto
 
 Import the resulting blueprint string into Factorio and watch your lamp blink!
 
+### Conditional Values
+
+One of Facto's most powerful features is the **conditional value syntax**:
+
+```facto
+Signal result = condition : value;
+```
+
+This outputs `value` when `condition` is true, and `0` when false. It compiles to a single decider combinator, making it both readable and efficient:
+
+```facto
+Signal capped = (count > 100) : 100;      # 100 if over limit, else 0
+Signal passed = (count <= 100) : count;   # count if within, else 0
+Signal clamped = capped + passed;         # Combined: max 100
+
+# Selection pattern (if-then-else)
+Signal selected = (flag > 0) : value_a + (flag == 0) : value_b;
+```
+
+This is more efficient than the `condition * value` pattern because it uses the decider combinator's native "copy input" mode.
+
 ---
 
 ## Lexical Structure
@@ -1552,6 +1573,21 @@ lamp.enable = count > 10;  # No decider; uses lamp's circuit condition
 
 ## Best Practices
 
+### Use Conditional Values Over Multiplication
+
+**DO:** Use `condition : value` syntax for conditional logic:
+```facto
+Signal result = (x > 0) : x + (x <= 0) : 0;  # Efficient: uses decider copy mode
+Signal clamped = (value > max) : max + (value <= max) : value;
+```
+
+**DON'T:** Use multiplication for conditional logic:
+```facto
+Signal result = (x > 0) * x + (x <= 0) * 0;  # Less efficient: uses multiplication
+```
+
+The `condition : value` syntax compiles to a single decider combinator using "copy input" mode, while `condition * value` requires both a comparison and a multiplication.
+
 ### Signal Type Management
 
 **DO:**
@@ -1585,12 +1621,12 @@ counter.write(value);  # Hard to track what type counter uses
 
 ### Function Design
 
-**DO:**
+**DO:** Use conditional value syntax for efficient functions:
 ```facto
 func clamp(Signal value, int min_val, int max_val) {
-    Signal result = (value < min_val) * min_val
-                  + (value > max_val) * max_val
-                  + ((value >= min_val) && (value <= max_val)) * value;
+    Signal result = (value < min_val) : min_val
+                  + (value > max_val) : max_val
+                  + ((value >= min_val) && (value <= max_val)) : value;
     return result;
 }
 ```
@@ -1732,18 +1768,18 @@ Signal start_signal = ("signal-start", 0);
 Signal stop_signal = ("signal-stop", 1);
 Signal error_signal = ("signal-error", 2);
 
-# State transitions
+# State transitions using condition : value syntax
 Signal next_state = 
-    (current_state == 0 && start_signal > 0) * 1 +      # Idle → Running
-    (current_state == 1 && stop_signal > 0) * 2 +       # Running → Stopped
-    (current_state == 1 && error_signal > 0) * 3 +      # Running → Error
-    (current_state == 2 && start_signal > 0) * 1 +      # Stopped → Running
-    (current_state == 3 && start_signal > 0) * 0 +      # Error → Idle
+    (current_state == 0 && start_signal > 0) : 1 +      # Idle → Running
+    (current_state == 1 && stop_signal > 0) : 2 +       # Running → Stopped
+    (current_state == 1 && error_signal > 0) : 3 +      # Running → Error
+    (current_state == 2 && start_signal > 0) : 1 +      # Stopped → Running
+    (current_state == 3 && start_signal > 0) : 0 +      # Error → Idle
     # Stay in current state if no transition matches
     ((current_state == 0 && start_signal == 0) ||
      (current_state == 1 && stop_signal == 0 && error_signal == 0) ||
      (current_state == 2 && start_signal == 0) ||
-     (current_state == 3 && start_signal == 0)) * current_state;
+     (current_state == 3 && start_signal == 0)) : current_state;
 
 state.write(next_state);
 
@@ -1802,9 +1838,10 @@ func smooth_filter(Signal input, int window_size) {
     Signal current_sum = sum.read();
     Signal current_count = count.read();
     
+    # Use condition : value syntax for efficient branching
     Signal should_reset = current_count >= window_size;
-    Signal new_sum = should_reset * input + (!should_reset) * (current_sum + input);
-    Signal new_count = should_reset * 1 + (!should_reset) * (current_count + 1);
+    Signal new_sum = (should_reset) : input + (!should_reset) : (current_sum + input);
+    Signal new_count = (should_reset) : 1 + (!should_reset) : (current_count + 1);
     
     sum.write(new_sum);
     count.write(new_count);

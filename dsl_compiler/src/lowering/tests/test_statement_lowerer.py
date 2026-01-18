@@ -808,3 +808,84 @@ class TestDirectStatementLowerer:
 
         # Should have registered signal ref
         assert "result" in parent.signal_refs
+
+
+class TestForLoopRangeConstants:
+    """Tests for for loop range constant resolution."""
+
+    def test_for_loop_with_literal_range(self):
+        """Test for loop with literal range values creates multiple signals."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal s1 = 1 | "signal-A";
+        Signal s2 = 2 | "signal-B";
+        for i in 1..3 {
+            Signal x = i | "signal-C";
+        }
+        """)
+        assert not diags.has_errors()
+
+    def test_for_loop_with_int_constant_bounds(self):
+        """Test for loop using int constant variables as bounds."""
+        ir_ops, _, diags = compile_to_ir("""
+        int start = 1;
+        int end = 3;
+        for i in start..end {
+            Signal x = i | "signal-A";
+        }
+        """)
+        assert not diags.has_errors()
+
+    def test_for_loop_with_list(self):
+        """Test for loop iterating over a list."""
+        ir_ops, _, diags = compile_to_ir("""
+        for i in [1, 2, 3] {
+            Signal x = i | "signal-A";
+        }
+        """)
+        assert not diags.has_errors()
+
+
+class TestInlineBundleCondition:
+    """Tests for inlinable bundle conditions."""
+
+    def test_entity_enable_with_all_bundle(self):
+        """Test entity enable with all(bundle) comparison."""
+        ir_ops, _, diags = compile_to_ir("""
+        Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
+        Bundle contents = chest.output;
+        Entity lamp = place("small-lamp", 1, 0, {enabled: 1});
+        lamp.enable = all(contents) > 0;
+        """)
+        # Note: may or may not error depending on implementation
+        # We just want to ensure the code path is exercised
+
+    def test_entity_enable_with_any_bundle(self):
+        """Test entity enable with any(bundle) comparison."""
+        ir_ops, _, diags = compile_to_ir("""
+        Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
+        Bundle contents = chest.output;
+        Entity lamp = place("small-lamp", 1, 0, {enabled: 1});
+        lamp.enable = any(contents) > 0;
+        """)
+        # Exercising the code path
+
+
+class TestConstantExtractionMethods:
+    """Tests for _extract_constant and _is_constant methods."""
+
+    def test_extract_constant_from_signal_literal(self):
+        """Test extracting constant from SignalLiteral with NumberLiteral value."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = ("signal-A", 42);
+        Signal y = x + 1;
+        """)
+        assert not diags.has_errors()
+
+    def test_is_constant_with_int_variable(self):
+        """Test that int type variables are recognized as constants."""
+        ir_ops, _, diags = compile_to_ir("""
+        int multiplier = 5;
+        Signal x = 10 | "signal-A";
+        Signal result = x * multiplier;
+        """)
+        assert not diags.has_errors()

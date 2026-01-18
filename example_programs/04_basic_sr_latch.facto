@@ -1,5 +1,5 @@
-import "memory_patterns.fcdsl";
-import "math.fcdsl";
+import "memory_patterns.facto";
+import "math.facto";
 
 int period = 255;
 Signal step = ("signal-A", 1);
@@ -17,11 +17,5 @@ hysteresis.write(1, set=s < 50, reset=s > 200);
 Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = hysteresis.read() > 0;
 
-Entity period_lamp = place("small-lamp", 2, 0, {use_colors: 1, always_on: 1, color_mode: 1});
-period_lamp.r = s | "signal-red";
-period_lamp.g = s | "signal-green";
-period_lamp.b = s | "signal-blue";
-
-# Signal a = ("signal-A", -100);
-
-# Signal b = abs(a);
+Entity period_lamp = place("small-lamp", 2, 0, {use_colors: 1, always_on: 1, color_mode: 0});
+period_lamp.rgb = s | "signal-white";

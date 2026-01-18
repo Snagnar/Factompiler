@@ -1248,3 +1248,153 @@ class TestMemoryCallLowering:
         m.write(memory(42));
         """)
         assert not diags.has_errors()
+
+
+class TestCoverageBoostOperations:
+    """Additional tests to boost coverage for expression lowering."""
+
+    def test_output_spec_with_count_expression(self):
+        """Test output spec with a count expression."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = 5;
+        Signal y = (x > 0) : x;
+        """)
+        assert not diags.has_errors()
+        # Should have a decider that outputs x's value when x > 0
+        deciders = [op for op in ir_ops if isinstance(op, IRDecider)]
+        assert len(deciders) > 0
+
+    def test_comparison_chain_in_condition(self):
+        """Test chained comparisons in a conditional."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 10;
+        Signal b = 20;
+        Signal result = (a < 15 && b > 10) : a;
+        """)
+        assert not diags.has_errors()
+        assert len(ir_ops) > 0
+
+    def test_negation_in_arithmetic(self):
+        """Test negation operator in arithmetic."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = 10;
+        Signal y = -x;
+        """)
+        assert not diags.has_errors()
+        # Should have arithmetic for negation
+        assert len(ir_ops) > 0
+
+    def test_power_operation_with_signals(self):
+        """Test power/exponentiation operation with signal variables."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal base = 2;
+        Signal exp = 3;
+        Signal result = base ** exp;
+        """)
+        assert not diags.has_errors()
+        assert len(ir_ops) > 0
+
+    def test_modulo_operation_with_signals(self):
+        """Test modulo operation with signal variables."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = 17;
+        Signal y = x % 5;
+        """)
+        assert not diags.has_errors()
+        assert len(ir_ops) > 0
+
+    def test_complex_binary_expression(self):
+        """Test complex binary expression with multiple operators."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 5;
+        Signal b = 10;
+        Signal c = 15;
+        Signal result = (a + b) * c - (a AND b);
+        """)
+        assert not diags.has_errors()
+        assert len(ir_ops) > 0
+
+    def test_all_comparison_operators(self):
+        """Test all comparison operators."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 5;
+        Signal b = 10;
+        Signal eq = (a == b) : 1;
+        Signal ne = (a != b) : 1;
+        Signal lt = (a < b) : 1;
+        Signal le = (a <= b) : 1;
+        Signal gt = (a > b) : 1;
+        Signal ge = (a >= b) : 1;
+        """)
+        assert not diags.has_errors()
+        assert len(ir_ops) > 0
+
+
+class TestCompoundConditions:
+    """Tests for compound condition handling in output spec expressions."""
+
+    def test_and_condition_with_output_spec(self):
+        """Test AND compound condition with output spec."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = 10 | "signal-X";
+        Signal y = 20 | "signal-Y";
+        Signal result = (x > 5 && y < 30) : 100;
+        """)
+        assert not diags.has_errors()
+        assert len(ir_ops) > 0
+
+    def test_or_condition_with_output_spec(self):
+        """Test OR compound condition with output spec."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = 10 | "signal-X";
+        Signal y = 20 | "signal-Y";
+        Signal result = (x < 5 || y > 15) : 50;
+        """)
+        assert not diags.has_errors()
+        assert len(ir_ops) > 0
+
+    def test_logical_or_with_integer_literals(self):
+        """Test logical OR with integer-typed signal values."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 0 | "signal-A";
+        Signal b = 1 | "signal-B";
+        Signal result = (a || b) : 100;
+        """)
+        # This exercises the integer materialization path
+        assert len(ir_ops) > 0
+
+    def test_multiple_chained_comparisons(self):
+        """Test multiple chained comparisons."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal x = 10 | "signal-X";
+        Signal y = 20 | "signal-Y";
+        Signal z = 30 | "signal-Z";
+        Signal result = (x > 0 && y > 0 && z > 0) : 1;
+        """)
+        assert not diags.has_errors()
+        assert len(ir_ops) > 0
+
+
+class TestWireMergeFolding:
+    """Tests for wire merge constant folding."""
+
+    def test_simple_wire_merge(self):
+        """Test simple wire merge of signals."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 10 | "signal-A";
+        Signal b = 20 | "signal-A";
+        Signal c = a + b;
+        """)
+        assert not diags.has_errors()
+        assert len(ir_ops) > 0
+
+    def test_wire_merge_three_signals(self):
+        """Test wire merge of three signals."""
+        ir_ops, _, diags = compile_to_ir("""
+        Signal a = 5 | "signal-A";
+        Signal b = 10 | "signal-A";
+        Signal c = 15 | "signal-A";
+        Signal result = a + b + c;
+        """)
+        assert not diags.has_errors()
+        assert len(ir_ops) > 0

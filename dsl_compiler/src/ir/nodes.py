@@ -344,6 +344,10 @@ class IRLatchWrite(IREffect):
     The latch_type field determines the priority:
     - MEMORY_TYPE_SR_LATCH: set wins on tie (S >= R)
     - MEMORY_TYPE_RS_LATCH: reset wins on tie (S > R)
+
+    Optimization: When set/reset are simple comparisons on the same signal,
+    the conditions can be inlined directly into the latch combinator,
+    eliminating the need for separate comparison deciders.
     """
 
     def __init__(
@@ -354,6 +358,11 @@ class IRLatchWrite(IREffect):
         reset_signal: ValueRef,
         latch_type: str,  # MEMORY_TYPE_SR_LATCH or MEMORY_TYPE_RS_LATCH
         source_ast: ASTNode | None = None,
+        *,
+        # Inline condition optimization fields
+        # When these are set, the latch uses direct comparisons instead of boolean signals
+        set_condition: tuple[ValueRef, str, int] | None = None,  # (signal, op, constant)
+        reset_condition: tuple[ValueRef, str, int] | None = None,  # (signal, op, constant)
     ) -> None:
         super().__init__(f"latch_write_{memory_id}", source_ast)
         self.memory_id = memory_id
@@ -361,9 +370,27 @@ class IRLatchWrite(IREffect):
         self.set_signal = set_signal
         self.reset_signal = reset_signal
         self.latch_type = latch_type
+        # Inline condition optimization
+        self.set_condition = set_condition
+        self.reset_condition = reset_condition
+
+    @property
+    def has_inline_conditions(self) -> bool:
+        """Check if this latch uses inline condition optimization."""
+        return self.set_condition is not None and self.reset_condition is not None
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         priority = "SR" if self.latch_type == MEMORY_TYPE_SR_LATCH else "RS"
+        if (
+            self.has_inline_conditions
+            and self.set_condition is not None
+            and self.reset_condition is not None
+        ):
+            set_cond = f"{self.set_condition[0]} {self.set_condition[1]} {self.set_condition[2]}"
+            reset_cond = (
+                f"{self.reset_condition[0]} {self.reset_condition[1]} {self.reset_condition[2]}"
+            )
+            return f"IRLatchWrite({self.memory_id} <- {self.value}, {priority}, set=({set_cond}), reset=({reset_cond}), INLINED)"
         return f"IRLatchWrite({self.memory_id} <- {self.value}, {priority}, set={self.set_signal}, reset={self.reset_signal})"
 
 

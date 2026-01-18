@@ -5,6 +5,7 @@
 # Import with: import "lib/math.facto";
 #
 # All functions work with 32-bit signed integers (Factorio's native type).
+# Functions use the condition : value syntax for efficient compilation.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -12,36 +13,40 @@
 # -----------------------------------------------------------------------------
 # Returns the absolute value of x.
 # abs(-5) = 5, abs(5) = 5
+# Uses 2 decider combinators (one per condition branch).
 #
 func abs(Signal x) {
-    return (x >= 0) * x + (x < 0) * (0 - x);
+    return ((x >= 0) : x) + ((x < 0) : (0 - x));
 }
 
 # -----------------------------------------------------------------------------
 # Sign
 # -----------------------------------------------------------------------------
 # Returns -1 if x < 0, 0 if x == 0, 1 if x > 0
+# Uses 2 decider combinators.
 #
 func sign(Signal x) {
-    return (x > 0) * 1 + (x < 0) * (0 - 1);
+    return ((x > 0) : 1) + ((x < 0) : (0 - 1));
 }
 
 # -----------------------------------------------------------------------------
 # Minimum of Two Values
 # -----------------------------------------------------------------------------
 # Returns the smaller of a and b.
+# Uses 2 decider combinators.
 #
 func min(Signal a, Signal b) {
-    return (a <= b) * a + (a > b) * b;
+    return ((a <= b) : a) + ((a > b) : b);
 }
 
 # -----------------------------------------------------------------------------
 # Maximum of Two Values
 # -----------------------------------------------------------------------------
 # Returns the larger of a and b.
+# Uses 2 decider combinators.
 #
 func max(Signal a, Signal b) {
-    return (a >= b) * a + (a < b) * b;
+    return ((a >= b) : a) + ((a < b) : b);
 }
 
 # -----------------------------------------------------------------------------
@@ -51,10 +56,11 @@ func max(Signal a, Signal b) {
 # clamp(5, 0, 10) = 5
 # clamp(-5, 0, 10) = 0
 # clamp(15, 0, 10) = 10
+# Uses 4 decider combinators.
 #
 func clamp(Signal x, int low, int high) {
-    Signal above_low = (x >= low) * x + (x < low) * low;
-    return (above_low <= high) * above_low + (above_low > high) * high;
+    Signal above_low = ((x >= low) : x) + ((x < low) : low);
+    return ((above_low <= high) : above_low) + ((above_low > high) : high);
 }
 
 # -----------------------------------------------------------------------------
@@ -138,9 +144,10 @@ func div_floor(Signal a, Signal b) {
 # -----------------------------------------------------------------------------
 # Returns a % b, but always positive (like Python's % operator).
 # mod_positive(-7, 3) = 2 (not -1)
+# Uses 4 decider combinators.
 #
 func mod_positive(Signal a, Signal b) {
     Signal r = a % b;
-    Signal abs_b = (b >= 0) * b + (b < 0) * (0 - b);
-    return (r >= 0) * r + (r < 0) * (r + abs_b);
+    Signal abs_b = ((b >= 0) : b) + ((b < 0) : (0 - b));
+    return ((r >= 0) : r) + ((r < 0) : (r + abs_b));
 }

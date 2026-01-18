@@ -252,6 +252,9 @@ class IRBuilder:
         reset_signal: ValueRef,
         latch_type: str,
         source_ast: ASTNode | None = None,
+        *,
+        set_condition: tuple[ValueRef, str, int] | None = None,
+        reset_condition: tuple[ValueRef, str, int] | None = None,
     ) -> Any:
         """Write to a memory cell using latch mode (single combinator).
 
@@ -262,10 +265,21 @@ class IRBuilder:
             reset_signal: Signal that turns latch OFF
             latch_type: MEMORY_TYPE_SR_LATCH or MEMORY_TYPE_RS_LATCH
             source_ast: Source AST node for diagnostics
+            set_condition: Optional inline condition (signal, op, constant) for set
+            reset_condition: Optional inline condition (signal, op, constant) for reset
         """
         from .nodes import IRLatchWrite
 
-        op = IRLatchWrite(memory_id, value, set_signal, reset_signal, latch_type, source_ast)
+        op = IRLatchWrite(
+            memory_id,
+            value,
+            set_signal,
+            reset_signal,
+            latch_type,
+            source_ast,
+            set_condition=set_condition,
+            reset_condition=reset_condition,
+        )
         self.add_operation(op)
         return op
 

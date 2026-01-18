@@ -273,7 +273,9 @@ class ExpressionLowerer:
         # BUT only if the semantic result_type doesn't already have a specific signal type.
         # This preserves semantic type inference for expressions like (int - int - signal).
         semantic_result_signal = get_signal_type_name(result_type)
-        if not semantic_result_signal and (actual_left_type != left_type or actual_right_type != right_type):
+        if not semantic_result_signal and (
+            actual_left_type != left_type or actual_right_type != right_type
+        ):
             actual_left_signal = get_signal_type_name(actual_left_type)
             actual_right_signal = get_signal_type_name(actual_right_type)
             if actual_left_signal:
@@ -643,11 +645,18 @@ class ExpressionLowerer:
         When true, outputs the output_value instead of constant 1.
         """
         condition = expr.condition
-        
+
         # Check if this is a compound condition (AND/OR of comparisons)
         if isinstance(condition, BinaryOp) and condition.op in ("&&", "||", "and", "or"):
             return self._lower_compound_output_spec(expr)
-        
+
+        # Handle identifier that references a comparison result
+        # The semantic analyzer has already validated this is a comparison result
+        if isinstance(condition, IdentifierExpr):
+            # An identifier referencing a comparison result (0 or 1)
+            # We compare it against 0 to get a proper condition
+            return self._lower_identifier_condition_output_spec(expr)
+
         # Validate that condition is a simple comparison
         if not isinstance(condition, BinaryOp) or condition.op not in COMPARISON_OPS:
             self._error(
@@ -741,33 +750,22 @@ class ExpressionLowerer:
         self._attach_expr_context(result.source_id, expr)
         return result
 
-    def _lower_compound_output_spec(self, expr: OutputSpecExpr) -> SignalRef:
-        """Lower output specifier with compound condition (AND/OR of comparisons).
-        
-        ((a > b) && (c < d)) : value
-        
-        Creates a multi-condition decider that copies the output value when
-        all/any conditions are met.
+    def _lower_identifier_condition_output_spec(self, expr: OutputSpecExpr) -> SignalRef:
+        """Lower output specifier where condition is an identifier referencing a comparison result.
+
+        cond : value  where cond was defined as `Signal cond = x > 5;`
+
+        Lowers to: (cond != 0) : value
         """
         condition = expr.condition
-        assert isinstance(condition, BinaryOp) and condition.op in ("&&", "||", "and", "or")
-        
-        # Collect all comparisons in the chain
-        logical_op = condition.op if condition.op in ("&&", "||") else ("&&" if condition.op == "and" else "||")
-        comparisons = self._collect_comparison_chain(condition, logical_op)
-        
-        if comparisons is None:
-            # Fall back: can't fold, emit error
-            self._error(
-                "Output specifier with compound condition requires simple comparisons. "
-                "Complex expressions in conditions are not supported.",
-                expr,
-            )
-            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
-        
+        assert isinstance(condition, IdentifierExpr)
+
+        # Lower the identifier to get the signal ref
+        cond_ref = self.lower_expr(condition)
+
         # Lower the output value
         output_value_ref = self.lower_expr(expr.output_value)
-        
+
         # Determine output signal type from the output_value
         result_type = self.semantic.get_expr_type(expr)
         result_signal = get_signal_type_name(result_type)
@@ -777,21 +775,80 @@ class ExpressionLowerer:
             output_type = output_value_ref.signal_type
         else:
             output_type = self.ir_builder.allocate_implicit_type()
-        
+
         self.parent.ensure_signal_registered(output_type)
-        
+
+        # Create decider: cond != 0, output value
+        copy_count = not isinstance(output_value_ref, int)
+
+        result = self.ir_builder.decider(
+            test_op="!=",
+            left=cond_ref,
+            right=0,
+            output_value=output_value_ref,
+            output_type=output_type,
+            source_ast=expr,
+            copy_count_from_input=copy_count,
+        )
+
+        self._attach_expr_context(result.source_id, expr)
+        return result
+
+    def _lower_compound_output_spec(self, expr: OutputSpecExpr) -> SignalRef:
+        """Lower output specifier with compound condition (AND/OR of comparisons).
+
+        ((a > b) && (c < d)) : value
+
+        Creates a multi-condition decider that copies the output value when
+        all/any conditions are met.
+        """
+        condition = expr.condition
+        assert isinstance(condition, BinaryOp) and condition.op in ("&&", "||", "and", "or")
+
+        # Collect all comparisons in the chain
+        logical_op = (
+            condition.op
+            if condition.op in ("&&", "||")
+            else ("&&" if condition.op == "and" else "||")
+        )
+        comparisons = self._collect_comparison_chain(condition, logical_op)
+
+        if comparisons is None:
+            # Fall back: can't fold, emit error
+            self._error(
+                "Output specifier with compound condition requires simple comparisons. "
+                "Complex expressions in conditions are not supported.",
+                expr,
+            )
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
+
+        # Lower the output value
+        output_value_ref = self.lower_expr(expr.output_value)
+
+        # Determine output signal type from the output_value
+        result_type = self.semantic.get_expr_type(expr)
+        result_signal = get_signal_type_name(result_type)
+        if result_signal:
+            output_type = result_signal
+        elif isinstance(output_value_ref, SignalRef):
+            output_type = output_value_ref.signal_type
+        else:
+            output_type = self.ir_builder.allocate_implicit_type()
+
+        self.parent.ensure_signal_registered(output_type)
+
         # Build conditions list for multi-condition decider
         conditions = []
         for comp in comparisons:
             left_ref = self.lower_expr(comp.left)
             right_ref = self.lower_expr(comp.right)
             conditions.append((comp.op, left_ref, right_ref))
-        
+
         combine_type = "and" if logical_op == "&&" else "or"
-        
+
         # Create multi-condition decider with copy_count_from_input
         copy_count = not isinstance(output_value_ref, int)
-        
+
         result = self.ir_builder.decider_multi(
             conditions=conditions,
             combine_type=combine_type,
@@ -800,7 +857,7 @@ class ExpressionLowerer:
             source_ast=expr,
             copy_count_from_input=copy_count,
         )
-        
+
         self._attach_expr_context(result.source_id, expr)
         return result
 

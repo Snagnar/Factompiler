@@ -251,22 +251,18 @@ class MemoryBuilder:
         SR/RS latches are inherently binary (output 0 or 1). To output arbitrary
         values, we use a multiplier combinator.
 
+        OPTIMIZED PATH (inline conditions):
+        When set/reset are simple comparisons on the same signal (e.g.,
+        set=battery<20, reset=battery>=80), we inline them directly into
+        the latch combinator, eliminating separate comparison deciders.
+
         Compilation patterns:
-        - write(1, set=..., reset=...) → 1 decider combinator
-        - write(N, set=..., reset=...) where N ≠ 1 → 2 combinators (latch + multiplier)
-
-        RS Latch (Reset Priority):
-            Single condition: S > R
-            When both S and R are active, R wins (0 > 0 is false)
-
-        SR Latch (Set Priority):
-            Multi-condition with wire filtering (Factorio 2.0):
-            Row 1: S > R (read from RED wire only) [OR]
-            Row 2: S > 0 (read from GREEN wire only - feedback)
-            When R is active but feedback S=1 is still present, the latch stays ON.
+        - write(1, set=x<C1, reset=x>=C2) with inlining → 1 decider combinator
+        - write(1, set=..., reset=...) without inlining → 1-3 deciders + remappers
+        - write(N, ...) where N ≠ 1 → adds 1 multiplier combinator
 
         Wire Configuration:
-            RED wire: External set (S) and reset (R) signals
+            RED wire: External input signal (battery, etc.)
             GREEN wire: Feedback from output to input (self-loop)
         """
         # Get the memory module
@@ -277,6 +273,179 @@ class MemoryBuilder:
 
         # Upgrade memory module to latch type
         module.memory_type = op.latch_type
+
+        # Check for inline condition optimization
+        if op.has_inline_conditions:
+            self._handle_latch_write_inlined(op, module, signal_graph)
+        else:
+            self._handle_latch_write_standard(op, module, signal_graph)
+
+    def _handle_latch_write_inlined(
+        self, op: IRLatchWrite, module: MemoryModule, signal_graph: SignalGraph
+    ):
+        """Handle latch write with inlined conditions (optimized path).
+
+        Creates a single decider combinator with multi-condition logic:
+        - Row 1: SET condition (e.g., battery < 20) from RED wire
+        - Row 2: Feedback > 0 from GREEN wire (OR)
+        - Row 3: Inverted RESET condition (e.g., battery < 80) from RED wire (AND)
+
+        This eliminates the need for separate SET/RESET deciders and remappers.
+        """
+        self.diagnostics.info("Using OPTIMIZED latch write with inlined conditions.")
+        latch_id = f"{op.memory_id}_latch"
+        memory_signal_type = module.signal_type
+
+        # Extract condition components - we know these are not None because has_inline_conditions was checked
+        assert op.set_condition is not None, (
+            "set_condition should not be None when has_inline_conditions is True"
+        )
+        assert op.reset_condition is not None, (
+            "reset_condition should not be None when has_inline_conditions is True"
+        )
+        set_signal_ref, set_op, set_const = op.set_condition
+        reset_signal_ref, reset_op, reset_const = op.reset_condition
+
+        # Get the input signal name - set_signal_ref should be SignalRef
+        assert isinstance(set_signal_ref, SignalRef), (
+            f"Expected SignalRef, got {type(set_signal_ref)}"
+        )
+        input_signal_name = self.signal_analyzer.get_signal_name(set_signal_ref.signal_type)
+        input_source_id = set_signal_ref.source_id
+
+        # Invert the reset condition for the hold logic
+        # reset=battery>=80 becomes hold when battery<80
+        hold_op, hold_const = self._invert_comparison(reset_op, reset_const)
+
+        # Determine multiplier need
+        value_is_signal = isinstance(op.value, SignalRef)
+        latch_value: int | SignalRef
+        if value_is_signal:
+            assert isinstance(op.value, SignalRef)  # Type narrowing for mypy
+            latch_value = op.value
+        elif isinstance(op.value, int):
+            latch_value = op.value
+        else:
+            # BundleRef not supported for latch value, default to 1
+            latch_value = 1
+        needs_multiplier = value_is_signal or (isinstance(latch_value, int) and latch_value != 1)
+
+        latch_output_signal = memory_signal_type
+        latch_output_constant = 1
+
+        # Mark standard gates as unused
+        if module.write_gate:
+            module.write_gate_unused = True
+        if module.hold_gate:
+            module.hold_gate_unused = True
+
+        # Build the optimized multi-condition latch
+        # Structure: (SET_COND) OR ((FEEDBACK > 0) AND (HOLD_COND))
+        # Factorio evaluates left-to-right, so we need:
+        # Row 1: SET condition
+        # Row 2: OR feedback > 0
+        # Row 3: AND hold condition
+        conditions = [
+            {
+                # Row 1: SET condition (e.g., battery < 20)
+                "comparator": set_op,
+                "first_signal": input_signal_name,
+                "first_signal_wires": {"red"},  # Read from RED (external input)
+                "second_constant": set_const,
+            },
+            {
+                # Row 2: OR feedback > 0 (latch output from previous tick)
+                "comparator": ">",
+                "compare_type": "or",
+                "first_signal": latch_output_signal,
+                "first_signal_wires": {"green"},  # Read from GREEN (feedback)
+                "second_constant": 0,
+            },
+            {
+                # Row 3: AND hold condition (inverted reset, e.g., battery < 80)
+                "comparator": hold_op,
+                "compare_type": "and",
+                "first_signal": input_signal_name,
+                "first_signal_wires": {"red"},  # Read from RED (external input)
+                "second_constant": hold_const,
+            },
+        ]
+
+        latch_placement = self.layout_plan.create_and_add_placement(
+            ir_node_id=latch_id,
+            entity_type="decider-combinator",
+            position=None,
+            footprint=(1, 2),
+            role="latch",
+            debug_info=self._make_latch_debug_info(op),
+            conditions=conditions,
+            output_signal=latch_output_signal,
+            copy_count_from_input=False,
+            output_value=latch_output_constant,
+        )
+
+        module.latch_combinator = latch_placement
+
+        # Set up green wire self-feedback
+        self._setup_latch_feedback(module, signal_graph)
+
+        # Connect input signal source to latch input via RED wire
+        if input_source_id:
+            signal_graph.add_sink(input_source_id, latch_id)
+
+        # Handle multiplier if needed
+        if needs_multiplier:
+            self._create_latch_multiplier(
+                op, module, latch_id, latch_output_signal, latch_value, signal_graph
+            )
+            multiplier_id = f"{op.memory_id}_multiplier"
+            signal_graph.set_source(op.memory_id, multiplier_id)
+
+            if isinstance(latch_value, SignalRef):
+                value_str = f"signal {latch_value.signal_type}"
+            else:
+                value_str = str(latch_value)
+            self.diagnostics.info(
+                f"Created OPTIMIZED latch with multiplier for '{op.memory_id}': "
+                f"single combinator with inlined conditions, multiplier scales by {value_str}"
+            )
+        else:
+            signal_graph.set_source(op.memory_id, latch_id)
+            self.diagnostics.info(
+                f"Created OPTIMIZED SR latch '{op.memory_id}': "
+                f"single combinator with inlined conditions "
+                f"(set={input_signal_name}{set_op}{set_const}, "
+                f"hold={input_signal_name}{hold_op}{hold_const})"
+            )
+
+    def _invert_comparison(self, op: str, const: int) -> tuple[str, int]:
+        """Invert a comparison operator for hold condition logic.
+
+        reset=battery>=80 means "turn off when battery >= 80"
+        hold condition should be "stay on when battery < 80"
+
+        Inversion rules:
+        - < becomes >=, >= becomes <
+        - <= becomes >, > becomes <=
+        - == becomes !=, != becomes ==
+        """
+        inversions = {
+            "<": ">=",
+            "<=": ">",
+            ">": "<=",
+            ">=": "<",
+            "==": "!=",
+            "!=": "==",
+        }
+        return inversions.get(op, op), const
+
+    def _handle_latch_write_standard(
+        self, op: IRLatchWrite, module: MemoryModule, signal_graph: SignalGraph
+    ):
+        """Handle latch write without inlined conditions (fallback path).
+
+        This is the original implementation that handles boolean set/reset signals.
+        """
 
         # Get signal names for set and reset from the SignalRefs
         if isinstance(op.set_signal, SignalRef):

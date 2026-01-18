@@ -15,6 +15,7 @@ class SignalValue:
 
     signal_type: SignalTypeInfo
     count_expr: Expr | None = None  # Expression computing the signal count
+    is_comparison_result: bool = False  # True if this comes from a comparison expression
 
 
 @dataclass

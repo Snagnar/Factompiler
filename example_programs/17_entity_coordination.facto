@@ -54,35 +54,35 @@ Signal pattern3_lamp11 = master_enable && (intensity_threshold > 4);
 Signal pattern3_lamp21 = master_enable && (intensity_threshold > 5);
 
 # Apply selected pattern
-lamp_00.enable = (pattern_selector == 0) * pattern0_enable +
-                 (pattern_selector == 1) * pattern1_lamp00 +
-                 (pattern_selector == 2) * pattern2_lamp00 +
-                 (pattern_selector == 3) * pattern3_lamp00;
+lamp_00.enable = ((pattern_selector == 0) : pattern0_enable) +
+                 ((pattern_selector == 1) : pattern1_lamp00) +
+                 ((pattern_selector == 2) : pattern2_lamp00) +
+                 ((pattern_selector == 3) : pattern3_lamp00);
 
-lamp_10.enable = (pattern_selector == 0) * pattern0_enable +
-                 (pattern_selector == 1) * pattern1_lamp10 +
-                 (pattern_selector == 2) * pattern2_lamp10 +
-                 (pattern_selector == 3) * pattern3_lamp10;
+lamp_10.enable = ((pattern_selector == 0) : pattern0_enable) +
+                 ((pattern_selector == 1) : pattern1_lamp10) +
+                 ((pattern_selector == 2) : pattern2_lamp10) +
+                 ((pattern_selector == 3) : pattern3_lamp10);
 
-lamp_20.enable = (pattern_selector == 0) * pattern0_enable +
-                 (pattern_selector == 1) * pattern1_lamp00 +
-                 (pattern_selector == 2) * pattern2_lamp20 +
-                 (pattern_selector == 3) * pattern3_lamp20;
+lamp_20.enable = ((pattern_selector == 0) : pattern0_enable) +
+                 ((pattern_selector == 1) : pattern1_lamp00) +
+                 ((pattern_selector == 2) : pattern2_lamp20) +
+                 ((pattern_selector == 3) : pattern3_lamp20);
 
-lamp_01.enable = (pattern_selector == 0) * pattern0_enable +
-                 (pattern_selector == 1) * pattern1_lamp01 +
-                 (pattern_selector == 2) * pattern2_lamp01 +
-                 (pattern_selector == 3) * pattern3_lamp01;
+lamp_01.enable = ((pattern_selector == 0) : pattern0_enable) +
+                 ((pattern_selector == 1) : pattern1_lamp01) +
+                 ((pattern_selector == 2) : pattern2_lamp01) +
+                 ((pattern_selector == 3) : pattern3_lamp01);
 
-lamp_11.enable = (pattern_selector == 0) * pattern0_enable +
-                 (pattern_selector == 1) * pattern1_lamp11 +
-                 (pattern_selector == 2) * pattern2_lamp11 +
-                 (pattern_selector == 3) * pattern3_lamp11;
+lamp_11.enable = ((pattern_selector == 0) : pattern0_enable) +
+                 ((pattern_selector == 1) : pattern1_lamp11) +
+                 ((pattern_selector == 2) : pattern2_lamp11) +
+                 ((pattern_selector == 3) : pattern3_lamp11);
 
-lamp_21.enable = (pattern_selector == 0) * pattern0_enable +
-                 (pattern_selector == 1) * pattern1_lamp00 +
-                 (pattern_selector == 2) * pattern2_lamp21 +
-                 (pattern_selector == 3) * pattern3_lamp21;
+lamp_21.enable = ((pattern_selector == 0) : pattern0_enable) +
+                 ((pattern_selector == 1) : pattern1_lamp00) +
+                 ((pattern_selector == 2) : pattern2_lamp21) +
+                 ((pattern_selector == 3) : pattern3_lamp21);
 
 # Dynamic entity placement based on current pattern
 Signal active_lamp_count = lamp_00.enable + lamp_10.enable + lamp_20.enable + 

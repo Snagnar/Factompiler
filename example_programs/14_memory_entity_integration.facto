@@ -26,13 +26,21 @@ Signal last_status = last_lamp_status.read();
 Signal status_changed = lamp_is_on != last_status;
 
 # State machine driven by entity status
+# State 0 -> 1 when enabled
+# State 1 -> 2 when status changes  
+# State 2 -> 0 when disabled
+# Otherwise stay in current state
+Signal stay_in_0 = (current_state == 0) && (enable_signal == 0);
+Signal stay_in_1 = (current_state == 1) && (status_changed == 0);
+Signal stay_in_2 = (current_state == 2) && (enable_signal != 0);
+
 Signal next_state = 
-    (current_state == 0 && enable_signal) * 1 +
-    (current_state == 1 && status_changed) * 2 +
-    (current_state == 2 && !enable_signal) * 0 +
-    (1 - ((current_state == 0 && enable_signal) + 
-          (current_state == 1 && status_changed) + 
-          (current_state == 2 && !enable_signal))) * current_state;
+    ((current_state == 0 && enable_signal != 0) : 1) +
+    ((current_state == 1 && status_changed != 0) : 2) +
+    ((current_state == 2 && enable_signal == 0) : 0) +
+    (stay_in_0 : 0) +
+    (stay_in_1 : 1) +
+    (stay_in_2 : 2);
 
 entity_state.write(next_state);
 last_lamp_status.write(lamp_is_on);

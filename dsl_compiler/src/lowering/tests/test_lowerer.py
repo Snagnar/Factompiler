@@ -495,3 +495,69 @@ class TestEnsureSignalRegistered:
 
         # iron-plate is in signal_data, should not raise
         lowerer.ensure_signal_registered("iron-plate")
+
+
+class TestInferSignalCategory:
+    """Tests for _infer_signal_category method (lines 135-175)."""
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    @pytest.fixture
+    def diagnostics(self):
+        return ProgramDiagnostics()
+
+    @pytest.fixture
+    def analyzer(self, diagnostics):
+        return SemanticAnalyzer(diagnostics)
+
+    def test_infer_category_none_returns_virtual(self, parser, analyzer, diagnostics):
+        """Test that None signal type returns virtual."""
+        code = "Signal x = 42;"
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, _ = lower_program_full(program, analyzer)
+
+        result = lowerer._infer_signal_category(None)
+        assert result == "virtual"
+
+    def test_infer_category_item_signal(self, parser, analyzer, diagnostics):
+        """Test inferring category for item signals."""
+        code = 'Signal iron = ("iron-plate", 100);'
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, _ = lower_program_full(program, analyzer)
+
+        result = lowerer._infer_signal_category("iron-plate")
+        assert result == "item"
+
+    def test_infer_category_virtual_signal(self, parser, analyzer, diagnostics):
+        """Test inferring category for virtual signals."""
+        code = 'Signal a = ("signal-A", 100);'
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, _ = lower_program_full(program, analyzer)
+
+        result = lowerer._infer_signal_category("signal-A")
+        assert result == "virtual"
+
+    def test_infer_category_fluid_signal(self, parser, analyzer, diagnostics):
+        """Test inferring category for fluid signals."""
+        code = 'Signal water = ("water", 100);'
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, _ = lower_program_full(program, analyzer)
+
+        result = lowerer._infer_signal_category("water")
+        assert result == "fluid"
+
+    def test_infer_category_implicit_signal(self, parser, analyzer, diagnostics):
+        """Test inferring category for implicit __v signals."""
+        code = "Signal x = 42;"
+        program = parser.parse(code)
+        analyzer.visit(program)
+        lowerer, _ = lower_program_full(program, analyzer)
+
+        result = lowerer._infer_signal_category("__v99")
+        assert result == "virtual"

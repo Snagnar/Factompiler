@@ -7,21 +7,22 @@ Memory down_counter: "signal-0";
 Memory event_count: "signal-0";
 
 
-Signal increment = (("signal-I", 0) > 0) | "signal-0";
-Signal decrement = (("signal-D", 1) > 0) | "signal-0";
-Signal reset = (("signal-R", 2) > 0) | "signal-0";
+Signal increment = ("signal-I", 0) | "signal-0";
+Signal decrement = ("signal-D", 1) | "signal-0";
+Signal reset_signal = ("signal-R", 2) | "signal-0";
 
-# Counter logic with bounds checking
+# Counter logic with bounds checking using condition : value syntax
 Signal up_val = up_counter.read();
 Signal down_val = down_counter.read();
 
+# Use condition : value for cleaner conditional logic
 Signal new_up = 
-    reset * 0 + 
-    (1 - reset) * (up_val + increment * (up_val < 999));
+    ((reset_signal > 0) : 0) + 
+    ((reset_signal == 0) : (up_val + ((up_val < 999) : increment)));
 
 Signal new_down = 
-    reset * 100 + 
-    (1 - reset) * (down_val - decrement * (down_val > 0));
+    ((reset_signal > 0) : 100) + 
+    ((reset_signal == 0) : (down_val - ((down_val > 0) : decrement)));
 
 up_counter.write(new_up);
 down_counter.write(new_down);
@@ -40,7 +41,8 @@ Memory filtered_sum: "signal-0";
 Signal input_val = 130;
 Signal should_accumulate = input_val > 0;
 Signal current_sum = filtered_sum.read();
-filtered_sum.write(current_sum + (input_val * should_accumulate));
+# Use condition : value for conditional accumulation
+filtered_sum.write(current_sum + ((should_accumulate) : input_val));
 
 # Output status projections without bundles
 Signal status_up = up_val | "signal-red";

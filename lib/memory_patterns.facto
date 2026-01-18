@@ -2,11 +2,11 @@
 # Memory Patterns Standard Library
 # =============================================================================
 # Common memory patterns using the method-based syntax.
-# Import with: import "lib/memory_patterns.fcdsl";
+# Import with: import "lib/memory_patterns.facto";
 #
 # Design principles:
 # - Use conditional writes (when=) to avoid combinators when possible
-# - Prefer simple arithmetic over complex conditional logic
+# - Use condition : value syntax for efficient conditional logic
 # - Minimize intermediate signals to reduce combinator count
 # =============================================================================
 
@@ -14,14 +14,14 @@
 # Rising Edge Detector
 # -----------------------------------------------------------------------------
 # Outputs 1 for one tick when input transitions from 0 to non-zero.
-# Uses: 1 memory (2 deciders for latch) + 1 decider for comparison
+# Uses: 1 memory + 2 decider combinators
 #
 func edge_rising(Signal input) {
     Memory prev: "signal-P";
     Signal was_zero = prev.read() == 0;
     Signal is_nonzero = input > 0;
     prev.write(is_nonzero);
-    return was_zero * is_nonzero;
+    return was_zero && is_nonzero;
 }
 
 
@@ -29,14 +29,14 @@ func edge_rising(Signal input) {
 # Falling Edge Detector
 # -----------------------------------------------------------------------------
 # Outputs 1 for one tick when input transitions from non-zero to 0.
-# Uses: 1 memory (2 deciders for latch) + 1 decider for comparison
+# Uses: 1 memory + 2 decider combinators
 #
 func edge_falling(Signal input) {
     Memory prev: "signal-P";
     Signal was_nonzero = prev.read() > 0;
     Signal is_zero = input == 0;
     prev.write(input > 0);
-    return was_nonzero * is_zero;
+    return was_nonzero && is_zero;
 }
 
 
@@ -57,6 +57,7 @@ func clock(int period) {
 # -----------------------------------------------------------------------------
 # Extends a 1-tick pulse to last for 'duration' ticks.
 # Output is 1 while countdown > 0 or during trigger.
+# Uses condition : value syntax for efficient MUX.
 #
 func pulse_stretch(Signal input, int duration) {
     Memory countdown: "signal-C";
@@ -66,8 +67,8 @@ func pulse_stretch(Signal input, int duration) {
     Signal counting = (triggered == 0) && (current > 0);
     
     # MUX: if triggered → duration, elif counting → current-1, else → 0
-    Signal next = triggered * duration 
-                + counting * (current - 1);
+    Signal next = (triggered : duration) 
+                + (counting : (current - 1));
     
     countdown.write(next);  # Single unconditional write!
     
@@ -81,6 +82,7 @@ func pulse_stretch(Signal input, int duration) {
 # -----------------------------------------------------------------------------
 # Requires input to be stable for 'ticks' before output changes.
 # Filters out rapid toggles and glitches.
+# Uses condition : value syntax for efficient counter update.
 #
 func debounce(Signal input, int ticks) {
     Memory output: "signal-O";
@@ -90,8 +92,8 @@ func debounce(Signal input, int ticks) {
     Signal counter_val = counter.read();
     
     # When input matches output: count up
-    # When input differs: reset counter
-    Signal next_counter = matches_output * (counter_val + 1);
+    # When input differs: reset counter to 0
+    Signal next_counter = (matches_output) : (counter_val + 1);
     counter.write(next_counter);
     
     # Update output when counter reaches threshold
@@ -107,6 +109,7 @@ func debounce(Signal input, int ticks) {
 # -----------------------------------------------------------------------------
 # Tracks input value but limits change to max_change per tick.
 # Useful for smoothing out sudden value changes.
+# Uses condition : value syntax for efficient clamping.
 #
 func rate_limit(Signal input, int max_change) {
     Memory current: "signal-R";
@@ -114,11 +117,10 @@ func rate_limit(Signal input, int max_change) {
     Signal delta = input - current.read();
     
     # Clamp delta to [-max_change, max_change]
-    # Use min/max pattern: result = (val > limit) * limit + (val <= limit) * val
-    Signal abs_delta = (delta >= 0) * delta + (delta < 0) * (0 - delta);
-    Signal sign = (delta >= 0) * 1 + (delta < 0) * (0 - 1);
-    Signal clamped_abs = (abs_delta > max_change) * max_change 
-                       + (abs_delta <= max_change) * abs_delta;
+    Signal abs_delta = ((delta >= 0) : delta) + ((delta < 0) : (0 - delta));
+    Signal sign = ((delta >= 0) : 1) + ((delta < 0) : (0 - 1));
+    Signal clamped_abs = ((abs_delta > max_change) : max_change) 
+                       + ((abs_delta <= max_change) : abs_delta);
     Signal clamped_delta = sign * clamped_abs;
     
     current.write(current.read() + clamped_delta);

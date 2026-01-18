@@ -48,21 +48,21 @@ Signal in_s3 = sector == 3;
 Signal in_s4 = sector == 4;
 Signal in_s5 = sector == 5;
 
-# Calculate RGB values
-Signal red_val = (in_s0 * 255) 
-              + (in_s1 * falling) 
-              + (in_s4 * rising) 
-              + (in_s5 * 255);
+# Calculate RGB values using condition : value syntax for efficiency
+Signal red_val = (in_s0 : 255)
+              + (in_s1 : falling)
+              + (in_s4 : rising)
+              + (in_s5 : 255);
 
-Signal green_val = (in_s0 * rising) 
-                 + (in_s1 * 255) 
-                 + (in_s2 * 255) 
-                 + (in_s3 * falling);
+Signal green_val = (in_s0 : rising)
+                 + (in_s1 : 255)
+                 + (in_s2 : 255)
+                 + (in_s3 : falling);
 
-Signal blue_val = (in_s2 * rising) 
-                + (in_s3 * 255) 
-                + (in_s4 * 255) 
-                + (in_s5 * falling);
+Signal blue_val = (in_s2 : rising)
+                + (in_s3 : 255)
+                + (in_s4 : 255)
+                + (in_s5 : falling);
 
 # ============================================================
 # Project to Factorio Color Signals
