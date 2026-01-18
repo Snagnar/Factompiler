@@ -1,0 +1,238 @@
+# =============================================================================
+# Signal Processing Standard Library
+# =============================================================================
+# Utility functions for signal processing in Factorio circuit networks.
+# Import with: import "lib/signal_processing.facto";
+#
+# This library complements math.facto and memory_patterns.facto with:
+# - Color processing functions (HSV/RGB conversion)
+# - Signal utilities (deadband, hysteresis, quantize)
+# - Logic utilities (multiplexers, priority encoders)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# RGB Packing/Unpacking
+# -----------------------------------------------------------------------------
+# Pack three 8-bit RGB values (0-255) into a single 32-bit integer.
+# Format: 0x00RRGGBB (bits 16-23: R, bits 8-15: G, bits 0-7: B)
+#
+func rgb_pack(Signal r, Signal g, Signal b) {
+    return ((r AND 255) << 16) + ((g AND 255) << 8) + (b AND 255);
+}
+
+# Unpack red channel (bits 16-23) from packed RGB value
+func rgb_unpack_r(Signal packed) {
+    return (packed >> 16) AND 255;
+}
+
+# Unpack green channel (bits 8-15) from packed RGB value
+func rgb_unpack_g(Signal packed) {
+    return (packed >> 8) AND 255;
+}
+
+# Unpack blue channel (bits 0-7) from packed RGB value
+func rgb_unpack_b(Signal packed) {
+    return packed AND 255;
+}
+
+# -----------------------------------------------------------------------------
+# Color Interpolation
+# -----------------------------------------------------------------------------
+# Linearly interpolate between two packed RGB colors.
+# t is 0-100 (percentage), where 0 = c1, 100 = c2
+#
+func color_lerp(Signal c1, Signal c2, Signal t) {
+    Signal r1 = rgb_unpack_r(c1);
+    Signal g1 = rgb_unpack_g(c1);
+    Signal b1 = rgb_unpack_b(c1);
+    
+    Signal r2 = rgb_unpack_r(c2);
+    Signal g2 = rgb_unpack_g(c2);
+    Signal b2 = rgb_unpack_b(c2);
+    
+    Signal r_out = r1 + ((r2 - r1) * t) / 100;
+    Signal g_out = g1 + ((g2 - g1) * t) / 100;
+    Signal b_out = b1 + ((b2 - b1) * t) / 100;
+    
+    return rgb_pack(r_out, g_out, b_out);
+}
+
+# -----------------------------------------------------------------------------
+# Perceived Brightness
+# -----------------------------------------------------------------------------
+# Calculate perceived brightness of RGB color (0-255).
+# Uses standard luminance formula: 0.299*R + 0.587*G + 0.114*B
+# Scaled to integer: (77*R + 150*G + 29*B) / 256
+#
+func brightness(Signal r, Signal g, Signal b) {
+    return (77 * r + 150 * g + 29 * b) / 256;
+}
+
+# -----------------------------------------------------------------------------
+# HSV to RGB Conversion
+# -----------------------------------------------------------------------------
+# Convert HSV color to RGB.
+# h: hue (0-359 degrees)
+# s: saturation (0-100)
+# v: value/brightness (0-100)
+# Returns packed RGB value (0x00RRGGBB)
+#
+# This is an integer approximation of the standard HSV->RGB algorithm.
+#
+func hsv_to_rgb(Signal h, Signal s, Signal v) {
+    # Normalize h to 0-359 range
+    Signal hue = h % 360;
+    
+    # Scale s and v to 0-255 range for calculation
+    Signal sat = (s * 255) / 100;
+    Signal val = (v * 255) / 100;
+    
+    # Calculate chroma: C = V * S / 255
+    Signal chroma = (val * sat) / 255;
+    
+    # Calculate sector (0-5) based on hue
+    Signal sector = hue / 60;
+    
+    # Calculate intermediate value X = C * (1 - |H/60 mod 2 - 1|)
+    # Simplified: position within sector (0-59 -> 0-255 scaled)
+    Signal pos = ((hue % 60) * 255) / 60;
+    Signal x_factor = ((sector % 2 == 0) : (255 - pos)) + ((sector % 2 == 1) : pos);
+    Signal x = (chroma * x_factor) / 255;
+    
+    # Calculate m (minimum) = V - C
+    Signal m = val - chroma;
+    
+    # Calculate RGB based on sector
+    Signal r_raw = ((sector == 0) : chroma) + ((sector == 1) : x) + ((sector == 2) : 0) +
+                   ((sector == 3) : 0) + ((sector == 4) : x) + ((sector == 5) : chroma);
+    Signal g_raw = ((sector == 0) : x) + ((sector == 1) : chroma) + ((sector == 2) : chroma) +
+                   ((sector == 3) : x) + ((sector == 4) : 0) + ((sector == 5) : 0);
+    Signal b_raw = ((sector == 0) : 0) + ((sector == 1) : 0) + ((sector == 2) : x) +
+                   ((sector == 3) : chroma) + ((sector == 4) : chroma) + ((sector == 5) : x);
+    
+    # Add minimum to get final RGB values (0-255)
+    Signal r = r_raw + m;
+    Signal g = g_raw + m;
+    Signal b = b_raw + m;
+    
+    return rgb_pack(r, g, b);
+}
+
+# -----------------------------------------------------------------------------
+# Deadband Filter
+# -----------------------------------------------------------------------------
+# Returns center when input is within threshold of center, otherwise returns input.
+# Useful for filtering out small fluctuations around a setpoint.
+#
+# deadband(98, 100, 5) = 100  (within threshold)
+# deadband(90, 100, 5) = 90   (outside threshold)
+#
+func deadband(Signal input, int center, int threshold) {
+    Signal diff = input - center;
+    Signal abs_diff = ((diff >= 0) : diff) + ((diff < 0) : (0 - diff));
+    Signal within = abs_diff <= threshold;
+    return (within : center) + ((within == 0) : input);
+}
+
+# -----------------------------------------------------------------------------
+# Quantize
+# -----------------------------------------------------------------------------
+# Round value to nearest multiple of step.
+# quantize(47, 10) = 50
+# quantize(43, 10) = 40
+#
+func quantize(Signal value, int step) {
+    Signal half_step = step / 2;
+    return ((value + half_step) / step) * step;
+}
+
+# -----------------------------------------------------------------------------
+# Wrap Value to Range
+# -----------------------------------------------------------------------------
+# Wrap value to be within [min_val, max_val) range.
+# Similar to modulo but works for any range.
+# wrap(370, 0, 360) = 10
+# wrap(-10, 0, 360) = 350
+#
+func wrap(Signal value, int min_val, int max_val) {
+    Signal range = max_val - min_val;
+    Signal shifted = value - min_val;
+    Signal wrapped = shifted % range;
+    # Handle negative modulo (make it positive)
+    Signal positive_wrapped = ((wrapped >= 0) : wrapped) + 
+                              ((wrapped < 0) : (wrapped + range));
+    return positive_wrapped + min_val;
+}
+
+# -----------------------------------------------------------------------------
+# Linear Rescale with Clamping
+# -----------------------------------------------------------------------------
+# Rescale value from [in_min, in_max] to [out_min, out_max].
+# Clamps input to input range first.
+# rescale(50, 0, 100, 0, 255) = 127
+#
+func rescale(Signal value, int in_min, int in_max, int out_min, int out_max) {
+    # Clamp input to range
+    Signal clamped = ((value < in_min) : in_min) + 
+                     ((value > in_max) : in_max) +
+                     ((value >= in_min && value <= in_max) : value);
+    
+    # Calculate output
+    Signal in_range = in_max - in_min;
+    Signal out_range = out_max - out_min;
+    
+    return out_min + ((clamped - in_min) * out_range) / in_range;
+}
+
+# -----------------------------------------------------------------------------
+# 4-Way Multiplexer
+# -----------------------------------------------------------------------------
+# Select one of four values based on selector (0-3).
+# Values outside 0-3 select value a (default).
+#
+func mux4(Signal sel, Signal a, Signal b, Signal c, Signal d) {
+    return ((sel == 0) : a) + 
+           ((sel == 1) : b) + 
+           ((sel == 2) : c) + 
+           ((sel == 3) : d);
+}
+
+# -----------------------------------------------------------------------------
+# Priority Encoder
+# -----------------------------------------------------------------------------
+# Returns the index (0-3) of the highest priority (highest index) set input.
+# Returns -1 if no input is set.
+# priority_encode(0, 0, 1, 1) = 3 (b3 has highest priority and is set)
+# priority_encode(0, 1, 0, 0) = 1
+# priority_encode(0, 0, 0, 0) = -1
+#
+func priority_encode(Signal b0, Signal b1, Signal b2, Signal b3) {
+    Signal any_set = (b0 != 0) || (b1 != 0) || (b2 != 0) || (b3 != 0);
+    return ((b3 != 0) : 3) +
+           ((b3 == 0 && b2 != 0) : 2) +
+           ((b3 == 0 && b2 == 0 && b1 != 0) : 1) +
+           ((b3 == 0 && b2 == 0 && b1 == 0 && b0 != 0) : 0) +
+           ((any_set == 0) : (0 - 1));
+}
+
+# -----------------------------------------------------------------------------
+# Saturating Add
+# -----------------------------------------------------------------------------
+# Add two values with saturation at max_val (no overflow).
+# saturating_add(200, 100, 255) = 255 (instead of 300)
+#
+func saturating_add(Signal a, Signal b, int max_val) {
+    Signal sum = a + b;
+    return ((sum > max_val) : max_val) + ((sum <= max_val) : sum);
+}
+
+# -----------------------------------------------------------------------------
+# Saturating Subtract
+# -----------------------------------------------------------------------------
+# Subtract b from a with saturation at min_val (no underflow).
+# saturating_sub(10, 50, 0) = 0 (instead of -40)
+#
+func saturating_sub(Signal a, Signal b, int min_val) {
+    Signal diff = a - b;
+    return ((diff < min_val) : min_val) + ((diff >= min_val) : diff);
+}

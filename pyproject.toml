@@ -121,6 +121,11 @@ exclude = [
     "tests",
 ]
 
+# ortools doesn't have complete type stubs, disable attr-defined for files using it
+[[tool.mypy.overrides]]
+module = "dsl_compiler.src.layout.integer_layout_solver"
+disable_error_code = ["attr-defined"]
+
 [tool.coverage.run]
 source = ["dsl_compiler"]
 omit = [

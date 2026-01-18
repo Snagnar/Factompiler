@@ -90,7 +90,7 @@ class ProgramDiagnostics:
         logging.error(f"[{stage or self.default_stage}] {message}")
         self._add(DiagnosticSeverity.ERROR, message, stage, line, column, source_file, node)
         if self.raise_errors:
-            raise Exception(f"[{stage or self.default_stage}] {message}")
+            raise RuntimeError(f"[{stage or self.default_stage}] {message}")
         self._error_count += 1
 
     def _add(
