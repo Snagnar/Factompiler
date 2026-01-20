@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "facto"
+name = "factompile"
 version = "0.1.0"
-description = "Facto - A programming language that compiles to Factorio circuit network blueprints"
+description = "Factompile - A compiler for the Facto programming language that generates Factorio circuit network blueprints"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
