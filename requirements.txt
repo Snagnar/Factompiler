@@ -2,37 +2,14 @@
 
 # Core parsing
 lark>=1.1.8
-
-# CLI interface
+numpy
+ortools
 click>=8.0.0
-
-# For blueprint generation
 factorio-draftsman
 
-# Development and testing
 pytest>=7.0.0
 pytest-cov>=4.0.0
-
-# Type checking
 mypy>=1.0.0
-
-# Code formatting
-isort>=5.0.0
-
-# Documentation
-sphinx>=5.0.0
-
 ruff
-mypy
 pre-commit
 pytest-xdist
-
-numpy
-scipy
-scikit-learn
-ortools
-networkx
-numba
-tqdm
-matplotlib
-pillow

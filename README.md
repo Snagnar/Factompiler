@@ -241,10 +241,6 @@ Here are some useful circuits you can build with Facto. If you want a broader ra
 
 A 5×5 lamp grid that smoothly cycles through all colors:
 
-<table>
-<tr>
-<td>
-
 ```facto
 Memory hue: "signal-H";
 hue.write((hue.read() + 1) % 1530);  # Full HSV cycle
@@ -275,20 +271,11 @@ for y in 0..5 {
 }
 ```
 
-</td>
-<td>
-<img src="doc/img/hsv_to_rgb.gif" width="600" alt="RGB color cycling lamp grid in Factorio"/>
-</td>
-</tr>
-</table>
+![RGB color cycling lamp grid in Factorio](doc/img/hsv_to_rgb.gif)
 
 ### Backup Steam Power
 
 A circuit that turns on backup steam when accumulators drop below 20%, and keeps it running until they reach 80%. The hysteresis prevents flickering when power hovers near the threshold:
-
-<table>
-<tr>
-<td>
 
 ```facto
 Signal battery = ("signal-A", 0);  # Wire this to your accumulator
@@ -300,21 +287,11 @@ Entity steam_switch = place("power-switch", 0, 0);
 steam_switch.enable = steam_on.read() > 0;
 ```
 
-
-</td>
-<td>
-<img src="doc/img/sr_latch.png" width="300" alt="Resource warning lamps in Factorio"/>
-</td>
-</tr>
-</table>
+![Resource warning lamps in Factorio](doc/img/sr_latch.png)
 
 ### Resource Warning System
 
 A simple bundle-based monitor that lights up when any resource runs low:
-
-<table>
-<tr>
-<td>
 
 ```facto
 # Wire these from your storage chests
@@ -327,22 +304,12 @@ warning_lamp.enable = any(resources) < 100;
 good_lamp.enable = all(resources) > 500;
 ```
 
-
-</td>
-<td>
-<img src="doc/img/resource_lamps.png" width="400" alt="Resource warning lamps in Factorio"/>
-</td>
-</tr>
-</table>
+![Resource warning lamps in Factorio](doc/img/resource_lamps.png)
 
 
 ### Balanced Train Loader
 
 The classic MadZuri pattern—inserters only activate when their chest is below the average:
-
-<table>
-<tr>
-<td>
 
 ```facto
 Entity c1 = place("steel-chest", 0, 0);
@@ -365,13 +332,7 @@ Bundle diff3 = {neg_avg, c3.output};
 i3.enable = any(diff3) < 0;
 ```
 
-
-</td>
-<td>
-<img src="doc/img/balanced_loader.png" width="500" alt="Balanced train loader in Factorio"/>
-</td>
-</tr>
-</table>
+![Balanced train loader in Factorio](doc/img/balanced_loader.png)
 
 ---
 

@@ -7,7 +7,7 @@ include LICENSE
 include LANGUAGE_SPEC.md
 
 # Include the documentation directory
-recursive-include doc *.md
+recursive-include doc *
 
 # Include example programs
 recursive-include example_programs *.facto
