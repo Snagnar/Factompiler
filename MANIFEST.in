@@ -1,5 +1,5 @@
-# Include the grammar file for the parser
-include dsl_compiler/grammar/*.lark
+# Include the entire dsl_compiler directory
+recursive-include dsl_compiler *
 
 # Include documentation
 include README.md
@@ -13,7 +13,7 @@ recursive-include doc *.md
 recursive-include example_programs *.facto
 
 # Include standard library
-recursive-include dsl_compiler/lib *.facto
+recursive-include lib *.facto
 
 # Exclude development and test files
 global-exclude __pycache__
