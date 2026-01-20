@@ -13,6 +13,7 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
 </p>
 
+<p align="center"> <a href="https://facto.github.io">Try it out with the online compiler!</a> </p>
 
 <table>
 <tr>
@@ -22,7 +23,7 @@
 
 ```facto
 Memory counter: "signal-A";
-counter.write((counter.read() + 1) % 60);
+counter.write((counter.read() + 1) % 20);
 
 Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = counter.read() < 30;
@@ -385,6 +386,8 @@ pytest -n auto                    # Run all tests
 pytest -m "not end2end" -n auto   # Skip slow end-to-end tests
 ruff check . && ruff format .     # Lint and format
 ```
+
+If you are using VS Code, you can install install this <a href="https://github.com/Snagnar/fcdsl-vscode">facto vscode extension</a>, for code highlighting and basic language support.
 
 ---
 
