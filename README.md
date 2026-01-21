@@ -15,9 +15,10 @@
 
 <p align="center"> <a href="https://facto.github.io">Try it out with the online compiler!</a> </p>
 
-<table>
+<div style="width: 100%; overflow-x: auto;">
+<table style="width: 100%; table-layout: auto;">
 <tr>
-<td>
+<td style="padding-right: 20px; vertical-align: top;">
 
 **Facto** is a programming language that compiles to Factorio circuit network blueprints. You write readable code describing the logic you want, and the compiler generates optimized combinators that you paste directly into your game. No manual wiring, no layout headaches, no remembering signal types, no memory frustration, no debugging visual spaghetti.
 
@@ -33,10 +34,11 @@ Run `factompile blink.facto`, copy the output, import it into Factorio, and watc
 
 </td>
 <td>
-<img src="doc/img/small_example.gif" width="1000" alt="RGB color cycling lamp grid in Factorio"/>
+<img src="doc/img/small_example.gif" style="max-width: 100%; height: auto; min-width: 300px;" alt="RGB color cycling lamp grid in Factorio"/>
 </td>
 </tr>
 </table>
+</div>
 
 ---
 
