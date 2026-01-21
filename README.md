@@ -34,7 +34,7 @@ Run `factompile blink.facto`, copy the output, import it into Factorio, and watc
 
 </td>
 <td>
-<img src="doc/img/small_example.gif" style="max-width: 100%; height: auto; min-width: 300px;" alt="RGB color cycling lamp grid in Factorio"/>
+<img src="doc/img/small_example.gif" style="max-width: 100%; height: auto; min-width: 600px;" alt="RGB color cycling lamp grid in Factorio"/>
 </td>
 </tr>
 </table>
