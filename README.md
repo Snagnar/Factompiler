@@ -15,12 +15,13 @@
 
 <p align="center"> <a href="https://facto.github.io">Try it out with the online compiler!</a> </p>
 
+**Facto** is a programming language that compiles to Factorio circuit network blueprints. You write readable code describing the logic you want, and the compiler generates optimized combinators that you paste directly into your game. No manual wiring, no layout headaches, no remembering signal types, no memory frustration, no debugging visual spaghetti.
+
 <div style="width: 100%; overflow-x: auto;">
 <table style="width: 100%; table-layout: auto;">
 <tr>
 <td style="padding-right: 20px; vertical-align: top;">
 
-**Facto** is a programming language that compiles to Factorio circuit network blueprints. You write readable code describing the logic you want, and the compiler generates optimized combinators that you paste directly into your game. No manual wiring, no layout headaches, no remembering signal types, no memory frustration, no debugging visual spaghetti.
 
 ```facto
 Memory counter: "signal-A";
@@ -30,15 +31,16 @@ Entity lamp = place("small-lamp", 0, 0);
 lamp.enable = counter.read() < 30;
 ```
 
-Run `factompile blink.facto`, copy the output, import it into Factorio, and watch your lamp blink. That's the whole workflow.
 
 </td>
-<td>
-<img src="doc/img/small_example.gif" style="max-width: 1000%; height: auto; min-width: 600px;" alt="RGB color cycling lamp grid in Factorio"/>
+<td width="40%">
+<img src="doc/img/small_example.gif" style="width: 100%; height: auto; min-width: 300px;" alt="RGB color cycling lamp grid in Factorio"/>
 </td>
 </tr>
 </table>
 </div>
+
+Save this to a `blink.facto`, run `factompile blink.facto`, copy the output, import it into Factorio, and watch your lamp blink. That's the whole workflow. You can also visit [facto.github.io](facto.github.io) to run factompile without having to install anything!
 
 ---
 
