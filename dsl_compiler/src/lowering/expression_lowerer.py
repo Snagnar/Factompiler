@@ -235,8 +235,12 @@ class ExpressionLowerer:
 
         # Try constant folding FIRST, before lowering sub-expressions.
         # This prevents creating unnecessary IR nodes for intermediate constants.
-        left_const = ConstantFolder.extract_constant_int(expr.left, self.diagnostics)
-        right_const = ConstantFolder.extract_constant_int(expr.right, self.diagnostics)
+        left_const = ConstantFolder.extract_constant_int(
+            expr.left, self.diagnostics, symbol_resolver=self._resolve_constant_symbol
+        )
+        right_const = ConstantFolder.extract_constant_int(
+            expr.right, self.diagnostics, symbol_resolver=self._resolve_constant_symbol
+        )
 
         if left_const is not None and right_const is not None:
             folded = self._fold_binary_constant(expr.op, left_const, right_const, expr)
@@ -1125,6 +1129,14 @@ class ExpressionLowerer:
             val = self.parent.param_values[name]
             if isinstance(val, int):
                 return val
+            return None
+
+        # Check signal_refs for compile-time integer constants (e.g., for-loop iterators)
+        if name in self.parent.signal_refs:
+            val = self.parent.signal_refs[name]
+            if isinstance(val, int):
+                return val
+            # Not an int - it's a SignalRef (runtime value), can't fold
             return None
 
         # Look up in semantic symbol table

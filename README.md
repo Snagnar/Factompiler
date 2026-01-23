@@ -40,7 +40,7 @@ lamp.enable = counter.read() < 30;
 </table>
 </div>
 
-Save this to a `blink.facto`, run `factompile blink.facto`, copy the output, import it into Factorio, and watch your lamp blink. That's the whole workflow. You can also visit [facto.github.io](facto.github.io) to run factompile without having to install anything!
+Save this to a `blink.facto`, run `factompile blink.facto`, copy the output, import it into Factorio, and watch your lamp blink. You can also visit [facto.github.io](facto.github.io) to run factompile without having to install anything!
 
 ---
 
@@ -58,7 +58,7 @@ What Facto doesn't do: it might not produce the most minimal, most compact circu
 pip install factompile
 ```
 
-Verify it works with `factompile --help`. That's it.
+Verify it works with `factompile --help`.
 
 ### Try It Instantly
 
