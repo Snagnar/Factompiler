@@ -13,7 +13,7 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
 </p>
 
-<p align="center"> <a href="https://facto.github.io">Try it out with the online compiler!</a> </p>
+<p align="center"> <a href="https://snagnar.github.io/factompile/">Try it out with the online compiler!</a> </p>
 
 **Facto** is a programming language that compiles to Factorio circuit network blueprints. You write readable code describing the logic you want, and the compiler generates optimized combinators that you paste directly into your game. No manual wiring, no layout headaches, no remembering signal types, no memory frustration, no debugging visual spaghetti.
 
