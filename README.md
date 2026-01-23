@@ -1,6 +1,6 @@
 
 <p align="center">
-  <img src="doc/img/header_bp.png" alt="Facto compiled blueprint in Factorio" width="800"/>
+  <img src="https://github.com/Snagnar/Factompiler/blob/main/doc/img/header_bp.png" alt="Facto compiled blueprint in Factorio" width="800"/>
 </p>
 <h1 align="center">Facto - Write code. Get Factorio circuits.</h1>
 
@@ -34,7 +34,7 @@ lamp.enable = counter.read() < 30;
 
 </td>
 <td width="40%">
-<img src="doc/img/small_example.gif" style="width: 100%; height: auto; min-width: 300px;" alt="RGB color cycling lamp grid in Factorio"/>
+<img src="https://github.com/Snagnar/Factompiler/blob/main/doc/img/small_example.gif" style="width: 100%; height: auto; min-width: 300px;" alt="RGB color cycling lamp grid in Factorio"/>
 </td>
 </tr>
 </table>
@@ -46,7 +46,7 @@ Save this to a `blink.facto`, run `factompile blink.facto`, copy the output, imp
 
 ## What Facto Does
 
-Facto handles the tedious parts of circuit building so you can focus on logic. The compiler takes care of placing combinators in a sensible layout, routing wires between them (choosing red vs green to avoid signal conflicts), and inserting relay poles when distances exceed 9 tiles. It catches type mismatches at compile time rather than leaving you to debug mysterious in-game behavior.
+Facto handles the tedious parts of circuit building so you can focus only on logic. The compiler takes care of placing combinators in a sensible layout, routing wires between them (choosing red vs green to avoid signal conflicts), and inserting relay poles when distances exceed 9 tiles. It catches type mismatches at compile time rather than leaving you to debug mysterious in-game behavior.
 
 What Facto doesn't do: it might not produce the most minimal, most compact circuit layouts. The goal is to make circuits that are efficient enough to run well in-game while being easy to read, write, and maintain. If you need absolute minimalism, hand-optimizing the generated blueprint is still an option.
 
@@ -200,15 +200,15 @@ WARNING: Mixed signal types in binary operation: 'iron-plate' + 'copper-plate'
 
 For deeper coverage, see the documentation in the `doc/` directory:
 
-- **[Quick Start](doc/02_quick_start.md)** covers installation and your first program
-- **[Signals & Types](doc/03_signals_and_types.md)** explains the type system, arithmetic, and projection
-- **[Memory](doc/04_memory.md)** covers counters, latches, and state machines
-- **[Entities](doc/05_entities.md)** details placing and controlling Factorio objects
-- **[Functions](doc/06_functions.md)** explains reusable logic and imports
-- **[Advanced Concepts](doc/07_advanced_concepts.md)** covers optimizations, patterns, and debugging
-- **[Library Reference](doc/LIBRARY_REFERENCE.md)** documents the standard library functions
+- **[Quick Start](https://github.com/Snagnar/Factompiler/blob/main/doc/02_quick_start.md)** covers installation and your first program
+- **[Signals & Types](https://github.com/Snagnar/Factompiler/blob/main/doc/03_signals_and_types.md)** explains the type system, arithmetic, and projection
+- **[Memory](https://github.com/Snagnar/Factompiler/blob/main/doc/04_memory.md)** covers counters, latches, and state machines
+- **[Entities](https://github.com/Snagnar/Factompiler/blob/main/doc/05_entities.md)** details placing and controlling Factorio objects
+- **[Functions](https://github.com/Snagnar/Factompiler/blob/main/doc/06_functions.md)** explains reusable logic and imports
+- **[Advanced Concepts](https://github.com/Snagnar/Factompiler/blob/main/doc/07_advanced_concepts.md)** covers optimizations, patterns, and debugging
+- **[Library Reference](https://github.com/Snagnar/Factompiler/blob/main/doc/LIBRARY_REFERENCE.md)** documents the standard library functions
 
-The complete language reference is in [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md), and all available entities and their properties are documented in [doc/ENTITY_REFERENCE.md](doc/ENTITY_REFERENCE.md).
+The complete language reference is in [LANGUAGE_SPEC.md](https://github.com/Snagnar/Factompiler/blob/main/LANGUAGE_SPEC.md), and all available entities and their properties are documented in [doc/ENTITY_REFERENCE.md](https://github.com/Snagnar/Factompiler/blob/main/doc/ENTITY_REFERENCE.md).
 
 
 ---
@@ -275,7 +275,7 @@ for y in 0..5 {
 }
 ```
 
-![RGB color cycling lamp grid in Factorio](doc/img/hsv_to_rgb.gif)
+![RGB color cycling lamp grid in Factorio](https://github.com/Snagnar/Factompiler/blob/main/doc/img/hsv_to_rgb.gif)
 
 ### Backup Steam Power
 
@@ -291,7 +291,7 @@ Entity steam_switch = place("power-switch", 0, 0);
 steam_switch.enable = steam_on.read() > 0;
 ```
 
-![Resource warning lamps in Factorio](doc/img/sr_latch.png)
+![Resource warning lamps in Factorio](https://github.com/Snagnar/Factompiler/blob/main/doc/img/sr_latch.png)
 
 ### Resource Warning System
 
@@ -308,7 +308,7 @@ warning_lamp.enable = any(resources) < 100;
 good_lamp.enable = all(resources) > 500;
 ```
 
-![Resource warning lamps in Factorio](doc/img/resource_lamps.png)
+![Resource warning lamps in Factorio](https://github.com/Snagnar/Factompiler/blob/main/doc/img/resource_lamps.png)
 
 
 ### Balanced Train Loader
@@ -336,7 +336,7 @@ Bundle diff3 = {neg_avg, c3.output};
 i3.enable = any(diff3) < 0;
 ```
 
-![Balanced train loader in Factorio](doc/img/balanced_loader.png)
+![Balanced train loader in Factorio](https://github.com/Snagnar/Factompiler/blob/main/doc/img/balanced_loader.png)
 
 ---
 
@@ -375,6 +375,6 @@ Facto builds on [factorio-draftsman](https://github.com/redruin1/factorio-drafts
 <p align="center">
   <a href="https://github.com/Snagnar/Factompiler">GitHub</a> •
   <a href="https://pypi.org/project/factompile/">PyPI</a> •
-  <a href="LANGUAGE_SPEC.md">Language Spec</a>
+  <a href="https://github.com/Snagnar/Factompiler/blob/main/LANGUAGE_SPEC.md">Language Spec</a>
 </p>
 
