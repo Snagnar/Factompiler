@@ -476,3 +476,136 @@ class TestIntegerLayoutSolverCoverageGaps:
         result = engine.optimize(time_limit_seconds=1)
         assert "e1" in result
         assert "e2" in result
+
+
+class TestStarTopologyMSTOptimization:
+    """Tests for star topology MST-aware wire length optimization.
+
+    When a source connects to multiple sinks (star topology), the actual wiring
+    uses minimum spanning tree (MST) rather than direct point-to-point connections.
+    The layout solver should model this correctly to minimize actual wire length.
+    """
+
+    def test_star_topology_identification(self, diagnostics):
+        """Test that star topologies (sources with high fanout) are identified."""
+        plan = LayoutPlan()
+        # Create source and multiple fixed-position sinks (like lamps in a row)
+        plan.create_and_add_placement(
+            "source", "arithmetic-combinator", (5.5, 5.0), (1, 2), "arithmetic"
+        )
+        for i in range(5):
+            plan.create_and_add_placement(f"sink{i}", "small-lamp", (i, 0), (1, 1), "output")
+            plan.entity_placements[f"sink{i}"].properties["user_specified_position"] = True
+
+        sg = SignalGraph()
+        # Source connects to all 5 sinks (star topology)
+        for i in range(5):
+            sg.set_source("signal-A", "source")
+            sg.add_sink("signal-A", f"sink{i}")
+
+        engine = IntegerLayoutEngine(sg, plan.entity_placements, diagnostics)
+
+        # Should identify 'source' as a star source (fanout >= 3)
+        assert "source" in engine._star_sources
+
+    def test_star_topology_creates_mst_connections(self, diagnostics):
+        """Test that star topologies create MST-like connections instead of direct."""
+        plan = LayoutPlan()
+        plan.create_and_add_placement(
+            "source", "arithmetic-combinator", (5.5, 5.0), (1, 2), "arithmetic"
+        )
+        for i in range(4):
+            plan.create_and_add_placement(f"sink{i}", "small-lamp", (i, 0), (1, 1), "output")
+            plan.entity_placements[f"sink{i}"].properties["user_specified_position"] = True
+
+        sg = SignalGraph()
+        for i in range(4):
+            sg.set_source("signal-A", "source")
+            sg.add_sink("signal-A", f"sink{i}")
+
+        engine = IntegerLayoutEngine(sg, plan.entity_placements, diagnostics)
+
+        # Should have MST connections (chain between sinks + source to chain)
+        assert len(engine._mst_connections) > 0
+        # MST connections should be fewer than direct star connections
+        # (chain has N-1 edges between sinks + 1 edge to source = N edges,
+        #  compared to N direct source->sink edges)
+        assert len(engine._mst_connections) == 4  # 3 sink-sink + 1 source-sink
+
+    def test_star_topology_places_combinators_near_fixed_sinks(self, diagnostics):
+        """Test that combinators feeding fixed-position sinks are placed optimally.
+
+        This is the key regression test: when each combinator feeds exactly one
+        fixed lamp, but all combinators also receive input from a shared source,
+        the optimizer should still place each combinator close to its lamp
+        (not cluster them around the shared source).
+        """
+        plan = LayoutPlan()
+
+        # Shared source (like memory output)
+        plan.create_and_add_placement(
+            "shared", "arithmetic-combinator", (3.5, 3.0), (1, 2), "arithmetic"
+        )
+
+        # 5 fixed lamps in a row at y=0
+        for i in range(5):
+            plan.create_and_add_placement(f"lamp{i}", "small-lamp", (i, 0), (1, 1), "output")
+            plan.entity_placements[f"lamp{i}"].properties["user_specified_position"] = True
+
+        # 5 intermediate combinators (like modulo operations), one per lamp
+        for i in range(5):
+            plan.create_and_add_placement(
+                f"mod{i}", "arithmetic-combinator", (i + 0.5, 2.0), (1, 2), "arithmetic"
+            )
+
+        sg = SignalGraph()
+
+        # shared -> all mod combinators (star topology, will use MST)
+        for i in range(5):
+            sg.set_source("signal-A", "shared")
+            sg.add_sink("signal-A", f"mod{i}")
+
+        # Each mod -> its lamp (1-to-1 direct connections)
+        for i in range(5):
+            sg.set_source(f"sig_mod{i}", f"mod{i}")
+            sg.add_sink(f"sig_mod{i}", f"lamp{i}")
+
+        engine = IntegerLayoutEngine(sg, plan.entity_placements, diagnostics)
+        result = engine.optimize(time_limit_seconds=5)
+
+        # Each mod combinator should be placed close to its lamp
+        # (not clustered around 'shared')
+        for i in range(5):
+            mod_x, mod_y = result[f"mod{i}"]
+            lamp_x, lamp_y = i, 0  # Fixed lamp positions
+
+            # Distance from mod to its lamp should be small (< 3 tiles typically)
+            dx = abs(mod_x - lamp_x)
+            dy = mod_y - lamp_y  # mod should be below lamp
+
+            assert dx <= 2, f"mod{i} at x={mod_x} too far from lamp{i} at x={lamp_x}"
+            assert dy >= 1, f"mod{i} should be below lamp (y={mod_y} vs lamp y={lamp_y})"
+
+    def test_non_star_topology_unchanged(self, diagnostics):
+        """Test that non-star topologies (fanout < threshold) use direct connections."""
+        plan = LayoutPlan()
+        plan.create_and_add_placement("e1", "constant-combinator", (0.5, 1.0), (1, 2), "literal")
+        plan.create_and_add_placement(
+            "e2", "arithmetic-combinator", (2.5, 1.0), (1, 2), "arithmetic"
+        )
+        plan.create_and_add_placement("e3", "small-lamp", (5.0, 0.5), (1, 1), "output")
+
+        sg = SignalGraph()
+        # Simple chain: e1 -> e2 -> e3 (no stars)
+        sg.set_source("sig1", "e1")
+        sg.add_sink("sig1", "e2")
+        sg.set_source("sig2", "e2")
+        sg.add_sink("sig2", "e3")
+
+        engine = IntegerLayoutEngine(sg, plan.entity_placements, diagnostics)
+
+        # No star sources
+        assert len(engine._star_sources) == 0
+        # All connections should be direct
+        assert len(engine._direct_connections) == 2
+        assert len(engine._mst_connections) == 0

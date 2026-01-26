@@ -148,6 +148,7 @@ class IntegerLayoutEngine:
         self._build_connectivity()
         self._identify_fixed_positions()
         self._extract_footprints()
+        self._identify_star_topologies()
 
     def _build_connectivity(self) -> None:
         """Build connectivity as list of (source_id, sink_id) pairs.
@@ -157,6 +158,7 @@ class IntegerLayoutEngine:
         This ensures the layout optimizer considers the full wire merge topology.
         """
         self.connections = []
+        self._source_to_sinks: dict[str, list[str]] = {}  # Track source fanout
 
         # First, build a map of wire merge node -> its sinks
         wire_merge_sinks: dict[str, list[str]] = {}
@@ -188,18 +190,21 @@ class IntegerLayoutEngine:
             # Case 1: Both source and sink are real entities
             if source_id in self.entity_ids and sink_id in self.entity_ids:
                 self.connections.append((source_id, sink_id))
+                self._source_to_sinks.setdefault(source_id, []).append(sink_id)
 
             # Case 2: Source feeds into a wire merge (sink is wire merge node)
             elif source_id in self.entity_ids and sink_id in self.wire_merge_junctions:
                 # Connect source to all sinks of the wire merge
                 for actual_sink in wire_merge_sinks.get(sink_id, []):
                     self.connections.append((source_id, actual_sink))
+                    self._source_to_sinks.setdefault(source_id, []).append(actual_sink)
 
             # Case 3: Wire merge feeds into a sink
             elif source_id in self.wire_merge_junctions and sink_id in self.entity_ids:
                 # Connect all wire merge inputs to this sink
                 for actual_source in wire_merge_sources.get(source_id, []):
                     self.connections.append((actual_source, sink_id))
+                    self._source_to_sinks.setdefault(actual_source, []).append(sink_id)
 
         # Deduplicate and sort for deterministic iteration order
         self.connections = sorted(set(self.connections))
@@ -261,6 +266,69 @@ class IntegerLayoutEngine:
                 self.footprints[entity_id] = (int(np.ceil(width)), int(np.ceil(height)))
             else:
                 self.footprints[entity_id] = (1, 1)
+
+    def _identify_star_topologies(self) -> None:
+        """Identify star topologies that will use MST routing.
+
+        Star topologies are sources with multiple sinks (fanout >= MST_THRESHOLD).
+        For these, the actual wiring uses minimum spanning tree (MST) instead of
+        direct point-to-point connections, so we need to model their wire cost
+        differently in the optimization objective.
+
+        Creates:
+        - self._star_sources: Set of source IDs with star topology
+        - self._mst_connections: List of (entity_a, entity_b) edges for MST model
+        - self._direct_connections: List of (source, sink) for 1-to-1 connections
+        """
+        MST_THRESHOLD = 3  # Minimum fanout to consider as star topology
+
+        self._star_sources: set[str] = set()
+        self._mst_connections: list[tuple[str, str]] = []
+        self._direct_connections: list[tuple[str, str]] = []
+
+        # Identify star sources
+        for source_id, sinks in self._source_to_sinks.items():
+            unique_sinks = list(set(sinks))
+            if len(unique_sinks) >= MST_THRESHOLD:
+                self._star_sources.add(source_id)
+
+        if self._star_sources:
+            self.diagnostics.info(
+                f"Identified {len(self._star_sources)} star sources for MST-aware optimization"
+            )
+
+        # Partition connections into star (MST) vs direct
+        for source, sink in self.connections:
+            if source in self._star_sources:
+                # This is part of a star topology - will be handled by MST model
+                pass  # Don't add to direct connections
+            else:
+                self._direct_connections.append((source, sink))
+
+        # For star sources, create MST-like connections:
+        # Instead of N edges from source to each sink, model as:
+        # - Edges between sinks (to form a chain/tree)
+        # - One edge from source to the sink cluster
+        for source_id in self._star_sources:
+            sinks = list(set(self._source_to_sinks.get(source_id, [])))
+            if len(sinks) < 2:
+                continue
+
+            # Model the MST within sinks as pairwise connections between
+            # "adjacent" sinks. Since we don't know positions yet, we'll
+            # create a spanning structure that encourages linear arrangement.
+            # For sinks {s1, s2, ..., sn}, create edges s1-s2, s2-s3, etc.
+            sorted_sinks = sorted(sinks)  # Deterministic order
+            for i in range(len(sorted_sinks) - 1):
+                self._mst_connections.append((sorted_sinks[i], sorted_sinks[i + 1]))
+
+            # Add one edge from source to the first sink (source connects to chain)
+            self._mst_connections.append((source_id, sorted_sinks[0]))
+
+        self.diagnostics.info(
+            f"Connection partitioning: {len(self._direct_connections)} direct, "
+            f"{len(self._mst_connections)} MST edges"
+        )
 
     def optimize(self, time_limit_seconds: int = 60) -> dict[str, tuple[int, int]]:
         """
@@ -432,6 +500,15 @@ class IntegerLayoutEngine:
                 "violation_weight": 1000,
                 "max_acceptable_violations": progression[4],
             },
+            {
+                # Final fallback: accept any number of violations
+                # The relay router will handle long-distance connections
+                "name": "Unlimited (rely on relays)",
+                "max_span": max_coord,  # Effectively unlimited span
+                "max_coord": int(max_coord * 2),
+                "violation_weight": 100,  # Minimize violations but don't block on them
+                "max_acceptable_violations": 10000,  # Accept any number
+            },
         ]
 
     def _solve_with_strategy(
@@ -562,27 +639,35 @@ class IntegerLayoutEngine:
         wire length optimization. This matches how Factorio actually calculates
         wire spans - wires are drawn as straight lines, not along grid axes.
 
-        The squared Euclidean distance dx² + dy² is used directly since:
-        1. It correctly models actual wire length in Factorio
-        2. CP-SAT can't do sqrt(), but minimizing sum(d²) still prefers shorter wires
-        3. The violation check d² > span² is equivalent to d > span
+        For star topologies (sources with high fanout), we use MST-aware modeling:
+        - Instead of N edges from source to each sink, we model:
+          - Edges between sinks (to encourage linear arrangement)
+          - One edge from source to the sink cluster
+        - This better reflects actual MST wire costs
 
         NOTE: Wire lengths for fixed-to-fixed connections are excluded from the
-        optimization objective since they can't be changed. They are constant terms
-        that just inflate the objective value without providing useful signal.
+        optimization objective since they can't be changed.
         """
         span_violations = []
         wire_lengths = []
         max_span_squared = max_span * max_span
 
-        for i, (source, sink) in enumerate(self.connections):
-            x1, y1 = positions[source]
-            x2, y2 = positions[sink]
+        # Combine direct connections and MST connections for optimization
+        # Direct connections: 1-to-1 edges (source with fanout < threshold)
+        # MST connections: edges modeling MST topology for star sources
+        all_optimization_edges = list(self._direct_connections) + list(self._mst_connections)
+
+        for i, (entity_a, entity_b) in enumerate(all_optimization_edges):
+            if entity_a not in positions or entity_b not in positions:
+                continue  # Skip if entity not in model
+
+            x1, y1 = positions[entity_a]
+            x2, y2 = positions[entity_b]
 
             # Check if both entities are fixed (connection can't be optimized)
-            source_fixed = source in self.fixed_positions
-            sink_fixed = sink in self.fixed_positions
-            is_fixed_to_fixed = source_fixed and sink_fixed
+            a_fixed = entity_a in self.fixed_positions
+            b_fixed = entity_b in self.fixed_positions
+            is_fixed_to_fixed = a_fixed and b_fixed
 
             # Compute absolute differences for distance calculations
             dx = model.NewIntVar(0, max_span * 2, f"dx_{i}")
@@ -591,7 +676,6 @@ class IntegerLayoutEngine:
             model.AddAbsEquality(dy, y1 - y2)
 
             # Squared Euclidean distance for both optimization and violation detection
-            # This matches the actual wire length in Factorio (straight line distance)
             dx_squared = model.NewIntVar(0, max_span_squared * 4, f"dx2_{i}")
             dy_squared = model.NewIntVar(0, max_span_squared * 4, f"dy2_{i}")
             model.AddMultiplicationEquality(dx_squared, [dx, dx])
@@ -601,13 +685,43 @@ class IntegerLayoutEngine:
             model.Add(distance_squared == dx_squared + dy_squared)
 
             # Only include in wire_lengths if connection can be optimized
-            # (skip fixed-to-fixed connections as they're constant)
             if not is_fixed_to_fixed:
                 wire_lengths.append(distance_squared)
 
             # Violation when squared Euclidean distance exceeds squared span limit
-            # (still track violations for all connections, even fixed ones)
             is_violation = model.NewBoolVar(f"viol_{i}")
+            model.Add(distance_squared > max_span_squared).OnlyEnforceIf(is_violation)
+            model.Add(distance_squared <= max_span_squared).OnlyEnforceIf(is_violation.Not())
+
+            span_violations.append(is_violation)
+
+        # Also add violation tracking for ALL original connections
+        # (important for star edges that were removed from optimization but still need
+        # violation checking)
+        for i, (source, sink) in enumerate(self.connections):
+            if (source, sink) in set(all_optimization_edges):
+                continue  # Already tracked above
+
+            if source not in positions or sink not in positions:
+                continue
+
+            x1, y1 = positions[source]
+            x2, y2 = positions[sink]
+
+            dx = model.NewIntVar(0, max_span * 2, f"vdx_{i}")
+            dy = model.NewIntVar(0, max_span * 2, f"vdy_{i}")
+            model.AddAbsEquality(dx, x1 - x2)
+            model.AddAbsEquality(dy, y1 - y2)
+
+            dx_squared = model.NewIntVar(0, max_span_squared * 4, f"vdx2_{i}")
+            dy_squared = model.NewIntVar(0, max_span_squared * 4, f"vdy2_{i}")
+            model.AddMultiplicationEquality(dx_squared, [dx, dx])
+            model.AddMultiplicationEquality(dy_squared, [dy, dy])
+
+            distance_squared = model.NewIntVar(0, max_span_squared * 8, f"vdist2_{i}")
+            model.Add(distance_squared == dx_squared + dy_squared)
+
+            is_violation = model.NewBoolVar(f"vviol_{i}")
             model.Add(distance_squared > max_span_squared).OnlyEnforceIf(is_violation)
             model.Add(distance_squared <= max_span_squared).OnlyEnforceIf(is_violation.Not())
 

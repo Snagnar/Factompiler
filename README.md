@@ -40,7 +40,11 @@ lamp.enable = counter.read() < 30;
 </table>
 </div>
 
+<<<<<<< HEAD
 Save this to a `blink.facto`, run `factompile blink.facto`, copy the output, import it into Factorio, and watch your lamp blink. You can also visit https://snagnar.github.io/factompile/ to run factompile without having to install anything!
+=======
+Save this to a `blink.facto`, run `factompile blink.facto`, copy the output, import it into Factorio, and watch your lamp blink. You can also visit [https://snagnar.github.io/factompile/](https://snagnar.github.io/factompile/) to run factompile without having to install anything!
+>>>>>>> 9860a53 (fixed layouting bug)
 
 ---
 

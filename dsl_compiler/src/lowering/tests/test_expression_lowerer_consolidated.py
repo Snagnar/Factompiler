@@ -348,6 +348,60 @@ class TestFunctionInlining:
         """)
         assert not diags.has_errors()
 
+    def test_function_parameter_signal_type_propagation(self):
+        """Test that function parameters preserve actual argument signal types.
+
+        When a function with Signal parameter is called with a specific signal type
+        (e.g., signal-A), operations inside the function should produce results
+        with that same signal type, not the implicit type allocated during semantic
+        analysis of the function definition.
+
+        This is a regression test for a bug where abs(input) with input of type
+        signal-A would produce intermediate results with type __v2, breaking
+        SR latch patterns that depend on all signals being the same type.
+        """
+        ir_ops, _, diags = compile_to_ir("""
+        # Define abs-like function that uses conditional output specifiers
+        func my_abs(Signal x) {
+            return ((x >= 0) : x) + ((x < 0) : (0 - x));
+        }
+
+        # Call with specific signal type
+        Signal input = ("signal-A", 1);
+        Signal result = my_abs(input);
+        """)
+        assert not diags.has_errors()
+
+        # All operations should use signal-A, not __v2 or other implicit types
+        for op in ir_ops:
+            if hasattr(op, "output_type"):
+                # Check that output types are either signal-A or comparison result types
+                assert op.output_type == "signal-A", (
+                    f"Operation {op} has output_type {op.output_type}, expected signal-A. "
+                    f"Function parameters should propagate actual argument signal types."
+                )
+
+    def test_function_parameter_signal_type_in_arithmetic(self):
+        """Test that arithmetic inside functions uses actual argument signal types."""
+        ir_ops, _, diags = compile_to_ir("""
+        # Function that performs arithmetic on signal parameter
+        func negate(Signal x) {
+            return 0 - x;
+        }
+
+        Signal input = ("signal-B", 42);
+        Signal negated = negate(input);
+        """)
+        assert not diags.has_errors()
+
+        # The subtraction should output signal-B, not __v2
+        arith_ops = [op for op in ir_ops if isinstance(op, IRArith)]
+        for op in arith_ops:
+            if op.op == "-":
+                assert op.output_type == "signal-B", (
+                    f"Subtraction outputs {op.output_type}, expected signal-B"
+                )
+
 
 class TestEntityAndPlaceOperations:
     """Tests for entity placement and property access."""

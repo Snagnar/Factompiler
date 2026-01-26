@@ -273,15 +273,17 @@ class ExpressionLowerer:
         actual_left_type = self._get_actual_type_from_ref(left_ref, left_type)
         actual_right_type = self._get_actual_type_from_ref(right_ref, right_type)
 
-        # Recompute result type based on actual operand types if we're in a function
-        # BUT only if the semantic result_type doesn't already have a specific signal type.
-        # This preserves semantic type inference for expressions like (int - int - signal).
-        semantic_result_signal = get_signal_type_name(result_type)
-        if not semantic_result_signal and (
-            actual_left_type != left_type or actual_right_type != right_type
-        ):
-            actual_left_signal = get_signal_type_name(actual_left_type)
-            actual_right_signal = get_signal_type_name(actual_right_type)
+        # Recompute result type based on actual operand types if we're in a function.
+        # When lowering function bodies, semantic types are based on parameter definitions
+        # (which use allocated implicit types like __v2), but actual call arguments may have
+        # specific signal types (like signal-A). We should prefer the actual signal types.
+        actual_left_signal = get_signal_type_name(actual_left_type)
+        actual_right_signal = get_signal_type_name(actual_right_type)
+        get_signal_type_name(result_type)
+
+        # Check if actual operand types differ from semantic types (indicates we're in a function)
+        if actual_left_type != left_type or actual_right_type != right_type:
+            # Prefer actual signal types over semantic implicit types
             if actual_left_signal:
                 result_type = actual_left_type
                 left_signal_type = actual_left_signal
@@ -710,12 +712,24 @@ class ExpressionLowerer:
         output_value_ref = self.lower_expr(expr.output_value)
 
         # Determine output signal type from the output_value
+        # When inside a function, the lowered value may have a more specific signal type
+        # than the semantic analysis knows (e.g., function parameter x with type Signal
+        # gets bound to signal-A at call site). Prefer the actual lowered type.
         result_type = self.semantic.get_expr_type(expr)
         result_signal = get_signal_type_name(result_type)
-        if result_signal:
+
+        # Check if the lowered output value has a different (more specific) signal type
+        if isinstance(output_value_ref, SignalRef):
+            lowered_signal_type = output_value_ref.signal_type
+            # Prefer lowered type if it differs from semantic type (indicates we're in a function)
+            if lowered_signal_type and lowered_signal_type != result_signal:
+                output_type = lowered_signal_type
+            elif result_signal:
+                output_type = result_signal
+            else:
+                output_type = lowered_signal_type
+        elif result_signal:
             output_type = result_signal
-        elif isinstance(output_value_ref, SignalRef):
-            output_type = output_value_ref.signal_type
         else:
             # Integer constant - use comparison left operand's type
             left_type = self.semantic.get_expr_type(comparison.left)
