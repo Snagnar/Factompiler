@@ -1,51 +1,11 @@
 # Binary Clock
 
-
 Memory counter;
 
-counter.write((counter.read() + 1) % 65536);
+int num_lamps = 16;
+counter.write((counter.read() + 1) % (2 ** num_lamps));
 
-lamp0 = place("small-lamp", 0, 0);
-lamp1 = place("small-lamp", 1, 0);
-lamp2 = place("small-lamp", 2, 0);
-lamp3 = place("small-lamp", 3, 0);
-lamp4 = place("small-lamp", 4, 0);
-lamp5 = place("small-lamp", 5, 0);
-lamp6 = place("small-lamp", 6, 0);
-lamp7 = place("small-lamp", 7, 0);
-lamp8 = place("small-lamp", 8, 0);
-lamp9 = place("small-lamp", 9, 0);
-lamp10 = place("small-lamp", 10, 0);
-lamp11 = place("small-lamp", 11, 0);
-lamp12 = place("small-lamp", 12, 0);
-lamp13 = place("small-lamp", 13, 0);
-lamp14 = place("small-lamp", 14, 0);
-lamp15 = place("small-lamp", 15, 0);
-
-lamp0.enable = (counter.read() % 2) >= 1;
-lamp1.enable = (counter.read() % 4) >= 2;
-lamp2.enable = (counter.read() % 8) >= 4;
-lamp3.enable = (counter.read() % 16) >= 8;
-lamp4.enable = (counter.read() % 32) >= 16;
-lamp5.enable = (counter.read() % 64) >= 32;
-lamp6.enable = (counter.read() % 128) >= 64;
-lamp7.enable = (counter.read() % 256) >= 128;
-lamp8.enable = (counter.read() % 512) >= 256;
-lamp9.enable = (counter.read() % 1024) >= 512;
-lamp10.enable = (counter.read() % 2048) >= 1024;
-lamp11.enable = (counter.read() % 4096) >= 2048;
-lamp12.enable = (counter.read() % 8192) >= 4096;
-lamp13.enable = (counter.read() % 16384) >= 8192;
-lamp14.enable = (counter.read() % 32768) >= 16384;
-lamp15.enable = (counter.read() % 65536) >= 32768;
-
-# THIS SHOULD BE EQUIVALENT TO, BUT SOMEHOW IS NOT:
-# Memory counter;
-
-# int num_lamps = 16;
-# counter.write((counter.read() + 1) % (2 ** num_lamps));
-
-# for i in 0..num_lamps {
-#     Entity lamp = place("small-lamp", i, 0);
-#     lamp.enable = (counter.read() % (2 ** (i + 1))) >= (2 ** i);
-# }
+for i in 0..num_lamps {
+    Entity lamp = place("small-lamp", i, 0);
+    lamp.enable = (counter.read() % (2 ** (i + 1))) >= (2 ** i);
+}
