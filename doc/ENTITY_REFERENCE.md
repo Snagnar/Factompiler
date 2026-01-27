@@ -46,6 +46,16 @@ lamp.enable = signal > 0;  # Control based on circuit signal
 lamp.r = red_value;        # Dynamic RGB control
 ```
 
+### Reading Entity Outputs
+
+**Access entity circuit outputs** using `entity.output`:
+```facto
+Entity combinator = place("arithmetic-combinator", 0, 0, {...});
+Signal result = combinator.output;  # Read the combinator's output signal
+```
+
+This is particularly useful for reading values from combinators, sensors, and other entities that produce circuit signals.
+
 ### Enum Properties
 
 Enum properties accept **integer values**. See the [Enum Reference](#enum-reference) for all values.
@@ -149,6 +159,14 @@ This section lists all enums used by entity properties.
 | `0` | NONE |
 | `1` | READ_CONTENTS |
 | `2` | READ_ORBITAL_REQUESTS |
+
+### <a id="readitemsmode"></a>ReadItemsMode
+
+| DSL Value | Enum Name |
+|-----------|-----------|
+| `0` | NONE |
+| `1` | LOGISTICS |
+| `2` | MISSING_REQUESTS |
 
 ## Combinators
 
@@ -2166,7 +2184,7 @@ Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = 
 | `item_requests` | List (complex) ⚠️ | (factory) |  |
 | `name` | String (entity prototype name) | (factory) |  |
 | `quality` | String (normal/uncommon/rare/epic/legendary) | "normal" |  |
-| `read_items_mode` | Integer (see enum reference) | 1 |  |
+| `read_items_mode` | Integer ([ReadItemsMode](#readitemsmode)) | 1 | `1  # LOGISTICS` |
 | `read_robot_stats` | Boolean (0/1) | false | `1` |
 | `request_from_buffers` | Boolean (0/1) | true | `1` |
 | `requests_enabled` | Boolean (0/1) | true | `1` |
