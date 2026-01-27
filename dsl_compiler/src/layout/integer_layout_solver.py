@@ -267,6 +267,53 @@ class IntegerLayoutEngine:
             else:
                 self.footprints[entity_id] = (1, 1)
 
+    def _get_downstream_fixed_position(self, entity_id: str) -> tuple[int, int] | None:
+        """Get the fixed position of a downstream entity (if any).
+
+        For entities that connect to user-placed entities (like lamps), this returns
+        the fixed position of that downstream entity. This is used to sort star
+        topology sinks by their actual spatial relationship.
+
+        Args:
+            entity_id: The entity to find downstream fixed position for
+
+        Returns:
+            (x, y) tuple of the downstream fixed position, or None if not found
+        """
+        # Check if this entity directly connects to any fixed-position entity
+        for source, sink in self.connections:
+            if source == entity_id and sink in self.fixed_positions:
+                return self.fixed_positions[sink]
+        return None
+
+    def _sort_sinks_by_downstream_position(self, sinks: list[str]) -> list[str]:
+        """Sort star topology sinks by their downstream fixed positions.
+
+        For each sink, we look at what fixed-position entity (like a lamp) it
+        connects to, and sort by that position. This ensures that combinators
+        feeding adjacent lamps are considered adjacent in the MST model.
+
+        Falls back to alphabetical sorting for sinks without downstream fixed
+        positions (maintaining deterministic behavior).
+
+        Args:
+            sinks: List of sink entity IDs to sort
+
+        Returns:
+            Sorted list of sink entity IDs
+        """
+
+        def sort_key(sink_id: str) -> tuple:
+            downstream_pos = self._get_downstream_fixed_position(sink_id)
+            if downstream_pos is not None:
+                # Primary sort by x, secondary by y, then by ID for ties
+                return (0, downstream_pos[0], downstream_pos[1], sink_id)
+            else:
+                # No downstream fixed position - sort after positioned ones, by ID
+                return (1, 0, 0, sink_id)
+
+        return sorted(sinks, key=sort_key)
+
     def _identify_star_topologies(self) -> None:
         """Identify star topologies that will use MST routing.
 
@@ -317,8 +364,12 @@ class IntegerLayoutEngine:
             # Model the MST within sinks as pairwise connections between
             # "adjacent" sinks. Since we don't know positions yet, we'll
             # create a spanning structure that encourages linear arrangement.
-            # For sinks {s1, s2, ..., sn}, create edges s1-s2, s2-s3, etc.
-            sorted_sinks = sorted(sinks)  # Deterministic order
+            #
+            # CRITICAL: Sort sinks by their downstream fixed position (e.g., the lamp
+            # they connect to), NOT by entity ID. Alphabetical sorting causes issues
+            # when entity IDs like "arith_10" and "arith_101" are placed adjacent even
+            # though they connect to lamps at x=0 and x=13 respectively.
+            sorted_sinks = self._sort_sinks_by_downstream_position(sinks)
             for i in range(len(sorted_sinks) - 1):
                 self._mst_connections.append((sorted_sinks[i], sorted_sinks[i + 1]))
 

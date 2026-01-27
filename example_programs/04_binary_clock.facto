@@ -38,3 +38,14 @@ lamp12.enable = (counter.read() % 8192) >= 4096;
 lamp13.enable = (counter.read() % 16384) >= 8192;
 lamp14.enable = (counter.read() % 32768) >= 16384;
 lamp15.enable = (counter.read() % 65536) >= 32768;
+
+# THIS SHOULD BE EQUIVALENT TO, BUT SOMEHOW IS NOT:
+# Memory counter;
+
+# int num_lamps = 16;
+# counter.write((counter.read() + 1) % (2 ** num_lamps));
+
+# for i in 0..num_lamps {
+#     Entity lamp = place("small-lamp", i, 0);
+#     lamp.enable = (counter.read() % (2 ** (i + 1))) >= (2 ** i);
+# }
