@@ -22,6 +22,15 @@ Signal quotient = counter_value / 3;
 Signal condition = input_signal > 10;
 Signal gate_output = condition * counter_value;
 
+# Selector combinator (Factorio 2.0) - count unique signals
+Bundle sample_items = { ("iron-plate", 100), ("copper-plate", 50), ("coal", 25) };
+Entity signal_counter = place("selector-combinator", 60, 0, {
+    operation: "count",
+    count_signal: "signal-C"
+});
+signal_counter.input = sample_items;  # Wire bundle to selector input
+Signal unique_count = signal_counter.output["signal-C"];  # Read count output
+
 # =============================================================================
 # POWER INFRASTRUCTURE
 # =============================================================================

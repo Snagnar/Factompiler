@@ -145,6 +145,7 @@ Bundle resources = { ("iron-plate", 100), ("copper-plate", 80), ("coal", 50) };
 Bundle doubled = resources * 2;           # Double all values
 Signal iron = resources["iron-plate"];    # Access a single signal
 Signal anyLow = any(resources) < 20;      # True if any resource is below 20
+Bundle positive = (resources > 0) : resources;  # Filter to only positive values
 ```
 
 Bundles are powerful for building generic circuits like balanced train loaders that work regardless of what items you're loading.

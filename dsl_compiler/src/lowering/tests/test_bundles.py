@@ -304,3 +304,162 @@ class TestBundleLowering:
             None,
         )
         assert all_decider is not None
+
+
+class TestBundleFilter:
+    """Test bundle filter pattern: (bundle > 0) : bundle.
+
+    This pattern filters a bundle to include only signals that pass
+    the comparison, using a decider combinator with signal-each.
+    """
+
+    @pytest.fixture
+    def parser(self):
+        return DSLParser()
+
+    @pytest.fixture
+    def diagnostics(self):
+        return ProgramDiagnostics()
+
+    @pytest.fixture
+    def analyzer(self, diagnostics):
+        return SemanticAnalyzer(diagnostics)
+
+    def test_bundle_filter_parses(self, parser):
+        """Bundle filter syntax should parse correctly."""
+        code = """
+        Bundle b = { ("signal-A", 10), ("signal-B", -5) };
+        Bundle filtered = (b > 0) : b;
+        """
+        program = parser.parse(code)
+        assert len(program.statements) == 2
+
+    def test_bundle_filter_type_inference(self, parser, diagnostics, analyzer):
+        """Bundle filter should return BundleValue type."""
+        code = """
+        Bundle b = { ("signal-A", 10), ("signal-B", -5) };
+        Bundle filtered = (b > 0) : b;
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+
+        assert not diagnostics.has_errors(), diagnostics.get_messages()
+        symbol = analyzer.symbol_table.lookup("filtered")
+        assert symbol is not None
+        assert isinstance(symbol.value_type, BundleValue)
+
+    def test_bundle_filter_with_different_operators(self, parser, diagnostics, analyzer):
+        """Bundle filter should work with various comparison operators."""
+        operators = [">", "<", ">=", "<=", "==", "!="]
+        for op in operators:
+            code = f"""
+            Bundle b = {{ ("signal-A", 10) }};
+            Bundle result = (b {op} 5) : b;
+            """
+            program = parser.parse(code)
+            diagnostics_local = ProgramDiagnostics()
+            analyzer_local = SemanticAnalyzer(diagnostics_local)
+            analyzer_local.visit(program)
+
+            assert not diagnostics_local.has_errors(), (
+                f"Failed for operator {op}: {diagnostics_local.get_messages()}"
+            )
+
+    def test_bundle_filter_creates_each_decider(self, parser, analyzer, diagnostics):
+        """Bundle filter should create decider with signal-each input and output."""
+        code = """
+        Bundle b = { ("signal-A", 10), ("signal-B", -5) };
+        Bundle filtered = (b > 0) : b;
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
+
+        # Should have decider combinator for filtering
+        deciders = [op for op in ir_operations if isinstance(op, IRDecider)]
+        assert len(deciders) >= 1
+
+        # Find the bundle filter decider (uses signal-each as both input and output)
+        filter_decider = next(
+            (
+                d
+                for d in deciders
+                if (
+                    isinstance(d.left, SignalRef)
+                    and d.left.signal_type == "signal-each"
+                    and d.output_type == "signal-each"
+                )
+            ),
+            None,
+        )
+        assert filter_decider is not None, "No decider with signal-each input and output found"
+        assert filter_decider.copy_count_from_input is True, (
+            "Bundle filter should preserve input values"
+        )
+
+    def test_bundle_filter_with_constant_output(self, parser, analyzer, diagnostics):
+        """Bundle filter with constant output should set copy_count_from_input=False."""
+        code = """
+        Bundle b = { ("signal-A", 10), ("signal-B", -5) };
+        Bundle counts = (b > 0) : 1;
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
+
+        # Find the decider
+        deciders = [op for op in ir_operations if isinstance(op, IRDecider)]
+        filter_decider = next(
+            (d for d in deciders if d.output_type == "signal-each"),
+            None,
+        )
+        assert filter_decider is not None
+        assert filter_decider.copy_count_from_input is False, (
+            "Constant output should not copy from input"
+        )
+
+    def test_bundle_filter_comparison_operator_preserved(self, parser, analyzer, diagnostics):
+        """Bundle filter should preserve the comparison operator."""
+        code = """
+        Bundle b = { ("signal-A", 10), ("signal-B", -5) };
+        Bundle filtered = (b >= 0) : b;
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
+
+        deciders = [op for op in ir_operations if isinstance(op, IRDecider)]
+        filter_decider = next(
+            (d for d in deciders if d.output_type == "signal-each"),
+            None,
+        )
+        assert filter_decider is not None
+        assert filter_decider.test_op == ">=", f"Expected >= but got {filter_decider.test_op}"
+
+    def test_bundle_filter_with_comparison_value(self, parser, analyzer, diagnostics):
+        """Bundle filter should preserve comparison value."""
+        code = """
+        Bundle b = { ("signal-A", 10), ("signal-B", -5) };
+        Bundle filtered = (b > 5) : b;
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
+
+        deciders = [op for op in ir_operations if isinstance(op, IRDecider)]
+        filter_decider = next(
+            (d for d in deciders if d.output_type == "signal-each"),
+            None,
+        )
+        assert filter_decider is not None
+        assert filter_decider.right == 5, (
+            f"Expected comparison value 5 but got {filter_decider.right}"
+        )

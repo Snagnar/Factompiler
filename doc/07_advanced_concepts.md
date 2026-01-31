@@ -427,6 +427,28 @@ Signal c = data["signal-C"];
 Signal weighted = (a * 3 + b * 2 + c * 1) / 6;
 ```
 
+### Bundle Filtering
+
+Filter bundles to process only signals meeting a condition:
+
+```facto
+Bundle inventory = { 
+    ("iron-plate", 500),
+    ("copper-plate", 200),
+    ("coal", -50),  # Negative = deficit
+    ("stone", 0)
+};
+
+# Get only items we have (positive counts)
+Bundle have = (inventory > 0) : inventory;
+
+# Get deficit signals as positive values for requesting
+Bundle deficits = (inventory < 0) : (inventory * -1);
+
+# Count how many item types meet a threshold
+Bundle above_threshold = (inventory > 100) : 1;
+```
+
 ---
 
 ## For Loop Patterns

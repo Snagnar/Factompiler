@@ -356,6 +356,58 @@ class IRBuilder:
         self.add_operation(arith_op)
         return BundleRef(bundle.signal_types.copy(), node_id, source_ast=source_ast)
 
+    def bundle_decider(
+        self,
+        op: str,
+        bundle: BundleRef,
+        compare_value: ValueRef,
+        copy_count_from_input: bool = True,
+        output_value: int = 1,
+        source_ast: ASTNode | None = None,
+    ) -> BundleRef:
+        """Create a decider combinator using signal-each for bundle filtering.
+
+        Compares each signal in the input bundle against compare_value.
+        Outputs only the signals that pass the comparison.
+
+        Args:
+            op: Comparison operator (>, <, ==, !=, >=, <=)
+            bundle: Input bundle to filter
+            compare_value: Value to compare each signal against (scalar)
+            copy_count_from_input: If True, output matching signals with their counts.
+                                   If False, output constant value for each matching signal.
+            output_value: The constant to output when copy_count_from_input=False.
+            source_ast: Source AST for debugging
+
+        Returns:
+            BundleRef pointing to the decider's output (filtered bundle)
+        """
+        from dsl_compiler.src.ir.nodes import IRDecider
+
+        node_id = self.next_id("bundle_decider")
+
+        # Create decider with signal-each as both left operand and output
+        decider = IRDecider(node_id, "signal-each", source_ast)
+        decider.test_op = op
+        decider.left = SignalRef("signal-each", bundle.source_id)
+        decider.right = compare_value
+        decider.copy_count_from_input = copy_count_from_input
+        decider.output_value = output_value
+
+        # If the compare_value is a signal (not a constant), we need wire separation
+        # to prevent the scalar signal from being processed by "each"
+        if isinstance(compare_value, SignalRef):
+            decider.debug_metadata["needs_wire_separation"] = True
+            decider.debug_metadata["scalar_signal_id"] = compare_value.source_id
+
+        self.add_operation(decider)
+
+        return BundleRef(
+            bundle.signal_types.copy(),
+            node_id,
+            source_ast=source_ast,
+        )
+
     def get_ir(self) -> list[IRNode]:
         """Return a copy of the currently built IR operations."""
 

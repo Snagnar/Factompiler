@@ -2,7 +2,7 @@
 
 Memory counter;
 
-int num_lamps = 16;
+int num_lamps = 30;
 counter.write((counter.read() + 1) % (2 ** num_lamps));
 
 for i in 0..num_lamps {
