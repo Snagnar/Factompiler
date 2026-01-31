@@ -787,6 +787,7 @@ class IntegerLayoutEngine:
         - All inputs share Y = Y_input_line (a variable)
         - All outputs share Y = Y_output_line (a variable)
         - All intermediates have Y strictly between these lines
+        - Fixed-position entities also constrain intermediate placement
         - Optimizer minimizes bounding box, naturally placing:
           * Y_input_line at minimum feasible Y
           * Y_output_line at maximum feasible Y
@@ -799,28 +800,47 @@ class IntegerLayoutEngine:
             model: CP-SAT constraint model
             positions: Dict mapping entity_id to (x, y) variables
         """
-        # Categorize entities (skip user-fixed entities)
+        # Categorize entities - track both fixed and non-fixed separately
         input_entities = []
         output_entities = []
         intermediate_entities = []
+        fixed_input_y_values: list[int] = []
+        fixed_output_y_values: list[int] = []
+
+        def is_input_entity(p: EntityPlacement) -> bool:
+            """Check if placement is an input (via properties or role)."""
+            return p.properties.get("is_input") or p.role == "input"
+
+        def is_output_entity(p: EntityPlacement) -> bool:
+            """Check if placement is an output (via properties or role)."""
+            return p.properties.get("is_output") or p.role == "output"
 
         for entity_id in self.entity_ids:
-            if entity_id in self.fixed_positions:
-                continue
-
             placement = self.entity_placements.get(entity_id)
             if not placement:
                 continue
 
-            if placement.properties.get("is_input"):
+            if entity_id in self.fixed_positions:
+                # Track fixed positions for boundary constraints
+                fixed_y = self.fixed_positions[entity_id][1]
+                fixed_height = self.footprints.get(entity_id, (1, 1))[1]
+                if is_input_entity(placement):
+                    fixed_input_y_values.append(fixed_y + fixed_height)  # Bottom edge
+                elif is_output_entity(placement):
+                    fixed_output_y_values.append(fixed_y + fixed_height)  # Bottom edge
+                continue
+
+            if is_input_entity(placement):
                 input_entities.append(entity_id)
-            elif placement.properties.get("is_output"):
+            elif is_output_entity(placement):
                 output_entities.append(entity_id)
             else:
                 intermediate_entities.append(entity_id)
 
-        # If no inputs or outputs, no edge constraints needed
-        if not input_entities and not output_entities:
+        # If no inputs or outputs (fixed or non-fixed), no edge constraints needed
+        has_inputs = input_entities or fixed_input_y_values
+        has_outputs = output_entities or fixed_output_y_values
+        if not has_inputs and not has_outputs:
             self.diagnostics.info("No edge layout constraints (no inputs/outputs marked)")
             return
 
@@ -880,6 +900,7 @@ class IntegerLayoutEngine:
                 model.Add(y == Y_output_line)
 
         # Constrain intermediates to be between input and output lines
+        # This includes both non-fixed input/output lines AND fixed positions
         for entity_id in intermediate_entities:
             _, y = positions[entity_id]
             height = self.footprints.get(entity_id, (1, 1))[1]
@@ -889,6 +910,15 @@ class IntegerLayoutEngine:
 
             if Y_output_line is not None:
                 model.Add(y + height <= Y_output_line)
+
+            # Also constrain based on fixed-position outputs
+            # Intermediates must be below fixed outputs (higher Y values)
+            for fixed_output_bottom in fixed_output_y_values:
+                model.Add(y >= fixed_output_bottom)
+                self.diagnostics.info(
+                    f"Edge layout: intermediate {entity_id} must have y >= {fixed_output_bottom} "
+                    "(below fixed output)"
+                )
 
     def _create_objective(
         self,

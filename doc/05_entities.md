@@ -159,8 +159,9 @@ The `.input` property creates a wire connection from a signal source to the enti
 **Example with selector combinator:**
 ```facto
 # Count unique signals
+Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
 Bundle items = chest.output;
-Entity counter = place("selector-combinator", 0, 0, {
+Entity counter = place("selector-combinator", 1, 0, {
     operation: "count",
     count_signal: "signal-C"
 });

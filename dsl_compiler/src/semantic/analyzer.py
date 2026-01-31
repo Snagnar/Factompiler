@@ -1022,6 +1022,19 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             if simplified is not None:
                 node.value = simplified
 
+        # Check for naked bundle comparisons - these must use any()/all() or filter syntax
+        if self._is_naked_bundle_comparison(node.value):
+            self.diagnostics.error(
+                f"Cannot assign bundle comparison directly to '{node.name}'.\n"
+                "  Bundle comparisons must use one of:\n"
+                "    - any(bundle) > N  (true if any signal matches)\n"
+                "    - all(bundle) > N  (true if all signals match)\n"
+                "    - (bundle > N) : bundle  (filter syntax)",
+                stage="semantic",
+                node=node,
+            )
+            return
+
         value_type = self.get_expr_type(node.value)
 
         if node.type_name == "Signal" and isinstance(value_type, IntValue):
@@ -1053,6 +1066,23 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             return
 
         self._register_signal_metadata(node.name, node, value_type, node.type_name)
+
+    def _is_naked_bundle_comparison(self, expr: Expr) -> bool:
+        """Check if expression is a bundle comparison not wrapped in filter syntax.
+
+        A bundle comparison (bundle > N) is only valid when:
+        1. Used with any()/all() functions for boolean results
+        2. Used in filter syntax: (bundle > N) : bundle
+
+        A "naked" bundle comparison is one used directly without these wrappers.
+        """
+        if not isinstance(expr, BinaryOp):
+            return False
+        if expr.op not in self.COMPARISON_OPS:
+            return False
+        # Check if left operand is a bundle
+        left_type = self.get_expr_type(expr.left)
+        return isinstance(left_type, BundleValue)
 
     def _type_name_to_symbol_type(self, type_name: str) -> SymbolType:
         """Convert type name to symbol type."""
