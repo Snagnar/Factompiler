@@ -133,6 +133,42 @@ The `.output` property returns a **Bundle** — all signals the entity outputs. 
 - Balancing item distribution
 - Controlling production based on storage
 
+### Wiring Signals to Entities: `.input`
+
+To wire signals to an entity's circuit input, use `.input`:
+
+```facto
+Bundle resources = { ("iron-plate", 100), ("copper-plate", 80) };
+Entity selector = place("selector-combinator", 0, 0, {
+    operation: "count",
+    count_signal: "signal-C"
+});
+selector.input = resources;  # Wire resources to selector's input
+```
+
+The `.input` property creates a wire connection from a signal source to the entity:
+
+- **For dual-connector entities** (arithmetic, decider, selector combinators): Wires connect to the **input side** of the combinator
+- **For single-connector entities** (lamps, chests, inserters): Wires connect to the entity's circuit connection
+
+**Common uses:**
+- Providing input signals to combinators
+- Connecting signal sources to entities for circuit control
+- Building circuits where explicit wiring is needed
+
+**Example with selector combinator:**
+```facto
+# Count unique signals
+Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
+Bundle items = chest.output;
+Entity counter = place("selector-combinator", 1, 0, {
+    operation: "count",
+    count_signal: "signal-C"
+});
+counter.input = items;           # Wire chest contents to selector
+Signal count = counter.output["signal-C"];  # Read the count
+```
+
 ### Balanced Loader Example
 
 ```facto

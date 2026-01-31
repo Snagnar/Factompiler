@@ -727,13 +727,16 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         # Handle Bundle operations: Bundle OP Signal/int -> Bundle
         if isinstance(left_type, BundleValue):
             if expr.op in self.COMPARISON_OPS:
-                # Bundle comparisons should use any() or all() instead
-                self.diagnostics.error(
-                    "Cannot compare Bundle directly. Use any(bundle) or all(bundle) for comparisons.",
-                    stage="semantic",
-                    node=expr,
-                )
-                return SignalValue(signal_type=self.allocate_implicit_type())
+                # Bundle comparison: (bundle > N) produces a signal-each comparison
+                # This must be used with output specifier to get filtered bundle:
+                #   (bundle > N) : bundle
+                # Returns SignalValue (comparison result) to allow use in OutputSpecExpr
+                # Mark it as a bundle comparison for later detection
+                signal_type = self.allocate_implicit_type()
+                result = SignalValue(signal_type=signal_type, is_comparison_result=True)
+                # Store bundle comparison metadata on the expression for lowering
+                expr._bundle_comparison_source = left_type  # type: ignore[attr-defined]
+                return result
 
             # Bundle arithmetic: result is a Bundle with same signal types
             if isinstance(right_type, (SignalValue, IntValue)):
@@ -813,7 +816,16 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         """Infer type for output specifier expression.
 
         The result type is determined by the output_value, not the condition.
+
+        Special case: Bundle filter pattern (bundle > N) : bundle
+        - Condition is a bundle comparison
+        - Output is a bundle (typically the same bundle)
+        - Result is a filtered bundle
         """
+        # Check for bundle filter pattern FIRST: (bundle CMP scalar) : bundle
+        if self._is_bundle_filter_pattern(expr):
+            return self._infer_bundle_filter_type(expr)
+
         # Validate that condition is a comparison
         if not self._is_comparison_expr(expr.condition):
             # Generate a helpful error message
@@ -850,6 +862,51 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 return SignalValue(signal_type=self.allocate_implicit_type())
 
         return output_type
+
+    def _is_bundle_filter_pattern(self, expr: OutputSpecExpr) -> bool:
+        """Check if expression is a bundle filter pattern: (bundle CMP scalar) : output.
+
+        Returns True if:
+        - Condition is a binary comparison (>, <, ==, etc.)
+        - Left operand of comparison is a Bundle
+        """
+        if not isinstance(expr.condition, BinaryOp):
+            return False
+        if expr.condition.op not in self.COMPARISON_OPS:
+            return False
+        left_type = self.get_expr_type(expr.condition.left)
+        return isinstance(left_type, BundleValue)
+
+    def _infer_bundle_filter_type(self, expr: OutputSpecExpr) -> ValueInfo:
+        """Infer type for bundle filter pattern: (bundle CMP scalar) : output.
+
+        Returns:
+        - BundleValue if output is a bundle (filter with copy count)
+        - BundleValue if output is integer (filter with constant output per signal)
+        """
+        condition = expr.condition
+        assert isinstance(condition, BinaryOp)
+
+        # Get the source bundle type
+        source_bundle_type = self.get_expr_type(condition.left)
+        assert isinstance(source_bundle_type, BundleValue)
+
+        # Analyze the comparison right operand (should be scalar)
+        right_type = self.get_expr_type(condition.right)
+        if isinstance(right_type, BundleValue):
+            self.diagnostics.error(
+                "Bundle filter comparison requires scalar (Signal or int) on right side.\n"
+                "  Got: Bundle\n"
+                "  Hint: Use a specific signal or constant: (bundle > 0) : bundle",
+                stage="semantic",
+                node=expr,
+            )
+
+        # Analyze the output value
+        self.get_expr_type(expr.output_value)
+
+        # Result is always a bundle - either copy or constant output per matching signal
+        return BundleValue(signal_types=source_bundle_type.signal_types.copy())
 
     def _is_comparison_expr(self, expr: Expr) -> bool:
         """Check if expression is a valid decider condition.
@@ -965,6 +1022,19 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             if simplified is not None:
                 node.value = simplified
 
+        # Check for naked bundle comparisons - these must use any()/all() or filter syntax
+        if self._is_naked_bundle_comparison(node.value):
+            self.diagnostics.error(
+                f"Cannot assign bundle comparison directly to '{node.name}'.\n"
+                "  Bundle comparisons must use one of:\n"
+                "    - any(bundle) > N  (true if any signal matches)\n"
+                "    - all(bundle) > N  (true if all signals match)\n"
+                "    - (bundle > N) : bundle  (filter syntax)",
+                stage="semantic",
+                node=node,
+            )
+            return
+
         value_type = self.get_expr_type(node.value)
 
         if node.type_name == "Signal" and isinstance(value_type, IntValue):
@@ -996,6 +1066,23 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             return
 
         self._register_signal_metadata(node.name, node, value_type, node.type_name)
+
+    def _is_naked_bundle_comparison(self, expr: Expr) -> bool:
+        """Check if expression is a bundle comparison not wrapped in filter syntax.
+
+        A bundle comparison (bundle > N) is only valid when:
+        1. Used with any()/all() functions for boolean results
+        2. Used in filter syntax: (bundle > N) : bundle
+
+        A "naked" bundle comparison is one used directly without these wrappers.
+        """
+        if not isinstance(expr, BinaryOp):
+            return False
+        if expr.op not in self.COMPARISON_OPS:
+            return False
+        # Check if left operand is a bundle
+        left_type = self.get_expr_type(expr.left)
+        return isinstance(left_type, BundleValue)
 
     def _type_name_to_symbol_type(self, type_name: str) -> SymbolType:
         """Convert type name to symbol type."""

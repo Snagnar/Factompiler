@@ -384,6 +384,49 @@ Signal allBelow1000 = all(levels) < 1000;  # True (all values match)
 - `any()` compiles to a decider combinator outputting `signal-anything`
 - `all()` compiles to a decider combinator outputting `signal-everything`
 
+#### Bundle Filtering
+
+Filter a bundle to include only signals that pass a comparison using the conditional output syntax:
+
+```facto
+Bundle requested_items = { ("signal-A", 10), ("signal-B", 5), ("signal-C", -3) };
+
+# Keep only signals > 0 (preserving their values)
+Bundle positive_items = (requested_items > 0) : requested_items;
+# Result: signal-A=10, signal-B=5 (signal-C=-3 is filtered out)
+
+# Filter with different comparison operators
+Bundle above_threshold = (requested_items >= 8) : requested_items;  # Only signal-A=10
+Bundle non_zero = (requested_items != 0) : requested_items;         # All signals (none are zero)
+```
+
+**Syntax:** `(bundle COMPARISON scalar) : output`
+
+The comparison evaluates each signal in the bundle against the scalar value. Only signals that pass the comparison are included in the output.
+
+**Output Modes:**
+
+1. **Preserve values** (output is a bundle): The original signal values are preserved
+   ```facto
+   Bundle filtered = (items > 0) : items;  # copy_count_from_input = true
+   ```
+
+2. **Constant output** (output is an integer): Each matching signal outputs the constant value
+   ```facto
+   Bundle counts = (items > 0) : 1;  # Each matching signal outputs 1
+   ```
+
+**Factorio Output:** Compiles to a single decider combinator:
+- Input signal: `signal-each` (evaluates each signal independently)
+- Comparison: The specified operator and scalar value
+- Output signal: `signal-each` (outputs matching signals)
+- Output mode: `copy_count_from_input` (true for bundle output, false for constant)
+
+**Common Use Cases:**
+- Filtering inventory requests to only positive quantities
+- Separating signals by range (e.g., high vs low values)
+- Counting signals that meet a condition
+
 #### Bundle Use Cases
 
 Bundles are ideal for:

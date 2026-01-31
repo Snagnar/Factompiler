@@ -1,12 +1,35 @@
 """Entity data extraction from draftsman."""
 
 import math
+from functools import lru_cache
 
 from draftsman.data import entities as entity_data
+from draftsman.entity import new_entity
 
 
 class EntityDataHelper:
     """Helper to extract entity information from draftsman data."""
+
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def is_dual_circuit_connectable(prototype: str) -> bool:
+        """Check if an entity type has separate input/output circuit connectors.
+
+        Entities like arithmetic-combinator, decider-combinator, and selector-combinator
+        have dual circuit connectors (input side and output side). When connecting wires
+        to these entities, you must specify which side (input/output) the wire connects to.
+
+        Args:
+            prototype: Entity prototype name (e.g., "selector-combinator")
+
+        Returns:
+            True if the entity has dual circuit connectors, False otherwise
+        """
+        try:
+            entity = new_entity(prototype)
+            return getattr(entity, "dual_circuit_connectable", False)
+        except Exception:
+            return False
 
     @staticmethod
     def get_footprint(prototype: str) -> tuple[int, int]:
@@ -54,3 +77,4 @@ class EntityDataHelper:
 
 get_entity_footprint = EntityDataHelper.get_footprint
 get_entity_alignment = EntityDataHelper.get_alignment
+is_dual_circuit_connectable = EntityDataHelper.is_dual_circuit_connectable

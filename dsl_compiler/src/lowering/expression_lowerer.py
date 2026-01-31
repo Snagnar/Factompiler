@@ -642,15 +642,22 @@ class ExpressionLowerer:
         """
         return ConstantFolder.fold_binary_operation(op, left, right, node, self.diagnostics)
 
-    def lower_output_spec_expr(self, expr: OutputSpecExpr) -> SignalRef:
+    def lower_output_spec_expr(self, expr: OutputSpecExpr) -> ValueRef:
         """Lower output specifier expression to decider with copy-count-from-input.
 
         (condition) : output_value
 
         The condition must be a comparison or logical AND/OR of comparisons.
         When true, outputs the output_value instead of constant 1.
+
+        Special case: Bundle filter pattern (bundle CMP scalar) : bundle
+        Uses signal-each decider to filter the bundle to only matching signals.
         """
         condition = expr.condition
+
+        # Check for bundle filter pattern FIRST: (bundle CMP scalar) : output
+        if self._is_bundle_filter_pattern(expr):
+            return self._lower_bundle_filter_output_spec(expr)
 
         # Check if this is a compound condition (AND/OR of comparisons)
         if isinstance(condition, BinaryOp) and condition.op in ("&&", "||", "and", "or"):
@@ -875,6 +882,79 @@ class ExpressionLowerer:
             source_ast=expr,
             copy_count_from_input=copy_count,
         )
+
+        self._attach_expr_context(result.source_id, expr)
+        return result
+
+    # -------------------------------------------------------------------------
+    # Bundle filter output spec: (bundle CMP scalar) : bundle
+    # -------------------------------------------------------------------------
+
+    def _is_bundle_filter_pattern(self, expr: OutputSpecExpr) -> bool:
+        """Check if expression is a bundle filter pattern: (bundle CMP scalar) : output.
+
+        Returns True if:
+        - Condition is a binary comparison (>, <, ==, etc.)
+        - Left operand of comparison is a Bundle
+        """
+        condition = expr.condition
+        if not isinstance(condition, BinaryOp):
+            return False
+        if condition.op not in COMPARISON_OPS:
+            return False
+        left_type = self.semantic.get_expr_type(condition.left)
+        return isinstance(left_type, BundleValue)
+
+    def _lower_bundle_filter_output_spec(self, expr: OutputSpecExpr) -> BundleRef:
+        """Lower (bundle CMP scalar) : output to signal-each decider.
+
+        Creates a decider combinator that:
+        - Uses signal-each as the condition input
+        - Compares each signal against the scalar
+        - Outputs only matching signals
+
+        If output is a bundle: copy_count_from_input=True (preserve values)
+        If output is an integer: copy_count_from_input=False (constant per signal)
+        """
+        comparison = expr.condition
+        assert isinstance(comparison, BinaryOp)
+
+        # Lower the bundle (left operand of comparison)
+        bundle_ref = self.lower_expr(comparison.left)
+        if not isinstance(bundle_ref, BundleRef):
+            self._error("Expected bundle in bundle filter condition", comparison.left)
+            return BundleRef(set(), "error")
+
+        # Lower the scalar (right operand of comparison)
+        scalar_ref = self.lower_expr(comparison.right)
+
+        # Determine output mode from the output value type
+        output_type = self.semantic.get_expr_type(expr.output_value)
+
+        if isinstance(output_type, BundleValue):
+            # Output is a bundle: use copy_count_from_input mode
+            # This preserves the original signal values
+            result = self.ir_builder.bundle_decider(
+                op=comparison.op,
+                bundle=bundle_ref,
+                compare_value=scalar_ref,
+                copy_count_from_input=True,
+                source_ast=expr,
+            )
+        else:
+            # Output is a constant: output that constant for each matching signal
+            output_const = ConstantFolder.extract_constant_int(expr.output_value, self.diagnostics)
+            if output_const is None:
+                output_const = 1  # Default to 1 if not a constant
+
+            result = self.ir_builder.bundle_decider(
+                op=comparison.op,
+                bundle=bundle_ref,
+                compare_value=scalar_ref,
+                copy_count_from_input=False,
+                output_value=output_const,
+                source_ast=expr,
+            )
 
         self._attach_expr_context(result.source_id, expr)
         return result

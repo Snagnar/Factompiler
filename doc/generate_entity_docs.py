@@ -4,14 +4,18 @@ Generate comprehensive entity documentation for the Facto.
 
 This script creates educational documentation that helps users understand:
 1. What properties can be set on each entity (both at placement and dynamically)
-2. How to set enum values (with the actual integer values)
-3. What circuit input/output signals each entity supports
+2. How to set enum/literal values (with all valid options)
+3. What circuit outputs each entity can produce via `.output`
 4. DSL syntax examples for each entity type
 
 All information is extracted dynamically from the Draftsman library.
 
 Usage:
+    # Generate fresh documentation
     python doc/generate_entity_docs.py -o doc/ENTITY_REFERENCE.md
+
+    # Update existing documentation (targeted changes only)
+    python doc/generate_entity_docs.py --update doc/ENTITY_REFERENCE.md
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, IntEnum
-from typing import Any
+from typing import Any, Literal, get_args, get_origin
 
 import attrs
 
@@ -39,15 +43,25 @@ except ImportError as e:
     sys.exit(1)
 
 
+# =============================================================================
+# Data Classes
+# =============================================================================
+
+
 @dataclass
 class EnumInfo:
+    """Information about an enum or Literal type."""
+
     name: str
-    members: dict[str, Any]
+    members: dict[str, Any]  # member_name -> value
     description: str = ""
+    is_literal: bool = False  # True for Literal[] types, False for IntEnum
 
 
 @dataclass
 class PropertyInfo:
+    """Information about an entity property."""
+
     name: str
     type_name: str  # Original Python type
     dsl_type: str  # DSL-friendly type description
@@ -56,33 +70,36 @@ class PropertyInfo:
     description: str
     is_enum: bool = False
     enum_info: EnumInfo | None = None
+    literal_values: tuple | None = None  # For Literal types
     example_value: str = ""
-    is_dsl_supported: bool = True  # Whether this type is directly settable in DSL
-    is_signal_property: bool = False  # Whether this is a signal I/O property
+    is_dsl_supported: bool = True
+    is_signal_property: bool = False  # e.g. count_signal, output_signal
 
 
 @dataclass
-class SignalIOEntry:
-    """Represents a single signal input or output."""
+class EntityOutputInfo:
+    """Information about entity circuit outputs via .output property."""
 
-    property_name: str
-    direction: str  # "input" or "output"
-    signal_type: str
-    description: str
-    enable_property: str | None = None
+    supports_output: bool = False
+    output_type: str = "Bundle"  # What .output returns
+    output_signals: list[str] = field(default_factory=list)  # What signals it can output
+    enable_properties: dict[str, str] = field(default_factory=dict)  # prop -> description
+    description: str = ""
 
 
 @dataclass
 class CircuitIOInfo:
+    """Information about entity circuit connections."""
+
     has_circuit_connection: bool = True
     has_dual_connection: bool = False
-    signal_inputs: list[SignalIOEntry] = field(default_factory=list)
-    signal_outputs: list[SignalIOEntry] = field(default_factory=list)
-    content_outputs: list[str] = field(default_factory=list)  # Generic outputs like "item contents"
+    output_info: EntityOutputInfo = field(default_factory=EntityOutputInfo)
 
 
 @dataclass
 class EntityInfo:
+    """Complete information about an entity class."""
+
     class_name: str
     cls: type
     description: str
@@ -93,7 +110,13 @@ class EntityInfo:
     dsl_examples: list[str] = field(default_factory=list)
 
 
-def get_all_enums() -> dict[str, EnumInfo]:
+# =============================================================================
+# Enum and Literal Type Detection
+# =============================================================================
+
+
+def get_all_int_enums() -> dict[str, EnumInfo]:
+    """Get all IntEnum types from draftsman.constants."""
     enums = {}
     for name in dir(constants):
         if name.startswith("_"):
@@ -111,22 +134,113 @@ def get_all_enums() -> dict[str, EnumInfo]:
                     if hasattr(val, "__int__"):
                         members[member_name] = int(val)
                     else:
-                        members[member_name] = str(val)  # type: ignore[assignment]
+                        members[member_name] = str(val)
                 except (ValueError, TypeError):
-                    members[member_name] = str(member.value)  # type: ignore[assignment]
-            enums[name] = EnumInfo(name=name, members=members)
+                    members[member_name] = str(member.value)
+            enums[name] = EnumInfo(name=name, members=members, is_literal=False)
     return enums
 
 
-ALL_ENUMS = get_all_enums()
+def get_literal_values_from_type(type_hint: Any) -> tuple | None:
+    """Extract values from a Literal type annotation."""
+    origin = get_origin(type_hint)
+    if origin is Literal:
+        return get_args(type_hint)
+    # Handle Optional[Literal[...]] and similar
+    if origin is type(None) or str(origin) == "typing.Union":
+        for arg in get_args(type_hint):
+            if get_origin(arg) is Literal:
+                return get_args(arg)
+    return None
+
+
+def get_all_literal_types() -> dict[str, EnumInfo]:
+    """Get all unique Literal types used in entity properties."""
+    literal_types = {}
+
+    # Well-known Literal types to name them nicely
+    KNOWN_LITERALS = {
+        ("normal", "uncommon", "rare", "epic", "legendary", "quality-unknown"): "QualityID",
+        ("*", "/", "+", "-", "%", "^", "<<", ">>", "AND", "OR", "XOR"): "ArithmeticOperation",
+        (
+            "select",
+            "count",
+            "random",
+            "stack-size",
+            "rocket-capacity",
+            "quality-filter",
+            "quality-transfer",
+        ): "SelectorOperation",
+        ("at-least", "at-most", "exactly", "add", "remove"): "InfinityMode",
+        ("whitelist", "blacklist"): "FilterMode",
+        ("spoiled-first", "fresh-first"): "SpoilPriority",
+        ("input", "output"): "IOType",
+        ("local", "surface", "global"): "PlaybackMode",
+        ("left", "none", "right"): "SplitterPriority",
+    }
+
+    for name in dir(entity_module):
+        obj = getattr(entity_module, name)
+        if not isinstance(obj, type) or not issubclass(obj, Entity) or obj is Entity:
+            continue
+        if not attrs.has(obj):
+            continue
+
+        for fld in attrs.fields(obj):
+            if fld.type is None:
+                continue
+            literal_vals = get_literal_values_from_type(fld.type)
+            if literal_vals:
+                # Filter out None values
+                filtered_vals = tuple(v for v in literal_vals if v is not None)
+                if not filtered_vals:
+                    continue
+
+                # Look for a known name
+                known_name = KNOWN_LITERALS.get(filtered_vals)
+                if known_name and known_name not in literal_types:
+                    members = {str(v): v for v in filtered_vals}
+                    literal_types[known_name] = EnumInfo(
+                        name=known_name, members=members, is_literal=True
+                    )
+
+    return literal_types
+
+
+ALL_INT_ENUMS = get_all_int_enums()
+ALL_LITERAL_TYPES = get_all_literal_types()
 
 
 def find_enum_for_type(type_hint: Any) -> EnumInfo | None:
+    """Find an IntEnum that matches this type hint."""
     type_str = str(type_hint) if type_hint else ""
-    for enum_name, enum_info in ALL_ENUMS.items():
+    for enum_name, enum_info in ALL_INT_ENUMS.items():
         if enum_name in type_str:
             return enum_info
     return None
+
+
+def find_literal_for_type(type_hint: Any) -> tuple[tuple | None, EnumInfo | None]:
+    """Find Literal values and corresponding EnumInfo for a type."""
+    literal_vals = get_literal_values_from_type(type_hint)
+    if not literal_vals:
+        return None, None
+
+    filtered_vals = tuple(v for v in literal_vals if v is not None)
+    if not filtered_vals:
+        return None, None
+
+    # Look for matching EnumInfo
+    for enum_info in ALL_LITERAL_TYPES.values():
+        if set(enum_info.members.keys()) == {str(v) for v in filtered_vals}:
+            return filtered_vals, enum_info
+
+    return filtered_vals, None
+
+
+# =============================================================================
+# Skip lists and signal definitions
+# =============================================================================
 
 
 SKIP_PROPS = {
@@ -141,206 +255,170 @@ SKIP_PROPS = {
     "mirror",
 }
 
-# Detailed signal I/O definitions
-# Format: property_name -> (direction, signal_type, description, enable_property)
-# direction: "input" or "output"
-# signal_type: what kind of signal value is read/written
-# description: what this signal does
-# enable_property: the boolean property that enables this (or more complex string)
-SIGNAL_IO_DEFINITIONS = {
-    # === COMMON INPUT SIGNALS ===
-    "circuit_condition": (
-        "input",
-        "Any signal",
-        "Signal used in enable/disable condition",
-        "circuit_enabled: 1",
-    ),
-    "logistic_condition": (
-        "input",
-        "Any signal",
-        "Logistic network signal for enable/disable",
-        "connect_to_logistic_network: 1",
-    ),
-    "stack_size_control_signal": (
-        "input",
-        "Integer signal",
-        "Sets inserter stack size from signal value",
-        "circuit_set_stack_size: 1",
-    ),
-    # === LAMP SIGNALS ===
-    # For COMPONENTS mode (color_mode: 1), use red_signal/green_signal/blue_signal
-    # For PACKED_RGB mode (color_mode: 2), use rgb_signal
-    "red_signal": (
-        "input",
-        "Integer (0-255)",
-        "Red color component (COMPONENTS mode)",
-        "use_colors: 1, color_mode: 1",
-    ),
-    "green_signal": (
-        "input",
-        "Integer (0-255)",
-        "Green color component (COMPONENTS mode)",
-        "use_colors: 1, color_mode: 1",
-    ),
-    "blue_signal": (
-        "input",
-        "Integer (0-255)",
-        "Blue color component (COMPONENTS mode)",
-        "use_colors: 1, color_mode: 1",
-    ),
-    "rgb_signal": (
-        "input",
-        "Packed RGB integer",
-        "Combined RGB value (PACKED_RGB mode)",
-        "use_colors: 1, color_mode: 2",
-    ),
-    # === RAIL SIGNAL OUTPUTS ===
-    "red_output_signal": (
-        "output",
-        "1 when red",
-        "Outputs 1 when rail signal shows red",
-        "read_signal: 1",
-    ),
-    "yellow_output_signal": (
-        "output",
-        "1 when yellow",
-        "Outputs 1 when rail signal shows yellow",
-        "read_signal: 1",
-    ),
-    "green_output_signal": (
-        "output",
-        "1 when green",
-        "Outputs 1 when rail signal shows green",
-        "read_signal: 1",
-    ),
-    "blue_output_signal": ("output", "1 when blue", "Outputs 1 when chain signal reserved", None),
-    # === TRAIN STOP SIGNALS ===
-    "train_stopped_signal": (
-        "output",
-        "Train ID",
-        "Outputs ID of stopped train",
-        "read_stopped_train: 1",
-    ),
-    "trains_limit_signal": (
-        "input",
-        "Integer",
-        "Sets train limit from signal value",
-        "signal_limits_trains: 1",
-    ),
-    "trains_count_signal": (
-        "output",
-        "Integer",
-        "Outputs count of trains en route",
-        "read_trains_count: 1",
-    ),
-    "priority_signal": (
-        "input",
-        "Integer",
-        "Sets station priority from signal value",
-        "set_priority: 1",
-    ),
-    # === CRAFTING MACHINE SIGNALS ===
-    "recipe_finished_signal": (
-        "output",
-        "Pulse (1)",
-        "Pulses when recipe completes",
-        "read_recipe_finished: 1",
-    ),
-    "working_signal": (
-        "output",
-        "1 when working",
-        "Outputs 1 while machine is crafting",
-        "read_working: 1",
-    ),
-    # === COMBINATOR SIGNALS ===
-    "output_signal": ("output", "Result value", "Signal to output the combinator result on", None),
-    "index_signal": ("input", "Integer", "Signal for selector index input", None),
-    "count_signal": ("output", "Integer", "Signal to output the count result", None),
-    "quality_source_signal": ("input", "Any signal", "Signal to read quality from", None),
-    "quality_destination_signal": (
-        "output",
-        "Quality level",
-        "Signal to output quality result",
-        None,
-    ),
-    # === ROBOPORT SIGNALS ===
-    "available_logistic_robots_signal": (
-        "output",
-        "Integer",
-        "Count of idle logistic robots",
-        "read_logistics: 1",
-    ),
-    "total_logistic_robots_signal": (
-        "output",
-        "Integer",
-        "Total logistic robots in network",
-        "read_logistics: 1",
-    ),
-    "available_construction_robots_signal": (
-        "output",
-        "Integer",
-        "Count of idle construction robots",
-        "read_logistics: 1",
-    ),
-    "total_construction_robots_signal": (
-        "output",
-        "Integer",
-        "Total construction robots",
-        "read_logistics: 1",
-    ),
-    # === ACCUMULATOR SIGNALS ===
-    # Note: accumulator uses "output_signal" but that's also used by combinators
-    # === SPEAKER SIGNALS ===
-    "signal_value_is_pitch": ("input", "Pitch value", "Signal value controls note pitch", None),
-    # === MINING DRILL SIGNALS ===
-    # read_resources outputs resource signals based on what's under the drill
-    # === ASTEROID COLLECTOR SIGNALS ===
-    "status_signal": ("output", "Status code", "Current collector status", "read_status"),
-    "storage_signal": ("output", "Item contents", "Items stored in collector", "read_contents"),
+# Properties that indicate signal I/O (usually for circuit configuration)
+SIGNAL_IO_PROPERTIES = {
+    # Combinator signals
+    "output_signal",
+    "index_signal",
+    "count_signal",
+    "quality_source_signal",
+    "quality_destination_signal",
+    # Rail signal outputs
+    "red_output_signal",
+    "yellow_output_signal",
+    "green_output_signal",
+    "blue_output_signal",
+    # Train stop
+    "train_stopped_signal",
+    "trains_limit_signal",
+    "trains_count_signal",
+    "priority_signal",
+    # Recipe/working signals
+    "recipe_finished_signal",
+    "working_signal",
+    # Roboport
+    "available_logistic_robots_signal",
+    "total_logistic_robots_signal",
+    "available_construction_robots_signal",
+    "total_construction_robots_signal",
+    # Lamp RGB
+    "red_signal",
+    "green_signal",
+    "blue_signal",
+    "rgb_signal",
+    # Circuit condition
+    "circuit_condition",
+    "logistic_condition",
+    # Stack control
+    "stack_size_control_signal",
+    # Others
+    "status_signal",
+    "storage_signal",
 }
 
-# Properties that enable signal reading/writing (bool properties)
-SIGNAL_ENABLE_PROPERTIES = {
-    "read_contents": "Enables outputting contents to circuit network",
-    "read_hand_contents": "Enables outputting items in inserter hand",
-    "read_resources": "Enables outputting resource amounts under entity",
-    "read_signal": "Enables outputting rail signal state",
-    "read_from_train": "Enables reading train cargo contents",
-    "send_to_train": "Enables sending signals to train for schedule control",
-    "read_stopped_train": "Enables outputting stopped train ID",
-    "read_trains_count": "Enables outputting count of trains en route",
-    "read_recipe_finished": "Enables recipe finished pulse signal",
-    "read_working": "Enables outputting working status",
-    "read_logistics": "Enables outputting robot counts",
-    "read_robot_stats": "Enables outputting robot statistics",
-    "circuit_enabled": "Enables circuit condition control",
-    "connect_to_logistic_network": "Enables logistic network condition control",
-    "circuit_set_filters": "Enables setting filters from circuit signals",
-    "circuit_set_stack_size": "Enables setting stack size from signal",
-    "circuit_set_recipe": "Enables setting recipe from circuit signals",
-    "signal_limits_trains": "Enables setting train limit from signal",
-    "set_priority": "Enables setting station priority from signal",
-    "use_colors": "Enables color control from circuit signals",
-    "read_status": "Enables outputting entity status",
-    "read_ammo": "Enables outputting ammo count",
+# Entity class name -> output description mapping
+ENTITY_OUTPUT_DESCRIPTIONS = {
+    "Container": {
+        "supports_output": True,
+        "description": "Item contents of the container",
+        "enable_properties": {"read_contents": "Enable reading container contents"},
+    },
+    "StorageTank": {
+        "supports_output": True,
+        "description": "Fluid level in the tank",
+        "enable_properties": {},  # Always outputs
+    },
+    "Inserter": {
+        "supports_output": True,
+        "description": "Items in hand or filter status",
+        "enable_properties": {
+            "read_hand_contents": "Read items in hand",
+            "circuit_set_filters": "Control via filters",
+        },
+    },
+    "MiningDrill": {
+        "supports_output": True,
+        "description": "Resources under the drill",
+        "enable_properties": {"read_resources": "Read resource amounts"},
+    },
+    "TransportBelt": {
+        "supports_output": True,
+        "description": "Items on the belt",
+        "enable_properties": {"read_contents": "Read belt contents"},
+    },
+    "ArithmeticCombinator": {
+        "supports_output": True,
+        "description": "Computed arithmetic result",
+        "enable_properties": {},  # Always outputs
+    },
+    "DeciderCombinator": {
+        "supports_output": True,
+        "description": "Conditional output signals",
+        "enable_properties": {},  # Always outputs
+    },
+    "SelectorCombinator": {
+        "supports_output": True,
+        "description": "Selected/filtered signals",
+        "enable_properties": {},  # Always outputs
+    },
+    "ConstantCombinator": {
+        "supports_output": True,
+        "description": "Constant signal values",
+        "enable_properties": {},  # Always outputs
+    },
+    "Accumulator": {
+        "supports_output": True,
+        "description": "Charge level percentage",
+        "enable_properties": {},
+    },
+    "Roboport": {
+        "supports_output": True,
+        "description": "Robot counts and logistics info",
+        "enable_properties": {
+            "read_logistics": "Read logistic robot counts",
+            "read_robot_stats": "Read robot statistics",
+        },
+    },
+    "TrainStop": {
+        "supports_output": True,
+        "description": "Train ID, count, and cargo",
+        "enable_properties": {
+            "read_stopped_train": "Read stopped train ID",
+            "read_trains_count": "Read incoming trains count",
+            "read_from_train": "Read train cargo",
+        },
+    },
+    "RailSignal": {
+        "supports_output": True,
+        "description": "Signal state (red/yellow/green)",
+        "enable_properties": {"read_signal": "Read signal state"},
+    },
+    "RailChainSignal": {
+        "supports_output": True,
+        "description": "Signal state (red/yellow/green/blue)",
+        "enable_properties": {"read_signal": "Read signal state"},
+    },
+    "Lamp": {
+        "supports_output": False,
+        "description": "",
+        "enable_properties": {},
+    },
+    "AssemblingMachine": {
+        "supports_output": True,
+        "description": "Recipe finished pulse, working status",
+        "enable_properties": {
+            "read_recipe_finished": "Pulse when recipe completes",
+            "read_working": "Output working status",
+        },
+    },
 }
 
-# Set of property names that are signal I/O and should be excluded from settable properties
-SIGNAL_PROPERTY_NAMES = set(SIGNAL_IO_DEFINITIONS.keys())
+
+# =============================================================================
+# Type conversion helpers
+# =============================================================================
 
 
-# DSL-friendly type mappings
-# Map Python/Draftsman types to user-friendly DSL types
-def get_dsl_type(type_str: str, prop_name: str) -> tuple[str, bool]:
-    """
-    Convert a Python type string to a DSL-friendly type description.
-    Returns (dsl_type, is_supported) tuple.
-    """
+def get_dsl_type(
+    type_str: str, prop_name: str, literal_vals: tuple | None, enum_info: EnumInfo | None
+) -> tuple[str, bool]:
+    """Convert Python type to DSL-friendly description. Returns (type_str, is_supported)."""
     type_lower = type_str.lower()
+
+    # Literal types - show possible values
+    if literal_vals:
+        if enum_info:
+            values_str = ", ".join(f'`"{v}"`' for v in literal_vals)
+            return (
+                f"One of: {values_str} ([{enum_info.name}](#{enum_info.name.lower()}))",
+                True,
+            )
+        values_str = ", ".join(f'`"{v}"`' for v in literal_vals)
+        return f"One of: {values_str}", True
 
     # Boolean types
     if "bool" in type_lower:
-        return "Boolean (0/1)", True
+        return "Boolean (`0` or `1`)", True
 
     # String types
     if prop_name in ("station", "player_description", "text"):
@@ -353,64 +431,46 @@ def get_dsl_type(type_str: str, prop_name: str) -> tuple[str, bool]:
     # Integer types
     if "int" in type_lower and "annotated" in type_lower:
         return "Integer", True
-    if prop_name in ("priority", "index_constant", "random_update_interval"):
+    if prop_name in ("priority", "index_constant", "random_update_interval", "bar"):
         return "Integer", True
 
     # Direction enum
     if "direction" in type_lower:
-        return "Integer (0-15, see Direction enum)", True
+        return "Integer (`0`-`15`, see [Direction](#direction))", True
 
     # Color type
     if "color" in type_lower and "mode" not in prop_name:
-        return "Color {r: 0-255, g: 0-255, b: 0-255}", True
+        return "Object `{r, g, b}` (0-255 each)", True
 
-    # Signal ID types
+    # Signal ID types - important for entity configuration
     if "signalid" in type_lower:
-        return "String (signal name)", True
+        return 'String (signal name, e.g. `"signal-A"`)', True
 
     # Quality
     if "quality" in type_lower and "literal" in type_lower:
-        return "String (normal/uncommon/rare/epic/legendary)", True
-
-    # Literal string types (extract values)
-    if "literal[" in type_lower:
-        # Try to extract the literal values
-        import re
-
-        match = re.search(r"literal\[([^\]]+)\]", type_str, re.IGNORECASE)
-        if match:
-            values = match.group(1).replace("'", "").replace('"', "")
-            if len(values) < 60:
-                return f"One of: {values}", True
-        return "String (see type for valid values)", True
+        return "String ([QualityID](#qualityid))", True
 
     # Enum types
     if "<enum" in type_lower:
         return "Integer (see enum reference)", True
 
-    # Lists and complex types - generally not directly settable in DSL
+    # Float/Double
+    if "float" in type_lower or "double" in type_lower:
+        return "Number", True
+
+    # Lists and complex types - not directly settable
     if "list[" in type_lower:
         return "List (complex)", False
     if "condition" in type_lower:
-        return "Condition (set via .enable)", False
+        return "Condition (use `.enable = expr`)", False
     if "vector" in type_lower:
-        return "Vector {x, y}", False
-    if "factory" in type_lower or "annotated[" in type_lower:
-        # Try to determine the base type
-        if "int" in type_lower:
-            return "Integer", True
-        if "str" in type_lower:
-            return "String", True
+        return "Vector `{x, y}`", False
 
-    # Orientation for trains
-    if "orientation" in type_lower:
-        return "Float (0.0-1.0)", True
-
-    # Default - unknown/complex
     return "Complex (see draftsman docs)", False
 
 
 def get_docstrings_from_source(cls: type) -> dict[str, str]:
+    """Extract property docstrings from class source code."""
     docstrings = {}
     for klass in cls.__mro__:
         if klass in (object,) or not hasattr(klass, "__module__"):
@@ -440,14 +500,21 @@ def get_docstrings_from_source(cls: type) -> dict[str, str]:
     return docstrings
 
 
-def get_example_value(prop_name: str, prop_type: Any, enum_info: EnumInfo | None) -> str:
+def get_example_value(
+    prop_name: str, prop_type: Any, enum_info: EnumInfo | None, literal_vals: tuple | None
+) -> str:
+    """Generate an example value for a property."""
+    if literal_vals and len(literal_vals) > 0:
+        return f'"{literal_vals[0]}"'
     if enum_info:
         first_member = next(iter(enum_info.members.items()))
         return f"{first_member[1]}  # {first_member[0]}"
+
     type_str = str(prop_type).lower() if prop_type else ""
+
     if "bool" in type_str:
         return "1"
-    elif "signal" in prop_name.lower():
+    elif "signal" in prop_name.lower() and "signalid" in type_str:
         return '"signal-A"'
     elif "color" in prop_name.lower() and "mode" not in prop_name.lower():
         return "{r: 255, g: 0, b: 0}"
@@ -457,18 +524,28 @@ def get_example_value(prop_name: str, prop_type: Any, enum_info: EnumInfo | None
         return '"Station Name"'
     elif prop_name == "recipe":
         return '"iron-gear-wheel"'
+
     return ""
 
 
+# =============================================================================
+# Entity information gathering
+# =============================================================================
+
+
 def get_entity_properties(cls: type) -> list[PropertyInfo]:
+    """Extract all settable properties from an entity class."""
     properties: list[PropertyInfo] = []
     if not attrs.has(cls):
         return properties
+
     docstrings = get_docstrings_from_source(cls)
+
     for fld in attrs.fields(cls):
         name = fld.name
         if name in SKIP_PROPS or name.startswith("_"):
             continue
+
         type_str = str(fld.type) if fld.type else "Any"
         type_str = re.sub(r"typing\.", "", type_str)
         type_str = re.sub(r"draftsman\.\w+\.", "", type_str)
@@ -476,32 +553,36 @@ def get_entity_properties(cls: type) -> list[PropertyInfo]:
         if len(type_str) > 80:
             type_str = type_str[:77] + "..."
 
-        # Get DSL-friendly type
-        dsl_type, is_supported = get_dsl_type(type_str, name)
-
-        # Check if this is a signal property
-        is_signal_prop = name in SIGNAL_PROPERTY_NAMES
-
+        # Check for enums and literals
         enum_info = find_enum_for_type(fld.type)
-        is_enum = enum_info is not None
+        literal_vals, literal_enum = find_literal_for_type(fld.type)
 
-        # Override DSL type for enums
-        if is_enum and enum_info:
+        # Use literal enum if available
+        if literal_enum:
+            enum_info = literal_enum
+
+        # Get DSL type
+        dsl_type, is_supported = get_dsl_type(type_str, name, literal_vals, enum_info)
+
+        # Override for enums
+        if enum_info and not enum_info.is_literal:
             dsl_type = f"Integer ([{enum_info.name}](#{enum_info.name.lower()}))"
             is_supported = True
 
+        # Default value
         if fld.default is attrs.NOTHING:
             default = "required"
-        elif isinstance(fld.default, attrs.Factory):  # type: ignore[arg-type]
+        elif isinstance(fld.default, attrs.Factory):
             default = "(factory)"
         elif fld.default is None:
             default = "None"
         elif isinstance(fld.default, bool):
-            default = "true" if fld.default else "false"
+            default = "1" if fld.default else "0"
         elif isinstance(fld.default, str):
             default = f'"{fld.default}"'
         else:
             default = str(fld.default)
+
         prop = PropertyInfo(
             name=name,
             type_name=type_str,
@@ -509,71 +590,51 @@ def get_entity_properties(cls: type) -> list[PropertyInfo]:
             python_type=fld.type,
             default_value=default,
             description=docstrings.get(name, ""),
-            is_enum=is_enum,
+            is_enum=enum_info is not None,
             enum_info=enum_info,
-            example_value=get_example_value(name, fld.type, enum_info),
+            literal_values=literal_vals,
+            example_value=get_example_value(name, fld.type, enum_info, literal_vals),
             is_dsl_supported=is_supported,
-            is_signal_property=is_signal_prop,
+            is_signal_property=name in SIGNAL_IO_PROPERTIES,
         )
         properties.append(prop)
-    # Sort alphabetically for consistency
+
     properties.sort(key=lambda p: p.name)
     return properties
 
 
 def get_circuit_io_info(cls: type) -> CircuitIOInfo:
-    """Extract circuit signal I/O information from an entity class."""
+    """Extract circuit I/O information from an entity class."""
     info = CircuitIOInfo()
-    mixin_names = [c.__name__ for c in cls.__mro__ if "Mixin" in c.__name__]
 
     # Check for dual connection (combinators)
     if cls.__name__ in ("ArithmeticCombinator", "DeciderCombinator", "SelectorCombinator"):
         info.has_dual_connection = True
 
-    # Get all property names from the entity
-    prop_names = set()
-    if attrs.has(cls):
-        for fld in attrs.fields(cls):
-            prop_names.add(fld.name)
-
-    # Check for specific signal properties defined in SIGNAL_IO_DEFINITIONS
-    for prop_name, (
-        direction,
-        signal_type,
-        description,
-        enable_prop,
-    ) in SIGNAL_IO_DEFINITIONS.items():
-        if prop_name in prop_names:
-            entry = SignalIOEntry(
-                property_name=prop_name,
-                direction=direction,
-                signal_type=signal_type,
-                description=description,
-                enable_property=enable_prop,
+    # Get output info from class name
+    class_name = cls.__name__
+    if class_name in ENTITY_OUTPUT_DESCRIPTIONS:
+        output_desc = ENTITY_OUTPUT_DESCRIPTIONS[class_name]
+        info.output_info = EntityOutputInfo(
+            supports_output=output_desc["supports_output"],
+            description=output_desc["description"],
+            enable_properties=output_desc.get("enable_properties", {}),
+        )
+    else:
+        # Check mixins for output capability
+        mixin_names = [c.__name__ for c in cls.__mro__ if "Mixin" in c.__name__]
+        if any("CircuitRead" in m or "CircuitConnect" in m for m in mixin_names):
+            info.output_info = EntityOutputInfo(
+                supports_output=True,
+                description="Circuit network signals",
+                enable_properties={},
             )
-            if direction == "input":
-                info.signal_inputs.append(entry)
-            else:
-                info.signal_outputs.append(entry)
-
-    # Check for generic content output capabilities based on mixins
-    if "CircuitReadContentsMixin" in mixin_names and "read_contents" in prop_names:
-        info.content_outputs.append(
-            "Item contents (all items in entity, enable with `read_contents: 1`)"
-        )
-    if "CircuitReadHandMixin" in mixin_names and "read_hand_contents" in prop_names:
-        info.content_outputs.append(
-            "Inserter hand contents (items being moved, enable with `read_hand_contents: 1`)"
-        )
-    if "CircuitReadResourceMixin" in mixin_names and "read_resources" in prop_names:
-        info.content_outputs.append(
-            "Resource amounts (resources under entity, enable with `read_resources: 1`)"
-        )
 
     return info
 
 
 def get_all_entity_classes() -> dict[str, type]:
+    """Get all entity classes from draftsman."""
     classes = {}
     for name in dir(entity_module):
         obj = getattr(entity_module, name)
@@ -588,21 +649,23 @@ def get_all_entity_classes() -> dict[str, type]:
 
 
 def get_entity_prototypes(cls: type) -> list[str]:
-    """Get ALL prototypes for this entity class."""
+    """Get all prototypes for an entity class."""
     try:
         instance = cls()
         if hasattr(instance, "similar_entities"):
-            return list(instance.similar_entities)  # No limit!
+            return list(instance.similar_entities)
         return [instance.name] if hasattr(instance, "name") and instance.name else []
     except Exception:
         return []
 
 
 def get_mixins(cls: type) -> list[str]:
+    """Get mixin class names."""
     return [c.__name__ for c in cls.__mro__ if "Mixin" in c.__name__]
 
 
 def get_entity_description(cls: type) -> str:
+    """Get entity class description."""
     doc = cls.__doc__ or ""
     lines = doc.strip().split("\n")
     result: list[str] = []
@@ -613,61 +676,92 @@ def get_entity_description(cls: type) -> str:
         if line:
             result.append(line)
     desc = " ".join(result) if result else "No description available."
-    # Clean up sphinx directives
     desc = re.sub(r"\.\.\s+\w+::\s*\S*", "", desc)
     return desc.strip()
 
 
 def get_dsl_examples(cls: type, class_name: str) -> list[str]:
+    """Get DSL code examples for an entity."""
     examples = {
         "Lamp": [
             "# Basic lamp controlled by circuit",
             'Entity lamp = place("small-lamp", 0, 0);',
             "lamp.enable = signal > 0;",
             "",
-            "# RGB colored lamp",
+            "# RGB colored lamp (color_mode: 1 = COMPONENTS)",
             'Entity rgb_lamp = place("small-lamp", 2, 0, {use_colors: 1, color_mode: 1});',
-            "rgb_lamp.r = red_signal;",
-            "rgb_lamp.g = green_signal;",
-            "rgb_lamp.b = blue_signal;",
+            "rgb_lamp.r = red_value;",
+            "rgb_lamp.g = green_value;",
+            "rgb_lamp.b = blue_value;",
+        ],
+        "SelectorCombinator": [
+            "# Selector in count mode",
+            'Entity counter = place("selector-combinator", 0, 0, {',
+            '    operation: "count",',
+            '    count_signal: "signal-C"',
+            "});",
+            "# Reading output",
+            "Bundle result = counter.output;",
         ],
         "Inserter": [
             "# Inserter that enables when chest has items",
             'Entity inserter = place("inserter", 0, 0, {direction: 4});',
-            "inserter.enable = chest_contents > 50;",
+            "inserter.enable = chest.output > 50;",
         ],
-        "TransportBelt": [
-            "# Belt that stops when storage is full",
-            'Entity belt = place("transport-belt", 0, 0, {direction: 4});',
-            "belt.enable = storage_count < 1000;",
+        "Container": [
+            "# Read chest contents",
+            'Entity chest = place("iron-chest", 0, 0);',
+            "Bundle contents = chest.output;",
+            'Signal iron = contents["iron-plate"];',
+        ],
+        "ArithmeticCombinator": [
+            "# Note: Arithmetic combinators are usually auto-generated",
+            "Signal result = input * 2 + offset;  # Creates combinator(s)",
+            "",
+            "# Manual placement if needed",
+            'Entity arith = place("arithmetic-combinator", 0, 0, {',
+            '    operation: "+"',
+            "});",
+        ],
+        "DeciderCombinator": [
+            "# Note: Decider combinators are usually auto-generated",
+            "Signal flag = (count > 100) : 1;  # Creates decider",
+        ],
+        "ConstantCombinator": [
+            "# Note: Constants are usually auto-generated",
+            "Signal constant = 42;  # Creates constant combinator",
         ],
         "TrainStop": [
             "# Train station with circuit control",
             'Entity station = place("train-stop", 0, 0, {station: "Iron Pickup"});',
-            "station.enable = has_cargo > 0;",
-        ],
-        "AssemblingMachine": [
-            "# Assembler controlled by circuit",
-            'Entity assembler = place("assembling-machine-1", 0, 0, {recipe: "iron-gear-wheel"});',
-            "assembler.enable = iron_count > 100;",
-        ],
-        "ArithmeticCombinator": [
-            "# Note: Combinators are typically generated by the compiler",
-            "Signal result = input * 2 + offset;  # Creates ArithmeticCombinator(s)",
-        ],
-        "DeciderCombinator": [
-            "# Note: Combinators are typically generated by the compiler",
-            "Signal flag = (count > 100) : 1;  # Creates DeciderCombinator",
-        ],
-        "ConstantCombinator": [
-            "# Note: Constant combinators are typically generated by the compiler",
-            "Signal constant = 42;  # Creates ConstantCombinator",
+            "station.enable = cargo.output > 0;",
+            "# Read train info",
+            "Bundle train_info = station.output;",
         ],
     }
     return examples.get(class_name, [])
 
 
+def get_draftsman_source_link(cls: type) -> str:
+    """Generate a GitHub link to the draftsman source file for this entity."""
+    try:
+        source_file = inspect.getfile(cls)
+        # Extract relative path from draftsman package
+        if "draftsman" in source_file:
+            # Get path after 'draftsman/'
+            parts = source_file.split("draftsman/")
+            if len(parts) > 1:
+                rel_path = "draftsman/" + parts[-1]
+                # Link to forked repo
+                github_url = f"https://github.com/redruin1/factorio-draftsman/blob/main/{rel_path}"
+                return github_url
+    except (TypeError, OSError):
+        pass
+    return ""
+
+
 def gather_entity_info(cls: type, class_name: str) -> EntityInfo:
+    """Gather all information about an entity class."""
     return EntityInfo(
         class_name=class_name,
         cls=cls,
@@ -680,17 +774,23 @@ def gather_entity_info(cls: type, class_name: str) -> EntityInfo:
     )
 
 
+# =============================================================================
+# Document generation
+# =============================================================================
+
+
 def generate_enum_reference() -> list[str]:
+    """Generate the enum reference section."""
     lines = [
         "## Enum Reference",
         "",
-        "When setting enum properties in the DSL, use the **integer value**.",
-        "This section lists all enums used by entity properties.",
+        "When setting enum properties in the DSL, use the **integer value** for IntEnums,",
+        "or the **string value** for Literal types.",
         "",
     ]
 
-    # List ALL enums that are actually used by entities
-    relevant_enums = [
+    # IntEnums - only include relevant ones
+    relevant_int_enums = [
         "LampColorMode",
         "Direction",
         "InserterModeOfOperation",
@@ -700,17 +800,18 @@ def generate_enum_reference() -> list[str]:
         "LogisticModeOfOperation",
         "MiningDrillReadMode",
         "SiloReadMode",
-        "SpaceConnectionReadMode",
-        "AsteroidCollectorStatus",
     ]
 
-    for enum_name in relevant_enums:
-        if enum_name not in ALL_ENUMS:
+    lines.append("### Integer Enums")
+    lines.append("")
+
+    for enum_name in relevant_int_enums:
+        if enum_name not in ALL_INT_ENUMS:
             continue
-        enum_info = ALL_ENUMS[enum_name]
+        enum_info = ALL_INT_ENUMS[enum_name]
         lines.extend(
             [
-                f'### <a id="{enum_name.lower()}"></a>{enum_name}',
+                f'#### <a id="{enum_name.lower()}"></a>{enum_name}',
                 "",
                 "| DSL Value | Enum Name |",
                 "|-----------|-----------|",
@@ -719,80 +820,78 @@ def generate_enum_reference() -> list[str]:
         for member_name, value in enum_info.members.items():
             lines.append(f"| `{value}` | {member_name} |")
         lines.append("")
+
+    # Literal types
+    lines.append("### String Enums (Literal Types)")
+    lines.append("")
+    lines.append("These properties accept string values. Use the exact string shown.")
+    lines.append("")
+
+    for enum_name, enum_info in sorted(ALL_LITERAL_TYPES.items()):
+        lines.extend(
+            [
+                f'#### <a id="{enum_name.lower()}"></a>{enum_name}',
+                "",
+                "| Valid Values |",
+                "|-------------|",
+            ]
+        )
+        for value in enum_info.members:
+            lines.append(f'| `"{value}"` |')
+        lines.append("")
+
     return lines
 
 
-def format_type_with_enum_link(prop: PropertyInfo) -> str:
-    """Format type string with enum link if applicable."""
-    if prop.is_enum and prop.enum_info:
-        return f"{prop.type_name} ([{prop.enum_info.name}](#{prop.enum_info.name.lower()}))"
-    return prop.type_name
-
-
-# Track unsupported properties across all entities
-UNSUPPORTED_PROPERTIES: set[tuple[str, str]] = set()  # (property_name, dsl_type)
-
-
 def generate_entity_section(entity: EntityInfo) -> list[str]:
+    """Generate documentation section for a single entity."""
     lines = [f"### {entity.class_name}", ""]
 
     # Description
     lines.append(f"**Description:** {entity.description}")
     lines.append("")
 
-    # ALL prototypes
+    # Draftsman source link
+    source_link = get_draftsman_source_link(entity.cls)
+    if source_link:
+        lines.append(f"**Draftsman Source:** [{entity.class_name} class]({source_link})")
+        lines.append("")
+
+    # Prototypes
     if entity.prototypes:
-        proto_str = ", ".join(f'`"{p}"`' for p in entity.prototypes)
+        proto_str = ", ".join(f'`"{p}"`' for p in entity.prototypes[:10])
+        if len(entity.prototypes) > 10:
+            proto_str += f", ... ({len(entity.prototypes)} total)"
         lines.extend([f"**Prototypes:** {proto_str}", ""])
 
-    # Circuit connection type
+    # Circuit connection info
     io = entity.circuit_io
     if io.has_dual_connection:
-        lines.append(
-            "**Connection Type:** Dual circuit connection (separate input and output sides)"
-        )
+        lines.append("**Connection Type:** Dual circuit (separate input/output sides)")
     else:
         lines.append("**Connection Type:** Single circuit connection")
     lines.append("")
 
-    # === Circuit Signal I/O Section ===
-    has_signal_io = io.signal_inputs or io.signal_outputs or io.content_outputs
-    if has_signal_io:
-        lines.append("#### Circuit Signal I/O")
+    # === Entity Output Section ===
+    output_info = io.output_info
+    if output_info.supports_output:
+        lines.append("#### Reading Entity Output")
+        lines.append("")
+        lines.append(f"Use `entity.output` to read: **{output_info.description}**")
+        lines.append("")
+        lines.append("```facto")
+        lines.append(
+            f'Entity e = place("{entity.prototypes[0] if entity.prototypes else entity.class_name.lower()}", 0, 0);'
+        )
+        lines.append("Bundle signals = e.output;  # Returns all output signals")
+        lines.append("```")
         lines.append("")
 
-        # Signal Inputs Table
-        if io.signal_inputs:
-            lines.append("**Signal Inputs:**")
+        if output_info.enable_properties:
+            lines.append("**Enable properties:**")
             lines.append("")
-            lines.append("| Signal Property | Signal Type | Description | Enable With |")
-            lines.append("|-----------------|-------------|-------------|-------------|")
-            for sig in io.signal_inputs:
-                enable = f"`{sig.enable_property}`" if sig.enable_property else "Always active"
-                lines.append(
-                    f"| `{sig.property_name}` | {sig.signal_type} | {sig.description} | {enable} |"
-                )
-            lines.append("")
-
-        # Signal Outputs Table
-        if io.signal_outputs:
-            lines.append("**Signal Outputs:**")
-            lines.append("")
-            lines.append("| Signal Property | Signal Type | Description | Enable With |")
-            lines.append("|-----------------|-------------|-------------|-------------|")
-            for sig in io.signal_outputs:
-                enable = f"`{sig.enable_property}`" if sig.enable_property else "Always active"
-                lines.append(
-                    f"| `{sig.property_name}` | {sig.signal_type} | {sig.description} | {enable} |"
-                )
-            lines.append("")
-
-        # Content outputs (generic item/resource outputs)
-        if io.content_outputs:
-            lines.append("**Content Outputs:**")
-            lines.append("")
-            for content in io.content_outputs:
-                lines.append(f"- {content}")
+            for prop, desc in output_info.enable_properties.items():
+                lines.append(f"- `{prop}`: {desc}")
             lines.append("")
 
     # DSL Examples
@@ -802,36 +901,44 @@ def generate_entity_section(entity: EntityInfo) -> list[str]:
         lines.extend(["```", ""])
 
     # === Settable Properties Section ===
-    # Filter out signal properties (they're in the Circuit Signal I/O section)
     settable_props = [p for p in entity.properties if not p.is_signal_property]
 
     if settable_props:
         lines.append("#### Settable Properties")
         lines.append("")
-        lines.append(
-            'Set at placement: `place("name", x, y, {prop: value})` or after: `entity.prop = value`'
-        )
+        lines.append('Set at placement: `place("name", x, y, {prop: value})`')
         lines.append("")
         lines.append("| Property | Type | Default | Example |")
         lines.append("|----------|------|---------|---------|")
+
         for prop in settable_props:
-            # Use DSL type, not Python type
             type_str = prop.dsl_type
-            example = f"`{prop.example_value}`" if prop.example_value else ""
-
-            # Track unsupported properties
             if not prop.is_dsl_supported:
-                UNSUPPORTED_PROPERTIES.add((prop.name, prop.dsl_type))
-                type_str = f"{prop.dsl_type} ⚠️"  # Mark as potentially unsupported
-
+                type_str = f"{prop.dsl_type} ⚠️"
+            example = f"`{prop.example_value}`" if prop.example_value else ""
             lines.append(f"| `{prop.name}` | {type_str} | {prop.default_value} | {example} |")
+        lines.append("")
+
+    # Signal configuration properties
+    signal_props = [p for p in entity.properties if p.is_signal_property]
+    if signal_props:
+        lines.append("#### Signal Configuration")
+        lines.append("")
+        lines.append("Properties for configuring which signals the entity uses:")
+        lines.append("")
+        lines.append("| Property | Type | Description |")
+        lines.append("|----------|------|-------------|")
+        for prop in signal_props:
+            lines.append(
+                f"| `{prop.name}` | {prop.dsl_type} | {prop.description[:60]}{'...' if len(prop.description) > 60 else ''} |"
+            )
         lines.append("")
 
     lines.extend(["---", ""])
     return lines
 
 
-# Entity categorization - will add uncategorized entities to "Other" automatically
+# Entity categorization
 ENTITY_CATEGORIES = {
     "Combinators": [
         "ArithmeticCombinator",
@@ -847,7 +954,6 @@ ENTITY_CATEGORIES = {
         "Splitter",
         "Loader",
         "LinkedBelt",
-        "LaneLaneSplitter",
     ],
     "Train System": [
         "TrainStop",
@@ -857,18 +963,6 @@ ENTITY_CATEGORIES = {
         "CargoWagon",
         "FluidWagon",
         "ArtilleryWagon",
-        "StraightRail",
-        "CurvedRailA",
-        "CurvedRailB",
-        "HalfDiagonalRail",
-        "RailRamp",
-        "RailSupport",
-        "ElevatedStraightRail",
-        "ElevatedCurvedRailA",
-        "ElevatedCurvedRailB",
-        "ElevatedHalfDiagonalRail",
-        "LegacyStraightRail",
-        "LegacyCurvedRail",
     ],
     "Production": [
         "AssemblingMachine",
@@ -879,13 +973,7 @@ ENTITY_CATEGORIES = {
         "Beacon",
         "Boiler",
         "Generator",
-        "BurnerGenerator",
         "Reactor",
-        "FusionReactor",
-        "FusionGenerator",
-        "LightningAttractor",
-        "LightningRod",
-        "AgriculturalTower",
     ],
     "Storage": [
         "Container",
@@ -894,16 +982,14 @@ ENTITY_CATEGORIES = {
         "LogisticStorageContainer",
         "LogisticRequestContainer",
         "LogisticBufferContainer",
-        "LinkedContainer",
     ],
     "Power": [
         "ElectricPole",
         "PowerSwitch",
         "Accumulator",
         "SolarPanel",
-        "ElectricEnergyInterface",
     ],
-    "Fluids": ["Pump", "StorageTank", "OffshorePump", "Pipe", "PipeToGround", "InfinityPipe"],
+    "Fluids": ["Pump", "StorageTank", "OffshorePump", "Pipe", "PipeToGround"],
     "Combat": [
         "Radar",
         "ArtilleryTurret",
@@ -912,9 +998,9 @@ ENTITY_CATEGORIES = {
         "FluidTurret",
         "Wall",
         "Gate",
-        "Landmine",
+        "LandMine",
     ],
-    "Robots & Logistics": ["Roboport", "ConstructionRobot", "LogisticRobot"],
+    "Robots & Logistics": ["Roboport"],
     "Space": ["SpacePlatformHub", "CargoLandingPad", "AsteroidCollector", "CargoBay", "Thruster"],
     "Misc": [
         "ProgrammableSpeaker",
@@ -922,13 +1008,12 @@ ENTITY_CATEGORIES = {
         "SpiderVehicle",
         "HeatPipe",
         "HeatInterface",
-        "SimpleEntityWithOwner",
-        "SimpleEntityWithForce",
     ],
 }
 
 
 def generate_documentation() -> str:
+    """Generate complete documentation."""
     lines = [
         "# Entity Reference for Facto",
         "",
@@ -936,25 +1021,37 @@ def generate_documentation() -> str:
         f"**Draftsman version:** {draftsman.__version__}",
         "",
         "This is the **complete reference** for all entities available in the DSL.",
-        "Each entity lists its prototypes, circuit I/O capabilities, and all settable properties.",
         "",
         "## Table of Contents",
         "",
         "- [Using Entities in the DSL](#using-entities-in-the-dsl)",
+        "- [Reading Entity Outputs](#reading-entity-outputs)",
         "- [Enum Reference](#enum-reference)",
     ]
 
-    # Add category links
+    # Category links
     for category in ENTITY_CATEGORIES:
         anchor = category.lower().replace(" ", "-").replace("&", "").replace("  ", "-")
         lines.append(f"- [{category}](#{anchor})")
-    lines.append("- [Uncategorized Entities](#uncategorized-entities)")
+    lines.append("- [Other Entities](#other-entities)")
     lines.append("")
 
     # Usage section
     lines.extend(
         [
             "## Using Entities in the DSL",
+            "",
+            "### How the Compiler Handles Entities",
+            "",
+            "When you use `place()` in Facto, the compiler creates a corresponding",
+            "[Draftsman](https://github.com/Snagnar/factorio-draftsman) entity object.",
+            "Properties specified in the placement object (the `{...}` part) are passed directly",
+            "to Draftsman as Python attributes during entity construction. The compiler validates",
+            "that property names and types match what Draftsman expects for that entity class.",
+            "",
+            "Circuit-controlled properties (like `entity.enable = expression`) are handled differently:",
+            "the compiler generates the necessary combinator logic and wire connections to implement",
+            "the circuit behavior, then sets the appropriate control properties on the entity.",
             "",
             "### Placement Syntax",
             "",
@@ -964,31 +1061,57 @@ def generate_documentation() -> str:
             "",
             "### Setting Properties",
             "",
-            "**At placement time** (in the property dictionary):",
+            "**At placement time:**",
             "```facto",
             'Entity lamp = place("small-lamp", 0, 0, {use_colors: 1, color_mode: 1});',
             "```",
             "",
-            "**After placement** (for circuit-controlled values):",
+            "**After placement (circuit-controlled):**",
             "```facto",
-            "lamp.enable = signal > 0;  # Control based on circuit signal",
-            "lamp.r = red_value;        # Dynamic RGB control",
+            "lamp.enable = signal > 0;",
+            "lamp.r = red_value;",
             "```",
             "",
-            "### Enum Properties",
+        ]
+    )
+
+    # Reading Entity Outputs - NEW SECTION
+    lines.extend(
+        [
+            "## Reading Entity Outputs",
             "",
-            "Enum properties accept **integer values**. See the [Enum Reference](#enum-reference) for all values.",
+            "Most entities can output circuit signals. Access them using `.output`:",
             "",
             "```facto",
-            'Entity lamp = place("small-lamp", 0, 0, {color_mode: 1});  # 1 = COMPONENTS',
+            "# Read all signals from a container",
+            'Entity chest = place("iron-chest", 0, 0, {read_contents: 1});',
+            "Bundle contents = chest.output;",
+            "",
+            "# Extract a specific signal",
+            'Signal iron_count = contents["iron-plate"];',
+            "",
+            "# Use in calculations",
+            "Signal need_more = (iron_count < 100) : 1;",
             "```",
             "",
-            "### Boolean Properties",
+            "### Output Types by Entity",
             "",
-            "Boolean properties accept `1` (true) or `0` (false):",
-            "```facto",
-            'Entity lamp = place("small-lamp", 0, 0, {use_colors: 1, always_on: 1});',
-            "```",
+            "| Entity Type | What `.output` Returns | Enable Property |",
+            "|-------------|------------------------|-----------------|",
+            "| Combinators | Computed result signals | (always active) |",
+            "| Containers | Item counts | `read_contents: 1` |",
+            "| Storage Tanks | Fluid level | (always active) |",
+            "| Inserters | Hand contents | `read_hand_contents: 1` |",
+            "| Belts | Belt contents | `read_contents: 1` |",
+            "| Mining Drills | Resource amounts | `read_resources: 1` |",
+            "| Train Stops | Train ID, count | `read_stopped_train: 1`, etc. |",
+            "| Rail Signals | Signal state | `read_signal: 1` |",
+            "| Roboports | Robot counts | `read_logistics: 1` |",
+            "",
+            "### Note on Combinators",
+            "",
+            "For combinators (arithmetic, decider, selector), the `.output` reads from the",
+            "**output side** of the combinator, which is the result of its computation.",
             "",
         ]
     )
@@ -998,13 +1121,10 @@ def generate_documentation() -> str:
 
     # Get all entity classes
     entity_classes = get_all_entity_classes()
-
-    # Track which entities are categorized
     categorized = set()
 
     # Generate sections by category
     for category, class_names in ENTITY_CATEGORIES.items():
-        # Only include category if it has any entities
         category_entities = [name for name in class_names if name in entity_classes]
         if not category_entities:
             continue
@@ -1019,60 +1139,42 @@ def generate_documentation() -> str:
             entity = gather_entity_info(cls, class_name)
             lines.extend(generate_entity_section(entity))
 
-    # Generate sections for ALL uncategorized entities (no truncation!)
+    # Uncategorized entities
     uncategorized = [name for name in sorted(entity_classes.keys()) if name not in categorized]
     if uncategorized:
         lines.extend(
             [
-                "## Uncategorized Entities",
+                "## Other Entities",
                 "",
-                "The following entities are available but not yet categorized.",
-                "They still have full documentation below.",
+                "Additional entities not in the main categories:",
                 "",
             ]
         )
-
         for class_name in uncategorized:
             cls = entity_classes[class_name]
             entity = gather_entity_info(cls, class_name)
             lines.extend(generate_entity_section(entity))
 
-    # Add notes section about unsupported/complex types
-    if UNSUPPORTED_PROPERTIES:
-        lines.extend(
-            [
-                "## Notes on Complex Property Types",
-                "",
-                "Some properties marked with ⚠️ have complex types that may not be directly settable",
-                "in the current DSL syntax. These typically include:",
-                "",
-                "| Type | Description | Workaround |",
-                "|------|-------------|------------|",
-                "| List | Arrays of items/filters | May require special syntax |",
-                "| Condition | Circuit conditions | Use `.enable = signal > value` syntax |",
-                "| Vector | Position offsets | Use `{x: value, y: value}` |",
-                "| Complex | Other structured data | See draftsman documentation |",
-                "",
-                "For full details on complex types, refer to the ",
-                "[Draftsman documentation](https://factorio-draftsman.readthedocs.io/en/latest/).",
-                "",
-            ]
-        )
-
     return "\n".join(lines)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Generate comprehensive entity documentation for the Facto"
-    )
+    parser = argparse.ArgumentParser(description="Generate entity documentation for the Facto")
     parser.add_argument("--output", "-o", help="Output file path (default: stdout)")
+    parser.add_argument("--update", help="Update existing file (targeted changes)")
     args = parser.parse_args()
 
     print("Gathering entity information...", file=sys.stderr)
     content = generate_documentation()
 
-    if args.output:
+    if args.update:
+        # TODO: Implement targeted update mode
+        # For now, just regenerate
+        print("Note: Full regeneration mode (targeted update not yet implemented)", file=sys.stderr)
+        with open(args.update, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"Documentation written to: {args.update}", file=sys.stderr)
+    elif args.output:
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(content)
         print(f"Documentation written to: {args.output}", file=sys.stderr)

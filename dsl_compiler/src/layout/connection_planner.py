@@ -8,6 +8,7 @@ from typing import Any
 
 from dsl_compiler.src.common.constants import DEFAULT_CONFIG, CompilerConfig
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.common.entity_data import is_dual_circuit_connectable
 from dsl_compiler.src.ir.builder import BundleRef, SignalRef
 
 from .layout_plan import LayoutPlan, WireConnection
@@ -1069,23 +1070,23 @@ class ConnectionPlanner:
     def _get_connection_side(self, entity_id: str, is_source: bool) -> str | None:
         """Determine if entity needs 'input'/'output' side specified.
 
+        Entities with dual circuit connectors (like arithmetic-combinator, decider-combinator,
+        selector-combinator) have separate input and output sides. When wiring these entities,
+        we need to specify which side to connect to.
+
         Args:
             entity_id: Entity to check
             is_source: True if this entity is producing the signal
 
         Returns:
-            'output' for source combinators, 'input' for sink combinators, None otherwise
+            'output' for source side of dual-connectable entities,
+            'input' for sink side, None otherwise
         """
         placement = self.layout_plan.get_placement(entity_id)
         if not placement:
             return None
 
-        combinator_types = {
-            "arithmetic-combinator",
-            "decider-combinator",
-        }
-
-        if placement.entity_type in combinator_types:
+        if is_dual_circuit_connectable(placement.entity_type):
             return "output" if is_source else "input"
 
         return None

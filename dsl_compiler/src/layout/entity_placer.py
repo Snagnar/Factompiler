@@ -538,6 +538,13 @@ class EntityPlacer:
                 "type": "signal",
                 "signal_ref": op.value,
             }
+        elif isinstance(op.value, BundleRef):
+            # Bundle reference - register as signal sink to create wire connection
+            self._add_signal_sink(op.value, op.entity_id)
+            placement.properties["property_writes"][op.property_name] = {
+                "type": "bundle",
+                "bundle_ref": op.value,
+            }
         elif isinstance(op.value, int):
             placement.properties["property_writes"][op.property_name] = {
                 "type": "constant",

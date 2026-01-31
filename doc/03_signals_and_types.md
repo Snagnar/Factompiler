@@ -440,6 +440,26 @@ Signal allBelow1000 = all(levels) < 1000;  # True
 - `any()` compiles to `signal-anything`
 - `all()` compiles to `signal-everything`
 
+### Bundle Filtering
+
+Filter a bundle to keep only signals that pass a comparison:
+
+```facto
+Bundle requests = { ("signal-A", 10), ("signal-B", 5), ("signal-C", -3) };
+
+# Keep only positive values (preserving their counts)
+Bundle pending = (requests > 0) : requests;
+# Result: signal-A=10, signal-B=5 (signal-C is filtered out)
+
+# Output constant 1 for each matching signal
+Bundle counts = (requests > 0) : 1;
+# Result: signal-A=1, signal-B=1
+```
+
+This compiles to a single decider combinator using `signal-each`. The syntax is `(bundle COMPARISON scalar) : output`, where output can be:
+- A bundle: preserves original signal values
+- An integer: outputs that constant for each matching signal
+
 ---
 
 ## For Loops
