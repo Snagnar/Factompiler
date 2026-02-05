@@ -328,9 +328,24 @@ class LayoutPlanner:
         source_entity = self._resolve_source_entity(signal_id)
 
         if source_entity and self.connection_planner is not None:
-            color = self.connection_planner.get_wire_color_for_edge(
-                source_entity, placement.ir_node_id, output_value
-            )
+            # For bundle gating, the decider outputs signal-everything but the
+            # bundle source uses signal-each. Try both when looking up wire color.
+            lookup_signals = [output_value]
+            if output_value == "signal-everything":
+                lookup_signals.append("signal-each")
+
+            color = "red"  # Default
+            for lookup_signal in lookup_signals:
+                found_color = self.connection_planner.get_wire_color_for_edge(
+                    source_entity, placement.ir_node_id, lookup_signal
+                )
+                # get_wire_color_for_edge returns "red" as default when not found,
+                # but if we explicitly find an edge, use that color
+                edge_key = (source_entity, placement.ir_node_id, lookup_signal)
+                if edge_key in self.connection_planner._edge_wire_colors:
+                    color = found_color
+                    break
+
             placement.properties["output_value_wires"] = {color}
             return injected_count + 1
         else:
@@ -542,14 +557,19 @@ class LayoutPlanner:
                     )
 
         # Lock wire colors for bundle operations with signal operands
-        # Left operand (bundle/each) -> red, Right operand (scalar) -> green
+        # For arithmetic: Left operand (bundle/each) -> red, Right operand (scalar) -> green
+        # For deciders (bundle gating): Left operand (condition) -> red, Output value (bundle) -> green
         for entity_id, placement in self.layout_plan.entity_placements.items():
-            if placement.properties.get("needs_wire_separation"):
-                # Get the source IDs for left and right operands
+            if not placement.properties.get("needs_wire_separation"):
+                continue
+
+            entity_type = placement.entity_type
+
+            if entity_type == "arithmetic-combinator":
+                # Arithmetic bundle ops: lock right operand (scalar) to green
                 right_signal_id = placement.properties.get("right_operand_signal_id")
                 right_operand = placement.properties.get("right_operand")
 
-                # Lock the right operand source to green wire
                 if (
                     right_signal_id
                     and isinstance(right_operand, str)
@@ -559,6 +579,34 @@ class LayoutPlanner:
                     locked[(source_id, right_operand)] = "green"
                     self.diagnostics.info(
                         f"Bundle wire separation: locked {source_id}/{right_operand} to green for {entity_id}"
+                    )
+
+            elif entity_type == "decider-combinator":
+                # Decider bundle gating: lock output_value (bundle) to green
+                # The condition signal (left operand) stays on red
+                output_value_signal_id = placement.properties.get("output_value_signal_id")
+
+                if output_value_signal_id and hasattr(output_value_signal_id, "source_id"):
+                    bundle_ir_node_id = output_value_signal_id.source_id
+
+                    # Resolve to the actual physical entity ID via signal graph
+                    # For entity outputs (e.g., roboport), entity_output_ir_X maps to entity_ir_Y
+                    actual_source_entity = self.signal_graph.get_source(bundle_ir_node_id)
+                    if actual_source_entity is None:
+                        actual_source_entity = bundle_ir_node_id
+
+                    # Get the resolved signal name from signal usage
+                    # This is the signal name used in the actual circuit edge
+                    usage_entry = self.signal_analyzer.signal_usage.get(bundle_ir_node_id)  # type: ignore[union-attr]
+                    if usage_entry and usage_entry.resolved_signal_name:
+                        resolved_name = usage_entry.resolved_signal_name
+                    else:
+                        # Fallback to the IR node ID as signal name if no resolved name
+                        resolved_name = bundle_ir_node_id
+
+                    locked[(actual_source_entity, resolved_name)] = "green"
+                    self.diagnostics.info(
+                        f"Bundle gating wire separation: locked {actual_source_entity}/{resolved_name} to green for {entity_id}"
                     )
 
         return locked

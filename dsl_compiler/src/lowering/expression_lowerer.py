@@ -206,11 +206,23 @@ class ExpressionLowerer:
         When inside a function, parameter references may have different types than
         their semantic analysis types. This method extracts the actual signal type
         from the ValueRef if possible.
+
+        NOTE: Pure virtual signals (signal-anything, signal-everything, signal-each)
+        are only valid as inputs to deciders, not as output types. We must NOT
+        override semantic types with these signals, as they cannot be used as
+        output signals for deciders or operands for arithmetic combinators.
         """
         from dsl_compiler.src.semantic.type_system import SignalTypeInfo, SignalValue
 
+        # Pure virtual signals that can only be used as inputs to decider conditions
+        PURE_VIRTUAL_SIGNALS = {"signal-anything", "signal-everything", "signal-each"}
+
         if isinstance(value_ref, SignalRef):
             signal_type_name = value_ref.signal_type
+            # Don't override semantic type with pure virtual signals - they can only
+            # be used as decider inputs, not as output types or arithmetic operands
+            if signal_type_name in PURE_VIRTUAL_SIGNALS:
+                return semantic_type
             semantic_signal_type = get_signal_type_name(semantic_type)
             if signal_type_name and signal_type_name != semantic_signal_type:
                 return SignalValue(
@@ -717,6 +729,22 @@ class ExpressionLowerer:
 
         # Lower the output value
         output_value_ref = self.lower_expr(expr.output_value)
+
+        # Handle bundle gating pattern: (signal CMP const) : bundle
+        # This outputs the entire bundle when condition is true
+        if isinstance(output_value_ref, BundleRef):
+            # Bundle output - use signal-each to pass through all signals
+            # The decider will output all signals from input when condition is met
+            result = self.ir_builder.bundle_gating_decider(
+                op=comparison.op,
+                left=left_ref,
+                right=right_ref,
+                bundle=output_value_ref,
+                copy_count_from_input=True,
+                source_ast=expr,
+            )
+            self._attach_expr_context(result.source_id, expr)
+            return result
 
         # Determine output signal type from the output_value
         # When inside a function, the lowered value may have a more specific signal type

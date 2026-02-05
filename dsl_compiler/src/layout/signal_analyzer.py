@@ -159,9 +159,14 @@ class SignalAnalyzer:
                 record_consumer(op.left, op.node_id)
                 record_consumer(op.right, op.node_id)
             elif isinstance(op, IRDecider):
+                # Legacy single-condition mode
                 record_consumer(op.left, op.node_id)
                 record_consumer(op.right, op.node_id)
                 record_consumer(op.output_value, op.node_id)
+                # Multi-condition mode (Factorio 2.0)
+                for cond in op.conditions:
+                    record_consumer(cond.first_operand, op.node_id)
+                    record_consumer(cond.second_operand, op.node_id)
             elif isinstance(op, IRMemCreate):
                 if hasattr(op, "initial_value") and op.initial_value is not None:
                     record_consumer(op.initial_value, op.node_id)

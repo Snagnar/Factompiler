@@ -356,6 +356,70 @@ class IRBuilder:
         self.add_operation(arith_op)
         return BundleRef(bundle.signal_types.copy(), node_id, source_ast=source_ast)
 
+    def bundle_gating_decider(
+        self,
+        op: str,
+        left: ValueRef,
+        right: ValueRef,
+        bundle: BundleRef,
+        copy_count_from_input: bool = True,
+        output_value: int = 1,
+        source_ast: ASTNode | None = None,
+    ) -> BundleRef:
+        """Create a decider combinator that gates a bundle based on a scalar condition.
+
+        When condition (left op right) is true, outputs all signals from the bundle.
+        This is different from bundle_decider which filters individual signals.
+
+        Example: (a >= 0) : bundle
+        - Condition: a >= 0
+        - When true: output ALL signals from bundle with their values
+
+        Args:
+            op: Comparison operator (>, <, ==, !=, >=, <=)
+            left: Left operand of condition (typically a signal)
+            right: Right operand of condition (typically a constant)
+            bundle: Bundle to output when condition is true
+            copy_count_from_input: If True, preserve signal values from bundle
+            output_value: Constant value if copy_count_from_input=False
+            source_ast: Source AST for debugging
+
+        Returns:
+            BundleRef pointing to the gated bundle output
+        """
+        from dsl_compiler.src.ir.nodes import IRDecider
+
+        node_id = self.next_id("bundle_gate")
+
+        # Create decider with the scalar condition, outputting signal-everything
+        # This makes the decider pass through ALL input signals when condition is met
+        # Note: signal-everything outputs all signals, while signal-each would filter
+        decider = IRDecider(node_id, "signal-everything", source_ast)
+        decider.test_op = op
+        decider.left = left
+        decider.right = right
+        decider.copy_count_from_input = copy_count_from_input
+        decider.output_value = (
+            SignalRef("signal-everything", bundle.source_id)
+            if copy_count_from_input
+            else output_value
+        )
+
+        # Mark that we need wire separation if the condition signal overlaps with bundle
+        # This ensures the condition signal doesn't get processed as part of the bundle
+        if isinstance(left, SignalRef):
+            decider.debug_metadata["needs_wire_separation"] = True
+            decider.debug_metadata["condition_signal_id"] = left.source_id
+            decider.debug_metadata["bundle_source_id"] = bundle.source_id
+
+        self.add_operation(decider)
+
+        return BundleRef(
+            bundle.signal_types.copy(),
+            node_id,
+            source_ast=source_ast,
+        )
+
     def bundle_decider(
         self,
         op: str,

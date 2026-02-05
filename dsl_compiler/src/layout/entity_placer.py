@@ -304,6 +304,9 @@ class EntityPlacer:
         # Use the copy_count_from_input field from the IR node
         copy_count_from_input = op.copy_count_from_input
 
+        # Check for wire separation flag (used by bundle gating pattern)
+        needs_wire_separation = op.debug_metadata.get("needs_wire_separation", False)
+
         self.plan.create_and_add_placement(
             ir_node_id=op.node_id,
             entity_type="decider-combinator",
@@ -320,6 +323,7 @@ class EntityPlacer:
             output_value=output_value,
             output_value_signal_id=op.output_value if copy_count_from_input else None,
             copy_count_from_input=copy_count_from_input,
+            needs_wire_separation=needs_wire_separation,
         )
 
         self.signal_graph.set_source(op.node_id, op.node_id)
