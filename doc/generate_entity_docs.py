@@ -127,7 +127,7 @@ def get_all_int_enums() -> dict[str, EnumInfo]:
             and issubclass(obj, (IntEnum, Enum))
             and hasattr(obj, "__members__")
         ):
-            members = {}
+            members: dict[str, int | str] = {}
             for member_name, member in obj.__members__.items():
                 try:
                     val = member.value
@@ -297,7 +297,7 @@ SIGNAL_IO_PROPERTIES = {
 }
 
 # Entity class name -> output description mapping
-ENTITY_OUTPUT_DESCRIPTIONS = {
+ENTITY_OUTPUT_DESCRIPTIONS: dict[str, dict[str, Any]] = {
     "Container": {
         "supports_output": True,
         "description": "Item contents of the container",
@@ -572,7 +572,7 @@ def get_entity_properties(cls: type) -> list[PropertyInfo]:
         # Default value
         if fld.default is attrs.NOTHING:
             default = "required"
-        elif isinstance(fld.default, attrs.Factory):
+        elif isinstance(fld.default, attrs.Factory):  # type: ignore[arg-type]
             default = "(factory)"
         elif fld.default is None:
             default = "None"
@@ -890,8 +890,8 @@ def generate_entity_section(entity: EntityInfo) -> list[str]:
         if output_info.enable_properties:
             lines.append("**Enable properties:**")
             lines.append("")
-            for prop, desc in output_info.enable_properties.items():
-                lines.append(f"- `{prop}`: {desc}")
+            for prop_name, desc in output_info.enable_properties.items():
+                lines.append(f"- `{prop_name}`: {desc}")
             lines.append("")
 
     # DSL Examples

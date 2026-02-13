@@ -170,6 +170,12 @@ class SignalAnalyzer:
             elif isinstance(op, IRMemCreate):
                 if hasattr(op, "initial_value") and op.initial_value is not None:
                     record_consumer(op.initial_value, op.node_id)
+                # Exclude memory signal types from auto-allocation pool to
+                # prevent collisions between memory cells and auto-allocated signals
+                if op.signal_type and op.signal_type not in self._allocated_signals:
+                    self._allocated_signals.add(op.signal_type)
+                    with suppress(ValueError):
+                        self._available_signal_pool.remove(op.signal_type)
             elif isinstance(op, IRMemWrite):
                 entry = ensure_entry(op.node_id)
                 if not entry.debug_label:

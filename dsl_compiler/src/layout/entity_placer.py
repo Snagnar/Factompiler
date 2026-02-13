@@ -359,6 +359,7 @@ class EntityPlacer:
                 else:
                     first_op = self.signal_analyzer.get_operand_for_combinator(cond.first_operand)
                     cond_dict["first_signal"] = first_op
+                    cond_dict["first_operand_signal_id"] = cond.first_operand
                     all_operands.append(cond.first_operand)
             elif cond.first_signal:
                 # Layout-time: string already resolved
@@ -376,6 +377,7 @@ class EntityPlacer:
                 else:
                     second_op = self.signal_analyzer.get_operand_for_combinator(cond.second_operand)
                     cond_dict["second_signal"] = second_op
+                    cond_dict["second_operand_signal_id"] = cond.second_operand
                     all_operands.append(cond.second_operand)
             elif cond.second_signal:
                 # Layout-time: string already resolved

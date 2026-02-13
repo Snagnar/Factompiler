@@ -192,6 +192,67 @@ class TestEndToEndCompilation:
         assert len(result) > 50, "Blueprint string should be substantial"
         assert result.startswith("0eN"), "Blueprint should start with base64 header"
 
+    def test_same_signal_operand_wire_separation(self):
+        """Test that two operands of the same signal type from different sources
+        get different wire colors on the combinator input.
+
+        Regression test: without wire color separation, both operands see the
+        same summed value on the same wire, making subtraction always produce 0.
+        """
+        dsl_code = """
+        # Two sources of iron-plate: one from a bundle, one from a train stop
+        Entity stop = place("train-stop", 0, 0, {
+            station: "Test",
+            read_from_train: 1,
+            read_stopped_train: 1
+        });
+        Signal cargo = stop.output["iron-plate"];
+
+        Bundle bus = { ("iron-plate", 0) };
+        Signal qty = bus["iron-plate"];
+
+        # Same signal type on both sides of the subtraction
+        Signal remaining = qty - cargo;
+        """
+        success, result = self._run_full_pipeline(dsl_code, "Wire Separation Test")
+        assert success, f"Compilation failed: {result}"
+
+        bp = self._blueprint_from_string(result)
+        bp_dict = bp.to_dict()
+        entities = bp_dict["blueprint"]["entities"]
+
+        # Find the arithmetic combinator performing the subtraction
+        arith = None
+        for e in entities:
+            if e["name"] == "arithmetic-combinator":
+                ac = e.get("control_behavior", {}).get("arithmetic_conditions", {})
+                if ac.get("operation") == "-":
+                    arith = ac
+                    break
+
+        assert arith is not None, "No subtraction arithmetic combinator found"
+
+        # Verify the two operands read from DIFFERENT networks
+        first_nets = arith.get("first_signal_networks", {})
+        second_nets = arith.get("second_signal_networks", {})
+
+        first_red_only = first_nets.get("green") is False and first_nets.get("red") is not False
+        first_green_only = first_nets.get("red") is False and first_nets.get("green") is not False
+        second_red_only = second_nets.get("green") is False and second_nets.get("red") is not False
+        second_green_only = (
+            second_nets.get("red") is False and second_nets.get("green") is not False
+        )
+
+        # They must NOT both read from the same single network
+        assert not (first_red_only and second_red_only), (
+            "Both operands read from RED only — same-signal values will sum and "
+            f"subtraction always produces 0. first_nets={first_nets}, second_nets={second_nets}"
+        )
+        assert not (first_green_only and second_green_only), (
+            "Both operands read from GREEN only — same-signal values will sum and "
+            f"subtraction always produces 0. first_nets={first_nets}, second_nets={second_nets}"
+        )
+
 
 @pytest.mark.end2end
 class TestCompilerPipelineStages:

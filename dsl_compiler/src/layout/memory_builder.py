@@ -200,6 +200,11 @@ class MemoryBuilder:
                 signal_graph.set_source(op.node_id, module.output_node_id)
             return
 
+        if module.optimization == "pass_through":
+            if module.output_node_id:
+                signal_graph.set_source(op.node_id, module.output_node_id)
+            return
+
         # For latch memories with multiplier, use the multiplier as the source
         if module.multiplier_combinator:
             signal_graph.set_source(op.node_id, module.multiplier_combinator.ir_node_id)
@@ -220,7 +225,7 @@ class MemoryBuilder:
         Detects:
         - Always-write optimization (when=1)
         - Arithmetic feedback optimization
-        - Single-gate optimization
+        - Pass-through optimization (always-write, no arithmetic feedback)
         """
         module = self._modules.get(op.memory_id)
         if not module:
@@ -240,6 +245,14 @@ class MemoryBuilder:
 
         if is_always_write and self._can_use_arithmetic_feedback(op, module):
             self._optimize_to_arithmetic_feedback(op, module, signal_graph)
+            return
+
+        if is_always_write:
+            # Unconditional write without arithmetic feedback.
+            # The write-gated latch doesn't work here because signal-W is always 1,
+            # meaning the hold gate (signal-W == 0) never fires.
+            # Instead, use a single arithmetic combinator as a 1-tick delay pass-through.
+            self._optimize_to_pass_through(op, module, signal_graph)
             return
 
         self._setup_standard_write(op, module, signal_graph)
@@ -1114,6 +1127,71 @@ class MemoryBuilder:
 
         return None
 
+    def _optimize_to_pass_through(
+        self, op: IRMemWrite, module: MemoryModule, signal_graph: SignalGraph
+    ):
+        """Convert unconditional write (no arithmetic feedback) to a pass-through combinator.
+
+        When a memory is written every tick unconditionally and the value does NOT
+        depend on reading from this same memory, the write-gated latch design fails
+        because signal-W is always 1 (hold gate never activates).
+
+        Instead, we use a single arithmetic combinator: signal + 0 → signal.
+        This acts as a 1-tick delay: mem.read() returns the value written on the
+        previous tick, which is the correct semantic for unconditional memory writes.
+        No self-feedback is needed because new data arrives every tick.
+        """
+        signal_name = self.signal_analyzer.get_signal_name(module.signal_type)
+
+        pass_through_id = f"{op.memory_id}_pass_through"
+        self.layout_plan.create_and_add_placement(
+            ir_node_id=pass_through_id,
+            entity_type="arithmetic-combinator",
+            position=None,
+            footprint=(1, 2),
+            role="memory_pass_through",
+            debug_info=self._make_debug_info(op, "pass_through"),
+            operation="+",
+            left_operand=signal_name,
+            right_operand=0,
+            output_signal=signal_name,
+        )
+
+        # Mark both latch gates as unused
+        module.write_gate_unused = True
+        module.hold_gate_unused = True
+        module.optimization = "pass_through"
+        module.output_node_id = pass_through_id
+
+        # Connect data signal to the pass-through combinator
+        if isinstance(op.data_signal, SignalRef):
+            signal_graph.add_sink(op.data_signal.source_id, pass_through_id)
+            self.diagnostics.info(
+                f"Connected data signal {op.data_signal.source_id} → pass_through {pass_through_id}"
+            )
+
+        # Route memory reads through the pass-through combinator.
+        # Clear old sources first (hold_gate, write_gate) so get_source returns
+        # the pass_through, not an obsolete unused gate.
+        signal_graph._sources[op.memory_id] = [pass_through_id]
+
+        for read_node_id, source_memory_id in self._read_sources.items():
+            if source_memory_id == op.memory_id:
+                signal_graph._sources[read_node_id] = [pass_through_id]
+
+        # Remove stale signal graph references to the unused gates
+        for gate in (module.write_gate, module.hold_gate):
+            if gate:
+                for signal_id in list(signal_graph._sinks.keys()):
+                    sinks = signal_graph._sinks[signal_id]
+                    if gate.ir_node_id in sinks:
+                        sinks.remove(gate.ir_node_id)
+
+        self.diagnostics.info(
+            f"Optimized unconditional memory '{op.memory_id}' to pass-through combinator "
+            f"(1-tick delay, no write-gated latch needed)"
+        )
+
     def _setup_standard_write(
         self, op: IRMemWrite, module: MemoryModule, signal_graph: SignalGraph
     ):
@@ -1209,11 +1287,18 @@ class MemoryBuilder:
 
     def _make_debug_info(self, op, role) -> dict[str, Any]:
         """Build debug info dict for memory gates."""
+        # signal_type is on IRMemCreate but not IRMemWrite;
+        # fall back to the module's signal_type for write ops.
+        signal_type_raw = getattr(op, "signal_type", None)
+        if signal_type_raw is None:
+            module = self._modules.get(op.memory_id)
+            signal_type_raw = module.signal_type if module else "unknown"
+
         debug_info = {
             "variable": f"mem:{op.memory_id}",
             "operation": "memory",
             "details": role,
-            "signal_type": self.signal_analyzer.get_signal_name(op.signal_type),
+            "signal_type": self.signal_analyzer.get_signal_name(signal_type_raw),
             "role": f"memory_{role}",
         }
 
