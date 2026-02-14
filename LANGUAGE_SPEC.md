@@ -461,6 +461,22 @@ Signal copper = ("copper-plate", 50);
 Signal flag = ("signal-A", 1);
 ```
 
+#### Wire Color Pinning
+
+Signal literals can optionally specify a wire color as a third element:
+
+```facto
+Signal iron = ("iron-plate", 100, red);    # pinned to red wire
+Signal ctrl = ("signal-C", 1, green);      # pinned to green wire
+Signal auto = ("signal-A", 50);            # automatic assignment (default)
+```
+
+When a wire color is specified, the compiler adds a hard constraint ensuring all connections from this constant combinator use the specified color. This is useful when connecting the compiled blueprint to external circuits on specific wires.
+
+If no color is specified, the compiler automatically assigns wire colors using its constraint solver (the default behavior). User-specified colors take priority over all automatic assignments.
+
+> **Note:** `red` and `green` are reserved keywords and cannot be used as variable names.
+
 **Type Literal Syntax:**
 
 The type name in signal literals is a string:
@@ -1442,6 +1458,17 @@ Facto respects these categories and validates signal names against the Factorio 
 Factorio has two circuit wire colors: **red** and **green**.
 
 The compiler's **wire router** automatically assigns colors to avoid conflicts when multiple sources produce the same signal type to the same destination. Additionally, the compiler uses wire colors strategically for memory systems:
+
+**Manual Wire Color Control:**
+
+For input signals that interface with external circuits, you can pin specific wire colors using the signal literal 3-tuple form:
+
+```facto
+Signal sensor_input = ("signal-S", 0, red);    # external sensor on red
+Signal control_input = ("signal-C", 0, green); # external control on green
+```
+
+User-specified colors take priority over automatic assignment. The compiler will respect the annotation and build the rest of the wire color assignment around it.
 
 **Memory Wire Color Strategy:**
 - **RED wires**: Data signals and feedback loops (e.g., signal-A, signal-B, iron-plate)

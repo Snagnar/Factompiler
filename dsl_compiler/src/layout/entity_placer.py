@@ -202,6 +202,10 @@ class EntityPlacer:
         if hasattr(op, "debug_metadata") and op.debug_metadata.get("user_declared"):
             is_input = True
 
+        wire_color = None
+        if hasattr(op, "debug_metadata"):
+            wire_color = op.debug_metadata.get("wire_color")
+
         # Handle multi-signal constants (bundles)
         if op.signals:
             self.plan.create_and_add_placement(
@@ -213,6 +217,7 @@ class EntityPlacer:
                 debug_info=debug_info,
                 signals=op.signals,  # Dict of signal_name -> value
                 is_input=is_input,
+                wire_color=wire_color,
             )
         else:
             # Store placement in plan (NOT creating Draftsman entity yet!)
@@ -227,6 +232,7 @@ class EntityPlacer:
                 signal_type=signal_type,
                 value=op.value,
                 is_input=is_input,  # Mark user-declared constants as inputs
+                wire_color=wire_color,
             )
 
         self.signal_graph.set_source(op.node_id, op.node_id)

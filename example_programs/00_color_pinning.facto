@@ -1,0 +1,21 @@
+// Wire Color Pinning Example
+// This demonstrates how to explicitly specify which wire color (red or green)
+// should be used for specific signals. This is useful when interfacing with
+// external circuits that expect signals on particular wire colors.
+
+// Example: External sensors provide data on red wire
+Signal temperature = ("signal-T", 0, red);
+Signal pressure = ("signal-P", 0, red);
+
+// Example: External controller provides settings on green wire
+Signal enable = ("signal-E", 1, green);
+Signal threshold = ("signal-C", 100, green);
+
+// Internal calculations automatically use available wire colors
+Signal temp_ok = temperature < threshold;
+Signal press_ok = pressure < 50;
+Signal system_ready = temp_ok && press_ok && enable;
+
+// Place a lamp to show the status
+Entity lamp = place("small-lamp", 0, 0);
+lamp.enable = system_ready;

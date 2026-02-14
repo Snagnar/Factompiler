@@ -187,6 +187,10 @@ memory_write_when: NAME "." "write" "(" expr "," WHEN_KW "=" expr ")"
 // The ORDER of set/reset determines priority (first one wins in conflict)
 SET_KW: "set"
 RESET_KW: "reset"
+
+// Wire color keywords for signal literal pinning
+RED_KW: "red"
+GREEN_KW: "green"
 memory_latch_write: NAME "." "write" "(" expr "," latch_kwargs ")"
 
 // Two orderings for set/reset - order determines priority
@@ -212,9 +216,11 @@ bundle_element: expr
 bundle_any: ANY_KW "(" expr ")"
 bundle_all: ALL_KW "(" expr ")"
 
-// Signal literal syntax: ("type", value) or just value
-signal_literal: "(" type_literal "," expr ")"    -> signal_with_type
-              | NUMBER                          -> signal_constant
+// Signal literal syntax: ("type", value) or ("type", value, wire_color) or just value
+signal_literal: "(" type_literal "," expr ["," wire_color] ")"    -> signal_with_type
+              | NUMBER                                              -> signal_constant
+
+wire_color: RED_KW | GREEN_KW
 
 // Type literal can be a string, a name, or a property access (for signal.type)
 type_literal: STRING

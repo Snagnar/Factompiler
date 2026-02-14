@@ -993,6 +993,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 line=proj_expr.line,
                 column=proj_expr.column,
                 raw_text=proj_expr.raw_text,
+                wire_color=source.wire_color,
             )
 
         # Case 3: Nested projection (e.g., (50 | "A") | "B")
@@ -1006,6 +1007,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                     line=proj_expr.line,
                     column=proj_expr.column,
                     raw_text=proj_expr.raw_text,
+                    wire_color=inner_simplified.wire_color,
                 )
 
         # Case 4: Identifier projection - NOT simplified

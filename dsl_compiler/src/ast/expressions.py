@@ -124,10 +124,12 @@ class SignalLiteral(Expr):
         line: int = 0,
         column: int = 0,
         raw_text: str | None = None,
+        wire_color: str | None = None,
     ) -> None:
         super().__init__(line, column, raw_text=raw_text)
         self.value = value
         self.signal_type = signal_type  # None for implicit type, string for explicit
+        self.wire_color = wire_color  # "red" | "green" | None for automatic
 
 
 class IdentifierExpr(Expr):

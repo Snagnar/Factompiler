@@ -1165,6 +1165,10 @@ class ExpressionLowerer:
                 self._attach_expr_context(ref.source_id, expr)
             ref.signal_type = signal_name
             ref.output_type = signal_name
+            if expr.wire_color:
+                const_op = self.ir_builder.get_operation(ref.source_id)
+                if const_op:
+                    const_op.debug_metadata["wire_color"] = expr.wire_color
             return ref
 
         semantic_type = self.semantic.get_expr_type(expr)
@@ -1181,6 +1185,10 @@ class ExpressionLowerer:
                 self._attach_expr_context(ref.source_id, expr)
             ref.signal_type = signal_name
             ref.output_type = signal_name
+            if expr.wire_color:
+                const_op = self.ir_builder.get_operation(ref.source_id)
+                if const_op:
+                    const_op.debug_metadata["wire_color"] = expr.wire_color
             return ref
 
         # Semantic returned IntValue - bare number constant, unwrap and return as integer

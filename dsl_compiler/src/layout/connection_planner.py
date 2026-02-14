@@ -535,8 +535,16 @@ class ConnectionPlanner:
         entities: dict[str, Any],
         signal_graph: Any,
     ) -> None:
-        """Add hard color constraints (memory, feedback, bundle separation)."""
+        """Add hard color constraints (user-specified, memory, feedback, bundle separation)."""
         from .memory_builder import MemoryModule
+
+        # -- User-specified wire colors (highest priority, first-writer-wins) --
+        for entity_id, placement in self.layout_plan.entity_placements.items():
+            wire_color = placement.properties.get("wire_color")
+            if wire_color:
+                for e in edges:
+                    if e.source_entity_id == entity_id:
+                        solver.add_hard_constraint(e, wire_color, "user-specified")
 
         # -- Memory data signals → RED, signal-W → GREEN --
         for module in self._memory_modules.values():

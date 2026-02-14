@@ -174,6 +174,17 @@ You'll use this pattern constantly. It's the foundation of conditional logic in 
 
 Sometimes you need to output a value using a different signal type. The projection operator (`|`) lets you do this: `value | "signal-type"`. For example, `counter.read() | "iron-plate"` outputs the counter's value on the `iron-plate` signal. See [Signals and Types](03_signals_and_types.md#the-projection-operator-) for full details.
 
+### Note: Wire Color Pinning
+
+When connecting compiled blueprints to external circuits, you can specify which wire color (red or green) to use for input signals:
+
+```facto
+Signal external_sensor = ("signal-S", 0, red);    # Arrives on red wire
+Signal external_control = ("signal-C", 1, green); # Arrives on green wire
+```
+
+This ensures your inputs connect on the correct wires. Without pinning, the compiler automatically assigns wire colors. See [Signals and Types](03_signals_and_types.md#pinning-wire-colors) for details.
+
 ---
 
 ## Saving to Files
