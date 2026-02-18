@@ -74,9 +74,9 @@ def lower_program(
 def emit_blueprint(
     ir_operations: list[IRNode],
     label: str = "DSL Generated",
-    signal_type_map: dict[str, Any] = None,
+    signal_type_map: dict[str, Any] | None = None,
     *,
-    power_pole_type: str = None,
+    power_pole_type: str | None = None,
 ) -> tuple[Blueprint, ProgramDiagnostics]:
     """Convert IR operations to Factorio blueprint.
 
@@ -124,9 +124,9 @@ def emit_blueprint(
 def emit_blueprint_string(
     ir_operations: list[IRNode],
     label: str = "DSL Generated",
-    signal_type_map: dict[str, Any] = None,
+    signal_type_map: dict[str, Any] | None = None,
     *,
-    power_pole_type: str = None,
+    power_pole_type: str | None = None,
 ) -> tuple[str, ProgramDiagnostics]:
     """Convert IR operations to Factorio blueprint string.
 

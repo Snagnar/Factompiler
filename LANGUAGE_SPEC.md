@@ -461,6 +461,37 @@ Signal copper = ("copper-plate", 50);
 Signal flag = ("signal-A", 1);
 ```
 
+#### Wire Color Pinning
+
+Signals and bundles can be pinned to a specific wire color using the `.wire` attribute:
+
+```facto
+Signal iron = ("iron-plate", 100);
+iron.wire = red;    // pinned to red wire
+
+Signal ctrl = ("signal-C", 1);
+ctrl.wire = green;  // pinned to green wire
+
+Signal auto = ("signal-A", 50);
+// no .wire assignment = automatic (default)
+```
+
+Wire color pinning works on any named Signal or Bundle, including computed values:
+
+```facto
+Signal a = ("signal-A", 10);
+Signal b = ("signal-B", 20);
+Signal sum = a + b;
+sum.wire = red;  // the arithmetic combinator's output is pinned to red
+
+Bundle sensors = { ("signal-T", 0), ("signal-P", 0) };
+sensors.wire = green;  // the bundle's output is pinned to green
+```
+
+When `.wire` is set, the compiler adds a hard constraint ensuring all connections from the producing entity use the specified color. This is useful when connecting the compiled blueprint to external circuits on specific wires.
+
+If `.wire` is not set, the compiler automatically assigns wire colors using its constraint solver (the default behavior). User-specified colors take priority over all automatic assignments.
+
 **Type Literal Syntax:**
 
 The type name in signal literals is a string:
@@ -1442,6 +1473,17 @@ Facto respects these categories and validates signal names against the Factorio 
 Factorio has two circuit wire colors: **red** and **green**.
 
 The compiler's **wire router** automatically assigns colors to avoid conflicts when multiple sources produce the same signal type to the same destination. Additionally, the compiler uses wire colors strategically for memory systems:
+
+**Manual Wire Color Control:**
+
+For input signals that interface with external circuits, you can pin specific wire colors using the signal literal 3-tuple form:
+
+```facto
+Signal sensor_input = ("signal-S", 0, red);    # external sensor on red
+Signal control_input = ("signal-C", 0, green); # external control on green
+```
+
+User-specified colors take priority over automatic assignment. The compiler will respect the annotation and build the rest of the wire color assignment around it.
 
 **Memory Wire Color Strategy:**
 - **RED wires**: Data signals and feedback loops (e.g., signal-A, signal-B, iron-plate)

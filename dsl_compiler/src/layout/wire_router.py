@@ -1,292 +1,261 @@
+"""Wire color assignment via edge-level constraint solving.
+
+Replaces the old node-level bipartite graph coloring with an edge-level
+constraint model.  Every wiring requirement is expressed as a WireEdge,
+and correctness rules are expressed as constraints on those edges.
+
+The solver uses union-find to merge edges that must share a color (merge
+constraints), then BFS 2-coloring on the contracted constraint graph.
+"""
+
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from collections.abc import Sequence
-from dataclasses import dataclass, field
-from typing import Any
-
-"""Wire routing and color assignment algorithms."""
-
+from dataclasses import dataclass
 
 WIRE_COLORS: tuple[str, str] = ("red", "green")
 
 
+# ---------------------------------------------------------------------------
+# Data model
+# ---------------------------------------------------------------------------
+
+
 @dataclass(frozen=True)
-class CircuitEdge:
-    """Represents a physical source→sink wiring requirement."""
+class WireEdge:
+    """A logical wiring requirement between two entities."""
 
-    logical_signal_id: str
-    resolved_signal_name: str
-    source_entity_id: str | None
+    source_entity_id: str
     sink_entity_id: str
-    source_entity_type: str | None = None
-    sink_entity_type: str | None = None
-    sink_role: str | None = None
-    originating_merge_id: str | None = None  # Track which merge this edge came from
+    signal_name: str  # Resolved Factorio signal name
+    logical_signal_id: str  # IR-level signal ID (for tracing)
+    merge_group: str | None = None  # If part of a wire merge
+
+    @property
+    def key(self) -> tuple[str, str, str]:
+        return (self.source_entity_id, self.sink_entity_id, self.signal_name)
 
 
 @dataclass
-class ConflictEdge:
-    """Edge between two conflict nodes that must not share a wire color."""
+class SeparationConstraint:
+    """Two edges that MUST use different colors at the same sink."""
 
-    nodes: tuple[tuple[str, str], tuple[str, str]]
-    sinks: set[str] = field(default_factory=set)
+    edge_a: WireEdge
+    edge_b: WireEdge
+    reason: str
 
 
 @dataclass
-class ColoringResult:
-    assignments: dict[tuple[str, str], str]
-    conflicts: list[ConflictEdge]
+class MergeConstraint:
+    """A set of edges that MUST share the same wire color."""
+
+    edges: list[WireEdge]
+    merge_id: str
+
+
+@dataclass
+class ColorAssignment:
+    """Result of the wire color solver."""
+
+    edge_colors: dict[WireEdge, str]
     is_bipartite: bool
+    conflicts: list[SeparationConstraint]  # unresolvable conflicts
 
 
-def _resolve_entity_type(placement: Any) -> str | None:
-    """Best-effort extraction of an entity type from a placement object."""
-
-    if placement is None:
-        return None
-
-    entity_type = getattr(placement, "entity_type", None)
-    if entity_type:
-        return str(entity_type)
-
-    entity = getattr(placement, "entity", None)
-    if entity is not None:
-        return type(entity).__name__
-
-    proto = getattr(placement, "prototype", None)
-    if proto:
-        return str(proto)
-
-    return None
+# ---------------------------------------------------------------------------
+# Union-Find for merge groups
+# ---------------------------------------------------------------------------
 
 
-def collect_circuit_edges(
-    signal_graph: Any,
-    signal_usage: dict[str, Any],
-    entities: dict[str, Any],
-) -> list[CircuitEdge]:
-    """Compute all source→sink edges with resolved signal metadata."""
+class _UnionFind:
+    """Simple union-find over WireEdge instances."""
 
-    edges: list[CircuitEdge] = []
+    def __init__(self) -> None:
+        self._parent: dict[WireEdge, WireEdge] = {}
+        self._rank: dict[WireEdge, int] = {}
 
-    for (
-        logical_id,
-        source_entity_id,
-        sink_entity_id,
-    ) in signal_graph.iter_source_sink_pairs():
-        usage_entry = signal_usage.get(logical_id)
-        resolved_signal_name = (
-            usage_entry.resolved_signal_name
-            if usage_entry and usage_entry.resolved_signal_name
-            else logical_id
-        )
+    def make_set(self, edge: WireEdge) -> None:
+        if edge not in self._parent:
+            self._parent[edge] = edge
+            self._rank[edge] = 0
 
-        source_entity_type: str | None = None
-        sink_entity_type: str | None = None
-        sink_role: str | None = None
+    def find(self, edge: WireEdge) -> WireEdge:
+        root = edge
+        while self._parent[root] is not root:
+            root = self._parent[root]
+        # Path compression
+        while self._parent[edge] is not root:
+            self._parent[edge], edge = root, self._parent[edge]
+        return root
 
-        if source_entity_id:
-            source_placement = entities.get(source_entity_id)
-            source_entity_type = _resolve_entity_type(source_placement)
-
-        sink_placement = entities.get(sink_entity_id)
-        if sink_placement is not None:
-            sink_entity_type = _resolve_entity_type(sink_placement)
-            sink_role = getattr(sink_placement, "role", None)
-
-        if sink_role is None and sink_entity_id.endswith("_export_anchor"):
-            sink_role = "export"
-
-        edges.append(
-            CircuitEdge(
-                logical_signal_id=logical_id,
-                resolved_signal_name=resolved_signal_name,
-                source_entity_id=source_entity_id,
-                sink_entity_id=sink_entity_id,
-                source_entity_type=source_entity_type,
-                sink_entity_type=sink_entity_type,
-                sink_role=sink_role,
-            )
-        )
-
-    return edges
+    def union(self, a: WireEdge, b: WireEdge) -> None:
+        ra, rb = self.find(a), self.find(b)
+        if ra is rb:
+            return
+        if self._rank[ra] < self._rank[rb]:
+            ra, rb = rb, ra
+        self._parent[rb] = ra
+        if self._rank[ra] == self._rank[rb]:
+            self._rank[ra] += 1
 
 
-def plan_wire_colors(
-    edges: Sequence[CircuitEdge],
-    locked_colors: dict[tuple[str, str], str] | None = None,
-) -> ColoringResult:
-    """Assign red/green colors to signal sources using conflict-aware coloring."""
-
-    locked = locked_colors or {}
-
-    graph: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
-    edge_sinks: dict[tuple[tuple[str, str], tuple[str, str]], set[str]] = defaultdict(set)
-
-    # Ensure all nodes appear in the graph even if conflict-free
-    for edge in edges:
-        if not edge.source_entity_id:
-            continue
-        node_key = (edge.source_entity_id, edge.resolved_signal_name)
-        graph.setdefault(node_key, set())
-
-    # Group edges by (sink_id, resolved_signal_name)
-    # Each group entry is (node_key, originating_merge_id)
-    sink_groups: dict[tuple[str, str], list[tuple[tuple[str, str], str | None]]] = defaultdict(list)
-    for edge in edges:
-        if not edge.source_entity_id:
-            continue
-        node_key = (edge.source_entity_id, edge.resolved_signal_name)
-        sink_groups[(edge.sink_entity_id, edge.resolved_signal_name)].append(
-            (node_key, edge.originating_merge_id)
-        )
-
-    # Sort for deterministic iteration order
-    for (sink_id, _resolved_name), nodes_with_merge in sorted(sink_groups.items()):
-        # Deduplicate by node_key, keeping first occurrence
-        seen_nodes = {}
-        for node_key, merge_id in nodes_with_merge:
-            if node_key not in seen_nodes:
-                seen_nodes[node_key] = merge_id
-
-        unique_entries = list(seen_nodes.items())
-        if len(unique_entries) <= 1:
-            continue
-
-        # Only create conflict edges between nodes from DIFFERENT merges
-        # Nodes with the same originating_merge_id are intentionally merging
-        for idx in range(len(unique_entries)):
-            a, merge_a = unique_entries[idx]
-            for jdx in range(idx + 1, len(unique_entries)):
-                b, merge_b = unique_entries[jdx]
-                if a == b:
-                    continue
-
-                # If both edges come from the same merge (or both have no merge),
-                # they should be on the same wire - no conflict edge needed
-                if merge_a is not None and merge_a == merge_b:
-                    continue
-
-                # Different merges or mixed merge/non-merge: potential conflict
-                graph[a].add(b)
-                graph[b].add(a)
-                sorted_pair = sorted((a, b))
-                pair: tuple[tuple[str, str], tuple[str, str]] = (sorted_pair[0], sorted_pair[1])
-                edge_sinks[pair].add(sink_id)
-
-    assignments: dict[tuple[str, str], str] = {}
-    conflicts: list[ConflictEdge] = []
-    conflict_pairs_recorded: set[tuple[tuple[str, str], tuple[str, str]]] = set()
-    is_bipartite = True
-
-    pending_nodes = set(graph.keys()) | set(locked.keys())
-
-    # Sort for deterministic iteration order
-    for start_node in sorted(pending_nodes):
-        if start_node in assignments:
-            continue
-
-        start_color = locked.get(start_node, WIRE_COLORS[0])
-        queue: deque[tuple[tuple[str, str], str]] = deque()
-        queue.append((start_node, start_color))
-
-        while queue:
-            node, desired_color = queue.popleft()
-
-            locked_color = locked.get(node)
-            if locked_color:
-                desired_color = locked_color
-
-            existing = assignments.get(node)
-            if existing:
-                if existing != desired_color:
-                    is_bipartite = False
-                continue
-
-            assignments[node] = desired_color
-
-            neighbors = graph.get(node, set())
-            if not neighbors:
-                continue
-
-            opposite_color = WIRE_COLORS[1] if desired_color == WIRE_COLORS[0] else WIRE_COLORS[0]
-
-            # Sort neighbors for deterministic iteration order
-            for neighbor in sorted(neighbors):
-                neighbor_locked = locked.get(neighbor)
-                neighbor_desired = neighbor_locked or opposite_color
-
-                neighbor_existing = assignments.get(neighbor)
-                if neighbor_existing:
-                    if neighbor_existing != neighbor_desired:
-                        is_bipartite = False
-                        sorted_pair3 = sorted((node, neighbor))
-                        pair3: tuple[tuple[str, str], tuple[str, str]] = (
-                            sorted_pair3[0],
-                            sorted_pair3[1],
-                        )
-                        if pair3 not in conflict_pairs_recorded:
-                            conflict_pairs_recorded.add(pair3)
-                            sinks = edge_sinks.get(pair3, set())
-                            conflicts.append(ConflictEdge(nodes=pair3, sinks=set(sinks)))
-                    continue
-
-                if neighbor_locked and neighbor_locked == desired_color:
-                    is_bipartite = False
-                    sorted_pair4 = sorted((node, neighbor))
-                    pair4: tuple[tuple[str, str], tuple[str, str]] = (
-                        sorted_pair4[0],
-                        sorted_pair4[1],
-                    )
-                    if pair4 not in conflict_pairs_recorded:
-                        conflict_pairs_recorded.add(pair4)
-                        sinks = edge_sinks.get(pair4, set())
-                        conflicts.append(ConflictEdge(nodes=pair4, sinks=set(sinks)))
-
-                queue.append((neighbor, neighbor_desired))
-
-    return ColoringResult(assignments=assignments, conflicts=conflicts, is_bipartite=is_bipartite)
+# ---------------------------------------------------------------------------
+# WireColorSolver
+# ---------------------------------------------------------------------------
 
 
-def detect_merge_color_conflicts(
-    merge_membership: dict[str, set[str]],
-    signal_graph: Any,
-) -> dict[tuple[str, str], str]:
-    """Detect paths that need locked colors due to merge conflicts.
+class WireColorSolver:
+    """Constraint-based wire color solver.
 
-    When a signal source participates in multiple independent wire merges
-    that both connect to the same final sink, they must use different wire colors
-    to prevent double-counting.
+    Usage::
 
-    Args:
-        merge_membership: Maps source_id -> set of merge_ids the source belongs to
-        signal_graph: Signal graph for finding downstream sinks
-
-    Returns:
-        Dict mapping (source_id, merge_id) -> locked color
+        solver = WireColorSolver()
+        solver.add_edge(edge1)
+        solver.add_edge(edge2)
+        solver.add_hard_constraint(edge1, "red", "memory data")
+        solver.add_separation(edge1, edge2, "same signal same sink")
+        solver.add_merge([edge3, edge4], "merge_42")
+        result = solver.solve()
+        # result.edge_colors maps each WireEdge → "red" | "green"
     """
-    from itertools import combinations
 
-    locked_colors: dict[tuple[str, str], str] = {}
+    def __init__(self) -> None:
+        self._edges: list[WireEdge] = []
+        self._edge_set: set[WireEdge] = set()
+        self._hard: dict[WireEdge, tuple[str, str]] = {}  # edge → (color, reason)
+        self._separations: list[SeparationConstraint] = []
+        self._merges: list[MergeConstraint] = []
 
-    # For each source that's in multiple merges
-    for source_id, merge_ids in merge_membership.items():
-        if len(merge_ids) <= 1:
-            continue
+    # -- Building API -------------------------------------------------------
 
-        # Check each pair of merges containing this source
-        for merge_a, merge_b in combinations(sorted(merge_ids), 2):
-            # Get sinks that receive from each merge
-            sinks_a = set(signal_graph.get_sinks(merge_a)) if signal_graph else set()
-            sinks_b = set(signal_graph.get_sinks(merge_b)) if signal_graph else set()
+    def add_edge(self, edge: WireEdge) -> None:
+        if edge not in self._edge_set:
+            self._edges.append(edge)
+            self._edge_set.add(edge)
 
-            # If both merges connect to the same sink, need different colors
-            common_sinks = sinks_a & sinks_b
-            if common_sinks:
-                # Lock merge_a to red, merge_b to green
-                # Use (merge_id, source_id) as key since that's what affects the wire color
-                locked_colors[(merge_a, source_id)] = "red"
-                locked_colors[(merge_b, source_id)] = "green"
+    def add_hard_constraint(self, edge: WireEdge, color: str, reason: str) -> None:
+        if edge not in self._hard:
+            self._hard[edge] = (color, reason)
 
-    return locked_colors
+    def add_separation(self, edge_a: WireEdge, edge_b: WireEdge, reason: str) -> None:
+        self._separations.append(SeparationConstraint(edge_a, edge_b, reason))
+
+    def add_merge(self, edges: list[WireEdge], merge_id: str) -> None:
+        if len(edges) >= 2:
+            self._merges.append(MergeConstraint(edges, merge_id))
+
+    # -- Solving ------------------------------------------------------------
+
+    def solve(self) -> ColorAssignment:
+        """Solve wire color assignment.
+
+        Algorithm:
+        1. Initialize union-find with all edges.
+        2. Merge all edges in the same merge group.
+        3. Propagate hard constraints to representatives.
+        4. Build contracted conflict graph from separation constraints.
+        5. BFS 2-color the contracted graph.
+        """
+        if not self._edges:
+            return ColorAssignment(edge_colors={}, is_bipartite=True, conflicts=[])
+
+        # Step 1: Union-find
+        uf = _UnionFind()
+        for edge in self._edges:
+            uf.make_set(edge)
+
+        # Step 2: Union merge groups
+        for mc in self._merges:
+            anchor = mc.edges[0]
+            for other in mc.edges[1:]:
+                uf.union(anchor, other)
+
+        # Step 3: Propagate hard constraints to representative edges
+        rep_color: dict[WireEdge, str] = {}
+        for edge, (color, _reason) in self._hard.items():
+            rep = uf.find(edge)
+            existing = rep_color.get(rep)
+            if existing is None or existing == color:
+                rep_color[rep] = color
+            # else: conflicting hard constraints inside a merge group — keep first
+
+        # Step 4: Build contracted conflict graph
+        adj: dict[WireEdge, set[WireEdge]] = defaultdict(set)
+        contracted_separations: list[tuple[WireEdge, WireEdge, SeparationConstraint]] = []
+
+        for sep in self._separations:
+            ra = uf.find(sep.edge_a)
+            rb = uf.find(sep.edge_b)
+            if ra is rb:
+                continue  # Both edges are in same merge group; unresolvable
+            adj[ra].add(rb)
+            adj[rb].add(ra)
+            contracted_separations.append((ra, rb, sep))
+
+        # Step 5: BFS 2-coloring on representatives
+        assignment: dict[WireEdge, str] = {}
+        is_bipartite = True
+
+        def _sort_key(e: WireEdge) -> tuple[str, str, str]:
+            return (e.source_entity_id, e.sink_entity_id, e.signal_name)
+
+        all_reps = {uf.find(e) for e in self._edges}
+
+        for start in sorted(all_reps, key=_sort_key):
+            if start in assignment:
+                continue
+
+            start_color = rep_color.get(start, WIRE_COLORS[0])
+            queue: deque[tuple[WireEdge, str]] = deque([(start, start_color)])
+
+            while queue:
+                node, desired = queue.popleft()
+
+                locked = rep_color.get(node)
+                if locked:
+                    desired = locked
+
+                existing = assignment.get(node)
+                if existing is not None:
+                    if existing != desired:
+                        is_bipartite = False
+                    continue
+
+                assignment[node] = desired
+                opposite = WIRE_COLORS[1] if desired == WIRE_COLORS[0] else WIRE_COLORS[0]
+
+                for neighbor in sorted(adj.get(node, set()), key=_sort_key):
+                    nb_locked = rep_color.get(neighbor)
+                    nb_desired = nb_locked or opposite
+
+                    nb_existing = assignment.get(neighbor)
+                    if nb_existing is not None:
+                        if nb_existing != nb_desired:
+                            is_bipartite = False
+                        continue
+
+                    if nb_locked and nb_locked == desired:
+                        is_bipartite = False
+
+                    queue.append((neighbor, nb_desired))
+
+        # Record unresolvable conflicts
+        conflicts: list[SeparationConstraint] = []
+        if not is_bipartite:
+            for ra, rb, sep in contracted_separations:
+                ca = assignment.get(ra)
+                cb = assignment.get(rb)
+                if ca and cb and ca == cb:
+                    conflicts.append(sep)
+
+        # Step 6: Map representatives back to all edges
+        edge_colors: dict[WireEdge, str] = {}
+        for edge in self._edges:
+            rep = uf.find(edge)
+            edge_colors[edge] = assignment.get(rep, WIRE_COLORS[0])
+
+        return ColorAssignment(
+            edge_colors=edge_colors,
+            is_bipartite=is_bipartite,
+            conflicts=conflicts,
+        )

@@ -79,6 +79,40 @@ Signal z = 15;   # Compiler assigns signal-C
 
 The compiler allocates virtual signals (`signal-A`, `signal-B`, etc.) automatically. Perfect for intermediate calculations.
 
+### Pinning Wire Colors
+
+When interfacing with external circuits, you can pin signals to a specific wire color using the `.wire` attribute:
+
+```facto
+Signal sensor = ("signal-S", 0);
+sensor.wire = red;       // this signal uses the red wire
+
+Signal control = ("signal-C", 1);
+control.wire = green;    // this signal uses the green wire
+
+Signal automatic = ("signal-A", 50);
+// no .wire = automatic assignment (default)
+```
+
+Wire color pinning works on any named Signal or Bundle, including computed values:
+
+```facto
+Signal a = ("signal-A", 10);
+Signal b = ("signal-B", 20);
+Signal sum = a + b;
+sum.wire = red;  // the arithmetic combinator's output is pinned to red
+
+Bundle sensors = { ("signal-T", 0), ("signal-P", 0) };
+sensors.wire = green;  // the bundle's output is pinned to green
+```
+
+Wire color pinning ensures the producing entity connects using the specified wire color. This is particularly useful when:
+- Connecting compiled blueprints to existing circuits with specific wire conventions
+- Keeping data signals (red) separate from control signals (green)
+- Interfacing with external sensors or controllers that output on specific wires
+
+If `.wire` is not set, the compiler automatically assigns colors to avoid conflicts.
+
 ### The `int` Type
 
 For compile-time constants that shouldn't become signals:

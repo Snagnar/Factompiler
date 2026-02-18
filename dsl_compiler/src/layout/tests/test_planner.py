@@ -66,27 +66,12 @@ def test_set_metadata(planner):
     assert planner.layout_plan.blueprint_description == "Desc"
 
 
-def test_determine_locked_wire_colors(planner):
-    planner._setup_signal_analysis([make_const("c1", 42)])
-    planner._create_entities([make_const("c1", 42)])
-    result = planner._determine_locked_wire_colors()
-    assert isinstance(result, dict)
-
-
 def test_plan_connections(planner):
     planner._setup_signal_analysis([make_const("c1", 42)])
     planner._create_entities([make_const("c1", 42)])
     planner._update_tile_grid()
     result = planner._plan_connections()
     assert isinstance(result, bool)
-
-
-def test_resolve_source_entity(planner):
-    planner._setup_signal_analysis([make_const("c1", 42)])
-    planner._create_entities([make_const("c1", 42)])
-    # source_entity should resolve constants
-    result = planner._resolve_source_entity("c1")
-    assert result is None or isinstance(result, str)
 
 
 def test_optimize_positions(planner):
@@ -119,8 +104,8 @@ def test_plan_layout_with_power_poles():
     assert has_pole or len(result.entity_placements) >= 1  # May not add poles if layout is small
 
 
-def test_inject_wire_colors_into_placements():
-    """Test _inject_wire_colors_into_placements stores wire colors."""
+def test_plan_connections_injects_wire_colors():
+    """Test that plan_connections stores wire colors into placements."""
     planner = LayoutPlanner({}, ProgramDiagnostics(), max_layout_retries=0)
     c1 = make_const("c1", 10)
     c2 = make_const("c2", 20)
@@ -134,8 +119,8 @@ def test_inject_wire_colors_into_placements():
     # Wire colors should be injected into placements
 
 
-def test_inject_operand_wire_color():
-    """Test _inject_operand_wire_color for individual operands."""
+def test_plan_connections_with_operand_wires():
+    """Test that plan_connections handles operand wire colors."""
     planner = LayoutPlanner({}, ProgramDiagnostics(), max_layout_retries=0)
     c1 = make_const("c1", 10)
     arith = make_arith("add1", SignalRef("signal-A", "c1"), 5)
@@ -201,63 +186,6 @@ def test_add_power_pole_grid():
     # May or may not add poles depending on entity bounds
 
 
-def test_determine_locked_wire_colors_with_memory():
-    """Test _determine_locked_wire_colors locks memory feedback to red."""
-    from dsl_compiler.src.ir.nodes import IRMemCreate
-
-    planner = LayoutPlanner({}, ProgramDiagnostics(), max_layout_retries=0)
-    mem_op = IRMemCreate("mem1", "signal-A")
-
-    planner._setup_signal_analysis([mem_op])
-    planner._reset_layout_state()
-    planner._create_entities([mem_op])
-
-    locked = planner._determine_locked_wire_colors()
-    # Should have locked colors for memory gates
-    assert isinstance(locked, dict)
-
-
-def test_determine_locked_wire_colors_with_bundle_separation():
-    """Test _determine_locked_wire_colors for bundle operations."""
-    planner = LayoutPlanner({}, ProgramDiagnostics(), max_layout_retries=0)
-    c1 = make_const("c1", 10)
-    arith = make_arith("add1", SignalRef("signal-A", "c1"), SignalRef("signal-B", "c1"))
-    arith.needs_wire_separation = True
-
-    planner._setup_signal_analysis([c1, arith])
-    planner._reset_layout_state()
-    planner._create_entities([c1, arith])
-
-    locked = planner._determine_locked_wire_colors()
-    assert isinstance(locked, dict)
-
-
-def test_resolve_source_entity_with_at_syntax():
-    """Test _resolve_source_entity with @-syntax signal IDs."""
-    planner = LayoutPlanner({}, ProgramDiagnostics(), max_layout_retries=0)
-    c1 = make_const("c1", 42)
-
-    planner._setup_signal_analysis([c1])
-    planner._create_entities([c1])
-
-    # Test with @-syntax
-    result = planner._resolve_source_entity("signal-A@c1")
-    assert result == "c1" or result is None
-
-
-def test_resolve_source_entity_with_signal_ref():
-    """Test _resolve_source_entity with SignalRef."""
-    planner = LayoutPlanner({}, ProgramDiagnostics(), max_layout_retries=0)
-    c1 = make_const("c1", 42)
-
-    planner._setup_signal_analysis([c1])
-    planner._create_entities([c1])
-
-    ref = SignalRef("signal-A", "c1")
-    result = planner._resolve_source_entity(ref)
-    assert result == "c1" or result is None
-
-
 def test_plan_layout_retry_on_failure():
     """Test plan_layout retries on routing failure."""
     planner = LayoutPlanner({}, ProgramDiagnostics(), max_layout_retries=1)
@@ -277,37 +205,6 @@ def test_plan_layout_with_description():
     )
     assert result.blueprint_label == "Test Label"
     assert result.blueprint_description == "Test Desc"
-
-
-def test_resolve_source_entity_signal_graph_fallback():
-    """Test _resolve_source_entity falls back to signal graph when entity not in layout."""
-    planner = LayoutPlanner({}, ProgramDiagnostics(), max_layout_retries=0)
-    c1 = make_const("c1", 42)
-
-    planner._setup_signal_analysis([c1])
-    planner._create_entities([c1])
-
-    # Try to resolve a non-existent entity - should return None or fallback
-    result = planner._resolve_source_entity("nonexistent")
-    assert result is None or isinstance(result, str)
-
-
-def test_inject_operand_wire_color_no_source():
-    """Test _inject_operand_wire_color when source entity not found."""
-    planner = LayoutPlanner({}, ProgramDiagnostics(), max_layout_retries=0)
-    c1 = make_const("c1", 10)
-    arith = make_arith("add1", SignalRef("signal-A", "nonexistent"), 5)
-
-    planner._setup_signal_analysis([c1, arith])
-    planner._create_entities([c1, arith])
-    planner._update_tile_grid()
-    planner._plan_connections()
-
-    placement = planner.layout_plan.get_placement("add1")
-    if placement:
-        # Inject wire color for missing source
-        planner._inject_operand_wire_color(placement, "left", 0)
-        # Should handle gracefully
 
 
 def test_trim_power_poles_removes_unused():
@@ -357,25 +254,6 @@ def test_trim_power_poles_removes_unused():
     # Distant pole should be removed
     assert "close_pole" in planner.layout_plan.entity_placements
     assert "distant_pole" not in planner.layout_plan.entity_placements
-
-
-def test_determine_locked_wire_colors_sr_latch():
-    """Test _determine_locked_wire_colors for SR latch memory modules."""
-    from dsl_compiler.src.ir.nodes import MEMORY_TYPE_SR_LATCH, IRLatchWrite, IRMemCreate
-
-    planner = LayoutPlanner({}, ProgramDiagnostics(), max_layout_retries=0)
-    mem_op = IRMemCreate("mem1", "signal-A")
-    latch_op = IRLatchWrite(
-        "mem1", 1, SignalRef("signal-S", "src"), SignalRef("signal-R", "src"), MEMORY_TYPE_SR_LATCH
-    )
-
-    planner._setup_signal_analysis([mem_op, latch_op])
-    planner._reset_layout_state()
-    planner._create_entities([mem_op, latch_op])
-
-    locked = planner._determine_locked_wire_colors()
-    # SR latch should have locked colors
-    assert isinstance(locked, dict)
 
 
 def test_plan_layout_chain_of_operations():
@@ -432,8 +310,8 @@ def test_plan_layout_with_memory():
     mem_read.memory_id = "mem1"
 
     result = planner.plan_layout([mem_create, c1, mem_write, mem_read])
-    # Memory module should be created
-    assert any("write" in k or "hold" in k for k in result.entity_placements)
+    # Memory module should be created - unconditional writes use pass-through optimization
+    assert any("write" in k or "hold" in k or "pass_through" in k for k in result.entity_placements)
 
 
 def test_plan_layout_with_multiple_constants():

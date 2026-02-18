@@ -46,7 +46,7 @@ Save this to a `blink.facto`, run `factompile blink.facto`, copy the output, imp
 
 ## What Facto Does
 
-Facto handles the tedious parts of circuit building so you can focus only on logic. The compiler takes care of placing combinators in a sensible layout, routing wires between them (choosing red vs green to avoid signal conflicts), and inserting relay poles when distances exceed 9 tiles. It catches type mismatches at compile time rather than leaving you to debug mysterious in-game behavior.
+Facto handles the tedious parts of circuit building so you can focus only on logic. The compiler takes care of placing combinators in a sensible layout, routing wires between them (choosing red vs green to avoid signal conflicts), and inserting relay poles when distances exceed 9 tiles. You can also pin specific signals to red or green wires when interfacing with external circuits. It catches type mismatches at compile time rather than leaving you to debug mysterious in-game behavior.
 
 What Facto doesn't do: it might not produce the most minimal, most compact circuit layouts. The goal is to make circuits that are efficient enough to run well in-game while being easy to read, write, and maintain. If you need absolute minimalism, hand-optimizing the generated blueprint is still an option.
 

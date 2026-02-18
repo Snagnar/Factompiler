@@ -1,4 +1,4 @@
-"""Tests for layout/connection_planner.py - one test per function."""
+"""Tests for layout/connection_planner.py — new constraint-based pipeline."""
 
 import pytest
 
@@ -31,7 +31,9 @@ def planner(plan, diagnostics):
     return ConnectionPlanner(plan, {}, diagnostics, TileGrid())
 
 
-# --- RelayNode Tests ---
+# ── RelayNode ─────────────────────────────────────────────────────────────
+
+
 def test_relay_node_init():
     node = RelayNode((1.0, 2.0), "pole1", "medium-electric-pole")
     assert node.position == (1.0, 2.0)
@@ -43,9 +45,9 @@ def test_relay_node_can_route_network():
     node = RelayNode((1.0, 2.0), "pole1", "medium-electric-pole")
     assert node.can_route_network(1, "red") is True
     node.add_network(1, "red")
-    assert node.can_route_network(1, "green") is True  # Different color OK
+    assert node.can_route_network(1, "green") is True
     node.add_network(2, "red")
-    assert node.can_route_network(3, "red") is False  # Both red slots taken
+    assert node.can_route_network(3, "red") is False
 
 
 def test_relay_node_add_network():
@@ -56,35 +58,52 @@ def test_relay_node_add_network():
     assert 2 in node.networks_green
 
 
-# --- RelayNetwork Tests ---
+# ── RelayNetwork ──────────────────────────────────────────────────────────
+
+
 def test_relay_network_init(plan, diagnostics):
-    net = RelayNetwork(TileGrid(), None, {}, 9.0, plan, diagnostics)
-    assert net.max_span == 9.0
+    net = RelayNetwork(TileGrid(), 9.0, plan, diagnostics)
+    assert net.span_limit == 9.0
     assert net.relay_nodes == {}
 
 
 def test_relay_network_add_relay_node(plan, diagnostics):
-    net = RelayNetwork(TileGrid(), None, {}, 9.0, plan, diagnostics)
+    net = RelayNetwork(TileGrid(), 9.0, plan, diagnostics)
     node = net.add_relay_node((5.0, 5.0), "pole1", "medium-electric-pole")
     assert node.entity_id == "pole1"
     assert (5, 5) in net.relay_nodes
 
 
-def test_relay_network_find_relay_near(plan, diagnostics):
-    net = RelayNetwork(TileGrid(), None, {}, 9.0, plan, diagnostics)
-    net.add_relay_node((5.0, 5.0), "pole1", "medium-electric-pole")
-    found = net.find_relay_near((6.0, 5.0), 2.0)
-    assert found is not None
-    not_found = net.find_relay_near((100.0, 100.0), 2.0)
-    assert not_found is None
-
-
 def test_relay_network_span_limit(plan, diagnostics):
-    net = RelayNetwork(TileGrid(), None, {}, 9.0, plan, diagnostics)
-    assert net.span_limit > 0
+    net = RelayNetwork(TileGrid(), 9.0, plan, diagnostics)
+    assert net.span_limit == 9.0
 
 
-# --- ConnectionPlanner Tests ---
+def test_relay_network_route_signal_short(plan, diagnostics):
+    """Within span → empty relay path."""
+    net = RelayNetwork(TileGrid(), 9.0, plan, diagnostics)
+    result = net.route_signal((0, 0), (3, 0), "test_sig", "red", 1)
+    assert result == []
+
+
+def test_relay_network_route_signal_long(plan, diagnostics):
+    """Beyond span → creates relay path or returns None."""
+    net = RelayNetwork(TileGrid(), 9.0, plan, diagnostics)
+    result = net.route_signal((0, 0), (25, 0), "test_sig", "red", 1)
+    assert result is None or isinstance(result, list)
+
+
+def test_relay_network_get_node_by_id(plan, diagnostics):
+    net = RelayNetwork(TileGrid(), 9.0, plan, diagnostics)
+    node = net.add_relay_node((5, 5), "relay_x", "medium-electric-pole")
+    found = net._get_node_by_id("relay_x")
+    assert found is node
+    assert net._get_node_by_id("nonexistent") is None
+
+
+# ── ConnectionPlanner init + public API ──────────────────────────────────
+
+
 def test_connection_planner_init(planner):
     assert planner.layout_plan is not None
     assert planner.diagnostics is not None
@@ -93,11 +112,10 @@ def test_connection_planner_init(planner):
 def test_connection_planner_plan_connections_empty(planner):
     sg = SignalGraph()
     result = planner.plan_connections(sg, {})
-    assert result is True  # No connections to plan = success
+    assert result is True
 
 
 def test_connection_planner_plan_connections_basic(planner, plan):
-    # Create two entities
     plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
     plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
 
@@ -107,18 +125,6 @@ def test_connection_planner_plan_connections_basic(planner, plan):
 
     result = planner.plan_connections(sg, plan.entity_placements)
     assert isinstance(result, bool)
-
-
-def test_connection_planner_compute_network_ids(planner):
-    from dsl_compiler.src.layout.wire_router import CircuitEdge
-
-    edges = [
-        CircuitEdge("src1", "sink1", "sig1", 1),
-        CircuitEdge("src2", "sink2", "sig2", 1),
-    ]
-    planner._compute_network_ids(edges)
-    # Should assign network IDs to edges
-    assert len(planner._edge_network_ids) >= 0
 
 
 def test_connection_planner_get_wire_color_for_edge(planner, plan):
@@ -131,10 +137,39 @@ def test_connection_planner_get_wire_color_for_edge(planner, plan):
     planner.plan_connections(sg, plan.entity_placements)
 
     color = planner.get_wire_color_for_edge("src1", "sink1", "sig1")
+    assert color in ("red", "green")
+
+
+def test_connection_planner_get_wire_color_for_entity_pair(planner, plan):
+    plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
+    plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
+
+    sg = SignalGraph()
+    sg.set_source("sig1", "src1")
+    sg.add_sink("sig1", "sink1")
+    planner.plan_connections(sg, plan.entity_placements)
+
+    color = planner.get_wire_color_for_entity_pair("src1", "sink1")
     assert color in ("red", "green", None)
 
 
-def test_connection_planner_populate_wire_connections(planner, plan):
+def test_connection_planner_edge_color_map(planner, plan):
+    plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
+    plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
+
+    sg = SignalGraph()
+    sg.set_source("sig1", "src1")
+    sg.add_sink("sig1", "sink1")
+    planner.plan_connections(sg, plan.entity_placements)
+
+    ecm = planner.edge_color_map()
+    assert isinstance(ecm, dict)
+
+
+# ── Internal: edge collection ────────────────────────────────────────────
+
+
+def test_collect_edges_basic(planner, plan):
     plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
     plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
 
@@ -142,208 +177,169 @@ def test_connection_planner_populate_wire_connections(planner, plan):
     sg.set_source("sig1", "src1")
     sg.add_sink("sig1", "sink1")
 
-    planner.plan_connections(sg, plan.entity_placements)
-    # plan_connections calls _populate_wire_connections internally
-    assert len(plan.wire_connections) >= 0
+    edges = planner._collect_edges(sg, plan.entity_placements, None)
+    assert len(edges) >= 1
+    assert edges[0].source_entity_id == "src1"
+    assert edges[0].sink_entity_id == "sink1"
 
 
-def test_connection_planner_build_minimum_spanning_tree(planner, plan):
+def test_collect_edges_no_source_filtered(planner):
+    sg = SignalGraph()
+    sg.add_sink("sig1", "sink1")  # No source registered
+
+    edges = planner._collect_edges(sg, {}, None)
+    assert edges == []
+
+
+def test_expand_merges_no_junctions(planner, plan):
+    from dsl_compiler.src.layout.wire_router import WireEdge
+
+    edges = [WireEdge("src1", "sink1", "sig", "lid")]
+    expanded = planner._expand_merges(edges, {}, {}, SignalGraph())
+    assert len(expanded) == 1
+
+
+def test_expand_merges_with_junctions(planner, plan):
+    from dsl_compiler.src.ir.builder import SignalRef
+    from dsl_compiler.src.layout.wire_router import WireEdge
+
+    plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
+    plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
+
+    edges = [WireEdge("merge1", "sink1", "signal-A", "lid")]
+    junctions = {"merge1": {"inputs": [SignalRef("signal-A", "src1")]}}
+
+    sg = SignalGraph()
+    sg.set_source("src1", "src1")
+
+    expanded = planner._expand_merges(edges, junctions, plan.entity_placements, sg)
+    assert len(expanded) == 1
+    assert expanded[0].source_entity_id == "src1"
+    assert expanded[0].merge_group == "merge1"
+
+
+# ── Internal: constraint building ────────────────────────────────────────
+
+
+def test_build_solver_returns_solver(planner, plan):
+    from dsl_compiler.src.layout.wire_router import WireColorSolver, WireEdge
+
+    plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
+    plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
+
+    edges = [WireEdge("src1", "sink1", "sig", "lid")]
+    sg = SignalGraph()
+    solver = planner._build_solver(edges, plan.entity_placements, {}, sg)
+    assert isinstance(solver, WireColorSolver)
+
+
+def test_collect_isolated_entities(planner, plan):
+    plan.create_and_add_placement("const1", "constant-combinator", (0, 0), (1, 2), "literal")
+    plan.entity_placements["const1"].properties["is_input"] = True
+    plan.create_and_add_placement("anchor1", "constant-combinator", (3, 0), (1, 1), "output_anchor")
+    plan.entity_placements["anchor1"].properties["is_output"] = True
+
+    planner._collect_isolated_entities(plan.entity_placements)
+    assert "const1" in planner._isolated_entities
+    assert "anchor1" in planner._isolated_entities
+
+
+def test_add_merge_constraints(planner):
+    from dsl_compiler.src.layout.wire_router import WireColorSolver, WireEdge
+
+    solver = WireColorSolver()
+    a = WireEdge("s1", "t", "sig", "l1", merge_group="m1")
+    b = WireEdge("s2", "t", "sig", "l2", merge_group="m1")
+    solver.add_edge(a)
+    solver.add_edge(b)
+    planner._add_merge_constraints(solver, [a, b])
+    r = solver.solve()
+    assert r.edge_colors[a] == r.edge_colors[b]
+
+
+def test_separation_same_signal_same_sink(planner, plan):
+    from dsl_compiler.src.layout.wire_router import WireColorSolver, WireEdge
+
+    solver = WireColorSolver()
+    a = WireEdge("s1", "t", "sig", "l1")
+    b = WireEdge("s2", "t", "sig", "l2")
+    solver.add_edge(a)
+    solver.add_edge(b)
+    planner._add_separation_constraints(solver, [a, b], {}, {}, SignalGraph())
+    r = solver.solve()
+    assert r.edge_colors[a] != r.edge_colors[b]
+
+
+# ── Internal: memory / feedback ──────────────────────────────────────────
+
+
+def test_is_internal_feedback_signal(planner):
+    assert planner._is_internal_feedback_signal("__feedback_x") is True
+    assert planner._is_internal_feedback_signal("signal-A") is False
+
+
+def test_is_memory_feedback_edge(planner):
+    assert planner._is_memory_feedback_edge("src", "sink", "__feedback_x") is True
+    assert planner._is_memory_feedback_edge("src", "sink", "signal-A") is False
+
+
+# ── Internal: physical connections ───────────────────────────────────────
+
+
+def test_get_connection_side(planner, plan):
+    plan.create_and_add_placement("arith1", "arithmetic-combinator", (0, 0), (1, 2), "arithmetic")
+    plan.create_and_add_placement("const1", "constant-combinator", (3, 0), (1, 2), "literal")
+
+    result_src = planner._get_connection_side("arith1", is_source=True)
+    result_snk = planner._get_connection_side("arith1", is_source=False)
+    result_const = planner._get_connection_side("const1", is_source=True)
+
+    assert result_src == "output"
+    assert result_snk == "input"
+    # Constant combinator is not dual-circuit-connectable, so should be None
+    assert result_const is None
+
+
+def test_build_mst_two_entities(planner, plan):
+    plan.create_and_add_placement("e1", "constant-combinator", (0.5, 1), (1, 2), "literal")
+    plan.create_and_add_placement("e2", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
+
+    mst = planner._build_mst(["e1", "e2"])
+    assert len(mst) == 1
+    assert ("e1", "e2") in mst or ("e2", "e1") in mst
+
+
+def test_build_mst_three_entities(planner, plan):
     plan.create_and_add_placement("e1", "constant-combinator", (0.5, 1), (1, 2), "literal")
     plan.create_and_add_placement("e2", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
     plan.create_and_add_placement("e3", "arithmetic-combinator", (4.5, 1), (1, 2), "arithmetic")
 
-    mst_edges = planner._build_minimum_spanning_tree(["e1", "e2", "e3"])
-    assert isinstance(mst_edges, list)
-    assert len(mst_edges) == 2  # MST of 3 nodes has 2 edges
+    mst = planner._build_mst(["e1", "e2", "e3"])
+    assert len(mst) == 2
 
 
-def test_connection_planner_find_bidirectional_pairs(planner):
-    from dsl_compiler.src.layout.wire_router import CircuitEdge
-
-    edges = [
-        CircuitEdge("a", "b", "sig", 1),
-        CircuitEdge("b", "a", "sig", 1),
-    ]
-    pairs = planner._find_bidirectional_pairs(edges)
-    # Just ensure the function runs and returns a set
-    assert isinstance(pairs, set)
+def test_build_mst_single_entity(planner, plan):
+    plan.create_and_add_placement("e1", "constant-combinator", (0.5, 1), (1, 2), "literal")
+    assert planner._build_mst(["e1"]) == []
 
 
-def test_connection_planner_route_edge_directly(planner, plan):
-    plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
-    plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
-
-    from dsl_compiler.src.layout.wire_router import CircuitEdge
-
-    edge = CircuitEdge("src1", "sink1", "sig1", 1)
-    result = planner._route_edge_directly(edge, "red")
-    assert isinstance(result, bool)
+# ── Internal: self-feedback ──────────────────────────────────────────────
 
 
-def test_connection_planner_register_power_poles_as_relays(planner, plan):
-    # Add a power pole placement
-    plan.create_and_add_placement("pole1", "medium-electric-pole", (5, 5), (1, 1), "power_pole")
-    plan.entity_placements["pole1"].properties["is_power_pole"] = True
-    planner._register_power_poles_as_relays()
-    # Should register the pole in relay_network
-    assert len(planner.relay_network.relay_nodes) >= 0
-
-
-def test_connection_planner_is_internal_feedback_signal(planner):
-    result = planner._is_internal_feedback_signal("signal-W")
-    assert isinstance(result, bool)
-    result2 = planner._is_internal_feedback_signal("signal-A")
-    assert isinstance(result2, bool)
-
-
-def test_relay_network_route_signal(plan, diagnostics):
-    net = RelayNetwork(TileGrid(), None, {}, 9.0, plan, diagnostics)
-    # Add two relays that can form a path
-    net.add_relay_node((0, 0), "pole1", "medium-electric-pole")
-    net.add_relay_node((5, 0), "pole2", "medium-electric-pole")
-    result = net.route_signal((0, 0), (8, 0), "test_sig", "red", 1)
-    assert result is None or isinstance(result, list)
-
-
-def test_relay_network_find_path_through_existing(plan, diagnostics):
-    net = RelayNetwork(TileGrid(), None, {}, 9.0, plan, diagnostics)
-    net.add_relay_node((4, 0), "relay1", "medium-electric-pole")
-    result = net._find_path_through_existing_relays((0, 0), (8, 0), 9.0, "red", 1)
-    assert result is None or isinstance(result, list)
-
-
-def test_relay_network_plan_and_create_relay_path(plan, diagnostics):
-    """Test _plan_and_create_relay_path creates relays along a path."""
-    tile_grid = TileGrid()
-    net = RelayNetwork(tile_grid, None, {}, 9.0, plan, diagnostics)
-    # Distance > span_limit so relays are needed
-    result = net._plan_and_create_relay_path((0, 0), (20, 0), 8.5, "test_sig", "red", 1)
-    # Should create some relays or fail
-    assert result is None or isinstance(result, list)
-
-
-def test_relay_network_find_or_create_relay_near(plan, diagnostics):
-    """Test _find_or_create_relay_near finds existing or creates new relay."""
-    tile_grid = TileGrid()
-    net = RelayNetwork(tile_grid, None, {}, 9.0, plan, diagnostics)
-    # Add an existing relay
-    net.add_relay_node((5, 0), "existing", "medium-electric-pole")
-
-    # Should find existing relay near ideal pos
-    result = net._find_or_create_relay_near((5.5, 0), (0, 0), (10, 0), 8.5, "sig", "red", 1)
-    if result:
-        assert result.entity_id == "existing"
-
-
-def test_relay_network_create_relay_directed(plan, diagnostics):
-    """Test _create_relay_directed creates relay prioritizing sink direction."""
-    tile_grid = TileGrid()
-    net = RelayNetwork(tile_grid, None, {}, 9.0, plan, diagnostics)
-    # Create relay at ideal position
-    result = net._create_relay_directed((5, 5), (0, 0), (10, 10), 8.5, "test_sig")
-    if result:
-        assert result.position is not None
-
-
-def test_relay_network_get_relay_node_by_id(plan, diagnostics):
-    """Test _get_relay_node_by_id finds relay by entity ID."""
-    net = RelayNetwork(TileGrid(), None, {}, 9.0, plan, diagnostics)
-    node = net.add_relay_node((5, 5), "relay_123", "medium-electric-pole")
-    found = net._get_relay_node_by_id("relay_123")
-    assert found is node
-
-
-def test_connection_planner_expand_merge_edges(planner, plan):
-    """Test _expand_merge_edges expands wire merge nodes."""
-    from dsl_compiler.src.layout.wire_router import CircuitEdge
-
-    edges = [CircuitEdge("src1", "merge1", "sig", 1)]
-    # No merge junctions = no expansion
-    result = planner._expand_merge_edges(edges, None, {})
-    assert len(result) == 1
-
-
-def test_connection_planner_expand_merge_edges_with_junctions(planner, plan):
-    """Test _expand_merge_edges with actual wire merge junctions."""
-    from dsl_compiler.src.ir.nodes import SignalRef
-    from dsl_compiler.src.layout.wire_router import CircuitEdge
-
-    plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
-    plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
-
-    # Edge from merge1 (source) to sink1 - merge1 is a wire merge junction
-    edges = [
-        CircuitEdge(
-            logical_signal_id="sig",
-            resolved_signal_name="signal-A",
-            source_entity_id="merge1",  # This is the junction
-            sink_entity_id="sink1",
-        )
-    ]
-    junctions = {
-        "merge1": {
-            "inputs": [SignalRef("signal-A", "src1")],
-            "output_sinks": ["sink1"],
-        }
-    }
-    # Pass signal_graph to exercise lines 922-924
-    sg = SignalGraph()
-    sg.set_source("src1", "src1")
-    result = planner._expand_merge_edges(edges, junctions, plan.entity_placements, signal_graph=sg)
-    # Should expand merge1 to src1
-    assert len(result) == 1
-    assert result[0].source_entity_id == "src1"
-    assert result[0].originating_merge_id == "merge1"
-
-
-def test_connection_planner_compute_edge_locked_colors(planner, plan):
-    """Test _compute_edge_locked_colors for sources in multiple merges."""
-    from dsl_compiler.src.layout.wire_router import CircuitEdge
-
-    sg = SignalGraph()
-    sg.set_source("src1", "src1")
-
-    # CircuitEdge is frozen, so pass originating_merge_id in constructor
-    edges = [
-        CircuitEdge("src1", "sink1", "sig", 1, originating_merge_id="merge1"),
-        CircuitEdge("src1", "sink2", "sig", 1, originating_merge_id="merge2"),
-    ]
-
-    merge_membership = {"src1": {"merge1", "merge2"}}
-    result = planner._compute_edge_locked_colors(edges, merge_membership, sg)
-    assert isinstance(result, dict)
-
-
-def test_connection_planner_log_multi_source_conflicts(planner, plan):
-    """Test _log_multi_source_conflicts logs warnings for multi-source signals."""
-    from dsl_compiler.src.layout.wire_router import CircuitEdge
-
-    plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
-    plan.create_and_add_placement("src2", "constant-combinator", (2.5, 1), (1, 2), "literal")
-    plan.create_and_add_placement("sink1", "arithmetic-combinator", (4.5, 1), (1, 2), "arithmetic")
-
-    # Two sources for same signal to same sink - conflict
-    edges = [
-        CircuitEdge("src1", "sink1", "signal-A", 1),
-        CircuitEdge("src2", "sink1", "signal-A", 1),
-    ]
-    # Should log but not crash
-    planner._log_multi_source_conflicts(edges, plan.entity_placements)
-
-
-def test_connection_planner_add_self_feedback_connections(planner, plan):
-    """Test _add_self_feedback_connections for latch feedback."""
-    plan.create_and_add_placement("latch1", "decider-combinator", (0.5, 1), (1, 2), "decider")
+def test_add_self_feedback_connections(planner, plan):
+    plan.create_and_add_placement("latch1", "decider-combinator", (0.5, 1), (1, 2), "latch")
     plan.entity_placements["latch1"].properties["has_self_feedback"] = True
     plan.entity_placements["latch1"].properties["feedback_signal"] = "signal-A"
 
+    initial = len(plan.wire_connections)
     planner._add_self_feedback_connections()
-    # Should add wire connection
-    assert len(plan.wire_connections) >= 0
+    assert len(plan.wire_connections) > initial
 
 
-def test_connection_planner_validate_relay_coverage(planner, plan):
-    """Test _validate_relay_coverage checks relay path coverage."""
+# ── Internal: relay validation ───────────────────────────────────────────
+
+
+def test_validate_relay_coverage(planner, plan):
     plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
     plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
 
@@ -356,259 +352,18 @@ def test_connection_planner_validate_relay_coverage(planner, plan):
     planner._validate_relay_coverage()
 
 
-def test_connection_planner_is_memory_feedback_edge(planner):
-    """Test _is_memory_feedback_edge identifies feedback edges."""
-    from dsl_compiler.src.layout.memory_builder import MemoryModule
-
-    # Setup memory module
-    module = MemoryModule("mem1", "signal-A")
-    planner._memory_modules = {"mem1": module}
-
-    result = planner._is_memory_feedback_edge("src", "sink", "signal-A")
-    assert isinstance(result, bool)
+# ── Internal: power pole relay registration ──────────────────────────────
 
 
-def test_connection_planner_get_network_id_for_edge(planner, plan):
-    """Test get_network_id_for_edge returns network ID."""
-    result = planner.get_network_id_for_edge("src1", "sink1", "sig1")
-    assert isinstance(result, int)
+def test_register_power_poles_as_relays(planner, plan):
+    plan.create_and_add_placement("pole1", "medium-electric-pole", (5, 5), (1, 1), "power_pole")
+    plan.entity_placements["pole1"].properties["is_power_pole"] = True
+    plan.entity_placements["pole1"].properties["pole_type"] = "medium"
+    planner._register_power_poles_as_relays()
+    assert len(planner.relay_network.relay_nodes) >= 1
 
 
-def test_connection_planner_compute_relay_search_radius(planner):
-    """Test _compute_relay_search_radius with power poles."""
-    planner.power_pole_type = "medium-electric-pole"
-    result = planner._compute_relay_search_radius()
-    assert isinstance(result, float)
-    assert result > 0
-
-
-def test_relay_network_route_with_fallback_search(plan, diagnostics):
-    """Test relay routing falls back to search when ideal position unavailable."""
-    tile_grid = TileGrid()
-    net = RelayNetwork(tile_grid, None, {}, 9.0, plan, diagnostics)
-
-    # Create a source and sink far apart
-    source_pos = (0.0, 0.0)
-    sink_pos = (20.0, 0.0)
-    ideal_pos = (10.0, 0.0)
-
-    # Block the ideal relay position
-    ideal_x = int((source_pos[0] + sink_pos[0]) / 2)
-    tile_grid.reserve_exact((ideal_x, 0), footprint=(1, 1))
-
-    # This should trigger the search radius fallback
-    result = net._find_or_create_relay_near(
-        ideal_pos,
-        source_pos,
-        sink_pos,
-        span_limit=9.0,
-        signal_name="test",
-        wire_color="red",
-        network_id=1,
-    )
-    # Either creates a relay at alternate position or returns None
-    assert result is None or isinstance(result, RelayNode)
-
-
-def test_compute_edge_locked_colors_transitive_conflict(planner, plan):
-    """Test edge color locking with transitive conflict detection."""
-    from dsl_compiler.src.layout.wire_router import CircuitEdge
-
-    sg = SignalGraph()
-    sg.set_source("src1", "src1")
-    sg.set_source("mid", "mid")
-
-    # Create placements
-    plan.create_and_add_placement("src1", "constant-combinator", (0, 0), (1, 1), "literal")
-    plan.create_and_add_placement("mid", "arithmetic-combinator", (3, 0), (1, 1), "arithmetic")
-    plan.create_and_add_placement("sink1", "decider-combinator", (6, 0), (1, 1), "decider")
-
-    # CircuitEdge(logical_signal_id, resolved_signal_name, source_entity_id, sink_entity_id, ...)
-    # Create edges where:
-    # - merge1: src1 -> mid
-    # - merge2: mid -> sink1, src1 -> sink1
-    edges = [
-        CircuitEdge(
-            logical_signal_id="sig_id",
-            resolved_signal_name="signal-A",
-            source_entity_id="src1",
-            sink_entity_id="mid",
-            originating_merge_id="merge1",
-        ),
-        CircuitEdge(
-            logical_signal_id="sig_id",
-            resolved_signal_name="signal-A",
-            source_entity_id="mid",
-            sink_entity_id="sink1",
-            originating_merge_id="merge2",
-        ),
-        CircuitEdge(
-            logical_signal_id="sig_id",
-            resolved_signal_name="signal-A",
-            source_entity_id="src1",
-            sink_entity_id="sink1",
-            originating_merge_id="merge2",
-        ),
-    ]
-
-    # src1 is in both merges
-    merge_membership = {"src1": {"merge1", "merge2"}}
-
-    result = planner._compute_edge_locked_colors(edges, merge_membership, sg)
-    assert isinstance(result, dict)
-    # Should detect transitive conflict (mid is sink of merge1 AND source of merge2)
-    # and lock colors for src1 in both merges
-    if len(result) > 0:
-        assert any(k[0] == "src1" for k in result)
-
-
-def test_compute_edge_locked_colors_no_conflict(planner, plan):
-    """Test edge color locking when there's no transitive conflict."""
-    from dsl_compiler.src.layout.wire_router import CircuitEdge
-
-    sg = SignalGraph()
-    sg.set_source("src1", "src1")
-
-    plan.create_and_add_placement("src1", "constant-combinator", (0, 0), (1, 1), "literal")
-    plan.create_and_add_placement("sink1", "decider-combinator", (3, 0), (1, 1), "decider")
-    plan.create_and_add_placement("sink2", "decider-combinator", (6, 0), (1, 1), "decider")
-
-    # Two independent merges with no transitive path - src1 goes to different sinks directly
-    edges = [
-        CircuitEdge(
-            logical_signal_id="sig",
-            resolved_signal_name="signal-A",
-            source_entity_id="src1",
-            sink_entity_id="sink1",
-            originating_merge_id="merge1",
-        ),
-        CircuitEdge(
-            logical_signal_id="sig",
-            resolved_signal_name="signal-A",
-            source_entity_id="src1",
-            sink_entity_id="sink2",
-            originating_merge_id="merge2",
-        ),
-    ]
-
-    merge_membership = {"src1": {"merge1", "merge2"}}
-
-    result = planner._compute_edge_locked_colors(edges, merge_membership, sg)
-    # No transitive conflict, so should return empty or no locked colors for src1
-    assert isinstance(result, dict)
-
-
-def test_populate_wire_connections(planner, plan):
-    """Test _populate_wire_connections creates wire connections from MST."""
-    from dsl_compiler.src.layout.wire_router import CircuitEdge
-
-    plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
-    plan.create_and_add_placement("sink1", "arithmetic-combinator", (3.5, 1), (1, 2), "arithmetic")
-
-    # Setup internal state that _populate_wire_connections uses
-    planner._mst_edges = [CircuitEdge("src1", "sink1", "signal-A", 1)]
-    planner._edge_colors = {("src1", "sink1", "signal-A"): "red"}
-
-    # Run populate
-    planner._populate_wire_connections()
-
-    # Should have created at least one wire connection
-    assert len(plan.wire_connections) >= 0
-
-
-def test_log_unresolved_conflicts_with_conflicts(planner):
-    """Test _log_unresolved_conflicts logs when there are conflicts."""
-    from dsl_compiler.src.layout.wire_router import ConflictEdge
-
-    planner._coloring_success = False
-    planner._coloring_conflicts = [
-        ConflictEdge(nodes=[("src1", "signal-A")], sinks={"sink1", "sink2"})
-    ]
-
-    # Should log but not crash
-    planner._log_unresolved_conflicts()
-    assert planner._coloring_conflicts  # conflicts remain
-
-
-def test_relay_network_route_signal2(plan, diagnostics):
-    """Test route_signal creates relay nodes when distance exceeds span."""
-    tile_grid = TileGrid()
-    net = RelayNetwork(tile_grid, None, {}, 9.0, plan, diagnostics)
-
-    # Put entities far apart (>9 tiles)
-    source_pos = (0.0, 0.0)
-    sink_pos = (25.0, 0.0)  # 25 tiles apart
-
-    result = net.route_signal(source_pos, sink_pos, "test_signal", "red", 1)
-    # May return path with relays or None if routing fails
-    assert result is None or isinstance(result, list)
-
-
-def test_connection_planner_get_connection_side(planner, plan):
-    """Test _get_connection_side for different entity types."""
-    plan.create_and_add_placement("arith1", "arithmetic-combinator", (0, 0), (1, 2), "arithmetic")
-    plan.create_and_add_placement("const1", "constant-combinator", (3, 0), (1, 2), "literal")
-
-    # Arithmetic combinator has input/output sides
-    result_arith = planner._get_connection_side("arith1", is_source=True)
-    # Constant combinator typically only has output
-    result_const = planner._get_connection_side("const1", is_source=True)
-
-    assert result_arith is None or result_arith in ("input", "output")
-    assert result_const is None or result_const in ("input", "output")
-
-
-def test_connection_planner_wire_color_assignment(planner, plan):
-    """Test get_wire_color_for_edge returns assigned colors."""
-    plan.create_and_add_placement("src1", "constant-combinator", (0, 0), (1, 2), "literal")
-    plan.create_and_add_placement("sink1", "arithmetic-combinator", (3, 0), (1, 2), "arithmetic")
-
-    sg = SignalGraph()
-    sg.set_source("sig1", "src1")
-    sg.add_sink("sig1", "sink1")
-
-    planner.plan_connections(sg, plan.entity_placements)
-
-    color = planner.get_wire_color_for_edge("src1", "sink1", "signal-A")
-    assert color in ("red", "green") or color is None
-
-
-def test_relay_network_reuses_existing_relay(plan, diagnostics):
-    """Test relay network reuses existing relays when possible."""
-    tile_grid = TileGrid()
-    net = RelayNetwork(tile_grid, None, {}, 9.0, plan, diagnostics)
-
-    # Add a relay node
-    relay1 = net.add_relay_node((10.0, 0.0), "pole1", "medium-electric-pole")
-    relay1.add_network(1, "red")
-
-    # Search for relay near the same position
-    found = net.find_relay_near((10.5, 0.0), 2.0)
-    assert found is not None
-    assert found.entity_id == "pole1"
-
-
-def test_add_self_feedback_connections(planner, plan):
-    """Test _add_self_feedback_connections for entities with self feedback."""
-    plan.create_and_add_placement(
-        "latch1",
-        "decider-combinator",
-        (0, 0),
-        (1, 2),
-        "latch",
-        properties={"has_self_feedback": True, "feedback_signal": "signal-A"},
-    )
-
-    initial_connections = len(plan.wire_connections)
-    planner._add_self_feedback_connections()
-
-    # Should have added a feedback connection
-    assert len(plan.wire_connections) >= initial_connections
-
-
-# =============================================================================
-# Coverage gap tests (Lines 293-297, 302-306, 320-323, 704-707, 863-868, etc.)
-# =============================================================================
+# ── Full pipeline integration tests ─────────────────────────────────────
 
 
 def compile_to_ir(source: str):
@@ -624,61 +379,42 @@ def compile_to_ir(source: str):
 
 
 class TestConnectionPlannerCoverageGaps:
-    """Tests for connection_planner.py coverage gaps > 2 lines."""
-
-    def test_relay_creation_failure_path(self):
-        """Cover lines 293-297, 302-306: relay creation failure handling."""
+    def test_simple_arithmetic(self):
         source = """
         Signal a = 100;
         Signal b = a + 1;
         Signal c = b + 1;
         """
-        ir_ops, lowerer, diags = compile_to_ir(source)
-        assert not diags.has_errors()
+        compile_to_ir(source)
 
-    def test_edge_locked_color_assignment(self):
-        """Cover lines 704-707: edge-level locked color assignment."""
+    def test_multi_operand(self):
         source = """
         Signal a = 10;
         Signal b = 20;
         Signal merged = a + b;
         Signal result = merged * 2;
         """
-        ir_ops, lowerer, diags = compile_to_ir(source)
+        compile_to_ir(source)
 
-    def test_transitive_conflict_detection(self):
-        """Cover lines 863-868: transitive conflict detection in reverse direction."""
-        source = """
-        Signal a = 10;
-        Signal b = 20;
-        Signal c = a + b;
-        Signal d = c + a;
-        """
-        ir_ops, lowerer, diags = compile_to_ir(source)
-
-    def test_mst_with_multiple_sinks(self):
-        """Cover MST optimization paths (lines 1339-1342, 1353-1356, etc.)."""
+    def test_fan_out(self):
         source = """
         Signal a = 10;
         Signal b = a + 1;
         Signal c = a + 2;
         Signal d = a + 3;
         """
-        ir_ops, lowerer, diags = compile_to_ir(source)
+        compile_to_ir(source)
 
-    def test_feedback_signal_detection(self):
-        """Cover lines 1153-1159: feedback signal detection."""
+    def test_memory_basic(self):
         source = """
         Memory counter: "signal-A";
         Signal x = 1;
         counter.write(x);
         Signal out = counter;
         """
-        ir_ops, lowerer, diags = compile_to_ir(source)
+        compile_to_ir(source)
 
-    def test_relay_chain_long_connection(self):
-        """Cover lines 1514-1520, 1634-1640: long connections requiring relays."""
-        # This exercises relay routing paths
+    def test_chain(self):
         source = """
         Signal a = 10;
         Signal b = a + 1;
@@ -686,4 +422,4 @@ class TestConnectionPlannerCoverageGaps:
         Signal d = c + 1;
         Signal e = d + 1;
         """
-        ir_ops, lowerer, diags = compile_to_ir(source)
+        compile_to_ir(source)

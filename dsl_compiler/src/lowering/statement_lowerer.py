@@ -203,6 +203,14 @@ class StatementLowerer:
         if isinstance(stmt.target, PropertyAccess):
             entity_name = stmt.target.object_name
             prop_name = stmt.target.property_name
+
+            # Handle .wire = red/green for signal/bundle wire color pinning
+            # Must be handled before lower_expr(stmt.value) since red/green are
+            # bare identifiers, not signals.
+            if prop_name == "wire":
+                self._handle_wire_color_assignment(stmt)
+                return
+
             if (
                 entity_name in self.parent.entity_refs
                 and prop_name == "enable"
@@ -293,6 +301,70 @@ class StatementLowerer:
             f"Import statement found in AST - file not found during preprocessing: {stmt.path}",
             stmt,
         )
+
+    def _handle_wire_color_assignment(self, stmt: AssignStmt) -> None:
+        """Handle signal.wire = red/green; for wire color pinning.
+
+        Sets wire_color in the producing IR operation's debug_metadata.
+        This flows through entity_placer into EntityPlacement.properties,
+        where the connection planner reads it as a hard constraint.
+        """
+        assert isinstance(stmt.target, PropertyAccess)
+        var_name = stmt.target.object_name
+
+        wire_color = self._resolve_wire_color(stmt.value, stmt)
+        if wire_color is None:
+            return  # Error already reported
+
+        value_ref = self.parent.signal_refs.get(var_name)
+        if value_ref is None:
+            self._error(f"Undefined signal or bundle '{var_name}'", stmt)
+            return
+
+        if isinstance(value_ref, (SignalRef, BundleRef)):
+            ir_op = self.ir_builder.get_operation(value_ref.source_id)
+            if ir_op is not None:
+                ir_op.debug_metadata["wire_color"] = wire_color
+            else:
+                self._error(
+                    f"Cannot find IR operation for '{var_name}'",
+                    stmt,
+                )
+        else:
+            self._error(
+                f"Cannot set wire color on '{var_name}' — "
+                f"it is a compile-time integer constant, not a signal",
+                stmt,
+            )
+
+    def _resolve_wire_color(self, value_expr: Any, stmt: ASTNode) -> str | None:
+        """Resolve the wire color value from an assignment RHS.
+
+        Accepts IdentifierExpr("red"/"green") or StringLiteral("red"/"green").
+        """
+        from dsl_compiler.src.ast.expressions import IdentifierExpr
+        from dsl_compiler.src.ast.literals import StringLiteral
+
+        if isinstance(value_expr, IdentifierExpr):
+            if value_expr.name in ("red", "green"):
+                return value_expr.name
+            self._error(
+                f"Invalid wire color '{value_expr.name}'. Use 'red' or 'green'.",
+                stmt,
+            )
+            return None
+
+        if isinstance(value_expr, StringLiteral):
+            if value_expr.value in ("red", "green"):
+                return value_expr.value
+            self._error(
+                f"Invalid wire color '{value_expr.value}'. Use 'red' or 'green'.",
+                stmt,
+            )
+            return None
+
+        self._error("Wire color must be 'red' or 'green'.", stmt)
+        return None
 
     def _resolve_constant(self, name: str) -> int:
         """Resolve a variable name to its compile-time constant integer value.

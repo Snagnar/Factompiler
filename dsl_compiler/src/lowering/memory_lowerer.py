@@ -16,6 +16,7 @@ from dsl_compiler.src.ir.nodes import (
     MEMORY_TYPE_RS_LATCH,
     MEMORY_TYPE_SR_LATCH,
     MEMORY_TYPE_STANDARD,
+    BundleRef,
     IRConst,
     IRDecider,
 )
@@ -385,7 +386,21 @@ class MemoryLowerer:
             )
             expected_signal_type = self.ir_builder.allocate_implicit_type()
 
-        coerced_data_ref = self._coerce_to_signal_type(data_ref, expected_signal_type, expr)
+        # Bundle memory (signal-each): use the BundleRef directly, no coercion
+        if expected_signal_type == "signal-each":
+            if isinstance(data_ref, BundleRef):
+                # Use the bundle source_id as a SignalRef for the write
+                coerced_data_ref = SignalRef("signal-each", data_ref.source_id, source_ast=expr)
+            elif isinstance(data_ref, SignalRef):
+                coerced_data_ref = data_ref
+            else:
+                self._error(
+                    f"Bundle memory '{memory_name}' requires a Bundle value in write().",
+                    expr,
+                )
+                coerced_data_ref = self.ir_builder.const("signal-0", 0, expr)
+        else:
+            coerced_data_ref = self._coerce_to_signal_type(data_ref, expected_signal_type, expr)
 
         if expr.when is not None:
             # Push context for the when condition

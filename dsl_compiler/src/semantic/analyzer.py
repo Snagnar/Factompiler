@@ -1504,6 +1504,8 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                     stage="semantic",
                     node=node.target,
                 )
+            elif node.target.property_name == "wire":
+                return  # .wire is valid on Signal/Bundle — validated during lowering
             elif object_symbol.symbol_type != SymbolType.ENTITY:
                 self.diagnostics.error(
                     f"Cannot access property '{node.target.property_name}' on non-entity '{node.target.object_name}'",

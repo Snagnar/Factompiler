@@ -834,7 +834,7 @@ class DSLTransformer(Transformer):
         return all_expr
 
     def signal_with_type(self, items) -> SignalLiteral:
-        """signal_literal: "(" type_literal "," expr ")" -> signal_with_type"""
+        """signal_literal: \"(\" type_literal \",\" expr \")\" -> signal_with_type"""
         signal_type = items[0]
         value = self._unwrap_tree(items[1])
 
