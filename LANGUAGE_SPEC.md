@@ -463,19 +463,34 @@ Signal flag = ("signal-A", 1);
 
 #### Wire Color Pinning
 
-Signal literals can optionally specify a wire color as a third element:
+Signals and bundles can be pinned to a specific wire color using the `.wire` attribute:
 
 ```facto
-Signal iron = ("iron-plate", 100, red);    # pinned to red wire
-Signal ctrl = ("signal-C", 1, green);      # pinned to green wire
-Signal auto = ("signal-A", 50);            # automatic assignment (default)
+Signal iron = ("iron-plate", 100);
+iron.wire = red;    // pinned to red wire
+
+Signal ctrl = ("signal-C", 1);
+ctrl.wire = green;  // pinned to green wire
+
+Signal auto = ("signal-A", 50);
+// no .wire assignment = automatic (default)
 ```
 
-When a wire color is specified, the compiler adds a hard constraint ensuring all connections from this constant combinator use the specified color. This is useful when connecting the compiled blueprint to external circuits on specific wires.
+Wire color pinning works on any named Signal or Bundle, including computed values:
 
-If no color is specified, the compiler automatically assigns wire colors using its constraint solver (the default behavior). User-specified colors take priority over all automatic assignments.
+```facto
+Signal a = ("signal-A", 10);
+Signal b = ("signal-B", 20);
+Signal sum = a + b;
+sum.wire = red;  // the arithmetic combinator's output is pinned to red
 
-> **Note:** `red` and `green` are reserved keywords and cannot be used as variable names.
+Bundle sensors = { ("signal-T", 0), ("signal-P", 0) };
+sensors.wire = green;  // the bundle's output is pinned to green
+```
+
+When `.wire` is set, the compiler adds a hard constraint ensuring all connections from the producing entity use the specified color. This is useful when connecting the compiled blueprint to external circuits on specific wires.
+
+If `.wire` is not set, the compiler automatically assigns wire colors using its constraint solver (the default behavior). User-specified colors take priority over all automatic assignments.
 
 **Type Literal Syntax:**
 

@@ -834,15 +834,9 @@ class DSLTransformer(Transformer):
         return all_expr
 
     def signal_with_type(self, items) -> SignalLiteral:
-        """signal_literal: "(" type_literal "," expr ["," wire_color] ")" -> signal_with_type"""
+        """signal_literal: \"(\" type_literal \",\" expr \")\" -> signal_with_type"""
         signal_type = items[0]
         value = self._unwrap_tree(items[1])
-
-        # Extract optional wire color (None when absent due to maybe_placeholders)
-        wire_color = None
-        if len(items) > 2 and items[2] is not None:
-            color_tree = items[2]
-            wire_color = str(color_tree.children[0])  # "red" or "green"
 
         value_raw = getattr(value, "raw_text", None)
         raw_text = f"({signal_type}, {value_raw if value_raw is not None else value})"
@@ -850,9 +844,7 @@ class DSLTransformer(Transformer):
         if isinstance(value, SignalLiteral) and value.signal_type is None:
             value = value.value
 
-        return SignalLiteral(
-            value=value, signal_type=signal_type, raw_text=raw_text, wire_color=wire_color
-        )
+        return SignalLiteral(value=value, signal_type=signal_type, raw_text=raw_text)
 
     def signal_constant(self, items) -> SignalLiteral:
         """signal_literal: NUMBER -> signal_constant"""

@@ -81,20 +81,37 @@ The compiler allocates virtual signals (`signal-A`, `signal-B`, etc.) automatica
 
 ### Pinning Wire Colors
 
-When interfacing with external circuits, you can specify which wire color (red or green) a signal should use:
+When interfacing with external circuits, you can pin signals to a specific wire color using the `.wire` attribute:
 
 ```facto
-Signal sensor_red = ("signal-S", 0, red);      # This signal comes on the red wire
-Signal control_green = ("signal-C", 1, green); # This signal comes on the green wire
-Signal automatic = ("signal-A", 50);            # Compiler assigns wire color automatically
+Signal sensor = ("signal-S", 0);
+sensor.wire = red;       // this signal uses the red wire
+
+Signal control = ("signal-C", 1);
+control.wire = green;    // this signal uses the green wire
+
+Signal automatic = ("signal-A", 50);
+// no .wire = automatic assignment (default)
 ```
 
-Wire color pinning ensures the constant combinator for that signal connects using the specified wire color. This is particularly useful when:
+Wire color pinning works on any named Signal or Bundle, including computed values:
+
+```facto
+Signal a = ("signal-A", 10);
+Signal b = ("signal-B", 20);
+Signal sum = a + b;
+sum.wire = red;  // the arithmetic combinator's output is pinned to red
+
+Bundle sensors = { ("signal-T", 0), ("signal-P", 0) };
+sensors.wire = green;  // the bundle's output is pinned to green
+```
+
+Wire color pinning ensures the producing entity connects using the specified wire color. This is particularly useful when:
 - Connecting compiled blueprints to existing circuits with specific wire conventions
 - Keeping data signals (red) separate from control signals (green)
 - Interfacing with external sensors or controllers that output on specific wires
 
-If no wire color is specified, the compiler automatically assigns colors to avoid conflicts.
+If `.wire` is not set, the compiler automatically assigns colors to avoid conflicts.
 
 ### The `int` Type
 

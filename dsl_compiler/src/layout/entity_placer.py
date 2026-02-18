@@ -255,6 +255,8 @@ class EntityPlacer:
         right_operand = self.signal_analyzer.get_operand_for_combinator(op.right)
         output_signal = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
 
+        wire_color = op.debug_metadata.get("wire_color")
+
         self.plan.create_and_add_placement(
             ir_node_id=op.node_id,
             entity_type="arithmetic-combinator",
@@ -269,6 +271,7 @@ class EntityPlacer:
             right_operand_signal_id=op.right,  # IR signal ID for wire color lookup
             output_signal=output_signal,
             needs_wire_separation=op.needs_wire_separation,  # For bundle operations
+            wire_color=wire_color,
         )
 
         self.signal_graph.set_source(op.node_id, op.node_id)
@@ -313,6 +316,8 @@ class EntityPlacer:
         # Check for wire separation flag (used by bundle gating pattern)
         needs_wire_separation = op.debug_metadata.get("needs_wire_separation", False)
 
+        wire_color = op.debug_metadata.get("wire_color")
+
         self.plan.create_and_add_placement(
             ir_node_id=op.node_id,
             entity_type="decider-combinator",
@@ -330,6 +335,7 @@ class EntityPlacer:
             output_value_signal_id=op.output_value if copy_count_from_input else None,
             copy_count_from_input=copy_count_from_input,
             needs_wire_separation=needs_wire_separation,
+            wire_color=wire_color,
         )
 
         self.signal_graph.set_source(op.node_id, op.node_id)
@@ -400,6 +406,8 @@ class EntityPlacer:
         output_signal = self.signal_analyzer.resolve_signal_name(op.output_type, usage)
         output_value = self.signal_analyzer.get_operand_for_combinator(op.output_value)
 
+        wire_color = op.debug_metadata.get("wire_color")
+
         self.plan.create_and_add_placement(
             ir_node_id=op.node_id,
             entity_type="decider-combinator",
@@ -412,6 +420,7 @@ class EntityPlacer:
             output_value=output_value,
             output_value_signal_id=op.output_value if op.copy_count_from_input else None,
             copy_count_from_input=op.copy_count_from_input,
+            wire_color=wire_color,
         )
 
         # Signal graph: this node is source of its output
