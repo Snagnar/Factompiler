@@ -367,12 +367,12 @@ func calc(Signal a, Signal b) { ... }
 
 **Use conditional values (`:`) over multiplication:**
 ```facto
-# Efficient — one decider combinator
+# Efficient: one decider combinator
 func select(Signal cond, Signal a, Signal b) {
     return ((cond != 0) : a) + ((cond == 0) : b);
 }
 
-# Less efficient — extra arithmetic
+# Less efficient: extra arithmetic
 func select_old(Signal cond, Signal a, Signal b) {
     return (cond != 0) * a + (cond == 0) * b;
 }
