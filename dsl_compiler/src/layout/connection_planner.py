@@ -1,18 +1,19 @@
-"""Connection planning: constraint collection, color solving, MST, relay routing.
+"""Connection planning: MST optimization, relay routing, operand wire injection.
 
-Orchestrates the full wire connection pipeline:
-1. Collect WireEdge instances from the signal graph
-2. Collect constraints (hard color, separation, merge, isolation)
-3. Solve wire colors via WireColorSolver
-4. Optimize fan-out routing via MST
-5. Route long-distance connections through relay poles
-6. Inject operand wire colors into combinator placements
+Orchestrates the physical wire connection pipeline:
+1. Accept pre-solved wire colors (from WireColorAssigner)
+2. Optimize fan-out routing via MST
+3. Route long-distance connections through relay poles
+4. Inject operand wire colors into combinator placements
+
+Wire color assignment is handled by color_assigner.py and runs
+before layout optimization.
 """
 
 from __future__ import annotations
 
 import math
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -20,17 +21,12 @@ from dsl_compiler.src.common.constants import DEFAULT_CONFIG, CompilerConfig
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.common.entity_data import is_dual_circuit_connectable
 from dsl_compiler.src.common.signals import WILDCARD_SIGNALS
-from dsl_compiler.src.ir.builder import BundleRef, SignalRef
 
+from .color_assigner import WireColorAssigner, WireColorResult
 from .layout_plan import LayoutPlan, WireConnection
 from .signal_analyzer import SignalUsageEntry
 from .tile_grid import TileGrid
-from .wire_router import (
-    WIRE_COLORS,
-    ColorAssignment,
-    WireColorSolver,
-    WireEdge,
-)
+from .wire_router import WireEdge
 
 # ──────────────────────────────────────────────────────────────────────────
 # Relay infrastructure  (kept from old implementation, mostly unchanged)
@@ -311,6 +307,7 @@ class ConnectionPlanner:
         power_pole_type: str | None = None,
         config: CompilerConfig = DEFAULT_CONFIG,
         use_mst_optimization: bool = True,
+        wire_color_result: WireColorResult | None = None,
     ) -> None:
         self.layout_plan = layout_plan
         self.signal_usage = signal_usage
@@ -321,12 +318,19 @@ class ConnectionPlanner:
         self.config = config
         self.use_mst_optimization = use_mst_optimization
 
-        # Populated during plan_connections
-        self._wire_edges: list[WireEdge] = []
-        self._edge_wire_colors: dict[tuple[str, str, str], str] = {}
-        self._edge_network_ids: dict[tuple[str, str, str], int] = {}
+        # Pre-solved colors or defaults
+        if wire_color_result:
+            self._wire_edges = wire_color_result.wire_edges
+            self._edge_wire_colors = dict(wire_color_result.edge_colors)
+            self._edge_network_ids = dict(wire_color_result.network_ids)
+            self._isolated_entities = wire_color_result.isolated_entities
+        else:
+            self._wire_edges: list[WireEdge] = []
+            self._edge_wire_colors: dict[tuple[str, str, str], str] = {}
+            self._edge_network_ids: dict[tuple[str, str, str], int] = {}
+            self._isolated_entities: set[str] = set()
+
         self._routing_failed = False
-        self._isolated_entities: set[str] = set()
         self._memory_modules: dict[str, Any] = {}
 
         self.relay_network = RelayNetwork(
@@ -354,37 +358,32 @@ class ConnectionPlanner:
 
         preserved = list(self.layout_plan.wire_connections)
         self.layout_plan.wire_connections.clear()
-        self._wire_edges = []
-        self._edge_wire_colors = {}
         self._routing_failed = False
 
-        # Phase 1: collect edges
-        edges = self._collect_edges(signal_graph, entities, wire_merge_junctions)
-        self._wire_edges = edges
+        # Solve colors if not pre-solved
+        if not self._wire_edges:
+            assigner = WireColorAssigner(
+                self.layout_plan,
+                self.signal_usage,
+                self.diagnostics,
+                self._memory_modules,
+            )
+            color_result = assigner.assign_colors(
+                signal_graph, wire_merge_junctions, merge_membership
+            )
+            self._wire_edges = color_result.wire_edges
+            self._edge_wire_colors = dict(color_result.edge_colors)
+            self._edge_network_ids = dict(color_result.network_ids)
+            self._isolated_entities = color_result.isolated_entities
 
-        # Phase 2: build solver with all constraints
-        solver = self._build_solver(edges, entities, merge_membership or {}, signal_graph)
-
-        # Phase 3: solve colors
-        result = solver.solve()
-        self._apply_color_result(result, edges)
-
-        if not result.is_bipartite:
-            for c in result.conflicts:
-                self.diagnostics.info(
-                    f"Wire coloring conflict: {c.reason} — "
-                    f"{c.edge_a.signal_name} ({c.edge_a.source_entity_id}→{c.edge_a.sink_entity_id}) vs "
-                    f"{c.edge_b.signal_name} ({c.edge_b.source_entity_id}→{c.edge_b.sink_entity_id})"
-                )
-
-        # Phase 4+5: MST optimization + relay routing → physical connections
-        self._compute_network_ids()
+        # MST optimization + relay routing → physical connections
         self._create_physical_connections()
 
-        if preserved:
-            self.layout_plan.wire_connections.extend(preserved)
+        # Re-route preserved connections (e.g. memory gate→storage wires)
+        # through the relay system so long-distance wires get relay poles.
+        self._route_preserved_connections(preserved)
 
-        # Phase 6: operand wire injection
+        # Operand wire injection
         self._inject_operand_wires(signal_graph)
 
         self._validate_relay_coverage()
@@ -409,548 +408,48 @@ class ConnectionPlanner:
         return dict(self._edge_wire_colors)
 
     # ──────────────────────────────────────────────────────────────────────
-    # Phase 1: edge collection
+    # Preserved connection re-routing
     # ──────────────────────────────────────────────────────────────────────
 
-    def _collect_edges(
-        self,
-        signal_graph: Any,
-        entities: dict[str, Any],
-        wire_merge_junctions: dict[str, Any] | None,
-    ) -> list[WireEdge]:
-        """Collect all WireEdge instances from signal graph, expanding merges."""
-        raw_edges: list[WireEdge] = []
+    def _route_preserved_connections(self, preserved: list[WireConnection]) -> None:
+        """Re-route pre-existing connections (e.g. memory internal wires) through relays.
 
-        for logical_id, source_id, sink_id in signal_graph.iter_source_sink_pairs():
-            usage = self.signal_usage.get(logical_id)
-            resolved = (
-                usage.resolved_signal_name if usage and usage.resolved_signal_name else logical_id
-            )
-
-            # Skip internal feedback signals
-            if self._is_internal_feedback_signal(resolved):
+        Connections that were added during entity creation (before layout) get
+        blindly re-added unchanged if they fit within the wire span limit.
+        Those that exceed the span are routed through the relay network so
+        relay poles bridge the gap.
+        """
+        for conn in preserved:
+            # Self-connections (e.g. storage self-feedback) always fit
+            if conn.source_entity_id == conn.sink_entity_id:
+                self.layout_plan.add_wire_connection(conn)
                 continue
 
-            # Skip memory feedback edges (handled separately)
-            if source_id and self._is_memory_feedback_edge(source_id, sink_id, resolved):
+            src = self.layout_plan.get_placement(conn.source_entity_id)
+            snk = self.layout_plan.get_placement(conn.sink_entity_id)
+
+            if not src or not snk or not src.position or not snk.position:
+                self.layout_plan.add_wire_connection(conn)
                 continue
 
-            raw_edges.append(
-                WireEdge(
-                    source_entity_id=source_id or "",
-                    sink_entity_id=sink_id,
-                    signal_name=resolved,
-                    logical_signal_id=logical_id,
-                )
-            )
-
-        # Expand merge junctions
-        if wire_merge_junctions:
-            raw_edges = self._expand_merges(raw_edges, wire_merge_junctions, entities, signal_graph)
-
-        # Filter out edges without a real source
-        return [e for e in raw_edges if e.source_entity_id]
-
-    def _expand_merges(
-        self,
-        edges: list[WireEdge],
-        junctions: dict[str, Any],
-        entities: dict[str, Any],
-        signal_graph: Any,
-    ) -> list[WireEdge]:
-        """Replace merge-junction edges with direct source→sink edges tagged with merge_group."""
-        expanded: list[WireEdge] = []
-
-        for edge in edges:
-            # Skip edges whose sink IS a merge junction (they'll be replaced)
-            if edge.sink_entity_id in junctions:
-                continue
-
-            # Check if the source is a merge junction
-            merge_info = junctions.get(edge.source_entity_id)
-            if not merge_info:
-                expanded.append(edge)
-                continue
-
-            merge_group = edge.source_entity_id
-
-            for source_ref in merge_info.get("inputs", []):
-                if isinstance(source_ref, (SignalRef, BundleRef)):
-                    ir_source = source_ref.source_id
-                else:
-                    continue
-
-                actual_source = ir_source
-                if signal_graph is not None:
-                    resolved_entity = signal_graph.get_source(ir_source)
-                    if resolved_entity:
-                        actual_source = resolved_entity
-
-                expanded.append(
-                    WireEdge(
-                        source_entity_id=actual_source,
-                        sink_entity_id=edge.sink_entity_id,
-                        signal_name=edge.signal_name,
-                        logical_signal_id=edge.logical_signal_id,
-                        merge_group=merge_group,
-                    )
-                )
-
-        return expanded
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Phase 2: constraint collection + solver setup
-    # ──────────────────────────────────────────────────────────────────────
-
-    def _build_solver(
-        self,
-        edges: list[WireEdge],
-        entities: dict[str, Any],
-        merge_membership: dict[str, set],
-        signal_graph: Any,
-    ) -> WireColorSolver:
-        solver = WireColorSolver()
-
-        for e in edges:
-            solver.add_edge(e)
-
-        # 2a: hard constraints
-        self._add_hard_constraints(solver, edges, entities, signal_graph)
-
-        # 2b: isolation constraints (collect isolated entity set)
-        self._collect_isolated_entities(entities)
-
-        # 2c: merge constraints
-        self._add_merge_constraints(solver, edges)
-
-        # 2d: separation constraints (including isolation-aware ones)
-        self._add_separation_constraints(solver, edges, entities, merge_membership, signal_graph)
-
-        return solver
-
-    def _add_hard_constraints(
-        self,
-        solver: WireColorSolver,
-        edges: list[WireEdge],
-        entities: dict[str, Any],
-        signal_graph: Any,
-    ) -> None:
-        """Add hard color constraints (user-specified, memory, feedback, bundle separation)."""
-        from .memory_builder import MemoryModule
-
-        # -- User-specified wire colors (highest priority, first-writer-wins) --
-        for entity_id, placement in self.layout_plan.entity_placements.items():
-            wire_color = placement.properties.get("wire_color")
-            if wire_color:
-                for e in edges:
-                    if e.source_entity_id == entity_id:
-                        solver.add_hard_constraint(e, wire_color, "user-specified")
-
-        # -- Memory data signals → RED, signal-W → GREEN --
-        for module in self._memory_modules.values():
-            if isinstance(module, MemoryModule) and module.optimization is None:
-                if module.write_gate:
-                    self._lock_edges(
-                        solver,
-                        edges,
-                        source=module.write_gate.ir_node_id,
-                        signal=module.signal_type,
-                        color="red",
-                        reason="memory data (write gate)",
-                    )
-                if module.hold_gate:
-                    self._lock_edges(
-                        solver,
-                        edges,
-                        source=module.hold_gate.ir_node_id,
-                        signal=module.signal_type,
-                        color="red",
-                        reason="memory data (hold gate)",
-                    )
-
-        # Pass-through memories: output signal locked to GREEN
-        for module in self._memory_modules.values():
-            if isinstance(module, MemoryModule) and module.optimization == "pass_through":  # noqa: SIM102
-                if module.output_node_id:
-                    self._lock_edges(
-                        solver,
-                        edges,
-                        source=module.output_node_id,
-                        signal=module.signal_type,
-                        color="green",
-                        reason="pass-through memory output",
-                    )
-
-        # signal-W → GREEN
-        for e in edges:
-            if e.signal_name == "signal-W":
-                solver.add_hard_constraint(e, "green", "signal-W is memory write-enable")
-
-        # Data signals feeding into write gates → RED
-        for module in self._memory_modules.values():
-            if not isinstance(module, MemoryModule) or module.optimization is not None:
-                continue
-            if not module.write_gate or not module.hold_gate:
-                continue
-            write_gate_id = module.write_gate.ir_node_id
-            hold_gate_id = module.hold_gate.ir_node_id
-            data_signal = module.signal_type
-            for e in edges:
-                if (
-                    e.sink_entity_id == write_gate_id
-                    and e.signal_name == data_signal
-                    and e.source_entity_id != write_gate_id
-                    and e.source_entity_id != hold_gate_id
-                ):
-                    solver.add_hard_constraint(
-                        e, "red", f"data signal to write gate ({data_signal})"
-                    )
-
-        # Self-feedback → RED
-        for entity_id, placement in self.layout_plan.entity_placements.items():
-            if placement.properties.get("has_self_feedback"):
-                fb_signal = placement.properties.get("feedback_signal")
-                if fb_signal:
-                    self._lock_edges(
-                        solver,
-                        edges,
-                        source=entity_id,
-                        signal=fb_signal,
-                        color="red",
-                        reason="self-feedback",
-                    )
-
-        # Bundle wire separation: needs_wire_separation
-        for entity_id, placement in self.layout_plan.entity_placements.items():
-            if not placement.properties.get("needs_wire_separation"):
-                continue
-
-            if placement.entity_type == "arithmetic-combinator":
-                # Lock the right (scalar) operand to GREEN
-                right_signal_id = placement.properties.get("right_operand_signal_id")
-                right_operand = placement.properties.get("right_operand")
-                if (
-                    right_signal_id
-                    and isinstance(right_operand, str)
-                    and hasattr(right_signal_id, "source_id")
-                ):
-                    source_id = right_signal_id.source_id
-                    actual = signal_graph.get_source(source_id) if signal_graph else source_id
-                    if actual is None:
-                        actual = source_id
-                    for e in edges:
-                        if e.source_entity_id == actual and e.sink_entity_id == entity_id:
-                            solver.add_hard_constraint(e, "green", "bundle: scalar operand")
-                    # Lock left (bundle) edges to RED
-                    left_signal_id = placement.properties.get("left_operand_signal_id")
-                    if left_signal_id and hasattr(left_signal_id, "source_id"):
-                        left_source = left_signal_id.source_id
-                        actual_left = (
-                            signal_graph.get_source(left_source) if signal_graph else left_source
-                        )
-                        if actual_left is None:
-                            actual_left = left_source
-                        for e in edges:
-                            if e.source_entity_id == actual_left and e.sink_entity_id == entity_id:
-                                solver.add_hard_constraint(e, "red", "bundle: each operand")
-
-            elif placement.entity_type == "decider-combinator":
-                # Lock the output_value (bundle) to GREEN
-                ov_signal_id = placement.properties.get("output_value_signal_id")
-                if ov_signal_id and hasattr(ov_signal_id, "source_id"):
-                    bundle_ir = ov_signal_id.source_id
-                    actual_src = signal_graph.get_source(bundle_ir) if signal_graph else bundle_ir
-                    if actual_src is None:
-                        actual_src = bundle_ir
-                    for e in edges:
-                        if e.source_entity_id == actual_src and e.sink_entity_id == entity_id:
-                            solver.add_hard_constraint(
-                                e, "green", "bundle gating: bundle to decider"
-                            )
-
-        # Input bundle constants — heuristic color assignment
-        self._add_bundle_const_heuristic(solver, edges, entities)
-
-    def _add_bundle_const_heuristic(
-        self,
-        solver: WireColorSolver,
-        edges: list[WireEdge],
-        entities: dict[str, Any],
-    ) -> None:
-        """Assign heuristic colors to bundle constant combinators."""
-        bundle_consts: list[tuple[str, bool]] = []
-        for eid, placement in self.layout_plan.entity_placements.items():
-            if (
-                placement.entity_type == "constant-combinator"
-                and getattr(placement, "role", None) == "bundle_const"
-            ):
-                signals = placement.properties.get("signals", {})
-                has_nonzero = (
-                    any(v != 0 for v in signals.values()) if isinstance(signals, dict) else False
-                )
-                bundle_consts.append((eid, has_nonzero))
-
-        if not bundle_consts:
-            return
-
-        # Assign colors
-        color_map: dict[str, str] = {}
-        if len(bundle_consts) == 1:
-            eid, has_nonzero = bundle_consts[0]
-            color_map[eid] = "green" if has_nonzero else "red"
-        elif len(bundle_consts) >= 2:
-            nonzero = [eid for eid, nz in bundle_consts if nz]
-            zero = [eid for eid, nz in bundle_consts if not nz]
-            if nonzero and zero:
-                for eid in nonzero:
-                    color_map[eid] = "green"
-                for eid in zero:
-                    color_map[eid] = "red"
+            dist = math.dist(src.position, snk.position)
+            if dist <= self.relay_network.span_limit:
+                # Fits — keep the original direct connection
+                self.layout_plan.add_wire_connection(conn)
             else:
-                sorted_b = sorted(
-                    bundle_consts,
-                    key=lambda x: (self.layout_plan.entity_placements[x[0]].position or (0, 0))[0],
-                )
-                colors = ["red", "green"]
-                for i, (eid, _) in enumerate(sorted_b):
-                    color_map[eid] = colors[i % 2]
-
-        for e in edges:
-            if e.source_entity_id in color_map:
-                solver.add_hard_constraint(
-                    e, color_map[e.source_entity_id], "bundle constant heuristic"
+                # Too far — route through relays
+                self._route_connection(
+                    conn.source_entity_id,
+                    conn.sink_entity_id,
+                    conn.signal_name,
+                    conn.wire_color,
+                    conn.source_side,
+                    conn.sink_side,
                 )
 
-    def _collect_isolated_entities(self, entities: dict[str, Any]) -> None:
-        """Identify user-defined input constants and output anchors as isolated."""
-        self._isolated_entities = set()
-        for eid, placement in self.layout_plan.entity_placements.items():
-            if (
-                placement.properties.get("is_input")
-                or placement.properties.get("is_output")
-                or getattr(placement, "role", None) == "output_anchor"
-            ):
-                self._isolated_entities.add(eid)
-
-    def _add_merge_constraints(
-        self,
-        solver: WireColorSolver,
-        edges: list[WireEdge],
-    ) -> None:
-        """Group edges by merge_group and add merge constraints."""
-        groups: dict[str, list[WireEdge]] = defaultdict(list)
-        for e in edges:
-            if e.merge_group:
-                groups[e.merge_group].append(e)
-        for merge_id, group_edges in sorted(groups.items()):
-            if len(group_edges) >= 2:
-                solver.add_merge(group_edges, merge_id)
-
-    def _add_separation_constraints(
-        self,
-        solver: WireColorSolver,
-        edges: list[WireEdge],
-        entities: dict[str, Any],
-        merge_membership: dict[str, set],
-        signal_graph: Any,
-    ) -> None:
-        """Add separation constraints: same-signal-same-sink + isolation + transitive merge."""
-        # 1. Same signal, same sink, different sources (not in same merge group) → separate
-        sink_signal_groups: dict[tuple[str, str], list[WireEdge]] = defaultdict(list)
-        for e in edges:
-            sink_signal_groups[(e.sink_entity_id, e.signal_name)].append(e)
-
-        for (_sink, _sig), group in sorted(sink_signal_groups.items()):
-            if len(group) <= 1:
-                continue
-            # Build non-merge pairs
-            for i in range(len(group)):
-                for j in range(i + 1, len(group)):
-                    a, b = group[i], group[j]
-                    if a.source_entity_id == b.source_entity_id:
-                        continue
-                    if a.merge_group and a.merge_group == b.merge_group:
-                        continue  # same merge → they SHOULD be on same wire
-                    solver.add_separation(a, b, f"same signal '{_sig}' at sink '{_sink}'")
-
-        # 2. Same-signal operand conflict (both operands read same Factorio signal)
-        for eid, placement in self.layout_plan.entity_placements.items():
-            left_signal = placement.properties.get("left_operand")
-            right_signal = placement.properties.get("right_operand")
-            if not left_signal or not right_signal:
-                continue
-            if isinstance(left_signal, int) or isinstance(right_signal, int):
-                continue
-            if left_signal != right_signal:
-                continue
-            left_id = placement.properties.get("left_operand_signal_id")
-            right_id = placement.properties.get("right_operand_signal_id")
-            if not left_id or not right_id:
-                continue
-            # Resolve to entity IDs
-            left_src = self._resolve_source_entity(left_id, signal_graph)
-            right_src = self._resolve_source_entity(right_id, signal_graph)
-            if not left_src or not right_src or left_src == right_src:
-                continue
-            # Find the corresponding edges
-            left_edge = self._find_edge(edges, left_src, eid)
-            right_edge = self._find_edge(edges, right_src, eid)
-            if left_edge and right_edge:
-                solver.add_separation(
-                    left_edge,
-                    right_edge,
-                    f"same-signal operand conflict ({left_signal}) at {eid}",
-                )
-
-        # 3. Isolation: user-defined inputs/outputs must not carry stray signals
-        for e in edges:
-            if e.merge_group:
-                continue  # merge edges are exempt from isolation
-            if e.source_entity_id in self._isolated_entities:
-                # This edge originates from an isolated entity.
-                # Separate it from all other edges arriving at the same sink
-                # on ANY signal (not just same signal).
-                for other in edges:
-                    if other is e:
-                        continue
-                    if other.sink_entity_id != e.sink_entity_id:
-                        continue
-                    if other.merge_group and other.merge_group == e.merge_group:
-                        continue
-                    if other.source_entity_id == e.source_entity_id:
-                        continue
-                    solver.add_separation(
-                        e,
-                        other,
-                        f"isolation: user input/output {e.source_entity_id}",
-                    )
-            if e.sink_entity_id in self._isolated_entities:
-                # This edge goes to an isolated entity (output anchor).
-                # Separate it from all other edges arriving at the same sink.
-                for other in edges:
-                    if other is e:
-                        continue
-                    if other.sink_entity_id != e.sink_entity_id:
-                        continue
-                    if other.source_entity_id == e.source_entity_id:
-                        continue
-                    solver.add_separation(
-                        e,
-                        other,
-                        f"isolation: output anchor {e.sink_entity_id}",
-                    )
-
-        # 4. Transitive merge conflicts
-        self._add_transitive_merge_constraints(solver, edges, merge_membership, signal_graph)
-
-    def _add_transitive_merge_constraints(
-        self,
-        solver: WireColorSolver,
-        edges: list[WireEdge],
-        merge_membership: dict[str, set],
-        signal_graph: Any,
-    ) -> None:
-        """When a source participates in multiple merges with transitive paths, separate them."""
-        # Build maps
-        merge_to_sources: dict[str, set[str]] = defaultdict(set)
-        merge_to_sinks: dict[str, set[str]] = defaultdict(set)
-        for e in edges:
-            if e.merge_group:
-                merge_to_sources[e.merge_group].add(e.source_entity_id)
-                merge_to_sinks[e.merge_group].add(e.sink_entity_id)
-
-        # For each source in multiple merges, check for transitive paths
-        for source_id, merge_ids in merge_membership.items():
-            if len(merge_ids) <= 1:
-                continue
-
-            actual_source = source_id
-            if signal_graph is not None:
-                resolved = signal_graph.get_source(source_id)
-                if resolved:
-                    actual_source = resolved
-
-            merge_list = sorted(merge_ids)
-            has_conflict = False
-            for i, m1 in enumerate(merge_list):
-                sinks1 = merge_to_sinks.get(m1, set())
-                for m2 in merge_list[i + 1 :]:
-                    sources2 = merge_to_sources.get(m2, set())
-                    sinks2 = merge_to_sinks.get(m2, set())
-                    sources1 = merge_to_sources.get(m1, set())
-                    if (sinks1 & sources2) or (sinks2 & sources1):
-                        has_conflict = True
-                        break
-                if has_conflict:
-                    break
-
-            if not has_conflict:
-                continue
-
-            # Separate edges from this source across different merge groups
-            source_edges_by_merge: dict[str, list[WireEdge]] = defaultdict(list)
-            for e in edges:
-                if (
-                    e.source_entity_id == actual_source
-                    and e.merge_group is not None
-                    and e.merge_group in merge_ids
-                ):
-                    source_edges_by_merge[e.merge_group].append(e)
-
-            sorted_merges = sorted(source_edges_by_merge.keys())
-            for i, m1 in enumerate(sorted_merges):
-                for m2 in sorted_merges[i + 1 :]:
-                    # Separate the first edge of each group (representative)
-                    e1_list = source_edges_by_merge[m1]
-                    e2_list = source_edges_by_merge[m2]
-                    if e1_list and e2_list:
-                        # Hard-lock to alternating colors for determinism
-                        color_idx = sorted_merges.index(m1)
-                        solver.add_hard_constraint(
-                            e1_list[0],
-                            WIRE_COLORS[color_idx % 2],
-                            f"transitive merge conflict ({m1})",
-                        )
-                        color_idx2 = sorted_merges.index(m2)
-                        solver.add_hard_constraint(
-                            e2_list[0],
-                            WIRE_COLORS[color_idx2 % 2],
-                            f"transitive merge conflict ({m2})",
-                        )
-
     # ──────────────────────────────────────────────────────────────────────
-    # Phase 3: apply color result
+    # Physical connection creation (MST + relay)
     # ──────────────────────────────────────────────────────────────────────
-
-    def _apply_color_result(self, result: ColorAssignment, edges: list[WireEdge]) -> None:
-        """Populate _edge_wire_colors from the solver result."""
-        for edge, color in result.edge_colors.items():
-            self._edge_wire_colors[edge.key] = color
-            # Also store reverse for bidirectional lookups
-            rev_key = (edge.sink_entity_id, edge.source_entity_id, edge.signal_name)
-            if rev_key not in self._edge_wire_colors:
-                self._edge_wire_colors[rev_key] = color
-
-        color_counts = Counter(result.edge_colors.values())
-        parts = [f"{c} {clr}" for clr, c in sorted(color_counts.items())]
-        if parts:
-            self.diagnostics.info("Wire color assignments: " + ", ".join(parts))
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Phase 4+5: physical connection creation (MST + relay)
-    # ──────────────────────────────────────────────────────────────────────
-
-    def _compute_network_ids(self) -> None:
-        """Compute network IDs for relay isolation."""
-        next_id = 1
-        source_color_map: dict[tuple[str, str], int] = {}
-        for e in self._wire_edges:
-            color = self._edge_wire_colors.get(e.key, "red")
-            sc_key = (e.source_entity_id, color)
-            if sc_key not in source_color_map:
-                source_color_map[sc_key] = next_id
-                next_id += 1
-            self._edge_network_ids[e.key] = source_color_map[sc_key]
 
     def _create_physical_connections(self) -> None:
         """Group edges by (signal, color), apply MST where beneficial, route through relays."""
@@ -1310,26 +809,6 @@ class ConnectionPlanner:
 
         return None
 
-    def _find_edge(self, edges: list[WireEdge], source_id: str, sink_id: str) -> WireEdge | None:
-        for e in edges:
-            if e.source_entity_id == source_id and e.sink_entity_id == sink_id:
-                return e
-        return None
-
-    @staticmethod
-    def _lock_edges(
-        solver: WireColorSolver,
-        edges: list[WireEdge],
-        source: str,
-        signal: str,
-        color: str,
-        reason: str,
-    ) -> None:
-        """Lock all edges from `source` carrying `signal` to a color."""
-        for e in edges:
-            if e.source_entity_id == source and e.signal_name == signal:
-                solver.add_hard_constraint(e, color, reason)
-
     def _get_connection_side(self, entity_id: str, is_source: bool) -> str | None:
         placement = self.layout_plan.get_placement(entity_id)
         if not placement:
@@ -1337,41 +816,6 @@ class ConnectionPlanner:
         if is_dual_circuit_connectable(placement.entity_type):
             return "output" if is_source else "input"
         return None
-
-    def _is_memory_feedback_edge(self, source_id: str, sink_id: str, signal_name: str) -> bool:
-        from .memory_builder import MemoryModule
-
-        if self._is_internal_feedback_signal(signal_name):
-            return True
-
-        for module in self._memory_modules.values():
-            if not isinstance(module, MemoryModule) or module.optimization is not None:
-                continue
-            if not module.write_gate or not module.hold_gate:
-                continue
-            w = module.write_gate.ir_node_id
-            h = module.hold_gate.ir_node_id
-            if source_id == w and sink_id == h and signal_name == module.signal_type:
-                return True
-            if source_id == h and sink_id == w and signal_name == module.signal_type:
-                return True
-        return False
-
-    def _is_internal_feedback_signal(self, signal_name: str) -> bool:
-        if not signal_name.startswith("__feedback_"):
-            return False
-        from .memory_builder import MemoryModule
-
-        for module in self._memory_modules.values():
-            if not isinstance(module, MemoryModule):
-                continue
-            if (
-                hasattr(module, "_feedback_signal_ids")
-                and signal_name in module._feedback_signal_ids
-            ):
-                return True
-        # Fallback: any __feedback_ prefixed signal is internal
-        return True
 
     def _register_power_poles_as_relays(self) -> None:
         from .power_planner import POWER_POLE_CONFIG
@@ -1412,15 +856,19 @@ class ConnectionPlanner:
             snk = self.layout_plan.get_placement(conn.sink_entity_id)
             if not src or not snk or not src.position or not snk.position:
                 continue
-            if math.dist(src.position, snk.position) > span + 1e-6:
+            # Self-connections (e.g. memory self-feedback) have zero distance
+            if conn.source_entity_id == conn.sink_entity_id:
+                continue
+            dist = math.dist(src.position, snk.position)
+            if dist > span + 1e-6:
                 violations += 1
                 if violations <= 5:
-                    self.diagnostics.warning(
+                    self.diagnostics.error(
                         f"Wire exceeds span: {conn.source_entity_id}→{conn.sink_entity_id} "
-                        f"({conn.signal_name}) dist={math.dist(src.position, snk.position):.1f}"
+                        f"({conn.signal_name}) dist={dist:.1f} > {span}"
                     )
         if violations > 5:
-            self.diagnostics.warning(f"Total {violations} wire span violations")
+            self.diagnostics.error(f"{violations} total wire span violations (showing first 5)")
 
         relays = sum(
             1

@@ -1,4 +1,7 @@
-"""Tests for layout/connection_planner.py — new constraint-based pipeline."""
+"""Tests for layout/connection_planner.py — routing and relay pipeline.
+
+Color assignment tests are in test_color_assigner.py.
+"""
 
 import pytest
 
@@ -164,123 +167,6 @@ def test_connection_planner_edge_color_map(planner, plan):
 
     ecm = planner.edge_color_map()
     assert isinstance(ecm, dict)
-
-
-# ── Internal: edge collection ────────────────────────────────────────────
-
-
-def test_collect_edges_basic(planner, plan):
-    plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
-    plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
-
-    sg = SignalGraph()
-    sg.set_source("sig1", "src1")
-    sg.add_sink("sig1", "sink1")
-
-    edges = planner._collect_edges(sg, plan.entity_placements, None)
-    assert len(edges) >= 1
-    assert edges[0].source_entity_id == "src1"
-    assert edges[0].sink_entity_id == "sink1"
-
-
-def test_collect_edges_no_source_filtered(planner):
-    sg = SignalGraph()
-    sg.add_sink("sig1", "sink1")  # No source registered
-
-    edges = planner._collect_edges(sg, {}, None)
-    assert edges == []
-
-
-def test_expand_merges_no_junctions(planner, plan):
-    from dsl_compiler.src.layout.wire_router import WireEdge
-
-    edges = [WireEdge("src1", "sink1", "sig", "lid")]
-    expanded = planner._expand_merges(edges, {}, {}, SignalGraph())
-    assert len(expanded) == 1
-
-
-def test_expand_merges_with_junctions(planner, plan):
-    from dsl_compiler.src.ir.builder import SignalRef
-    from dsl_compiler.src.layout.wire_router import WireEdge
-
-    plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
-    plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
-
-    edges = [WireEdge("merge1", "sink1", "signal-A", "lid")]
-    junctions = {"merge1": {"inputs": [SignalRef("signal-A", "src1")]}}
-
-    sg = SignalGraph()
-    sg.set_source("src1", "src1")
-
-    expanded = planner._expand_merges(edges, junctions, plan.entity_placements, sg)
-    assert len(expanded) == 1
-    assert expanded[0].source_entity_id == "src1"
-    assert expanded[0].merge_group == "merge1"
-
-
-# ── Internal: constraint building ────────────────────────────────────────
-
-
-def test_build_solver_returns_solver(planner, plan):
-    from dsl_compiler.src.layout.wire_router import WireColorSolver, WireEdge
-
-    plan.create_and_add_placement("src1", "constant-combinator", (0.5, 1), (1, 2), "literal")
-    plan.create_and_add_placement("sink1", "arithmetic-combinator", (2.5, 1), (1, 2), "arithmetic")
-
-    edges = [WireEdge("src1", "sink1", "sig", "lid")]
-    sg = SignalGraph()
-    solver = planner._build_solver(edges, plan.entity_placements, {}, sg)
-    assert isinstance(solver, WireColorSolver)
-
-
-def test_collect_isolated_entities(planner, plan):
-    plan.create_and_add_placement("const1", "constant-combinator", (0, 0), (1, 2), "literal")
-    plan.entity_placements["const1"].properties["is_input"] = True
-    plan.create_and_add_placement("anchor1", "constant-combinator", (3, 0), (1, 1), "output_anchor")
-    plan.entity_placements["anchor1"].properties["is_output"] = True
-
-    planner._collect_isolated_entities(plan.entity_placements)
-    assert "const1" in planner._isolated_entities
-    assert "anchor1" in planner._isolated_entities
-
-
-def test_add_merge_constraints(planner):
-    from dsl_compiler.src.layout.wire_router import WireColorSolver, WireEdge
-
-    solver = WireColorSolver()
-    a = WireEdge("s1", "t", "sig", "l1", merge_group="m1")
-    b = WireEdge("s2", "t", "sig", "l2", merge_group="m1")
-    solver.add_edge(a)
-    solver.add_edge(b)
-    planner._add_merge_constraints(solver, [a, b])
-    r = solver.solve()
-    assert r.edge_colors[a] == r.edge_colors[b]
-
-
-def test_separation_same_signal_same_sink(planner, plan):
-    from dsl_compiler.src.layout.wire_router import WireColorSolver, WireEdge
-
-    solver = WireColorSolver()
-    a = WireEdge("s1", "t", "sig", "l1")
-    b = WireEdge("s2", "t", "sig", "l2")
-    solver.add_edge(a)
-    solver.add_edge(b)
-    planner._add_separation_constraints(solver, [a, b], {}, {}, SignalGraph())
-    r = solver.solve()
-    assert r.edge_colors[a] != r.edge_colors[b]
-
-
-# ── Internal: memory / feedback ──────────────────────────────────────────
-
-
-def test_is_internal_feedback_signal(planner):
-    assert planner._is_internal_feedback_signal("__feedback_x") is True
-    assert planner._is_internal_feedback_signal("signal-A") is False
-
-
-def test_is_memory_feedback_edge(planner):
-    assert planner._is_memory_feedback_edge("src", "sink", "__feedback_x") is True
-    assert planner._is_memory_feedback_edge("src", "sink", "signal-A") is False
 
 
 # ── Internal: physical connections ───────────────────────────────────────

@@ -121,6 +121,10 @@ class MemoryLowerer:
         if expr.is_latch_write():
             return self._lower_latch_write(expr)
 
+        # Dispatch to reset write (resettable accumulator)
+        if expr.is_reset_write():
+            return self._lower_reset_write(expr)
+
         return self._lower_standard_write(expr)
 
     def _lower_latch_write(self, expr: WriteExpr) -> SignalRef:
@@ -312,10 +316,9 @@ class MemoryLowerer:
     ) -> SignalRef:
         """Lower latch write without inlined conditions (fallback path).
 
-        This is the original implementation that creates separate deciders
-        for set and reset conditions.
+        Creates separate deciders for set and reset conditions.
+        The layout phase handles all signal type remapping.
         """
-        # Lower set and reset signals
         self.parent.push_expr_context(f"write({memory_name}).set", expr)
         set_ref = self.parent.expr_lowerer.lower_expr(expr.set_signal)
         self.parent.pop_expr_context()
@@ -324,39 +327,18 @@ class MemoryLowerer:
         reset_ref = self.parent.expr_lowerer.lower_expr(expr.reset_signal)
         self.parent.pop_expr_context()
 
-        # CRITICAL: For latches, the output signal MUST be the set signal type
-        # so that feedback participates in the S comparison.
-        if isinstance(set_ref, SignalRef):
-            set_signal_type = set_ref.signal_type
-        else:
-            self._error(
-                f"Latch set signal must be a signal reference, got {type(set_ref).__name__}",
-                expr,
-            )
-            set_signal_type = self.ir_builder.allocate_implicit_type()
-
-        # Get the originally declared memory signal type
         declared_signal_type = self._memory_signal_type(memory_name)
-
-        # Determine if we need a multiplier (value != 1 or value is signal)
-        needs_multiplier = not isinstance(latch_value, int) or latch_value != 1
-
-        if needs_multiplier and declared_signal_type and declared_signal_type != set_signal_type:
-            self.diagnostics.info(
-                f"Latch '{memory_name}': latch outputs on '{set_signal_type}' for feedback, "
-                f"multiplier converts to '{declared_signal_type}' for memory output.",
-                stage="lowering",
-                node=expr,
+        if declared_signal_type is None:
+            declared_signal_type = (
+                set_ref.signal_type
+                if isinstance(set_ref, SignalRef)
+                else self.ir_builder.allocate_implicit_type()
             )
 
-        self.parent.ensure_signal_registered(set_signal_type)
-        if declared_signal_type:
-            self.parent.ensure_signal_registered(declared_signal_type)
+        self.parent.ensure_signal_registered(declared_signal_type)
 
-        # Determine latch type based on set_priority
         memory_type = MEMORY_TYPE_SR_LATCH if expr.set_priority else MEMORY_TYPE_RS_LATCH
 
-        # Create IR latch write operation
         self.ir_builder.latch_write(
             memory_id,
             latch_value,
@@ -366,7 +348,50 @@ class MemoryLowerer:
             expr,
         )
 
-        return SignalRef(set_signal_type, memory_id)
+        return SignalRef(declared_signal_type, memory_id)
+
+    def _lower_reset_write(self, expr: WriteExpr) -> SignalRef:
+        """Lower reset write: mem.write(value_expr, reset=condition)
+
+        Emits IRResetWrite. The layout phase determines whether to use:
+        - Path 1 (1 decider): for simple mem.read() + X addition
+        - Path 2 (arith chain + gate): for multi-op chains
+        """
+        memory_name = expr.memory_name
+        memory_id = self.parent.memory_refs[memory_name]
+
+        expected_signal_type = self._memory_signal_type(memory_name)
+        if expected_signal_type is None:
+            self._error(
+                f"Memory '{memory_name}' does not have a resolved signal type.",
+                expr,
+            )
+            expected_signal_type = self.ir_builder.allocate_implicit_type()
+
+        self.parent.ensure_signal_registered(expected_signal_type)
+
+        # Lower the value expression (which should reference this memory's read)
+        self.parent.push_expr_context(f"write({memory_name})", expr)
+        data_ref = self.parent.expr_lowerer.lower_expr(expr.value)
+        self.parent.pop_expr_context()
+
+        # Coerce to memory's signal type
+        if expected_signal_type != "signal-each":
+            data_ref = self._coerce_to_signal_type(data_ref, expected_signal_type, expr)
+
+        # Lower the reset expression
+        self.parent.push_expr_context(f"write({memory_name}).reset", expr)
+        reset_ref = self.parent.expr_lowerer.lower_expr(expr.reset_signal)
+        self.parent.pop_expr_context()
+
+        if isinstance(reset_ref, int):
+            reset_ref = self.ir_builder.const(
+                self.ir_builder.allocate_implicit_type(), reset_ref, expr
+            )
+
+        self.ir_builder.reset_write(memory_id, data_ref, reset_ref, expr)
+
+        return SignalRef(expected_signal_type, memory_id)
 
     def _lower_standard_write(self, expr: WriteExpr) -> SignalRef:
         """Lower standard memory write: mem.write(value) or mem.write(value, when=cond)"""

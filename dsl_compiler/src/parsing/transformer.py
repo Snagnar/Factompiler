@@ -658,6 +658,24 @@ class DSLTransformer(Transformer):
         assert isinstance(result, WriteExpr)
         return result
 
+    def memory_write_reset(self, items) -> WriteExpr:
+        """memory_write_reset: NAME "." "write" "(" expr "," RESET_KW "=" expr ")"
+
+        Items: [NAME, expr, RESET_KW, expr]
+        """
+        memory_name = str(items[0])
+        value = self._unwrap_tree(items[1])
+        # items[2] is the RESET_KW token, items[3] is the reset expression
+        reset = self._unwrap_tree(items[3])
+        write_node = WriteExpr(
+            value=value,
+            memory_name=memory_name,
+            reset_signal=reset,
+        )
+        result = self._set_position(write_node, items[0])
+        assert isinstance(result, WriteExpr)
+        return result
+
     def memory_latch_write(self, items) -> WriteExpr:
         """memory_latch_write: NAME "." "write" "(" expr "," latch_kwargs ")"
 

@@ -170,6 +170,7 @@ atom: literal
     | memory_read                          // mem.read() method
     | memory_write                         // mem.write(value) method
     | memory_write_when                    // mem.write(value, when=cond) method
+    | memory_write_reset                   // mem.write(value, reset=r) resettable accumulator
     | memory_latch_write                   // mem.write(value, set=s, reset=r) latch method
     | brace_literal                        // Either dict { k: v } or bundle { elem, elem }
     | call_expr                            // General function calls after specific forms
@@ -181,6 +182,7 @@ atom: literal
 memory_read: NAME "." "read" "(" ")"
 memory_write: NAME "." "write" "(" expr ")"
 memory_write_when: NAME "." "write" "(" expr "," WHEN_KW "=" expr ")"
+memory_write_reset: NAME "." "write" "(" expr "," RESET_KW "=" expr ")"
 
 // Latch write: mem.write(value, set=s, reset=r) for SR latch (set priority)
 //              mem.write(value, reset=r, set=s) for RS latch (reset priority)

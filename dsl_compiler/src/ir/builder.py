@@ -283,6 +283,27 @@ class IRBuilder:
         self.add_operation(op)
         return op
 
+    def reset_write(
+        self,
+        memory_id: str,
+        data_signal: ValueRef,
+        reset_signal: ValueRef,
+        source_ast: ASTNode | None = None,
+    ) -> Any:
+        """Write to a memory cell using resettable accumulator mode.
+
+        Args:
+            memory_id: The memory cell ID
+            data_signal: The value expression (must depend on reading this memory)
+            reset_signal: Signal that resets the accumulator to 0 when > 0
+            source_ast: Source AST node for diagnostics
+        """
+        from .nodes import IRResetWrite
+
+        op = IRResetWrite(memory_id, data_signal, reset_signal, source_ast)
+        self.add_operation(op)
+        return op
+
     def place_entity(
         self,
         entity_id: str,

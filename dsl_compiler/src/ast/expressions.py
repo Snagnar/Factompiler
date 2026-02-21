@@ -91,6 +91,10 @@ class WriteExpr(Expr):
         """Returns True if this is a latch write (set/reset mode)."""
         return self.set_signal is not None and self.reset_signal is not None
 
+    def is_reset_write(self) -> bool:
+        """Returns True if this is a reset accumulator write (reset= without set=)."""
+        return self.reset_signal is not None and self.set_signal is None
+
 
 class ProjectionExpr(Expr):
     """expr | "type" - project signal/bundle to specific channel

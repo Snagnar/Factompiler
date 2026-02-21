@@ -136,7 +136,7 @@ class SemanticAnalyzer(ASTVisitor):
     def _get_memory_write_help(self) -> str:
         """Return comprehensive help text about memory write syntax."""
         return """
-Memory cells support three write modes:
+Memory cells support four write modes:
 
 1. STANDARD WRITE (write-gated latch):
    Memory mem: "signal-X";
@@ -161,6 +161,13 @@ Memory cells support three write modes:
    Single decider combinator with multi-condition.
    When both set and reset are active, set wins (stays ON).
    The 'set=' and 'reset=' arguments must be signal expressions.
+
+4. RESETTABLE ACCUMULATOR:
+   Memory mem: "signal-X";
+   mem.write(mem.read() + x, reset=cond);  // Accumulate with reset
+
+   Accumulates value each tick. Resets to 0 when reset condition > 0.
+   The value expression MUST depend on mem.read() (self-feedback).
 
 The order of set=/reset= determines priority:
   - set= first → SR latch (set priority)
@@ -371,8 +378,27 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         elif isinstance(expr, WriteExpr):
             value_type = self.get_expr_type(expr.value)
 
+            # Validate reset write (reset= without set=) — resettable accumulator
+            if expr.is_reset_write():
+                reset_type = self.get_expr_type(expr.reset_signal)
+                if not isinstance(reset_type, (SignalValue, IntValue)):
+                    self.diagnostics.error(
+                        "write() reset= argument must evaluate to a signal or integer."
+                        + self._get_memory_write_help(),
+                        stage="semantic",
+                        node=expr,
+                    )
+                if expr.when is not None:
+                    self.diagnostics.error(
+                        "Cannot mix 'when=' with 'reset=' in memory write. "
+                        "Use 'when=' for conditional writes, OR 'reset=' for resettable accumulators."
+                        + self._get_memory_write_help(),
+                        stage="semantic",
+                        node=expr,
+                    )
+
             # Validate latch write arguments
-            if expr.is_latch_write():
+            elif expr.is_latch_write():
                 if expr.set_signal is not None:
                     set_type = self.get_expr_type(expr.set_signal)
                 else:

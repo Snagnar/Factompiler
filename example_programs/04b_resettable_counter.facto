@@ -1,0 +1,19 @@
+# Test: Resettable counter (reset= accumulator)
+# Tests: Memory with reset=, two compilation paths
+
+# === Simple resettable counter (1 decider) ===
+Memory simple_counter: "signal-A";
+Signal tick = ("signal-P", 1);
+Signal reset_sig = ("signal-R", 0);
+simple_counter.write(simple_counter.read() + tick, reset=reset_sig);
+
+Entity lamp1 = place("small-lamp", 0, 0);
+lamp1.enable = simple_counter.read() > 5;
+
+# === Multi-op resettable counter (arith chain + gate) ===
+Memory mod_counter: "signal-B";
+Signal step = ("signal-S", 1);
+mod_counter.write((mod_counter.read() + step) % 10, reset=reset_sig);
+
+Entity lamp2 = place("small-lamp", 2, 0);
+lamp2.enable = mod_counter.read() == 0;

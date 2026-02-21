@@ -25,6 +25,7 @@ from dsl_compiler.src.ir.nodes import (
     IREntityPropRead,
     IREntityPropWrite,
     IRLatchWrite,
+    IRResetWrite,
 )
 
 from .layout_plan import EntityPlacement, LayoutPlan
@@ -162,6 +163,8 @@ class EntityPlacer:
             self.memory_builder.handle_write(op, self.signal_graph)
         elif isinstance(op, IRLatchWrite):
             self.memory_builder.handle_latch_write(op, self.signal_graph)
+        elif isinstance(op, IRResetWrite):
+            self.memory_builder.handle_reset_write(op, self.signal_graph)
         elif isinstance(op, IRPlaceEntity):
             self._place_user_entity(op)
         elif isinstance(op, IREntityPropWrite):
@@ -681,7 +684,7 @@ class EntityPlacer:
 
     def cleanup_unused_entities(self) -> None:
         """Remove entities marked as unused during optimization."""
-        self.memory_builder.cleanup_unused_gates(self.plan, self.signal_graph)
+        self.memory_builder.finalize(self.plan, self.signal_graph)
 
         self._memory_modules = self.memory_builder._modules
 

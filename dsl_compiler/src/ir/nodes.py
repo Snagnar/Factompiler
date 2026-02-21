@@ -394,6 +394,33 @@ class IRLatchWrite(IREffect):
         return f"IRLatchWrite({self.memory_id} <- {self.value}, {priority}, set={self.set_signal}, reset={self.reset_signal})"
 
 
+class IRResetWrite(IREffect):
+    """Resettable accumulator write.
+
+    The data_signal value expression (which depends on reading from the same memory)
+    is stored each tick. When reset_signal > 0, the stored value resets to 0.
+
+    Layout maps this to one of:
+    - Path 1 (simple +): 1 decider with self-feedback (arith removed)
+    - Path 2 (multi-op): N arith + 1 decider gate in feedback path
+    """
+
+    def __init__(
+        self,
+        memory_id: str,
+        data_signal: ValueRef,
+        reset_signal: ValueRef,
+        source_ast: ASTNode | None = None,
+    ) -> None:
+        super().__init__(f"reset_write_{memory_id}", source_ast)
+        self.memory_id = memory_id
+        self.data_signal = data_signal
+        self.reset_signal = reset_signal
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"IRResetWrite({self.memory_id} <- {self.data_signal}, reset={self.reset_signal})"
+
+
 class IRPlaceEntity(IREffect):
     """Entity placement in a blueprint."""
 
@@ -452,6 +479,7 @@ __all__ = [
     "IRMemCreate",
     "IRMemWrite",
     "IRLatchWrite",
+    "IRResetWrite",
     "IRPlaceEntity",
     "IREntityPropWrite",
     # Memory type constants
