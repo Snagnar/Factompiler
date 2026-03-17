@@ -104,11 +104,14 @@ def test_engine_find_connected_components(signal_graph, simple_placements, diagn
     assert len(components) >= 1
 
 
-def test_engine_get_relaxation_strategies(signal_graph, simple_placements, diagnostics):
+def test_engine_optimize_single_strategy(signal_graph, simple_placements, diagnostics):
+    """Verify optimize uses a single strategy (no progressive relaxation)."""
+    signal_graph.set_source("sig1", "e1")
+    signal_graph.add_sink("sig1", "e2")
     engine = IntegerLayoutEngine(signal_graph, simple_placements, diagnostics)
-    strategies = engine._get_relaxation_strategies()
-    assert isinstance(strategies, list)
-    assert len(strategies) > 0
+    result = engine.optimize(time_limit_seconds=2)
+    assert isinstance(result, dict)
+    assert len(result) == 2
 
 
 def test_engine_with_custom_constraints(signal_graph, simple_placements, diagnostics):
@@ -196,12 +199,17 @@ def test_engine_with_fixed_positions(signal_graph, diagnostics):
 
 
 def test_engine_solve_with_strategy(signal_graph, simple_placements, diagnostics):
-    """Test _solve_with_strategy directly."""
+    """Test _solve_with_strategy directly with an explicit strategy dict."""
     signal_graph.set_source("sig1", "e1")
     signal_graph.add_sink("sig1", "e2")
     engine = IntegerLayoutEngine(signal_graph, simple_placements, diagnostics)
-    strategies = engine._get_relaxation_strategies()
-    result = engine._solve_with_strategy(strategies[0], time_limit=2, early_stop=False)
+    strategy = {
+        "max_span": int(engine.constraints.max_wire_span),
+        "max_coord": engine.constraints.max_coordinate,
+        "violation_weight": 10000,
+        "name": "test",
+    }
+    result = engine._solve_with_strategy(strategy, time_limit=2, early_stop=False)
     assert hasattr(result, "success")
 
 

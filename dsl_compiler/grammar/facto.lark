@@ -102,7 +102,7 @@ for_iterator: range_iterator | list_iterator
 // Allow expressions (including variable references) for range bounds
 // These must be compile-time constant expressions
 range_iterator: range_bound RANGE_OP range_bound [STEP_KW range_bound]
-list_iterator: "[" [NUMBER ("," NUMBER)*] "]"
+list_iterator: "[" [NUMBER ("," NUMBER)* ","?] "]"
 
 // Range bounds can be a number literal or a simple name (variable reference)
 range_bound: NUMBER | NAME
@@ -112,7 +112,7 @@ range_bound: NUMBER | NAME
 // ---------------------------------
 func_decl: "func" NAME "(" [typed_param_list] ")" "{" statement* "}"
 
-typed_param_list: typed_param ("," typed_param)*
+typed_param_list: typed_param ("," typed_param)* ","?
 
 typed_param: param_type NAME
 
@@ -170,6 +170,7 @@ atom: literal
     | memory_read                          // mem.read() method
     | memory_write                         // mem.write(value) method
     | memory_write_when                    // mem.write(value, when=cond) method
+    | memory_write_reset                   // mem.write(value, reset=r) resettable accumulator
     | memory_latch_write                   // mem.write(value, set=s, reset=r) latch method
     | brace_literal                        // Either dict { k: v } or bundle { elem, elem }
     | call_expr                            // General function calls after specific forms
@@ -181,6 +182,7 @@ atom: literal
 memory_read: NAME "." "read" "(" ")"
 memory_write: NAME "." "write" "(" expr ")"
 memory_write_when: NAME "." "write" "(" expr "," WHEN_KW "=" expr ")"
+memory_write_reset: NAME "." "write" "(" expr "," RESET_KW "=" expr ")"
 
 // Latch write: mem.write(value, set=s, reset=r) for SR latch (set priority)
 //              mem.write(value, reset=r, set=s) for RS latch (reset priority)
@@ -192,19 +194,19 @@ RESET_KW: "reset"
 memory_latch_write: NAME "." "write" "(" expr "," latch_kwargs ")"
 
 // Two orderings for set/reset - order determines priority
-latch_kwargs: SET_KW "=" expr "," RESET_KW "=" expr    -> latch_set_reset
-            | RESET_KW "=" expr "," SET_KW "=" expr    -> latch_reset_set
+latch_kwargs: SET_KW "=" expr "," RESET_KW "=" expr ","?    -> latch_set_reset
+            | RESET_KW "=" expr "," SET_KW "=" expr ","?    -> latch_reset_set
 
 call_expr: NAME "(" [arglist] ")"
 method_call: NAME "." NAME "(" [arglist] ")"
 
-arglist: expr ("," expr)*
+arglist: expr ("," expr)* ","?
 
 // Unified brace literal - disambiguated in transformer based on content
 // If elements have ":", it's a dict literal. Otherwise it's a bundle literal.
 brace_literal: "{" "}"                                      -> empty_brace
-             | "{" dict_item ("," dict_item)* "}"           -> dict_literal
-             | "{" bundle_element ("," bundle_element)* "}" -> bundle_literal
+             | "{" dict_item ("," dict_item)* ","? "}"           -> dict_literal
+             | "{" bundle_element ("," bundle_element)* ","? "}" -> bundle_literal
 
 dict_item: (STRING | NAME) ":" expr
 
@@ -215,7 +217,7 @@ bundle_any: ANY_KW "(" expr ")"
 bundle_all: ALL_KW "(" expr ")"
 
 // Signal literal syntax: ("type", value) or just value
-signal_literal: "(" type_literal "," expr ")"    -> signal_with_type
+signal_literal: "(" type_literal "," expr ","? ")"    -> signal_with_type
               | NUMBER                              -> signal_constant
 
 // Type literal can be a string, a name, or a property access (for signal.type)

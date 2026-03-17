@@ -24,7 +24,7 @@ from dsl_compiler.src.ir.builder import (
     IRWireMerge,
     SignalRef,
 )
-from dsl_compiler.src.ir.nodes import IREntityPropWrite
+from dsl_compiler.src.ir.nodes import IREntityPropWrite, IRLatchWrite, IRResetWrite
 
 
 @dataclass
@@ -187,6 +187,24 @@ class SignalAnalyzer:
                 record_consumer(op.y, op.node_id)
                 for prop_value in op.properties.values():
                     record_consumer(prop_value, op.node_id)
+            elif isinstance(op, IRResetWrite):
+                entry = ensure_entry(op.node_id)
+                if not entry.debug_label:
+                    entry.debug_label = op.memory_id
+                record_consumer(op.data_signal, op.node_id)
+                record_consumer(op.reset_signal, op.node_id)
+            elif isinstance(op, IRLatchWrite):
+                entry = ensure_entry(op.node_id)
+                if not entry.debug_label:
+                    entry.debug_label = op.memory_id
+                record_consumer(op.value, op.node_id)
+                record_consumer(op.set_signal, op.node_id)
+                record_consumer(op.reset_signal, op.node_id)
+                # Also track inline condition operands if present
+                if op.set_condition is not None:
+                    record_consumer(op.set_condition[0], op.node_id)
+                if op.reset_condition is not None:
+                    record_consumer(op.reset_condition[0], op.node_id)
             elif isinstance(op, IREntityPropWrite):
                 record_consumer(op.value, op.node_id)
                 record_export(op.value, f"entity:{op.entity_id}.{op.property_name}")

@@ -25,6 +25,7 @@ from dsl_compiler.src.ir.nodes import (
     IREntityPropRead,
     IREntityPropWrite,
     IRLatchWrite,
+    IRResetWrite,
 )
 
 from .layout_plan import EntityPlacement, LayoutPlan
@@ -162,6 +163,8 @@ class EntityPlacer:
             self.memory_builder.handle_write(op, self.signal_graph)
         elif isinstance(op, IRLatchWrite):
             self.memory_builder.handle_latch_write(op, self.signal_graph)
+        elif isinstance(op, IRResetWrite):
+            self.memory_builder.handle_reset_write(op, self.signal_graph)
         elif isinstance(op, IRPlaceEntity):
             self._place_user_entity(op)
         elif isinstance(op, IREntityPropWrite):
@@ -519,7 +522,23 @@ class EntityPlacer:
                     "type": "inline_comparison",
                     "comparison_data": inline_data,
                 }
-                inline_data["source_node_id_to_remove"] = op.value.source_id
+
+                # Check if the source decider has other consumers.
+                # If other combinators or memory operations depend on it,
+                # we must keep the decider alive — only mark for removal
+                # when ALL consumers are entity prop writes (which inline
+                # the comparison and don't need the decider output wire).
+                # Use signal_usage (pre-computed from IR) rather than the
+                # signal graph, which is only partially built at this point.
+                source_id = op.value.source_id
+                usage_entry = self.signal_usage.get(source_id)
+                all_consumers = usage_entry.consumers if usage_entry else set()
+                non_prop_write_consumers = {
+                    c for c in all_consumers if not c.startswith("prop_write_")
+                }
+                can_remove_source = not non_prop_write_consumers
+                if can_remove_source:
+                    inline_data["source_node_id_to_remove"] = source_id
 
                 # Preserve debug info from the inlined comparison
                 comparison_placement = self.plan.get_placement(op.value.source_id)
@@ -535,12 +554,17 @@ class EntityPlacer:
                                 "variable", "comparison"
                             )
 
-                # ✅ FIX: Track that entity needs the comparison's input signal
-                # The entity must read the signal being compared
+                # Track that entity needs the comparison's input signal.
+                # The entity must read the signal being compared.
+                # Only remove the decider's incoming edge if the decider
+                # will actually be removed (no other consumers).
                 ir_node = self._ir_nodes.get(op.value.source_id)
                 if isinstance(ir_node, IRDecider):
                     if isinstance(ir_node.left, SignalRef):
-                        self.signal_graph.remove_sink(ir_node.left.source_id, op.value.source_id)
+                        if can_remove_source:
+                            self.signal_graph.remove_sink(
+                                ir_node.left.source_id, op.value.source_id
+                            )
                         self._add_signal_sink(ir_node.left, op.entity_id)
                         self.diagnostics.info(
                             f"Inlined comparison into {op.entity_id}.{op.property_name}, "
@@ -681,7 +705,7 @@ class EntityPlacer:
 
     def cleanup_unused_entities(self) -> None:
         """Remove entities marked as unused during optimization."""
-        self.memory_builder.cleanup_unused_gates(self.plan, self.signal_graph)
+        self.memory_builder.finalize(self.plan, self.signal_graph)
 
         self._memory_modules = self.memory_builder._modules
 

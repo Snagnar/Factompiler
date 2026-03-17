@@ -113,6 +113,17 @@ class IRBuilder:
         arith_op.op = op
         arith_op.left = left
         arith_op.right = right
+
+        # When both operands are signals from different sources, separate
+        # them onto different wire colors to prevent cross-contamination
+        # when multiple combinators share a common source connection.
+        if (
+            isinstance(left, SignalRef)
+            and isinstance(right, SignalRef)
+            and left.source_id != right.source_id
+        ):
+            arith_op.needs_wire_separation = True
+
         self.add_operation(arith_op)
         return SignalRef(output_type, node_id, source_ast=source_ast)
 
@@ -283,6 +294,27 @@ class IRBuilder:
         self.add_operation(op)
         return op
 
+    def reset_write(
+        self,
+        memory_id: str,
+        data_signal: ValueRef,
+        reset_signal: ValueRef,
+        source_ast: ASTNode | None = None,
+    ) -> Any:
+        """Write to a memory cell using resettable accumulator mode.
+
+        Args:
+            memory_id: The memory cell ID
+            data_signal: The value expression (must depend on reading this memory)
+            reset_signal: Signal that resets the accumulator to 0 when > 0
+            source_ast: Source AST node for diagnostics
+        """
+        from .nodes import IRResetWrite
+
+        op = IRResetWrite(memory_id, data_signal, reset_signal, source_ast)
+        self.add_operation(op)
+        return op
+
     def place_entity(
         self,
         entity_id: str,
@@ -355,6 +387,39 @@ class IRBuilder:
 
         self.add_operation(arith_op)
         return BundleRef(bundle.signal_types.copy(), node_id, source_ast=source_ast)
+
+    def bundle_bundle_arithmetic(
+        self,
+        op: str,
+        left_bundle: BundleRef,
+        right_bundle: BundleRef,
+        source_ast: ASTNode | None = None,
+    ) -> BundleRef:
+        """Create an element-wise arithmetic operation between two bundles.
+
+        Uses Factorio's each-each mode: left bundle on red wire, right bundle
+        on green wire. For each signal type present on either wire, the operation
+        is applied (missing signals are treated as 0).
+
+        Args:
+            op: Arithmetic operator (+, -, *, /, %, **, <<, >>, AND, OR, XOR)
+            left_bundle: Left bundle operand (read from red wire)
+            right_bundle: Right bundle operand (read from green wire)
+            source_ast: Source AST node for debugging
+
+        Returns:
+            BundleRef with union of signal types from both bundles
+        """
+        node_id = self.next_id("bundle_arith")
+        arith_op = IRArith(node_id, "signal-each", source_ast)
+        arith_op.op = op
+        arith_op.left = SignalRef("signal-each", left_bundle.source_id)
+        arith_op.right = SignalRef("signal-each", right_bundle.source_id)
+        arith_op.needs_wire_separation = True
+        self.add_operation(arith_op)
+
+        combined_types = left_bundle.signal_types | right_bundle.signal_types
+        return BundleRef(combined_types, node_id, source_ast=source_ast)
 
     def bundle_gating_decider(
         self,

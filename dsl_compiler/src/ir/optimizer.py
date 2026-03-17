@@ -5,8 +5,10 @@ from .nodes import (
     IRConst,
     IRDecider,
     IREntityPropWrite,
+    IRLatchWrite,
     IRMemWrite,
     IRNode,
+    IRResetWrite,
     SignalRef,
 )
 
@@ -296,6 +298,13 @@ class ConstantPropagationOptimizer:
             elif isinstance(op, IRMemWrite):
                 op.data_signal = self._update_value(op.data_signal)
                 op.write_enable = self._update_value(op.write_enable)
+            elif isinstance(op, IRResetWrite):
+                op.data_signal = self._update_value(op.data_signal)
+                op.reset_signal = self._update_value(op.reset_signal)
+            elif isinstance(op, IRLatchWrite):
+                op.value = self._update_value(op.value)
+                op.set_signal = self._update_value(op.set_signal)
+                op.reset_signal = self._update_value(op.reset_signal)
 
         return operations
 
@@ -413,6 +422,13 @@ class CSEOptimizer:
             elif isinstance(op, IRMemWrite):
                 op.data_signal = self._update_value(op.data_signal)
                 op.write_enable = self._update_value(op.write_enable)
+            elif isinstance(op, IRResetWrite):
+                op.data_signal = self._update_value(op.data_signal)
+                op.reset_signal = self._update_value(op.reset_signal)
+            elif isinstance(op, IRLatchWrite):
+                op.value = self._update_value(op.value)
+                op.set_signal = self._update_value(op.set_signal)
+                op.reset_signal = self._update_value(op.reset_signal)
             elif isinstance(op, IREntityPropWrite):
                 op.value = self._update_value(op.value)
 

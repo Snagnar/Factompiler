@@ -7,6 +7,7 @@ using the factorio-draftsman library to generate blueprint JSON.
 
 from __future__ import annotations
 
+import warnings
 from contextlib import suppress
 from typing import Any
 
@@ -17,6 +18,7 @@ from draftsman.entity import (
     new_entity,
 )  # Use draftsman's factory
 from draftsman.utils import distance
+from draftsman.warning import ConnectionDistanceWarning
 
 from dsl_compiler.src.common.constants import DEFAULT_CONFIG
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
@@ -105,7 +107,15 @@ class BlueprintEmitter:
                 kwargs["side_2"] = connection.sink_side
 
             try:
-                self.blueprint.add_circuit_connection(**kwargs)
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always", ConnectionDistanceWarning)
+                    self.blueprint.add_circuit_connection(**kwargs)
+                for w in caught:
+                    if issubclass(w.category, ConnectionDistanceWarning):
+                        self.diagnostics.error(
+                            f"Connection distance exceeded: {connection.source_entity_id} -> "
+                            f"{connection.sink_entity_id} ({connection.signal_name}): {w.message}"
+                        )
             except Exception as e:
                 self.diagnostics.error(
                     f"Failed to add wire connection {connection.source_entity_id} -> {connection.sink_entity_id}: {e}"

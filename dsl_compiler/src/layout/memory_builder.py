@@ -1,10 +1,21 @@
-"""Memory module construction for circuit-based memory cells."""
+"""Memory module construction for circuit-based memory cells.
+
+Every memory pattern uses exactly ONE combinator for its feedback loop.
+All other logic (gating, multiplying) is done outside the feedback loop.
+
+Archetypes:
+  A: Accumulator — arithmetic combinator with self-feedback
+  A': Pass-through — arithmetic combinator, no feedback (1-tick delay)
+  B: Gated memory — gate + storage deciders, storage has 1-combinator feedback
+  C: Set/Reset latch — single multi-condition decider with self-feedback
+"""
 
 from dataclasses import dataclass, field
 from typing import Any
 
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.ir.builder import (
+    BundleRef,
     IRArith,
     IRConst,
     IRMemCreate,
@@ -14,10 +25,9 @@ from dsl_compiler.src.ir.builder import (
     SignalRef,
 )
 from dsl_compiler.src.ir.nodes import (
-    MEMORY_TYPE_RS_LATCH,
     MEMORY_TYPE_SR_LATCH,
-    MEMORY_TYPE_STANDARD,
     IRLatchWrite,
+    IRResetWrite,
 )
 
 from .layout_plan import EntityPlacement, LayoutPlan, WireConnection
@@ -28,46 +38,47 @@ from .tile_grid import TileGrid
 
 @dataclass
 class MemoryModule:
-    """Represents a memory cell's physical implementation.
+    """Physical implementation of a memory cell.
 
-    Standard memories use a write-gated latch (2 deciders).
-    RS/SR latches use a single decider combinator + optional multiplier.
-    Optimized memories use fewer components.
+    Archetype is "pending" until a write determines the circuit topology.
     """
 
     memory_id: str
     signal_type: str
-    memory_type: str = MEMORY_TYPE_STANDARD
 
-    # Standard memory gates (write-gated latch)
-    write_gate: EntityPlacement | None = None
-    hold_gate: EntityPlacement | None = None
+    archetype: str = "pending"
+    # "accumulator", "pass_through", "gated", "latch", "pending"
 
-    # Latch combinator (RS/SR latches - single combinator)
-    latch_combinator: EntityPlacement | None = None
+    # Primary combinator (always set after archetype is determined):
+    #   accumulator → the arithmetic combinator
+    #   pass_through → the arithmetic combinator
+    #   gated → the storage decider
+    #   latch → the latch decider
+    primary: EntityPlacement | None = None
 
-    # Multiplier combinator (for latch values != 1)
-    multiplier_combinator: EntityPlacement | None = None
+    # Secondary combinator (only for some archetypes):
+    #   gated → the gate decider
+    #   latch → the multiplier (if value ≠ 1)
+    secondary: EntityPlacement | None = None
 
-    optimization: str | None = None  # None, 'single_gate', 'arithmetic_feedback'
-    output_node_id: str | None = None  # For optimized memories
+    # Entity ID that external reads connect to
+    read_source_id: str | None = None
 
-    write_gate_unused: bool = False
-    hold_gate_unused: bool = False
-    _feedback_connected: bool = False
-    _has_write: bool = False
+    # Latch-specific
+    latch_type: str | None = None
 
+    # Track feedback signal IDs (for connection_planner filtering)
     _feedback_signal_ids: list[str] = field(default_factory=list)
 
 
 class MemoryBuilder:
-    """Builds memory modules from IR operations.
+    """Builds memory circuits from IR operations.
 
-    Responsibilities:
-    - Create write-gated latch placements
-    - Detect optimization opportunities
-    - Handle memory reads/writes
-    - Clean up unused optimized gates
+    Dispatch:
+      IRMemCreate  → register module (no placements — archetype unknown)
+      IRMemRead    → record reader, resolve immediately if possible
+      IRMemWrite   → determine archetype, create circuit
+      IRLatchWrite → create latch circuit (Archetype C)
     """
 
     def __init__(
@@ -83,38 +94,249 @@ class MemoryBuilder:
         self.diagnostics = diagnostics
 
         self._modules: dict[str, MemoryModule] = {}
-        self._read_sources: dict[str, str] = {}  # read_node_id -> memory_id
-        self._ir_nodes: dict[str, IRNode] = {}  # For optimization detection
+        self._read_sources: dict[str, str] = {}  # read_node_id → memory_id
+        self._ir_nodes: dict[str, IRNode] = {}
 
-    def register_ir_node(self, node: IRNode):
+    # ------------------------------------------------------------------
+    # Public interface (called by EntityPlacer)
+    # ------------------------------------------------------------------
+
+    def register_ir_node(self, node: IRNode) -> None:
         """Track IR node for optimization detection."""
         self._ir_nodes[node.node_id] = node
 
     def create_memory(self, op: IRMemCreate, signal_graph: SignalGraph) -> MemoryModule:
-        """Create memory cell.
-
-        All memories start as standard write-gated latches.
-        If a latch write occurs, the memory is upgraded to an RS/SR latch.
-
-        Returns MemoryModule with appropriate placements.
-        """
-        return self._create_standard_memory(op, signal_graph)
-
-    def _create_standard_memory(self, op: IRMemCreate, signal_graph: SignalGraph) -> MemoryModule:
-        """Create write-gated latch for a standard memory cell.
-
-        Returns MemoryModule with write_gate and hold_gate placements.
-        """
+        """Register a memory module. No placements yet — archetype is unknown
+        until we see the write."""
         signal_name = self.signal_analyzer.get_signal_name(op.signal_type)
+        module = MemoryModule(memory_id=op.memory_id, signal_type=signal_name)
+        self._modules[op.memory_id] = module
+        return module
 
-        write_id = f"{op.memory_id}_write_gate"
-        write_placement = self.layout_plan.create_and_add_placement(
-            ir_node_id=write_id,
-            entity_type="decider-combinator",
-            position=None,  # Force-directed will position
+    def handle_read(self, op: IRMemRead, signal_graph: SignalGraph) -> None:
+        """Record a memory read. Resolve immediately if the write already happened."""
+        module = self._modules.get(op.memory_id)
+        if not module:
+            self.diagnostics.warning(
+                f"Read from undefined memory '{op.memory_id}' — this may indicate a logic error"
+            )
+            return
+
+        self._read_sources[op.node_id] = op.memory_id
+
+        # Immediate resolution when the write has already been processed
+        if module.read_source_id:
+            signal_graph.set_source(op.node_id, module.read_source_id)
+
+    def handle_write(self, op: IRMemWrite, signal_graph: SignalGraph) -> None:
+        """Determine archetype and create the memory circuit."""
+        module = self._modules.get(op.memory_id)
+        if not module:
+            self.diagnostics.warning(
+                f"Write to undefined memory '{op.memory_id}' — this may indicate a logic error"
+            )
+            return
+
+        is_always = self._is_always_write(op)
+
+        if is_always and self._can_use_arithmetic_feedback(op, module):
+            self._create_accumulator(op, module, signal_graph)
+        elif is_always:
+            self._create_pass_through(op, module, signal_graph)
+        else:
+            self._create_gated_memory(op, module, signal_graph)
+
+        # Resolve any reads that were recorded before this write
+        self._resolve_deferred_reads(module, signal_graph)
+
+    def handle_latch_write(self, op: IRLatchWrite, signal_graph: SignalGraph) -> None:
+        """Create Archetype C: Set/Reset latch."""
+        module = self._modules.get(op.memory_id)
+        if not module:
+            self.diagnostics.warning(f"Latch write for undefined memory '{op.memory_id}'")
+            return
+
+        self._create_latch(op, module, signal_graph)
+
+        # Resolve any reads that were recorded before this write
+        self._resolve_deferred_reads(module, signal_graph)
+
+    def handle_reset_write(self, op: IRResetWrite, signal_graph: SignalGraph) -> None:
+        """Create resettable accumulator: dispatches to 1-decider or arith+gate path."""
+        module = self._modules.get(op.memory_id)
+        if not module:
+            self.diagnostics.warning(f"Reset write for undefined memory '{op.memory_id}'")
+            return
+
+        if not isinstance(op.data_signal, SignalRef):
+            self.diagnostics.error(
+                f"Memory '{op.memory_id}': write() with reset= requires an expression "
+                f"value, not a constant.",
+                stage="layout",
+            )
+            return
+
+        has_self_dep = self._operation_depends_on_memory(op.data_signal.source_id, op.memory_id)
+        if not has_self_dep:
+            self.diagnostics.error(
+                f"Memory '{op.memory_id}': write() with reset= requires the value "
+                f"expression to depend on reading from the same memory.",
+                stage="layout",
+            )
+            return
+
+        # Determine which path to use
+        arith_node_id = op.data_signal.source_id
+        arith_node = self._ir_nodes.get(arith_node_id)
+        first_consumer_id = self._find_first_memory_consumer(op.memory_id)
+        is_single_op = first_consumer_id == arith_node_id or first_consumer_id is None
+        is_simple_addition = (
+            isinstance(arith_node, IRArith) and arith_node.op == "+" and is_single_op
+        )
+
+        if is_simple_addition:
+            assert isinstance(arith_node, IRArith)  # guaranteed by is_simple_addition check
+            self._create_single_decider_accumulator(op, module, signal_graph, arith_node)
+        else:
+            self._create_gated_chain_accumulator(op, module, signal_graph)
+
+        self._resolve_deferred_reads(module, signal_graph)
+
+    def finalize(self, layout_plan: LayoutPlan, signal_graph: SignalGraph) -> None:
+        """Final pass: warn about never-written memories, resolve stragglers."""
+        for module in self._modules.values():
+            if module.archetype == "pending":
+                self.diagnostics.warning(f"Memory '{module.memory_id}' declared but never written")
+                continue
+            # Safety: resolve any remaining deferred reads
+            for read_id, mem_id in self._read_sources.items():
+                if mem_id == module.memory_id and module.read_source_id:
+                    signal_graph.set_source(read_id, module.read_source_id)
+
+    # ------------------------------------------------------------------
+    # Archetype A: Accumulator (arithmetic self-feedback)
+    # ------------------------------------------------------------------
+
+    def _create_accumulator(
+        self, op: IRMemWrite, module: MemoryModule, signal_graph: SignalGraph
+    ) -> None:
+        """Single arithmetic combinator with output→input self-feedback.
+
+        Detects the final arithmetic combinator in the expression chain and
+        marks it for self-feedback. For multi-operation chains, registers a
+        feedback edge from the last combinator back to the first consumer.
+        """
+        arith_node_id = op.data_signal.source_id if isinstance(op.data_signal, SignalRef) else None
+        if not arith_node_id:
+            return
+
+        final_placement = self.layout_plan.get_placement(arith_node_id)
+        if not final_placement:
+            return
+
+        signal_name = self.signal_analyzer.get_signal_name(module.signal_type)
+        first_consumer_id = self._find_first_memory_consumer(op.memory_id)
+        is_single_op = first_consumer_id == arith_node_id or first_consumer_id is None
+
+        if is_single_op:
+            final_placement.properties["has_self_feedback"] = True
+            final_placement.properties["feedback_signal"] = signal_name
+            if "debug_info" in final_placement.properties:
+                final_placement.properties["debug_info"]["memory_name"] = op.memory_id
+                old_details = final_placement.properties["debug_info"].get("details", "arith")
+                final_placement.properties["debug_info"]["details"] = (
+                    f"{old_details} + memory:{op.memory_id}"
+                )
+        else:
+            self.diagnostics.info(
+                f"Optimized memory '{op.memory_id}' to multi-combinator feedback loop"
+            )
+
+        module.archetype = "accumulator"
+        module.primary = final_placement
+        module.read_source_id = arith_node_id
+
+        # Update signal graph: memory reads point to the arithmetic combinator
+        signal_graph.set_source(op.memory_id, arith_node_id)
+        for read_id, mem_id in self._read_sources.items():
+            if mem_id == op.memory_id:
+                signal_graph.set_source(read_id, arith_node_id)
+
+        # Multi-operation chain: register feedback edge
+        if first_consumer_id and first_consumer_id != arith_node_id:
+            signal_graph.set_source(arith_node_id, arith_node_id)
+            signal_graph.add_sink(arith_node_id, first_consumer_id)
+
+        self.diagnostics.info(
+            f"Optimized memory '{op.memory_id}' to "
+            f"{'single' if is_single_op else 'multi'}-combinator arithmetic feedback"
+        )
+
+    # ------------------------------------------------------------------
+    # Archetype A': Pass-through (1-tick delay, no feedback)
+    # ------------------------------------------------------------------
+
+    def _create_pass_through(
+        self, op: IRMemWrite, module: MemoryModule, signal_graph: SignalGraph
+    ) -> None:
+        """Single arithmetic combinator: signal + 0 → signal.
+
+        Used when every tick writes unconditionally and the value does NOT
+        depend on reading from the same memory.
+        """
+        signal_name = self.signal_analyzer.get_signal_name(module.signal_type)
+        pt_id = f"{op.memory_id}_pass_through"
+
+        placement = self.layout_plan.create_and_add_placement(
+            ir_node_id=pt_id,
+            entity_type="arithmetic-combinator",
+            position=None,
             footprint=(1, 2),
-            role="memory_write_gate",
-            debug_info=self._make_debug_info(op, "write_gate"),
+            role="memory_pass_through",
+            debug_info=self._debug_info(op, "pass_through"),
+            operation="+",
+            left_operand=signal_name,
+            right_operand=0,
+            output_signal=signal_name,
+        )
+
+        module.archetype = "pass_through"
+        module.primary = placement
+        module.read_source_id = pt_id
+
+        if isinstance(op.data_signal, SignalRef):
+            signal_graph.add_sink(op.data_signal.source_id, pt_id)
+
+        signal_graph.set_source(op.memory_id, pt_id)
+
+        self.diagnostics.info(f"Optimized memory '{op.memory_id}' to pass-through (1-tick delay)")
+
+    # ------------------------------------------------------------------
+    # Archetype B: Gated memory (gate + storage, 1-combinator feedback)
+    # ------------------------------------------------------------------
+
+    def _create_gated_memory(
+        self, op: IRMemWrite, module: MemoryModule, signal_graph: SignalGraph
+    ) -> None:
+        """Two deciders: gate passes data during write, storage holds via self-loop.
+
+        Gate:    signal-W > 0 → copy data (input count)
+        Storage: signal-W = 0 → copy data (input count), self-feedback on RED
+
+        The storage decider's feedback loop is exactly 1 combinator deep.
+        The gate is a sidecar that injects data — it is NOT in the feedback loop.
+        """
+        signal_name = self.signal_analyzer.get_signal_name(module.signal_type)
+        gate_id = f"{op.memory_id}_gate"
+        storage_id = f"{op.memory_id}_storage"
+
+        gate_placement = self.layout_plan.create_and_add_placement(
+            ir_node_id=gate_id,
+            entity_type="decider-combinator",
+            position=None,
+            footprint=(1, 2),
+            role="memory_gate",
+            debug_info=self._debug_info(op, "gate"),
             operation=">",
             left_operand="signal-W",
             right_operand=0,
@@ -122,14 +344,13 @@ class MemoryBuilder:
             copy_count_from_input=True,
         )
 
-        hold_id = f"{op.memory_id}_hold_gate"
-        hold_placement = self.layout_plan.create_and_add_placement(
-            ir_node_id=hold_id,
+        storage_placement = self.layout_plan.create_and_add_placement(
+            ir_node_id=storage_id,
             entity_type="decider-combinator",
             position=None,
             footprint=(1, 2),
-            role="memory_hold_gate",
-            debug_info=self._make_debug_info(op, "hold_gate"),
+            role="memory_storage",
+            debug_info=self._debug_info(op, "storage"),
             operation="=",
             left_operand="signal-W",
             right_operand=0,
@@ -137,818 +358,809 @@ class MemoryBuilder:
             copy_count_from_input=True,
         )
 
-        module = MemoryModule(
-            memory_id=op.memory_id,
-            signal_type=signal_name,
-            memory_type=MEMORY_TYPE_STANDARD,
-            write_gate=write_placement,
-            hold_gate=hold_placement,
+        module.archetype = "gated"
+        module.primary = storage_placement
+        module.secondary = gate_placement
+        module.read_source_id = storage_id
+
+        # --- Wiring ---
+
+        # 1. Data source → gate only (via signal graph → will become RED)
+        if isinstance(op.data_signal, SignalRef):
+            signal_graph.add_sink(op.data_signal.source_id, gate_id)
+
+        # 2. signal-W → both gate and storage (via signal graph → constrained to GREEN)
+        if isinstance(op.write_enable, SignalRef):
+            signal_graph.add_sink(op.write_enable.source_id, gate_id)
+            signal_graph.add_sink(op.write_enable.source_id, storage_id)
+
+        # 3. Gate output → storage input (explicit RED wire)
+        self.layout_plan.add_wire_connection(
+            WireConnection(
+                source_entity_id=gate_id,
+                sink_entity_id=storage_id,
+                signal_name=signal_name,
+                wire_color="red",
+                source_side="output",
+                sink_side="input",
+            )
         )
-        self._modules[op.memory_id] = module
 
-        signal_graph.set_source(op.memory_id, hold_id)
+        # 4. Storage self-feedback (explicit RED wire)
+        self.layout_plan.add_wire_connection(
+            WireConnection(
+                source_entity_id=storage_id,
+                sink_entity_id=storage_id,
+                signal_name=signal_name,
+                wire_color="red",
+                source_side="output",
+                sink_side="input",
+            )
+        )
 
-        return module
+        # 5. Internal signal-graph edge for layout proximity
+        feedback_edge = f"__feedback_{op.memory_id}_g2s"
+        signal_graph.set_source(feedback_edge, gate_id)
+        signal_graph.add_sink(feedback_edge, storage_id)
+        module._feedback_signal_ids = [feedback_edge]
 
-    def _setup_latch_feedback(self, module: MemoryModule, signal_graph: SignalGraph) -> None:
-        """Set up green wire self-feedback for latch combinators."""
-        if not module.latch_combinator:
-            return
+        # Memory reads come from storage
+        signal_graph.set_source(op.memory_id, storage_id)
 
-        latch_id = module.latch_combinator.ir_node_id
+        self.diagnostics.info(
+            f"Created gated memory '{op.memory_id}': gate + storage (1-combinator feedback)"
+        )
 
-        # Create internal signal ID for layout purposes
+    # ------------------------------------------------------------------
+    # Archetype C: Set/Reset latch
+    # ------------------------------------------------------------------
+
+    def _create_latch(
+        self, op: IRLatchWrite, module: MemoryModule, signal_graph: SignalGraph
+    ) -> None:
+        """Single multi-condition decider with GREEN self-feedback.
+
+        Dispatches to inlined or standard path based on whether conditions
+        can be folded into the decider. Respects SR/RS priority in both paths.
+
+        When set and reset signals share the same Factorio signal name, renaming
+        combinators are inserted to cast them to unique signal names (signal-S
+        for set, signal-R for reset). This is necessary because the latch
+        conditions check set and reset on the same wire (RED), and summing
+        identical signals makes them indistinguishable.
+        """
+        latch_id = f"{op.memory_id}_latch"
+
+        set_renamer_id: str | None = None
+        reset_renamer_id: str | None = None
+
+        if op.has_inline_conditions:
+            placement = self._create_inlined_latch(op, module, latch_id)
+        else:
+            # Determine actual signal names for set and reset
+            set_signal = (
+                self.signal_analyzer.get_signal_name(op.set_signal.signal_type)
+                if isinstance(op.set_signal, SignalRef)
+                else "signal-S"
+            )
+            reset_signal = (
+                self.signal_analyzer.get_signal_name(op.reset_signal.signal_type)
+                if isinstance(op.reset_signal, SignalRef)
+                else "signal-R"
+            )
+
+            # Check if renaming is needed:
+            # When set and reset use the same Factorio signal, they sum on
+            # the same wire and the latch conditions can't distinguish them.
+            # The connection planner's hard constraint (Fix 2) already ensures
+            # all latch inputs arrive on RED, so set_signal == module.signal_type
+            # is fine — per-wire filtering separates RED (inputs) from GREEN
+            # (self-loop).  Only set_signal == reset_signal truly requires
+            # renaming to unique signal names.
+            needs_renaming = set_signal == reset_signal
+
+            if needs_renaming:
+                effective_set = "signal-S"
+                effective_reset = "signal-R"
+
+                # Create renaming combinators: original_signal + 0 → unique_signal
+                if isinstance(op.set_signal, SignalRef):
+                    set_renamer_id = self._create_latch_signal_caster(
+                        op,
+                        module,
+                        latch_id,
+                        set_signal,
+                        effective_set,
+                        "set",
+                        signal_graph,
+                    )
+                if isinstance(op.reset_signal, SignalRef):
+                    reset_renamer_id = self._create_latch_signal_caster(
+                        op,
+                        module,
+                        latch_id,
+                        reset_signal,
+                        effective_reset,
+                        "reset",
+                        signal_graph,
+                    )
+            else:
+                effective_set = set_signal
+                effective_reset = reset_signal
+
+            if op.latch_type == MEMORY_TYPE_SR_LATCH:
+                placement = self._create_sr_latch(
+                    op,
+                    module,
+                    latch_id,
+                    set_signal_override=effective_set,
+                    reset_signal_override=effective_reset,
+                )
+            else:
+                placement = self._create_rs_latch(
+                    op,
+                    module,
+                    latch_id,
+                    set_signal_override=effective_set,
+                    reset_signal_override=effective_reset,
+                )
+
+        module.archetype = "latch"
+        module.latch_type = op.latch_type
+        module.primary = placement
+        module.read_source_id = latch_id
+
+        # GREEN wire self-feedback
+        self.layout_plan.add_wire_connection(
+            WireConnection(
+                source_entity_id=latch_id,
+                sink_entity_id=latch_id,
+                signal_name=module.signal_type,
+                wire_color="green",
+                source_side="output",
+                sink_side="input",
+            )
+        )
+
+        # Internal feedback signal for connection_planner filtering
         feedback_signal = f"__feedback_{module.memory_id}_latch"
         signal_graph.set_source(feedback_signal, latch_id)
         signal_graph.add_sink(feedback_signal, latch_id)
-
-        # Create GREEN wire self-feedback connection
-        feedback_conn = WireConnection(
-            source_entity_id=latch_id,
-            sink_entity_id=latch_id,
-            signal_name=module.signal_type,
-            wire_color="green",  # Green for feedback
-            source_side="output",
-            sink_side="input",
-        )
-        self.layout_plan.add_wire_connection(feedback_conn)
-
         module._feedback_signal_ids = [feedback_signal]
-        module._feedback_connected = True
 
-        self.diagnostics.info(
-            f"Set up GREEN wire self-feedback for {module.memory_type} '{module.memory_id}'"
+        # Connect external inputs (through renamers if they exist)
+        self._connect_latch_inputs(
+            op,
+            latch_id,
+            signal_graph,
+            set_renamer_id=set_renamer_id,
+            reset_renamer_id=reset_renamer_id,
         )
 
-    def handle_read(self, op: IRMemRead, signal_graph: SignalGraph):
-        """Connect read to memory output.
+        # Multiplier for values ≠ 1
+        if self._needs_multiplier(op):
+            mult_id = self._create_multiplier(op, module, latch_id, signal_graph)
+            module.secondary = self.layout_plan.get_placement(mult_id)
+            module.read_source_id = mult_id
 
-        For standard memories: connects to hold_gate output
-        For latch memories: connects to latch_combinator output
-        """
-        module = self._modules.get(op.memory_id)
-        if not module:
-            self.diagnostics.warning(
-                f"Read from undefined memory '{op.memory_id}' - this may indicate a logic error"
-            )
-            return
+        signal_graph.set_source(op.memory_id, module.read_source_id)
 
-        self._read_sources[op.node_id] = op.memory_id
-
-        if module.optimization == "arithmetic_feedback":
-            if module.output_node_id:
-                signal_graph.set_source(op.node_id, module.output_node_id)
-            return
-
-        if module.optimization == "pass_through":
-            if module.output_node_id:
-                signal_graph.set_source(op.node_id, module.output_node_id)
-            return
-
-        # For latch memories with multiplier, use the multiplier as the source
-        if module.multiplier_combinator:
-            signal_graph.set_source(op.node_id, module.multiplier_combinator.ir_node_id)
-            return
-
-        # For latch memories without multiplier, use the latch combinator
-        if module.latch_combinator:
-            signal_graph.set_source(op.node_id, module.latch_combinator.ir_node_id)
-            return
-
-        # For standard memories, use the hold gate
-        if module.hold_gate:
-            signal_graph.set_source(op.node_id, module.hold_gate.ir_node_id)
-
-    def handle_write(self, op: IRMemWrite, signal_graph: SignalGraph):
-        """Handle memory write with optimization detection.
-
-        Detects:
-        - Always-write optimization (when=1)
-        - Arithmetic feedback optimization
-        - Pass-through optimization (always-write, no arithmetic feedback)
-        """
-        module = self._modules.get(op.memory_id)
-        if not module:
-            self.diagnostics.warning(
-                f"Write to undefined memory '{op.memory_id}' - this may indicate a logic error"
-            )
-            return
-
-        if module._has_write:
-            self.diagnostics.warning(
-                f"Multiple writes to memory '{op.memory_id}' detected - "
-                f"only the last write will be optimized"
-            )
-        module._has_write = True
-
-        is_always_write = self._is_always_write(op)
-
-        if is_always_write and self._can_use_arithmetic_feedback(op, module):
-            self._optimize_to_arithmetic_feedback(op, module, signal_graph)
-            return
-
-        if is_always_write:
-            # Unconditional write without arithmetic feedback.
-            # The write-gated latch doesn't work here because signal-W is always 1,
-            # meaning the hold gate (signal-W == 0) never fires.
-            # Instead, use a single arithmetic combinator as a 1-tick delay pass-through.
-            self._optimize_to_pass_through(op, module, signal_graph)
-            return
-
-        self._setup_standard_write(op, module, signal_graph)
-
-    def handle_latch_write(self, op: IRLatchWrite, signal_graph: SignalGraph):
-        """Handle latch write: creates RS/SR latch circuit.
-
-        BINARY LATCH DESIGN:
-        SR/RS latches are inherently binary (output 0 or 1). To output arbitrary
-        values, we use a multiplier combinator.
-
-        OPTIMIZED PATH (inline conditions):
-        When set/reset are simple comparisons on the same signal (e.g.,
-        set=battery<20, reset=battery>=80), we inline them directly into
-        the latch combinator, eliminating separate comparison deciders.
-
-        Compilation patterns:
-        - write(1, set=x<C1, reset=x>=C2) with inlining → 1 decider combinator
-        - write(1, set=..., reset=...) without inlining → 1-3 deciders + remappers
-        - write(N, ...) where N ≠ 1 → adds 1 multiplier combinator
-
-        Wire Configuration:
-            RED wire: External input signal (battery, etc.)
-            GREEN wire: Feedback from output to input (self-loop)
-        """
-        # Get the memory module
-        module = self._modules.get(op.memory_id)
-        if not module:
-            self.diagnostics.warning(f"Latch write for undefined memory '{op.memory_id}'")
-            return
-
-        # Upgrade memory module to latch type
-        module.memory_type = op.latch_type
-
-        # Check for inline condition optimization
-        if op.has_inline_conditions:
-            self._handle_latch_write_inlined(op, module, signal_graph)
-        else:
-            self._handle_latch_write_standard(op, module, signal_graph)
-
-    def _handle_latch_write_inlined(
-        self, op: IRLatchWrite, module: MemoryModule, signal_graph: SignalGraph
-    ):
-        """Handle latch write with inlined conditions (optimized path).
-
-        Creates a single decider combinator with multi-condition logic:
-        - Row 1: SET condition (e.g., battery < 20) from RED wire
-        - Row 2: Feedback > 0 from GREEN wire (OR)
-        - Row 3: Inverted RESET condition (e.g., battery < 80) from RED wire (AND)
-
-        This eliminates the need for separate SET/RESET deciders and remappers.
-        """
-        self.diagnostics.info("Using OPTIMIZED latch write with inlined conditions.")
-        latch_id = f"{op.memory_id}_latch"
-        memory_signal_type = module.signal_type
-
-        # Extract condition components - we know these are not None because has_inline_conditions was checked
-        assert op.set_condition is not None, (
-            "set_condition should not be None when has_inline_conditions is True"
+        priority = (
+            "SR (set priority)" if op.latch_type == MEMORY_TYPE_SR_LATCH else "RS (reset priority)"
         )
-        assert op.reset_condition is not None, (
-            "reset_condition should not be None when has_inline_conditions is True"
-        )
-        set_signal_ref, set_op, set_const = op.set_condition
-        reset_signal_ref, reset_op, reset_const = op.reset_condition
+        self.diagnostics.info(f"Created {priority} latch '{op.memory_id}'")
 
-        # Get the input signal name - set_signal_ref should be SignalRef
-        assert isinstance(set_signal_ref, SignalRef), (
-            f"Expected SignalRef, got {type(set_signal_ref)}"
-        )
-        input_signal_name = self.signal_analyzer.get_signal_name(set_signal_ref.signal_type)
-        input_source_id = set_signal_ref.source_id
-
-        # Invert the reset condition for the hold logic
-        # reset=battery>=80 becomes hold when battery<80
-        hold_op, hold_const = self._invert_comparison(reset_op, reset_const)
-
-        # Determine multiplier need
-        value_is_signal = isinstance(op.value, SignalRef)
-        latch_value: int | SignalRef
-        if value_is_signal:
-            assert isinstance(op.value, SignalRef)  # Type narrowing for mypy
-            latch_value = op.value
-        elif isinstance(op.value, int):
-            latch_value = op.value
-        else:
-            # BundleRef not supported for latch value, default to 1
-            latch_value = 1
-        needs_multiplier = value_is_signal or (isinstance(latch_value, int) and latch_value != 1)
-
-        latch_output_signal = memory_signal_type
-        latch_output_constant = 1
-
-        # Mark standard gates as unused
-        if module.write_gate:
-            module.write_gate_unused = True
-        if module.hold_gate:
-            module.hold_gate_unused = True
-
-        # Build the optimized multi-condition latch
-        # Structure: (SET_COND) OR ((FEEDBACK > 0) AND (HOLD_COND))
-        # Factorio evaluates left-to-right, so we need:
-        # Row 1: SET condition
-        # Row 2: OR feedback > 0
-        # Row 3: AND hold condition
-        conditions = [
-            {
-                # Row 1: SET condition (e.g., battery < 20)
-                "comparator": set_op,
-                "first_signal": input_signal_name,
-                "first_signal_wires": {"red"},  # Read from RED (external input)
-                "second_constant": set_const,
-            },
-            {
-                # Row 2: OR feedback > 0 (latch output from previous tick)
-                "comparator": ">",
-                "compare_type": "or",
-                "first_signal": latch_output_signal,
-                "first_signal_wires": {"green"},  # Read from GREEN (feedback)
-                "second_constant": 0,
-            },
-            {
-                # Row 3: AND hold condition (inverted reset, e.g., battery < 80)
-                "comparator": hold_op,
-                "compare_type": "and",
-                "first_signal": input_signal_name,
-                "first_signal_wires": {"red"},  # Read from RED (external input)
-                "second_constant": hold_const,
-            },
-        ]
-
-        latch_placement = self.layout_plan.create_and_add_placement(
-            ir_node_id=latch_id,
-            entity_type="decider-combinator",
-            position=None,
-            footprint=(1, 2),
-            role="latch",
-            debug_info=self._make_latch_debug_info(op),
-            conditions=conditions,
-            output_signal=latch_output_signal,
-            copy_count_from_input=False,
-            output_value=latch_output_constant,
-        )
-
-        module.latch_combinator = latch_placement
-
-        # Set up green wire self-feedback
-        self._setup_latch_feedback(module, signal_graph)
-
-        # Connect input signal source to latch input via RED wire
-        if input_source_id:
-            signal_graph.add_sink(input_source_id, latch_id)
-
-        # Handle multiplier if needed
-        if needs_multiplier:
-            self._create_latch_multiplier(
-                op, module, latch_id, latch_output_signal, latch_value, signal_graph
-            )
-            multiplier_id = f"{op.memory_id}_multiplier"
-            signal_graph.set_source(op.memory_id, multiplier_id)
-
-            if isinstance(latch_value, SignalRef):
-                value_str = f"signal {latch_value.signal_type}"
-            else:
-                value_str = str(latch_value)
-            self.diagnostics.info(
-                f"Created OPTIMIZED latch with multiplier for '{op.memory_id}': "
-                f"single combinator with inlined conditions, multiplier scales by {value_str}"
-            )
-        else:
-            signal_graph.set_source(op.memory_id, latch_id)
-            self.diagnostics.info(
-                f"Created OPTIMIZED SR latch '{op.memory_id}': "
-                f"single combinator with inlined conditions "
-                f"(set={input_signal_name}{set_op}{set_const}, "
-                f"hold={input_signal_name}{hold_op}{hold_const})"
-            )
-
-    def _invert_comparison(self, op: str, const: int) -> tuple[str, int]:
-        """Invert a comparison operator for hold condition logic.
-
-        reset=battery>=80 means "turn off when battery >= 80"
-        hold condition should be "stay on when battery < 80"
-
-        Inversion rules:
-        - < becomes >=, >= becomes <
-        - <= becomes >, > becomes <=
-        - == becomes !=, != becomes ==
-        """
-        inversions = {
-            "<": ">=",
-            "<=": ">",
-            ">": "<=",
-            ">=": "<",
-            "==": "!=",
-            "!=": "==",
-        }
-        return inversions.get(op, op), const
-
-    def _handle_latch_write_standard(
-        self, op: IRLatchWrite, module: MemoryModule, signal_graph: SignalGraph
-    ):
-        """Handle latch write without inlined conditions (fallback path).
-
-        This is the original implementation that handles boolean set/reset signals.
-        """
-
-        # Get signal names for set and reset from the SignalRefs
-        if isinstance(op.set_signal, SignalRef):
-            original_set_signal = self.signal_analyzer.get_signal_name(op.set_signal.signal_type)
-            set_source_id = op.set_signal.source_id
-        else:
-            original_set_signal = "signal-S"
-            set_source_id = None
-
-        if isinstance(op.reset_signal, SignalRef):
-            original_reset_signal = self.signal_analyzer.get_signal_name(
-                op.reset_signal.signal_type
-            )
-            reset_source_id = op.reset_signal.source_id
-        else:
-            original_reset_signal = "signal-R"
-            reset_source_id = None
-
-        # The latch uses the memory's declared signal type for output AND set comparison
-        memory_signal_type = module.signal_type
-        latch_id = f"{op.memory_id}_latch"
-
-        # ======================================================================
-        # STEP 1: Set signal remapping (if set signal type != memory signal type)
-        # ======================================================================
-        # The set signal must match the memory signal type for the latch to work.
-        # If they differ, add a combinator to cast: original_set → memory_signal_type
-        needs_set_remap = original_set_signal != memory_signal_type
-        set_remapper_id = None
-
-        if needs_set_remap:
-            self.diagnostics.warning(
-                f"Latch '{op.memory_id}': casting set signal from '{original_set_signal}' "
-                f"to memory type '{memory_signal_type}'. Consider using matching signal types to reduce the number of combinators.",
-                stage="layout",
-            )
-            set_remapper_id = f"{op.memory_id}_set_remap"
-            self._create_signal_remapper(
-                set_remapper_id, op, original_set_signal, memory_signal_type, signal_graph
-            )
-            # Wire set source to set remapper (via signal graph - creates red wire)
-            if set_source_id:
-                signal_graph.add_sink(set_source_id, set_remapper_id)
-
-            # Wire set remapper output to latch input via EXPLICIT red wire connection
-            # (signal graph edges don't automatically create this wire because the
-            # remapper output is a different signal type than the input)
-            set_remap_to_latch = WireConnection(
-                source_entity_id=set_remapper_id,
-                sink_entity_id=latch_id,
-                signal_name=memory_signal_type,  # The remapped signal
-                wire_color="red",  # External inputs on RED
-                source_side="output",
-                sink_side="input",
-            )
-            self.layout_plan.add_wire_connection(set_remap_to_latch)
-
-            # The latch now uses memory_signal_type as the set signal
-            set_signal_for_latch = memory_signal_type
-            # Clear set_source_id so we don't wire original source directly to latch
-            set_source_id = None
-        else:
-            set_signal_for_latch = original_set_signal
-
-        # ======================================================================
-        # STEP 2: Reset signal remapping (if reset signal = set signal after casting)
-        # ======================================================================
-        # After step 1, the set signal used by the latch is memory_signal_type.
-        # If reset signal = memory_signal_type, they conflict → remap reset
-        needs_reset_remap = original_reset_signal == memory_signal_type
-        reset_remapper_id = None
-        internal_reset_signal = "signal-dot"  # Internal signal for remapped reset
-
-        if needs_reset_remap:
-            self.diagnostics.info(
-                f"Latch '{op.memory_id}': reset signal '{original_reset_signal}' conflicts with "
-                f"memory type. Casting to internal signal '{internal_reset_signal}'. Consider using different signal types to reduce the number of combinators.",
-                stage="layout",
-            )
-            reset_remapper_id = f"{op.memory_id}_reset_remap"
-            self._create_signal_remapper(
-                reset_remapper_id, op, original_reset_signal, internal_reset_signal, signal_graph
-            )
-            # Wire reset source to reset remapper (via signal graph - creates red wire)
-            if reset_source_id:
-                signal_graph.add_sink(reset_source_id, reset_remapper_id)
-
-            # Wire reset remapper output to latch input via EXPLICIT red wire connection
-            reset_remap_to_latch = WireConnection(
-                source_entity_id=reset_remapper_id,
-                sink_entity_id=latch_id,
-                signal_name=internal_reset_signal,  # The remapped signal
-                wire_color="red",  # External inputs on RED
-                source_side="output",
-                sink_side="input",
-            )
-            self.layout_plan.add_wire_connection(reset_remap_to_latch)
-            # The latch now uses internal_reset_signal as the reset signal
-            reset_signal_for_latch = internal_reset_signal
-            # Clear reset_source_id so we don't wire original source directly to latch
-            reset_source_id = None
-        else:
-            reset_signal_for_latch = original_reset_signal
-
-        # ======================================================================
-        # STEP 3: Determine multiplier need
-        # ======================================================================
-        value_is_signal = isinstance(op.value, SignalRef)
-        latch_value: int | SignalRef = (
-            op.value if value_is_signal else (op.value if isinstance(op.value, int) else 1)  # type: ignore[assignment]
-        )
-        needs_multiplier = value_is_signal or (isinstance(latch_value, int) and latch_value != 1)
-
-        # The latch outputs on the MEMORY's declared signal type
-        latch_output_signal = memory_signal_type
-        latch_output_constant = 1  # Binary latch always outputs 1
-
-        # Mark standard gates as unused (latch replaces them)
-        if module.write_gate:
-            module.write_gate_unused = True
-        if module.hold_gate:
-            module.hold_gate_unused = True
-
-        # Build the latch placement based on latch type
-        # Both use the same signal names now: set_signal_for_latch and reset_signal_for_latch
-        if op.latch_type == MEMORY_TYPE_RS_LATCH:
-            # RS Latch: Single condition S > R
-            latch_placement = self._create_rs_latch_placement(
-                latch_id,
-                op,
-                set_signal_for_latch,
-                reset_signal_for_latch,
-                latch_output_signal,
-                latch_output_constant,
-            )
-        else:
-            # SR Latch: Multi-condition with wire filtering
-            latch_placement = self._create_sr_latch_placement(
-                latch_id,
-                op,
-                set_signal_for_latch,
-                reset_signal_for_latch,
-                latch_output_signal,
-                latch_output_constant,
-            )
-
-        module.latch_combinator = latch_placement
-
-        # Set up green wire self-feedback (output → input)
-        self._setup_latch_feedback(module, signal_graph)
-
-        # Connect set and reset signal sources to latch input (via RED wire)
-        # Note: These may be None if they were wired to remappers instead
-        if set_source_id:
-            signal_graph.add_sink(set_source_id, latch_id)
-        if reset_source_id:
-            signal_graph.add_sink(reset_source_id, latch_id)
-
-        # Handle multiplier pattern for values != 1 or signal values
-        if needs_multiplier:
-            self._create_latch_multiplier(
-                op, module, latch_id, latch_output_signal, latch_value, signal_graph
-            )
-            # Memory reads come from the multiplier output
-            multiplier_id = f"{op.memory_id}_multiplier"
-            signal_graph.set_source(op.memory_id, multiplier_id)
-
-            if isinstance(latch_value, SignalRef):
-                value_str = f"signal {latch_value.signal_type}"
-            else:
-                value_str = str(latch_value)
-            self.diagnostics.info(
-                f"Created latch with multiplier for '{op.memory_id}': "
-                f"latch outputs {latch_output_signal}=1, multiplier scales by {value_str}"
-            )
-        else:
-            # No multiplier needed, latch is the memory source
-            signal_graph.set_source(op.memory_id, latch_id)
-
-            priority = (
-                "SR (set priority)"
-                if op.latch_type == MEMORY_TYPE_SR_LATCH
-                else "RS (reset priority)"
-            )
-            self.diagnostics.info(
-                f"Created {priority} latch '{op.memory_id}': output={latch_output_signal}=1"
-            )
-
-    def _create_latch_multiplier(
+    def _create_sr_latch(
         self,
         op: IRLatchWrite,
         module: MemoryModule,
         latch_id: str,
-        latch_signal: str,
-        multiplier_value: int | SignalRef,
-        signal_graph: SignalGraph,
+        *,
+        set_signal_override: str | None = None,
+        reset_signal_override: str | None = None,
     ) -> EntityPlacement:
-        """Create arithmetic combinator to scale latch output.
+        """SR latch (set priority): ((L > 0) AND (R = 0)) OR (S > 0).
 
-        The latch outputs 1 on the set signal. This multiplier scales it to
-        the desired value on the memory's signal type.
-
-        For constant values: latch_signal × constant → memory_signal_type
-        For signal values: latch_signal × signal_value → memory_signal_type
-
-        Wire selection is critical for signal values:
-        - Left operand (latch output): GREEN wire only (from latch feedback)
-        - Right operand (signal value): RED wire only (from signal source)
+        When both set and reset are active, set wins.
         """
-        multiplier_id = f"{op.memory_id}_multiplier"
+        if set_signal_override:
+            set_signal = set_signal_override
+        elif isinstance(op.set_signal, SignalRef):
+            set_signal = self.signal_analyzer.get_signal_name(op.set_signal.signal_type)
+        else:
+            set_signal = "signal-S"
 
-        # The multiplier outputs on the memory's declared signal type
+        if reset_signal_override:
+            reset_signal = reset_signal_override
+        elif isinstance(op.reset_signal, SignalRef):
+            reset_signal = self.signal_analyzer.get_signal_name(op.reset_signal.signal_type)
+        else:
+            reset_signal = "signal-R"
+
+        conditions = [
+            {
+                "comparator": ">",
+                "first_signal": module.signal_type,
+                "first_signal_wires": {"green"},
+                "second_constant": 0,
+            },
+            {
+                "comparator": "=",
+                "compare_type": "and",
+                "first_signal": reset_signal,
+                "first_signal_wires": {"red"},
+                "second_constant": 0,
+            },
+            {
+                "comparator": ">",
+                "compare_type": "or",
+                "first_signal": set_signal,
+                "first_signal_wires": {"red"},
+                "second_constant": 0,
+            },
+        ]
+
+        return self.layout_plan.create_and_add_placement(
+            ir_node_id=latch_id,
+            entity_type="decider-combinator",
+            position=None,
+            footprint=(1, 2),
+            role="latch",
+            debug_info=self._latch_debug_info(op),
+            conditions=conditions,
+            output_signal=module.signal_type,
+            copy_count_from_input=False,
+            output_value=1,
+        )
+
+    def _create_rs_latch(
+        self,
+        op: IRLatchWrite,
+        module: MemoryModule,
+        latch_id: str,
+        *,
+        set_signal_override: str | None = None,
+        reset_signal_override: str | None = None,
+    ) -> EntityPlacement:
+        """RS latch (reset priority): ((S > 0) OR (L > 0)) AND (R = 0).
+
+        When both set and reset are active, reset wins.
+        """
+        if set_signal_override:
+            set_signal = set_signal_override
+        elif isinstance(op.set_signal, SignalRef):
+            set_signal = self.signal_analyzer.get_signal_name(op.set_signal.signal_type)
+        else:
+            set_signal = "signal-S"
+
+        if reset_signal_override:
+            reset_signal = reset_signal_override
+        elif isinstance(op.reset_signal, SignalRef):
+            reset_signal = self.signal_analyzer.get_signal_name(op.reset_signal.signal_type)
+        else:
+            reset_signal = "signal-R"
+
+        conditions = [
+            {
+                "comparator": ">",
+                "first_signal": set_signal,
+                "first_signal_wires": {"red"},
+                "second_constant": 0,
+            },
+            {
+                "comparator": ">",
+                "compare_type": "or",
+                "first_signal": module.signal_type,
+                "first_signal_wires": {"green"},
+                "second_constant": 0,
+            },
+            {
+                "comparator": "=",
+                "compare_type": "and",
+                "first_signal": reset_signal,
+                "first_signal_wires": {"red"},
+                "second_constant": 0,
+            },
+        ]
+
+        return self.layout_plan.create_and_add_placement(
+            ir_node_id=latch_id,
+            entity_type="decider-combinator",
+            position=None,
+            footprint=(1, 2),
+            role="latch",
+            debug_info=self._latch_debug_info(op),
+            conditions=conditions,
+            output_signal=module.signal_type,
+            copy_count_from_input=False,
+            output_value=1,
+        )
+
+    def _create_inlined_latch(
+        self, op: IRLatchWrite, module: MemoryModule, latch_id: str
+    ) -> EntityPlacement:
+        """Latch with inlined set/reset comparisons on the same input signal.
+
+        Condition ordering respects latch_type:
+          RS: ((SET_COND) OR (L > 0)) AND (HOLD_COND)  — reset wins on overlap
+          SR: ((L > 0) AND (HOLD_COND)) OR (SET_COND)  — set wins on overlap
+        """
+        assert op.set_condition is not None and op.reset_condition is not None
+
+        set_signal_ref, set_op, set_const = op.set_condition
+        reset_signal_ref, reset_op, reset_const = op.reset_condition
+
+        assert isinstance(set_signal_ref, SignalRef)
+        input_signal = self.signal_analyzer.get_signal_name(set_signal_ref.signal_type)
+        hold_op, hold_const = self._invert_comparison(reset_op, reset_const)
+
+        if op.latch_type == MEMORY_TYPE_SR_LATCH:
+            # SR: ((L > 0) AND (HOLD_COND)) OR (SET_COND)
+            conditions = [
+                {
+                    "comparator": ">",
+                    "first_signal": module.signal_type,
+                    "first_signal_wires": {"green"},
+                    "second_constant": 0,
+                },
+                {
+                    "comparator": hold_op,
+                    "compare_type": "and",
+                    "first_signal": input_signal,
+                    "first_signal_wires": {"red"},
+                    "second_constant": hold_const,
+                },
+                {
+                    "comparator": set_op,
+                    "compare_type": "or",
+                    "first_signal": input_signal,
+                    "first_signal_wires": {"red"},
+                    "second_constant": set_const,
+                },
+            ]
+        else:
+            # RS: ((SET_COND) OR (L > 0)) AND (HOLD_COND)
+            conditions = [
+                {
+                    "comparator": set_op,
+                    "first_signal": input_signal,
+                    "first_signal_wires": {"red"},
+                    "second_constant": set_const,
+                },
+                {
+                    "comparator": ">",
+                    "compare_type": "or",
+                    "first_signal": module.signal_type,
+                    "first_signal_wires": {"green"},
+                    "second_constant": 0,
+                },
+                {
+                    "comparator": hold_op,
+                    "compare_type": "and",
+                    "first_signal": input_signal,
+                    "first_signal_wires": {"red"},
+                    "second_constant": hold_const,
+                },
+            ]
+
+        return self.layout_plan.create_and_add_placement(
+            ir_node_id=latch_id,
+            entity_type="decider-combinator",
+            position=None,
+            footprint=(1, 2),
+            role="latch",
+            debug_info=self._latch_debug_info(op),
+            conditions=conditions,
+            output_signal=module.signal_type,
+            copy_count_from_input=False,
+            output_value=1,
+        )
+
+    def _create_latch_signal_caster(
+        self,
+        op: IRLatchWrite,
+        module: MemoryModule,
+        latch_id: str,
+        input_signal: str,
+        output_signal: str,
+        role_suffix: str,
+        signal_graph: SignalGraph,
+    ) -> str:
+        """Create an arithmetic combinator to rename a signal for latch input.
+
+        Produces: input_signal + 0 → output_signal
+        Connects the caster's output to the latch input via an explicit RED wire.
+
+        Returns the entity ID of the caster combinator.
+        """
+        caster_id = f"{op.memory_id}_latch_{role_suffix}_caster"
+
+        self.layout_plan.create_and_add_placement(
+            ir_node_id=caster_id,
+            entity_type="arithmetic-combinator",
+            position=None,
+            footprint=(1, 2),
+            role="latch_signal_caster",
+            debug_info={
+                "variable": f"mem:{op.memory_id}",
+                "operation": "latch_signal_cast",
+                "details": f"cast {input_signal} → {output_signal} for latch {role_suffix}",
+                "role": "latch_signal_caster",
+            },
+            operation="+",
+            left_operand=input_signal,
+            right_operand=0,
+            output_signal=output_signal,
+        )
+
+        # Explicit RED wire from caster output to latch input
+        self.layout_plan.add_wire_connection(
+            WireConnection(
+                source_entity_id=caster_id,
+                sink_entity_id=latch_id,
+                signal_name=output_signal,
+                wire_color="red",
+                source_side="output",
+                sink_side="input",
+            )
+        )
+
+        # Internal feedback signal so connection_planner skips this edge
+        feedback_signal = f"__feedback_{module.memory_id}_{role_suffix}_caster"
+        signal_graph.set_source(feedback_signal, caster_id)
+        signal_graph.add_sink(feedback_signal, latch_id)
+        module._feedback_signal_ids.append(feedback_signal)
+
+        self.diagnostics.info(
+            f"Created latch signal caster '{caster_id}': "
+            f"{input_signal} → {output_signal} for {role_suffix}"
+        )
+
+        return caster_id
+
+    def _connect_latch_inputs(
+        self,
+        op: IRLatchWrite,
+        latch_id: str,
+        signal_graph: SignalGraph,
+        *,
+        set_renamer_id: str | None = None,
+        reset_renamer_id: str | None = None,
+    ) -> None:
+        """Wire external set/reset/condition signals to the latch input.
+
+        When renaming combinators exist, signals are routed through them
+        instead of directly to the latch. The renamers are connected to the
+        latch via explicit RED wire connections (created in _create_latch_signal_caster).
+        """
+        if op.has_inline_conditions:
+            assert op.set_condition is not None
+            signal_ref = op.set_condition[0]
+            if isinstance(signal_ref, SignalRef) and signal_ref.source_id:
+                signal_graph.add_sink(signal_ref.source_id, latch_id)
+        else:
+            if isinstance(op.set_signal, SignalRef) and op.set_signal.source_id:
+                target = set_renamer_id if set_renamer_id else latch_id
+                signal_graph.add_sink(op.set_signal.source_id, target)
+            if isinstance(op.reset_signal, SignalRef) and op.reset_signal.source_id:
+                target = reset_renamer_id if reset_renamer_id else latch_id
+                signal_graph.add_sink(op.reset_signal.source_id, target)
+
+    @staticmethod
+    def _needs_multiplier(op: IRLatchWrite) -> bool:
+        """Check if latch needs a multiplier (value ≠ 1 or value is a signal)."""
+        if isinstance(op.value, SignalRef):
+            return True
+        return isinstance(op.value, int) and op.value != 1
+
+    def _create_multiplier(
+        self,
+        op: IRLatchWrite,
+        module: MemoryModule,
+        latch_id: str,
+        signal_graph: SignalGraph,
+    ) -> str:
+        """Arithmetic combinator to scale latch output: latch_signal × value → output.
+
+        Reads latch output from GREEN wire (same as feedback loop).
+        Reads value signal from RED wire (if value is a signal).
+        """
+        mult_id = f"{op.memory_id}_multiplier"
         output_signal = module.signal_type
 
-        # Left operand ALWAYS reads from green wire only (latch output)
-        left_operand_wires = {"green"}
+        left_wires = {"green"}
 
-        # Determine right operand based on value type
-        right_operand: str | int
-        if isinstance(multiplier_value, SignalRef):
-            # Signal value: wire the source and use signal name
-            right_operand = self.signal_analyzer.get_signal_name(multiplier_value.signal_type)
-            # Right operand reads from red wire only (signal source)
-            right_operand_wires = {"red"}
-            # Connect signal source to multiplier input via red wire
-            if multiplier_value.source_id:
-                signal_graph.add_sink(multiplier_value.source_id, multiplier_id)
+        if isinstance(op.value, SignalRef):
+            right_operand: str | int = self.signal_analyzer.get_signal_name(op.value.signal_type)
+            right_wires: set[str] = {"red"}
+            if op.value.source_id:
+                signal_graph.add_sink(op.value.source_id, mult_id)
+        elif isinstance(op.value, int):
+            right_operand = op.value
+            right_wires = {"red", "green"}
         else:
-            # Constant value - no wire selection needed for constants
-            right_operand = multiplier_value
-            right_operand_wires = {"red", "green"}  # Doesn't matter for constants
+            right_operand = 0  # BundleRef not supported in latch multiplier
+            right_wires = {"red", "green"}
 
-        multiplier_placement = self.layout_plan.create_and_add_placement(
-            ir_node_id=multiplier_id,
+        self.layout_plan.create_and_add_placement(
+            ir_node_id=mult_id,
             entity_type="arithmetic-combinator",
             position=None,
             footprint=(1, 2),
             role="latch_multiplier",
-            debug_info=self._make_multiplier_debug_info(op, multiplier_value),
+            debug_info=self._multiplier_debug_info(op),
             operation="*",
-            left_operand=latch_signal,  # Latch output (0 or 1)
-            left_operand_wires=left_operand_wires,  # Read from GREEN only
-            right_operand=right_operand,  # Scale factor (constant or signal)
-            right_operand_wires=right_operand_wires,  # Read from RED only (for signals)
-            output_signal=output_signal,  # Memory's signal type
+            left_operand=module.signal_type,
+            left_operand_wires=left_wires,
+            right_operand=right_operand,
+            right_operand_wires=right_wires,
+            output_signal=output_signal,
         )
 
-        # Store on module so handle_read can find it
-        module.multiplier_combinator = multiplier_placement
-
-        # Connect latch output to multiplier input via GREEN wire ONLY
-        # This uses the same wire as the latch feedback, avoiding double signals
-        # We do NOT add this to the signal graph to avoid auto-wiring creating a red wire
-        latch_to_multiplier = WireConnection(
-            source_entity_id=latch_id,
-            sink_entity_id=multiplier_id,
-            signal_name=latch_signal,
-            wire_color="green",  # Use green (same as feedback) to avoid double-counting
-            source_side="output",
-            sink_side="input",
+        # Latch output → multiplier input via GREEN wire
+        self.layout_plan.add_wire_connection(
+            WireConnection(
+                source_entity_id=latch_id,
+                sink_entity_id=mult_id,
+                signal_name=module.signal_type,
+                wire_color="green",
+                source_side="output",
+                sink_side="input",
+            )
         )
-        self.layout_plan.add_wire_connection(latch_to_multiplier)
 
-        # Note: We intentionally do NOT add signal graph edges here
-        # because we already have the explicit wire connection above.
-        # Adding edges would cause the wire router to create an additional red wire.
+        return mult_id
 
-        return multiplier_placement
+    # ------------------------------------------------------------------
+    # Archetype D: Resettable Accumulator
+    # ------------------------------------------------------------------
 
-    def _make_multiplier_debug_info(
-        self, op: IRLatchWrite, value: int | SignalRef
-    ) -> dict[str, Any]:
-        """Build debug info dict for latch multiplier combinator."""
-        if isinstance(value, SignalRef):
-            value_str = f"×{value.signal_type}"
-        else:
-            value_str = f"×{value}"
-
-        debug_info: dict[str, Any] = {
-            "variable": f"mem:{op.memory_id}",
-            "operation": "latch_multiplier",
-            "details": value_str,
-            "role": "latch_multiplier",
-        }
-
-        if hasattr(op, "source_ast") and op.source_ast:
-            if hasattr(op.source_ast, "line"):
-                debug_info["line"] = op.source_ast.line
-            if hasattr(op.source_ast, "source_file"):
-                debug_info["source_file"] = op.source_ast.source_file
-
-        return debug_info
-
-    def _create_signal_remapper(
+    def _create_single_decider_accumulator(
         self,
-        remapper_id: str,
-        op: IRLatchWrite,
-        input_signal: str,
-        output_signal: str,
+        op: IRResetWrite,
+        module: MemoryModule,
         signal_graph: SignalGraph,
-    ) -> EntityPlacement:
-        """Create arithmetic combinator to remap a signal to a different type.
+        arith_node: IRArith,
+    ) -> None:
+        """Path 1: Replace the arith with a single decider for mem.read() + X.
 
-        Used for:
-        - Remapping set signal to memory signal type
-        - Remapping reset signal to internal type when it conflicts with set
+        The decider accumulates via wire merging: RED(self-feedback) + GREEN(pulse)
+        are summed by Factorio when they share the same signal type. Condition R=0
+        gates the output for reset.
 
-        The remapper simply copies the value: input × 1 → output
+        If the pulse signal type doesn't match memory's type and we can't re-project
+        it, we fall back to the multi-combinator path.
         """
-        remapper_placement = self.layout_plan.create_and_add_placement(
-            ir_node_id=remapper_id,
-            entity_type="arithmetic-combinator",
-            position=None,
-            footprint=(1, 2),
-            role="signal_remapper",
-            debug_info={
-                "variable": f"mem:{op.memory_id}",
-                "operation": "signal_remap",
-                "details": f"{input_signal}→{output_signal}",
-                "role": "signal_remapper",
-            },
-            operation="*",
-            left_operand=input_signal,
-            right_operand=1,  # Multiply by 1 = passthrough
-            output_signal=output_signal,
-        )
+        arith_node_id = arith_node.node_id
+        signal_name = self.signal_analyzer.get_signal_name(module.signal_type)
 
-        return remapper_placement
+        # Identify the pulse operand (the non-memory operand of the addition)
+        pulse_ref = self._find_pulse_operand(arith_node, op.memory_id)
+        if pulse_ref is None:
+            self._create_gated_chain_accumulator(op, module, signal_graph)
+            return
 
-    def _create_rs_latch_placement(
-        self,
-        latch_id: str,
-        op: IRLatchWrite,
-        set_signal_name: str,
-        reset_signal_name: str,
-        output_signal: str,
-        output_constant: int,
-    ) -> EntityPlacement:
-        """Create RS latch (reset priority): single condition S > R.
+        # Ensure the pulse uses the memory's signal type (required for wire merging)
+        if isinstance(pulse_ref, SignalRef) and pulse_ref.signal_type != module.signal_type:
+            pulse_source = self._ir_nodes.get(pulse_ref.source_id)
+            pulse_sinks = signal_graph.iter_sinks(pulse_ref.source_id)
+            pulse_placement = self.layout_plan.get_placement(pulse_ref.source_id)
 
-        RS Latch Logic (Reset Priority):
-        - SET: When S > R, latch turns ON
-        - HOLD: When feedback S > R (with S=1 from feedback), stays ON
-        - RESET: When R >= S, latch turns OFF
+            if (
+                isinstance(pulse_source, IRConst)
+                and pulse_placement is not None
+                and len(pulse_sinks) == 1
+            ):
+                # Safe to re-project: the constant only feeds the arith we're removing
+                new_signal_name = self.signal_analyzer.get_signal_name(module.signal_type)
+                pulse_placement.properties["signal_name"] = new_signal_name
+                pulse_placement.properties["signal_type"] = module.signal_type
+                if "debug_info" in pulse_placement.properties:
+                    pulse_placement.properties["debug_info"]["details"] = (
+                        f"re-projected to {new_signal_name} for reset accumulator"
+                    )
+            else:
+                # Can't re-project — fall back to multi-combinator path
+                self.diagnostics.info(
+                    f"Memory '{op.memory_id}': pulse signal type mismatch "
+                    f"('{pulse_ref.signal_type}' vs '{module.signal_type}'), "
+                    f"using multi-combinator path"
+                )
+                self._create_gated_chain_accumulator(op, module, signal_graph)
+                return
 
-        The key: set signal is now cast to memory signal type, so:
-        - output_signal = set_signal_name = memory signal type
-        - Feedback adds to S, so when latched ON: S(feedback) + S(external) > R
+        # --- Remove the arith combinator ---
+        if arith_node_id in self.layout_plan.entity_placements:
+            del self.layout_plan.entity_placements[arith_node_id]
 
-        Wire Configuration:
-        - RED wire: External set (S) and reset (R) signals
-        - GREEN wire: Feedback from output to input (loops back S=1)
-        """
-        return self.layout_plan.create_and_add_placement(
-            ir_node_id=latch_id,
-            entity_type="decider-combinator",
-            position=None,
-            footprint=(1, 2),
-            role="latch",
-            debug_info=self._make_latch_debug_info(op),
-            # Single condition mode - classic RS latch
-            operation=">",
-            left_operand=set_signal_name,
-            right_operand=reset_signal_name,
-            output_signal=output_signal,
-            copy_count_from_input=False,
-            output_value=output_constant,
-        )
+        for sink_id in signal_graph.iter_sinks(arith_node_id):
+            signal_graph.remove_sink(arith_node_id, sink_id)
 
-    def _create_sr_latch_placement(
-        self,
-        latch_id: str,
-        op: IRLatchWrite,
-        set_signal_name: str,
-        reset_signal_name: str,
-        output_signal: str,
-        output_constant: int,
-    ) -> EntityPlacement:
-        """Create SR latch (set priority): multi-condition with wire filtering.
+        # --- Determine reset signal name ---
+        if isinstance(op.reset_signal, SignalRef):
+            reset_signal_name = self.signal_analyzer.get_signal_name(op.reset_signal.signal_type)
+        else:
+            reset_signal_name = "signal-R"
 
-        SR Latch Logic (Set Priority):
-        - SET: When external S > 0, latch turns ON (regardless of R)
-        - HOLD: When feedback L > 0 AND external R = 0, latch stays ON
-        - RESET: When external R > 0 AND external S = 0, latch turns OFF
+        # --- Create the decider ---
+        gate_id = f"{op.memory_id}_reset_decider"
 
-        Note: The feedback signal is the latch OUTPUT (L), not the set signal (S).
-
-        Factorio 2.0 multi-condition evaluates LEFT-TO-RIGHT without operator precedence.
-        So we order conditions to get: (L > 0 AND R = 0) OR S > 0
-
-        Conditions (in this specific order):
-            Row 1: L > 0 (read from GREEN wire - feedback) [first]
-            Row 2: R = 0 (read from RED wire - external) [AND]
-            Row 3: S > 0 (read from RED wire - external) [OR]
-
-        This evaluates as: ((L > 0) AND (R = 0)) OR (S > 0)
-
-        Output: L = 1 (on the output_signal type)
-        """
-        # Build multi-condition configuration for Factorio 2.0
-        # IMPORTANT: Order matters! Factorio evaluates left-to-right.
-        # We put the AND conditions first, then OR the SET condition.
         conditions = [
             {
-                # Row 1: L > 0 (feedback from latch output)
-                "comparator": ">",
-                # First condition doesn't need compare_type
-                "first_signal": output_signal,  # L - the latch OUTPUT signal
-                "first_signal_wires": {"green"},  # Read L from GREEN (feedback)
-                "second_constant": 0,
-            },
-            {
-                # Row 2: AND R = 0 (reset not active)
                 "comparator": "=",
-                "compare_type": "and",  # AND with previous: (L > 0) AND (R = 0)
                 "first_signal": reset_signal_name,
-                "first_signal_wires": {"red"},  # Read R from RED (external input)
-                "second_constant": 0,
-            },
-            {
-                # Row 3: OR S > 0 (set signal active)
-                "comparator": ">",
-                "compare_type": "or",  # OR with previous: ((L > 0) AND (R = 0)) OR (S > 0)
-                "first_signal": set_signal_name,
-                "first_signal_wires": {"red"},  # Read S from RED (external input)
+                "first_signal_wires": {"green"},
                 "second_constant": 0,
             },
         ]
 
-        return self.layout_plan.create_and_add_placement(
-            ir_node_id=latch_id,
+        self.layout_plan.create_and_add_placement(
+            ir_node_id=gate_id,
             entity_type="decider-combinator",
             position=None,
             footprint=(1, 2),
-            role="latch",
-            debug_info=self._make_latch_debug_info(op),
-            # Multi-condition mode
+            role="memory_reset_decider",
+            debug_info={
+                "variable": f"mem:{op.memory_id}",
+                "operation": "reset_accumulator",
+                "details": "1-decider resettable accumulator",
+                "signal_type": signal_name,
+                "role": "memory_reset_decider",
+                "memory_name": op.memory_id,
+            },
             conditions=conditions,
-            output_signal=output_signal,
-            copy_count_from_input=False,
-            output_value=output_constant,
+            output_signal=signal_name,
+            copy_count_from_input=True,
+            has_self_feedback=True,
+            feedback_signal=signal_name,
         )
 
-    def _make_latch_debug_info(self, op: IRLatchWrite) -> dict[str, Any]:
-        """Build debug info dict for latch combinator."""
-        latch_type = "SR" if op.latch_type == MEMORY_TYPE_SR_LATCH else "RS"
-        debug_info: dict[str, Any] = {
-            "variable": f"mem:{op.memory_id}",
-            "operation": "latch",
-            "details": f"{latch_type}_latch",
-            "role": "latch",
-        }
+        module.archetype = "accumulator"
+        module.primary = self.layout_plan.get_placement(gate_id)
+        module.read_source_id = gate_id
 
-        if hasattr(op, "source_ast") and op.source_ast:
-            if hasattr(op.source_ast, "line"):
-                debug_info["line"] = op.source_ast.line
-            if hasattr(op.source_ast, "source_file"):
-                debug_info["source_file"] = op.source_ast.source_file
+        # Wire: pulse source → decider input
+        if isinstance(pulse_ref, SignalRef) and pulse_ref.source_id:
+            signal_graph.remove_sink(pulse_ref.source_id, arith_node_id)
+            signal_graph.add_sink(pulse_ref.source_id, gate_id)
 
-        return debug_info
+        # Wire: reset signal → decider input
+        if isinstance(op.reset_signal, SignalRef) and op.reset_signal.source_id:
+            signal_graph.add_sink(op.reset_signal.source_id, gate_id)
 
-    def cleanup_unused_gates(self, layout_plan: LayoutPlan, signal_graph: SignalGraph):
-        """Remove gates that were optimized away."""
-        to_remove = []
+        # Memory reads come from the decider output
+        signal_graph.set_source(op.memory_id, gate_id)
+        signal_graph.set_source(gate_id, gate_id)
+        for read_id, mem_id in self._read_sources.items():
+            if mem_id == op.memory_id:
+                signal_graph.set_source(read_id, gate_id)
 
-        for _memory_id, module in self._modules.items():
-            if module.write_gate_unused and module.write_gate:
-                to_remove.append(module.write_gate.ir_node_id)
-            if module.hold_gate_unused and module.hold_gate:
-                to_remove.append(module.hold_gate.ir_node_id)
+        self.diagnostics.info(
+            f"Created 1-decider resettable accumulator '{op.memory_id}' "
+            f"(simple addition, self-feedback)"
+        )
 
-        for entity_id in to_remove:
-            layout_plan.entity_placements.pop(entity_id, None)
-            self.diagnostics.info(f"Removed unused gate: {entity_id}")
+    def _create_gated_chain_accumulator(
+        self, op: IRResetWrite, module: MemoryModule, signal_graph: SignalGraph
+    ) -> None:
+        """Path 2: Keep arith chain, add decider reset gate in feedback path.
 
-        remaining = [
-            conn
-            for conn in layout_plan.wire_connections
-            if conn.source_entity_id not in to_remove and conn.sink_entity_id not in to_remove
+        Chain: arith₁ → ... → arithₙ → decider(R=0, copy input) → RED feedback to arith₁
+        """
+        if not isinstance(op.data_signal, SignalRef):
+            return
+        arith_node_id = op.data_signal.source_id
+        final_placement = self.layout_plan.get_placement(arith_node_id)
+        if not final_placement:
+            return
+
+        signal_name = self.signal_analyzer.get_signal_name(module.signal_type)
+        first_consumer_id = self._find_first_memory_consumer(op.memory_id)
+
+        # Determine reset signal name
+        if isinstance(op.reset_signal, SignalRef):
+            reset_signal_name = self.signal_analyzer.get_signal_name(op.reset_signal.signal_type)
+        else:
+            reset_signal_name = "signal-R"
+
+        gate_id = f"{op.memory_id}_reset_gate"
+
+        conditions = [
+            {
+                "comparator": "=",
+                "first_signal": reset_signal_name,
+                "second_constant": 0,
+            },
         ]
-        layout_plan.wire_connections = remaining
 
-        for signal_id in list(signal_graph._sinks.keys()):
-            sinks = signal_graph._sinks[signal_id]
-            for removed_id in to_remove:
-                if removed_id in sinks:
-                    sinks.remove(removed_id)
+        self.layout_plan.create_and_add_placement(
+            ir_node_id=gate_id,
+            entity_type="decider-combinator",
+            position=None,
+            footprint=(1, 2),
+            role="memory_reset_gate",
+            debug_info={
+                "variable": f"mem:{op.memory_id}",
+                "operation": "reset_gate",
+                "details": "reset gate for multi-op accumulator",
+                "signal_type": signal_name,
+                "role": "memory_reset_gate",
+                "memory_name": op.memory_id,
+            },
+            conditions=conditions,
+            output_signal=signal_name,
+            copy_count_from_input=True,
+        )
+
+        module.archetype = "accumulator"
+        module.primary = self.layout_plan.get_placement(gate_id)
+        module.read_source_id = gate_id
+
+        # Wire: arithₙ output → gate input
+        signal_graph.add_sink(arith_node_id, gate_id)
+
+        # Wire: gate output → first consumer input (explicit RED feedback)
+        target_id = first_consumer_id or arith_node_id
+        self.layout_plan.add_wire_connection(
+            WireConnection(
+                source_entity_id=gate_id,
+                sink_entity_id=target_id,
+                signal_name=signal_name,
+                wire_color="red",
+                source_side="output",
+                sink_side="input",
+            )
+        )
+
+        # Internal feedback signal for connection_planner filtering
+        feedback_signal = f"__feedback_{module.memory_id}_reset_gate"
+        signal_graph.set_source(feedback_signal, gate_id)
+        signal_graph.add_sink(feedback_signal, target_id)
+        module._feedback_signal_ids = [feedback_signal]
+
+        # Connect reset signal to gate
+        if isinstance(op.reset_signal, SignalRef) and op.reset_signal.source_id:
+            signal_graph.add_sink(op.reset_signal.source_id, gate_id)
+
+        # Memory reads come from the reset gate output
+        signal_graph.set_source(op.memory_id, gate_id)
+        for read_id, mem_id in self._read_sources.items():
+            if mem_id == op.memory_id:
+                signal_graph.set_source(read_id, gate_id)
+
+        self.diagnostics.info(
+            f"Created gated resettable accumulator '{op.memory_id}' "
+            f"(arith chain + 1 decider reset gate)"
+        )
+
+    def _find_pulse_operand(
+        self, arith_node: IRArith, memory_id: str
+    ) -> SignalRef | BundleRef | int | None:
+        """Find the non-memory operand of a simple addition arith.
+
+        For `mem.read() + X`, returns X. For `X + mem.read()`, also returns X.
+        Returns None if both operands depend on the memory.
+        """
+        left_depends = isinstance(arith_node.left, SignalRef) and (
+            self._operation_depends_on_memory(arith_node.left.source_id, memory_id)
+        )
+        right_depends = isinstance(arith_node.right, SignalRef) and (
+            self._operation_depends_on_memory(arith_node.right.source_id, memory_id)
+        )
+
+        if left_depends and not right_depends:
+            return arith_node.right
+        elif right_depends and not left_depends:
+            return arith_node.left
+        else:
+            return None
+
+    # ------------------------------------------------------------------
+    # Helpers: optimization detection
+    # ------------------------------------------------------------------
 
     def _is_always_write(self, op: IRMemWrite) -> bool:
-        """Check if write enable is constant 1."""
+        """Check if write-enable is constant 1 (unconditional write)."""
         if isinstance(op.write_enable, int) and op.write_enable == 1:
             return True
         if isinstance(op.write_enable, SignalRef):
@@ -958,34 +1170,25 @@ class MemoryBuilder:
         return False
 
     def _can_use_arithmetic_feedback(self, op: IRMemWrite, module: MemoryModule) -> bool:
-        """Detect if memory can use arithmetic self-feedback.
-
-        Returns True if the write data comes from an arithmetic operation
-        that (directly or indirectly) depends on reading from this same memory.
-        """
+        """True if the write value comes from arithmetic that reads this memory."""
         if not isinstance(op.data_signal, SignalRef):
             return False
-
-        final_node_id = op.data_signal.source_id
-        arith_node = self._ir_nodes.get(final_node_id)
+        arith_node = self._ir_nodes.get(op.data_signal.source_id)
         if not isinstance(arith_node, IRArith):
             return False
-
-        return self._operation_depends_on_memory(final_node_id, op.memory_id)
+        return self._operation_depends_on_memory(op.data_signal.source_id, op.memory_id)
 
     def _operation_depends_on_memory(
-        self, op_id: str, memory_id: str, visited: set | None = None
+        self, op_id: str, memory_id: str, visited: set[str] | None = None
     ) -> bool:
         """Check if an operation depends on a memory read (directly or transitively)."""
         if visited is None:
             visited = set()
-
         if op_id in visited:
             return False
         visited.add(op_id)
 
-        source_memory = self._read_sources.get(op_id)
-        if source_memory == memory_id:
+        if self._read_sources.get(op_id) == memory_id:
             return True
 
         ir_node = self._ir_nodes.get(op_id)
@@ -998,314 +1201,112 @@ class MemoryBuilder:
                 ir_node.right.source_id, memory_id, visited
             ):
                 return True
-
         return False
 
-    def _optimize_to_arithmetic_feedback(
-        self, op: IRMemWrite, module: MemoryModule, signal_graph: SignalGraph
-    ):
-        """Convert to arithmetic combinator feedback optimization.
-
-        For single-operation chains: Use self-feedback on one combinator
-        For multi-operation chains: Wire a feedback loop between combinators
-        """
-        arith_node_id = op.data_signal.source_id if isinstance(op.data_signal, SignalRef) else None
-
-        if not arith_node_id:
-            return
-
-        final_placement = self.layout_plan.get_placement(arith_node_id)
-        if not final_placement:
-            return
-
-        signal_name = self.signal_analyzer.get_signal_name(module.signal_type)
-
-        first_consumer_id = self._find_first_memory_consumer(op.memory_id)
-        is_single_operation = first_consumer_id == arith_node_id or first_consumer_id is None
-
-        if is_single_operation:
-            final_placement.properties["has_self_feedback"] = True
-            final_placement.properties["feedback_signal"] = signal_name
-
-            # Preserve memory information in debug info for optimized combinator
-            if "debug_info" in final_placement.properties:
-                final_placement.properties["debug_info"]["memory_name"] = op.memory_id
-                final_placement.properties["debug_info"]["details"] = (
-                    f"{final_placement.properties['debug_info'].get('details', 'arith')} + memory:{op.memory_id}"
-                )
-
-            self.diagnostics.info(
-                f"Optimized memory '{op.memory_id}' to single-combinator self-feedback"
-            )
-        else:
-            self.diagnostics.info(
-                f"Optimized memory '{op.memory_id}' to multi-combinator feedback loop"
-            )
-
-        module.optimization = "arithmetic_feedback"
-        module.output_node_id = arith_node_id
-        module.write_gate_unused = True
-        module.hold_gate_unused = True
-
-        if op.memory_id in signal_graph._sources:
-            old_sources = signal_graph._sources[op.memory_id]
-            self.diagnostics.info(f"Clearing old sources for {op.memory_id}: {old_sources}")
-            signal_graph._sources[op.memory_id] = []
-        signal_graph.set_source(op.memory_id, arith_node_id)
-
-        for read_id, mem_id in self._read_sources.items():
-            if mem_id == op.memory_id:
-                if read_id in signal_graph._sources:
-                    old_read_sources = signal_graph._sources[read_id]
-                    self.diagnostics.info(
-                        f"Updating read {read_id} sources from {old_read_sources} to [{arith_node_id}]"
-                    )
-                    signal_graph._sources[read_id] = []
-                signal_graph.set_source(read_id, arith_node_id)
-
-        if module.write_gate:
-            for signal_id in list(signal_graph._sinks.keys()):
-                sinks = signal_graph._sinks[signal_id]
-                if module.write_gate.ir_node_id in sinks:
-                    sinks.remove(module.write_gate.ir_node_id)
-                    self.diagnostics.info(
-                        f"Removed stale sink reference: {signal_id} -> {module.write_gate.ir_node_id} (optimized away)"
-                    )
-
-        if module.hold_gate:
-            for signal_id in list(signal_graph._sinks.keys()):
-                sinks = signal_graph._sinks[signal_id]
-                if module.hold_gate.ir_node_id in sinks:
-                    sinks.remove(module.hold_gate.ir_node_id)
-                    self.diagnostics.info(
-                        f"Removed stale sink reference: {signal_id} -> {module.hold_gate.ir_node_id} (optimized away)"
-                    )
-
-        # Update signal sources - memory reads now point to arithmetic combinator
-        signal_graph.set_source(op.memory_id, arith_node_id)
-
-        for read_node_id, source_memory_id in self._read_sources.items():
-            if source_memory_id == op.memory_id:
-                signal_graph.set_source(read_node_id, arith_node_id)
-
-        # For multi-operation chains: register feedback edge in signal graph
-        if first_consumer_id and first_consumer_id != arith_node_id:
-            signal_graph.set_source(arith_node_id, arith_node_id)
-            signal_graph.add_sink(arith_node_id, first_consumer_id)
-            self.diagnostics.info(
-                f"Registered feedback loop: {arith_node_id} -> {first_consumer_id}"
-            )
-
     def _find_first_memory_consumer(self, memory_id: str) -> str | None:
-        """Find the first operation in the chain that reads from memory.
-
-        Args:
-            memory_id: Memory being optimized
-
-        Returns:
-            Entity ID of first consumer, or None
-        """
+        """Find the first arithmetic operation that reads from this memory."""
         for read_node_id, source_memory_id in self._read_sources.items():
             if source_memory_id != memory_id:
                 continue
-
-            ir_node = self._ir_nodes.get(read_node_id)
-            if not ir_node:
-                continue
-
             for node_id, node in self._ir_nodes.items():
                 if not isinstance(node, IRArith):
                     continue
-
                 left_uses = isinstance(node.left, SignalRef) and node.left.source_id == read_node_id
                 right_uses = (
                     isinstance(node.right, SignalRef) and node.right.source_id == read_node_id
                 )
-
                 if left_uses or right_uses:
                     return node_id
-
         return None
 
-    def _optimize_to_pass_through(
-        self, op: IRMemWrite, module: MemoryModule, signal_graph: SignalGraph
-    ):
-        """Convert unconditional write (no arithmetic feedback) to a pass-through combinator.
+    # ------------------------------------------------------------------
+    # Helpers: deferred read resolution
+    # ------------------------------------------------------------------
 
-        When a memory is written every tick unconditionally and the value does NOT
-        depend on reading from this same memory, the write-gated latch design fails
-        because signal-W is always 1 (hold gate never activates).
-
-        Instead, we use a single arithmetic combinator: signal + 0 → signal.
-        This acts as a 1-tick delay: mem.read() returns the value written on the
-        previous tick, which is the correct semantic for unconditional memory writes.
-        No self-feedback is needed because new data arrives every tick.
-        """
-        signal_name = self.signal_analyzer.get_signal_name(module.signal_type)
-
-        pass_through_id = f"{op.memory_id}_pass_through"
-        self.layout_plan.create_and_add_placement(
-            ir_node_id=pass_through_id,
-            entity_type="arithmetic-combinator",
-            position=None,
-            footprint=(1, 2),
-            role="memory_pass_through",
-            debug_info=self._make_debug_info(op, "pass_through"),
-            operation="+",
-            left_operand=signal_name,
-            right_operand=0,
-            output_signal=signal_name,
-        )
-
-        # Mark both latch gates as unused
-        module.write_gate_unused = True
-        module.hold_gate_unused = True
-        module.optimization = "pass_through"
-        module.output_node_id = pass_through_id
-
-        # Connect data signal to the pass-through combinator
-        if isinstance(op.data_signal, SignalRef):
-            signal_graph.add_sink(op.data_signal.source_id, pass_through_id)
-            self.diagnostics.info(
-                f"Connected data signal {op.data_signal.source_id} → pass_through {pass_through_id}"
-            )
-
-        # Route memory reads through the pass-through combinator.
-        # Clear old sources first (hold_gate, write_gate) so get_source returns
-        # the pass_through, not an obsolete unused gate.
-        signal_graph._sources[op.memory_id] = [pass_through_id]
-
-        for read_node_id, source_memory_id in self._read_sources.items():
-            if source_memory_id == op.memory_id:
-                signal_graph._sources[read_node_id] = [pass_through_id]
-
-        # Remove stale signal graph references to the unused gates
-        for gate in (module.write_gate, module.hold_gate):
-            if gate:
-                for signal_id in list(signal_graph._sinks.keys()):
-                    sinks = signal_graph._sinks[signal_id]
-                    if gate.ir_node_id in sinks:
-                        sinks.remove(gate.ir_node_id)
-
-        self.diagnostics.info(
-            f"Optimized unconditional memory '{op.memory_id}' to pass-through combinator "
-            f"(1-tick delay, no write-gated latch needed)"
-        )
-
-    def _setup_standard_write(
-        self, op: IRMemWrite, module: MemoryModule, signal_graph: SignalGraph
-    ):
-        """Set up standard write-gated latch.
-
-        CRITICAL: Both gates must receive ALL input signals for proper latch behavior:
-        - Data signal must go to both gates (so hold gate has data to hold)
-        - Write enable (signal-W) must go to both gates (so each gate knows when to activate)
-        - Feedback loop connects both gates' outputs to both gates' inputs
-        """
-        if not module.write_gate or not module.hold_gate:
-            self.diagnostics.warning(
-                f"Cannot setup standard write for {op.memory_id}: missing gates"
-            )
+    def _resolve_deferred_reads(self, module: MemoryModule, signal_graph: SignalGraph) -> None:
+        """Wire any reads that were recorded before this module's write."""
+        if not module.read_source_id:
             return
+        for read_id, mem_id in self._read_sources.items():
+            if mem_id == module.memory_id:
+                signal_graph.set_source(read_id, module.read_source_id)
 
-        # ===================================================================
-        # STEP 1: Connect data signal to WRITE GATE ONLY
-        # ===================================================================
-        if isinstance(op.data_signal, SignalRef):
-            signal_graph.add_sink(op.data_signal.source_id, module.write_gate.ir_node_id)
-            self.diagnostics.info(
-                f"Connected data signal {op.data_signal.source_id} → write_gate {module.write_gate.ir_node_id}"
-            )
+    # ------------------------------------------------------------------
+    # Helpers: comparison inversion
+    # ------------------------------------------------------------------
 
-        # ===================================================================
-        # STEP 2: Connect write enable (signal-W) to BOTH gates
-        # ===================================================================
-        if isinstance(op.write_enable, SignalRef):
-            signal_graph.add_sink(op.write_enable.source_id, module.write_gate.ir_node_id)
-            self.diagnostics.info(
-                f"Connected write_enable {op.write_enable.source_id} → write_gate {module.write_gate.ir_node_id}"
-            )
-            # Connect to hold gate (KEY FIX #2)
-            signal_graph.add_sink(op.write_enable.source_id, module.hold_gate.ir_node_id)
-            self.diagnostics.info(
-                f"Connected write_enable {op.write_enable.source_id} → hold_gate {module.hold_gate.ir_node_id}"
-            )
+    @staticmethod
+    def _invert_comparison(op: str, const: int) -> tuple[str, int]:
+        """Invert a comparison for hold condition: reset → hold.
 
-        # ===================================================================
-        # STEP 3: Set up unidirectional forward feedback + self-loop
-        # ===================================================================
-        # Write gate output → hold gate input (forward feedback, RED wire)
-        # Hold gate output → hold gate input (self-loop, RED wire)
-        # This topology prevents write_gate from seeing feedback (no accumulation)
+        E.g. reset = battery >= 80 → hold = battery < 80.
+        """
+        inversions = {
+            "<": ">=",
+            "<=": ">",
+            ">": "<=",
+            ">=": "<",
+            "==": "!=",
+            "!=": "==",
+        }
+        return inversions[op], const
 
-        # Create unique internal signal identifier to avoid signal_graph collisions
-        # This ensures the gates are placed close together during layout optimization
-        feedback_write_to_hold = f"__feedback_{op.memory_id}_w2h"
+    # ------------------------------------------------------------------
+    # Helpers: debug info
+    # ------------------------------------------------------------------
 
-        # Add feedback edge to signal_graph for LAYOUT purposes only
-        # Only forward feedback: write gate → hold gate
-        # (No reverse edge since we use unidirectional topology)
-        signal_graph.set_source(feedback_write_to_hold, module.write_gate.ir_node_id)
-        signal_graph.add_sink(feedback_write_to_hold, module.hold_gate.ir_node_id)
-
-        # Create DIRECT wire connections with the ACTUAL signal name
-        # Use RED wire for data/feedback channel (signal-B)
-        # This creates a unidirectional forward feedback + self-loop topology
-
-        # Forward feedback: write_gate output → hold_gate input (RED)
-        write_to_hold = WireConnection(
-            source_entity_id=module.write_gate.ir_node_id,
-            sink_entity_id=module.hold_gate.ir_node_id,
-            signal_name=module.signal_type,  # Use ACTUAL signal, not internal ID
-            wire_color="red",  # ✅ RED for data/feedback
-            source_side="output",
-            sink_side="input",
-        )
-        self.layout_plan.add_wire_connection(write_to_hold)
-
-        # Self-feedback: hold_gate output → hold_gate input (RED)
-        # This maintains the value when hold_gate is active
-        hold_to_hold = WireConnection(
-            source_entity_id=module.hold_gate.ir_node_id,
-            sink_entity_id=module.hold_gate.ir_node_id,
-            signal_name=module.signal_type,  # Use ACTUAL signal, not internal ID
-            wire_color="red",  # ✅ RED for data/feedback
-            source_side="output",
-            sink_side="input",
-        )
-        self.layout_plan.add_wire_connection(hold_to_hold)
-
-        # Store feedback signal IDs in module for later detection
-        # Only forward feedback now (no bidirectional cross-coupling)
-        module._feedback_signal_ids = [feedback_write_to_hold]
-
-        self.diagnostics.info(
-            f"Set up write-gated latch feedback loop for memory '{op.memory_id}': "
-            f"added internal edges to signal_graph for layout, "
-            f"created direct RED wire connections for actual signal '{module.signal_type}'"
-        )
-
-    def _make_debug_info(self, op, role) -> dict[str, Any]:
-        """Build debug info dict for memory gates."""
-        # signal_type is on IRMemCreate but not IRMemWrite;
-        # fall back to the module's signal_type for write ops.
+    def _debug_info(self, op: IRMemWrite | IRMemCreate, role: str) -> dict[str, Any]:
+        """Build debug info for memory combinators."""
         signal_type_raw = getattr(op, "signal_type", None)
         if signal_type_raw is None:
             module = self._modules.get(op.memory_id)
             signal_type_raw = module.signal_type if module else "unknown"
 
-        debug_info = {
+        info: dict[str, Any] = {
             "variable": f"mem:{op.memory_id}",
             "operation": "memory",
             "details": role,
             "signal_type": self.signal_analyzer.get_signal_name(signal_type_raw),
             "role": f"memory_{role}",
         }
-
         if hasattr(op, "source_ast") and op.source_ast:
             if hasattr(op.source_ast, "line"):
-                debug_info["line"] = op.source_ast.line
+                info["line"] = op.source_ast.line
             if hasattr(op.source_ast, "source_file"):
-                debug_info["source_file"] = op.source_ast.source_file
+                info["source_file"] = op.source_ast.source_file
+        return info
 
-        return debug_info
+    def _latch_debug_info(self, op: IRLatchWrite) -> dict[str, Any]:
+        """Build debug info for latch combinator."""
+        latch_type = "SR" if op.latch_type == MEMORY_TYPE_SR_LATCH else "RS"
+        info: dict[str, Any] = {
+            "variable": f"mem:{op.memory_id}",
+            "operation": "latch",
+            "details": f"{latch_type}_latch",
+            "role": "latch",
+        }
+        if hasattr(op, "source_ast") and op.source_ast:
+            if hasattr(op.source_ast, "line"):
+                info["line"] = op.source_ast.line
+            if hasattr(op.source_ast, "source_file"):
+                info["source_file"] = op.source_ast.source_file
+        return info
+
+    def _multiplier_debug_info(self, op: IRLatchWrite) -> dict[str, Any]:
+        """Build debug info for latch multiplier."""
+        if isinstance(op.value, SignalRef):
+            value_str = f"×{op.value.signal_type}"
+        else:
+            value_str = f"×{op.value}"
+        info: dict[str, Any] = {
+            "variable": f"mem:{op.memory_id}",
+            "operation": "latch_multiplier",
+            "details": value_str,
+            "role": "latch_multiplier",
+        }
+        if hasattr(op, "source_ast") and op.source_ast:
+            if hasattr(op.source_ast, "line"):
+                info["line"] = op.source_ast.line
+            if hasattr(op.source_ast, "source_file"):
+                info["source_file"] = op.source_ast.source_file
+        return info

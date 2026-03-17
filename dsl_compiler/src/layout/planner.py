@@ -9,6 +9,7 @@ from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.ir.nodes import IRNode
 from dsl_compiler.src.layout.integer_layout_solver import IntegerLayoutEngine
 
+from .color_assigner import WireColorAssigner, WireColorResult
 from .connection_planner import ConnectionPlanner
 from .entity_placer import EntityPlacer
 from .layout_plan import LayoutPlan
@@ -56,6 +57,7 @@ class LayoutPlanner:
         self._memory_modules: dict[str, Any] = {}
         self._wire_merge_junctions: dict[str, Any] = {}
         self._merge_membership: dict[str, set] = {}
+        self._wire_color_result: WireColorResult | None = None
 
     def plan_layout(
         self,
@@ -67,14 +69,12 @@ class LayoutPlanner:
 
         FLOW:
         1. Signal analysis & materialization
-        2. Build signal graph
-        3. Add power pole grid BEFORE optimization (with estimated bounds)
-           - Poles get fixed_position=True so layout won't move them
-           - Combinators will be placed around them
-        4. Create entities (without positions)
-        5. Optimize positions using integer layout (respects fixed pole positions)
+        2. Create entities (without positions)
+        3. Assign wire colors (topology-only, no positions needed)
+        4. Optimize positions using integer layout
+        5. Add power pole grid (after entity positions are known)
         6. Trim power poles that don't cover any entities
-        7. Plan connections with relay routing
+        7. Plan connections with relay routing (using pre-solved colors)
         8. Set metadata
 
         If relay routing fails, the layout is retried with relaxed parameters up to
@@ -96,12 +96,15 @@ class LayoutPlanner:
 
             # Run layout phases
             self._create_entities(ir_operations)
-            self._add_power_pole_grid()
+            self._assign_wire_colors()
 
             # Vary optimization parameters on retries for different results
             time_multiplier = 1.0 + (attempt * 0.5)  # More time on retries
             self._optimize_positions(time_multiplier=time_multiplier)
 
+            # Power poles after layout — placed in gaps between entities
+            self._update_tile_grid()
+            self._add_power_pole_grid()
             self._trim_power_poles()
             self._update_tile_grid()
 
@@ -141,6 +144,7 @@ class LayoutPlanner:
         self._memory_modules = {}
         self._wire_merge_junctions = {}
         self._merge_membership = {}
+        self._wire_color_result = None
 
     def _setup_signal_analysis(self, ir_operations: list[IRNode]) -> None:
         """Initialize and run signal analysis with materialization."""
@@ -180,6 +184,25 @@ class LayoutPlanner:
         self._memory_modules = placer._memory_modules
         self._wire_merge_junctions = placer._wire_merge_junctions
         self._merge_membership = placer.get_merge_membership()
+
+    def _assign_wire_colors(self) -> None:
+        """Assign wire colors before layout optimization.
+
+        Wire colors depend on signal graph topology (separation, merge,
+        isolation constraints), not on entity positions. Running this before
+        layout lets the solver know which connections share wire networks.
+        """
+        assigner = WireColorAssigner(
+            self.layout_plan,
+            self.signal_usage,
+            self.diagnostics,
+            self._memory_modules,
+        )
+        self._wire_color_result = assigner.assign_colors(
+            self.signal_graph,
+            self._wire_merge_junctions,
+            self._merge_membership,
+        )
 
     def _optimize_positions(self, time_multiplier: float = 1.0) -> None:
         """Optimize entity positions using force-directed layout.
@@ -232,6 +255,7 @@ class LayoutPlanner:
             power_pole_type=self.power_pole_type,
             config=self.config,
             use_mst_optimization=self.use_mst_optimization,
+            wire_color_result=self._wire_color_result,
         )
 
         self.connection_planner._memory_modules = self._memory_modules
@@ -244,18 +268,15 @@ class LayoutPlanner:
         )
 
     def _add_power_pole_grid(self) -> None:
-        """Add power poles in a grid pattern BEFORE layout optimization.
+        """Add power poles in a grid pattern AFTER layout optimization.
 
-        This is called BEFORE layout optimization so that the layout engine
-        treats poles as fixed obstacles and places combinators around them.
-        After layout, we trim unused poles with _trim_power_poles().
+        Poles are placed in gaps between already-positioned entities.
+        The tile grid is updated before this call so poles avoid occupied tiles.
+        After placement, _trim_power_poles() removes poles that don't cover
+        any entities.
         """
         if not self.power_pole_type:
             return
-
-        # Update tile grid with user-specified positions BEFORE placing poles
-        # This prevents poles from overlapping with user-placed entities
-        self._update_tile_grid()
 
         from .power_planner import PowerPlanner
 
@@ -266,7 +287,6 @@ class LayoutPlanner:
             connection_planner=None,
         )
 
-        # Place poles with fixed positions - layout will place entities around them
         power_planner.add_power_pole_grid(self.power_pole_type)
 
     def _trim_power_poles(self) -> None:

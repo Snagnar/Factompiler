@@ -125,12 +125,14 @@ class IntegerLayoutEngine:
         constraints: LayoutConstraints | None = None,
         config: CompilerConfig = DEFAULT_CONFIG,
         wire_merge_junctions: dict[str, dict] | None = None,
+        edge_colors: dict[tuple[str, str, str], str] | None = None,
     ):
         self.signal_graph = signal_graph
         self.entity_placements = entity_placements
         self.diagnostics = diagnostics
         self.config = config
         self.wire_merge_junctions = wire_merge_junctions or {}
+        self.edge_colors = edge_colors or {}
         if constraints is not None:
             self.constraints = constraints
         else:
@@ -382,24 +384,19 @@ class IntegerLayoutEngine:
         )
 
     def optimize(self, time_limit_seconds: int = 60) -> dict[str, tuple[int, int]]:
-        """
-        Optimize layout with progressive relaxation strategy.
+        """Optimize layout with a strict strategy and optional relaxed fallback.
 
-        Uses early stopping when a good-enough solution is found. For small
-        graphs, tries a quick solve first before falling back to longer solves.
-
-        The solver uses a violation progression where earlier (stricter) stages
-        aim for fewer violations, while later stages accept more. This allows
-        the solver to try harder for optimal solutions before accepting
-        compromises.
+        First attempts the firm wire span limit (9.0 tiles in Factorio).
+        If that fails (e.g. many fixed positions making strict placement
+        infeasible), retries once with a relaxed span limit that allows
+        violations but still produces a sensible layout.
 
         Args:
-            time_limit_seconds: Total time budget for all strategies
+            time_limit_seconds: Time budget for the solver
 
         Returns:
             Dict mapping entity_id to (x, y) integer coordinates
         """
-
         self.diagnostics.info(
             f"Starting integer layout optimization: {self.n_entities} entities, "
             f"{len(self.connections)} connections"
@@ -414,153 +411,55 @@ class IntegerLayoutEngine:
             )
             return self._optimize_with_decomposition(time_limit_seconds)
 
-        strategies = self._get_relaxation_strategies()
-
-        # For small/medium graphs, try a very quick solve first with early stopping
-        # This handles the common case where solutions are found in < 1 second
-        if self.n_entities <= 20:
-            quick_result = self._solve_with_strategy(strategies[0], time_limit=1, early_stop=True)
-            if quick_result.success and quick_result.violations == 0:
-                self.diagnostics.info(f"Quick solution found in {quick_result.solve_time:.2f}s")
-                return quick_result.positions
-            # Use strategy-specific threshold for early acceptance
-            max_acceptable = strategies[0].get("max_acceptable_violations", 0)
-            if quick_result.success and quick_result.violations <= max_acceptable:
-                self.diagnostics.info(
-                    f"Quick acceptable solution found with {quick_result.violations} violations "
-                    f"in {quick_result.solve_time:.2f}s"
-                )
-                return quick_result.positions
-
-        best_result = None
-        # Distribute time budget across strategies, but give more to earlier (stricter) ones
-        # Early stopping will handle convergence, so we don't need to worry about wasting time
-        strict_time = max(5, time_limit_seconds // 2)  # Half the budget for strict strategy
-        remaining_time = time_limit_seconds - strict_time
-        remaining_per_strategy = (
-            max(1, remaining_time // (len(strategies) - 1)) if len(strategies) > 1 else 0
-        )
-
-        for i, strategy in enumerate(strategies):
-            per_strategy_limit = strict_time if i == 0 else remaining_per_strategy
-
-            self.diagnostics.info(
-                f"Attempting strategy {i + 1}/{len(strategies)}: {strategy['name']}"
-            )
-
-            result = self._solve_with_strategy(strategy, per_strategy_limit, early_stop=True)
-
-            if result.success and result.violations == 0:
-                self.diagnostics.info(
-                    f"Perfect solution found with strategy '{strategy['name']}' "
-                    f"in {result.solve_time:.2f}s"
-                )
-                return result.positions
-
-            if result.success:
-                if best_result is None or result.violations < best_result.violations:
-                    best_result = result
-
-                # Use strategy-specific threshold from progression
-                max_acceptable = strategy.get(
-                    "max_acceptable_violations", self.config.acceptable_layout_violations
-                )
-                if result.violations <= max_acceptable:
-                    self.diagnostics.info(
-                        f"Acceptable solution found with {result.violations} violations "
-                        f"using strategy '{strategy['name']}' in {result.solve_time:.2f}s"
-                    )
-                    return result.positions
-                else:
-                    self.diagnostics.info(
-                        f"Strategy '{strategy['name']}' produced "
-                        f"{result.violations} violations, continuing"
-                    )
-            else:
-                self.diagnostics.info(
-                    f"Strategy '{strategy['name']}' failed to find feasible solution"
-                )
-
-        if best_result and best_result.success:
-            self.diagnostics.warning(
-                f"Best solution has {best_result.violations} violations "
-                f"(strategy: {best_result.strategy_used})"
-            )
-            self._report_violations(best_result)
-            return best_result.positions
-
-        self._diagnose_failure()
-        return self._fallback_grid_layout()
-
-    def _get_relaxation_strategies(self) -> list[dict]:
-        """Define progressive relaxation strategies.
-
-        Each strategy has:
-        - max_span: Wire span limit for violation detection
-        - max_coord: Maximum coordinate for entity placement
-        - violation_weight: Weight for violations in objective function
-        - max_acceptable_violations: Threshold for early stopping
-
-        The strict strategy uses the firm wire span limit (9.0 tiles in Factorio).
-        No safety margins are applied - if Euclidean distance exceeds 9.0, it's
-        a violation that requires relay poles.
-        """
-        # Use the firm wire span limit - no safety margins
         max_span = int(self.constraints.max_wire_span)
         max_coord = self.constraints.max_coordinate
 
-        # Get violation progression from config, with fallback defaults
-        progression = self.config.violation_progression
-        if len(progression) < 5:
-            # Extend with increasing values if too short
-            progression = progression + tuple(range(len(progression), 5))
+        # --- Stage 1: Strict span limit ---
+        strict_strategy = {
+            "name": "Strict",
+            "max_span": max_span,
+            "max_coord": max_coord,
+            "violation_weight": 10000,
+            "max_acceptable_violations": self.config.acceptable_layout_violations,
+        }
 
-        return [
-            {
-                "name": "Strict",
-                "max_span": max_span,  # Firm 9.0 limit
-                "max_coord": max_coord,
-                "violation_weight": 10000,
-                "max_acceptable_violations": progression[0],
-            },
-            {
-                "name": "Relaxed span (+33%)",
-                "max_span": int(max_span * 1.33),  # Allow longer spans to find feasible layout
-                "max_coord": max_coord,
-                "violation_weight": 10000,
-                "max_acceptable_violations": progression[1],
-            },
-            {
-                "name": "Larger area (+50%)",
-                "max_span": max_span,
-                "max_coord": int(max_coord * 1.5),
-                "violation_weight": 10000,
-                "max_acceptable_violations": progression[2],
-            },
-            {
-                "name": "Both relaxed",
-                "max_span": int(max_span * 1.5),
-                "max_coord": int(max_coord * 1.5),
-                "violation_weight": 5000,
-                "max_acceptable_violations": progression[3],
-            },
-            {
-                "name": "Very relaxed",
-                "max_span": int(max_span * 2),  # Allow very long spans for desperate cases
-                "max_coord": int(max_coord * 2),
-                "violation_weight": 1000,
-                "max_acceptable_violations": progression[4],
-            },
-            {
-                # Final fallback: accept any number of violations
-                # The relay router will handle long-distance connections
-                "name": "Unlimited (rely on relays)",
-                "max_span": max_coord,  # Effectively unlimited span
-                "max_coord": int(max_coord * 2),
-                "violation_weight": 100,  # Minimize violations but don't block on them
-                "max_acceptable_violations": 10000,  # Accept any number
-            },
-        ]
+        strict_time = max(1, time_limit_seconds * 2 // 3)
+        result = self._solve_with_strategy(strict_strategy, strict_time, early_stop=True)
+
+        if result.success and result.violations == 0:
+            self.diagnostics.info(f"Perfect solution found in {result.solve_time:.2f}s")
+            return result.positions
+
+        if result.success and result.violations <= self.config.acceptable_layout_violations:
+            self.diagnostics.info(
+                f"Acceptable solution with {result.violations} violations "
+                f"in {result.solve_time:.2f}s"
+            )
+            return result.positions
+
+        # --- Stage 2: Relaxed span limit (fallback) ---
+        # Use a large span limit to find any feasible placement.
+        # The connection planner's relay routing will bridge long wires later.
+        self.diagnostics.info("Strict strategy insufficient, trying relaxed span limit")
+        relaxed_strategy = {
+            "name": "Relaxed",
+            "max_span": max(max_span * 3, 30),
+            "max_coord": max_coord,
+            "violation_weight": 100,
+            "max_acceptable_violations": max(self.config.acceptable_layout_violations * 3, 10),
+        }
+
+        relaxed_time = max(1, time_limit_seconds // 3)
+        result = self._solve_with_strategy(relaxed_strategy, relaxed_time, early_stop=True)
+
+        if result.success:
+            if result.violations > 0:
+                self.diagnostics.warning(f"Relaxed solution with {result.violations} violations")
+                self._report_violations(result)
+            return result.positions
+
+        self._diagnose_failure()
+        return self._fallback_grid_layout()
 
     def _solve_with_strategy(
         self, strategy: dict, time_limit: int, early_stop: bool = True
@@ -639,30 +538,47 @@ class IntegerLayoutEngine:
         return positions
 
     def _add_solution_hints(self, model: cp_model.CpModel, positions: dict) -> None:
-        """Add solution hints based on a simple grid layout to speed up search.
+        """Add solution hints based on connected fixed entity positions.
 
-        Solution hints give the solver a starting point, which can dramatically
-        speed up finding an initial feasible solution.
+        For each free entity, compute the centroid of its connected fixed
+        entities and hint that position. This gives the solver a starting
+        point that respects the signal graph topology.
+
+        Falls back to grid positioning for entities without fixed connections.
         """
-        # Compute a simple grid layout as hint
-        grid_size = max(1, int(np.ceil(np.sqrt(self.n_entities))))
-        spacing = 3  # Compact spacing for hints
+        from collections import defaultdict
 
-        idx = 0
+        # Build: free_entity → list of connected fixed positions
+        entity_fixed_neighbors: dict[str, list[tuple[int, int]]] = defaultdict(list)
+        for source, sink in self.connections:
+            if source not in self.fixed_positions and sink in self.fixed_positions:
+                entity_fixed_neighbors[source].append(self.fixed_positions[sink])
+            elif sink not in self.fixed_positions and source in self.fixed_positions:
+                entity_fixed_neighbors[sink].append(self.fixed_positions[source])
+
+        grid_size = max(1, int(np.ceil(np.sqrt(self.n_entities))))
+        spacing = 3
+        grid_idx = 0
+
         for entity_id in self.entity_ids:
             if entity_id in self.fixed_positions:
-                # Fixed positions already constrained, no hint needed
                 continue
 
             x_var, y_var = positions[entity_id]
-            row = idx // grid_size
-            col = idx % grid_size
-            hint_x = col * spacing
-            hint_y = row * spacing
+
+            fixed_neighbors = entity_fixed_neighbors.get(entity_id)
+            if fixed_neighbors:
+                # Hint at centroid of connected fixed entities
+                hint_x = int(sum(p[0] for p in fixed_neighbors) / len(fixed_neighbors))
+                hint_y = int(sum(p[1] for p in fixed_neighbors) / len(fixed_neighbors))
+            else:
+                # No fixed connections — use grid position
+                hint_x = (grid_idx % grid_size) * spacing
+                hint_y = (grid_idx // grid_size) * spacing
+                grid_idx += 1
 
             model.AddHint(x_var, hint_x)
             model.AddHint(y_var, hint_y)
-            idx += 1
 
     def _add_no_overlap_constraint(self, model: cp_model.CpModel, positions: dict) -> None:
         """Add hard no-overlap constraint using AddNoOverlap2D."""
@@ -715,10 +631,18 @@ class IntegerLayoutEngine:
             x1, y1 = positions[entity_a]
             x2, y2 = positions[entity_b]
 
-            # Check if both entities are fixed (connection can't be optimized)
+            # Skip fixed-to-fixed: distance is constant, no variables to optimize
             a_fixed = entity_a in self.fixed_positions
             b_fixed = entity_b in self.fixed_positions
-            is_fixed_to_fixed = a_fixed and b_fixed
+            if a_fixed and b_fixed:
+                fx1, fy1 = self.fixed_positions[entity_a]
+                fx2, fy2 = self.fixed_positions[entity_b]
+                dist_sq = (fx1 - fx2) ** 2 + (fy1 - fy2) ** 2
+                if dist_sq > max_span_squared:
+                    v = model.NewBoolVar(f"fixed_viol_{i}")
+                    model.Add(v == 1)
+                    span_violations.append(v)
+                continue
 
             # Compute absolute differences for distance calculations
             dx = model.NewIntVar(0, max_span * 2, f"dx_{i}")
@@ -735,9 +659,7 @@ class IntegerLayoutEngine:
             distance_squared = model.NewIntVar(0, max_span_squared * 8, f"dist2_{i}")
             model.Add(distance_squared == dx_squared + dy_squared)
 
-            # Only include in wire_lengths if connection can be optimized
-            if not is_fixed_to_fixed:
-                wire_lengths.append(distance_squared)
+            wire_lengths.append(distance_squared)
 
             # Violation when squared Euclidean distance exceeds squared span limit
             is_violation = model.NewBoolVar(f"viol_{i}")
@@ -754,6 +676,17 @@ class IntegerLayoutEngine:
                 continue  # Already tracked above
 
             if source not in positions or sink not in positions:
+                continue
+
+            # Skip fixed-to-fixed
+            if source in self.fixed_positions and sink in self.fixed_positions:
+                fx1, fy1 = self.fixed_positions[source]
+                fx2, fy2 = self.fixed_positions[sink]
+                dist_sq = (fx1 - fx2) ** 2 + (fy1 - fy2) ** 2
+                if dist_sq > max_span_squared:
+                    v = model.NewBoolVar(f"vfixed_viol_{i}")
+                    model.Add(v == 1)
+                    span_violations.append(v)
                 continue
 
             x1, y1 = positions[source]
@@ -1128,16 +1061,21 @@ class IntegerLayoutEngine:
             self.connections = component_connections
             self.entity_ids = component
 
-            strategies = self._get_relaxation_strategies()
+            max_span = int(self.constraints.max_wire_span)
+            max_coord = self.constraints.max_coordinate
+            strategy = {
+                "name": "Strict",
+                "max_span": max_span,
+                "max_coord": max_coord,
+                "violation_weight": 10000,
+                "max_acceptable_violations": self.config.acceptable_layout_violations,
+            }
             sub_positions = None
-            # Use shorter time limits for decomposed components
             component_time_limit = max(1, time_limit // max(1, len(components)))
 
-            for strategy in strategies:
-                result = self._solve_with_strategy(strategy, component_time_limit, early_stop=True)
-                if result.success:
-                    sub_positions = result.positions
-                    break
+            result = self._solve_with_strategy(strategy, component_time_limit, early_stop=True)
+            if result.success:
+                sub_positions = result.positions
 
             self.connections = original_connections
             self.entity_ids = original_entity_ids

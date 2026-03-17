@@ -8,8 +8,8 @@ from collections import defaultdict
 class SignalGraph:
     """Minimal signal connectivity graph tracking producers and consumers.
 
-    ✅ FIX: Now supports multiple sources per signal to handle memory feedback loops
-    where both gates (write_gate and hold_gate) output the same signal.
+    Supports multiple sources per signal to handle memory feedback loops
+    where multiple combinators (e.g. gate and storage) output the same signal.
     """
 
     def __init__(self) -> None:
