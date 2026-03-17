@@ -15,6 +15,7 @@ from typing import Any
 
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
 from dsl_compiler.src.ir.builder import (
+    BundleRef,
     IRArith,
     IRConst,
     IRMemCreate,
@@ -194,6 +195,7 @@ class MemoryBuilder:
         )
 
         if is_simple_addition:
+            assert isinstance(arith_node, IRArith)  # guaranteed by is_simple_addition check
             self._create_single_decider_accumulator(op, module, signal_graph, arith_node)
         else:
             self._create_gated_chain_accumulator(op, module, signal_graph)
@@ -873,8 +875,11 @@ class MemoryBuilder:
             right_wires: set[str] = {"red"}
             if op.value.source_id:
                 signal_graph.add_sink(op.value.source_id, mult_id)
-        else:
+        elif isinstance(op.value, int):
             right_operand = op.value
+            right_wires = {"red", "green"}
+        else:
+            right_operand = 0  # BundleRef not supported in latch multiplier
             right_wires = {"red", "green"}
 
         self.layout_plan.create_and_add_placement(
@@ -1042,6 +1047,8 @@ class MemoryBuilder:
 
         Chain: arith₁ → ... → arithₙ → decider(R=0, copy input) → RED feedback to arith₁
         """
+        if not isinstance(op.data_signal, SignalRef):
+            return
         arith_node_id = op.data_signal.source_id
         final_placement = self.layout_plan.get_placement(arith_node_id)
         if not final_placement:
@@ -1126,7 +1133,9 @@ class MemoryBuilder:
             f"(arith chain + 1 decider reset gate)"
         )
 
-    def _find_pulse_operand(self, arith_node: IRArith, memory_id: str) -> SignalRef | int | None:
+    def _find_pulse_operand(
+        self, arith_node: IRArith, memory_id: str
+    ) -> SignalRef | BundleRef | int | None:
         """Find the non-memory operand of a simple addition arith.
 
         For `mem.read() + X`, returns X. For `X + mem.read()`, also returns X.

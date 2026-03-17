@@ -356,12 +356,30 @@ Operation: * (or +, -, etc.)
 Output: signal-each
 ```
 
-**Important:** Bundle arithmetic requires a **scalar operand** (Signal or int). Bundle + Bundle is not supported:
+#### Bundle-Bundle Arithmetic
+
+Two bundles can be combined with any arithmetic operator. This performs **element-wise** operations: for each signal type present in either bundle, the operator is applied to the values from both sides. Missing signals on one side are treated as 0.
 
 ```facto
-Bundle a = { ("iron-plate", 100) };
-Bundle b = { ("copper-plate", 80) };
-Bundle c = a + b;  # ERROR: Bundle operations require Signal or int operand
+Bundle requests = { ("iron-plate", 100), ("copper-plate", 50) };
+requests.wire = red;
+
+Bundle fulfilled = { ("iron-plate", 30) };
+fulfilled.wire = green;
+
+Bundle remaining = requests - fulfilled;
+# Result: iron-plate=70, copper-plate=50
+
+# Supported operators: +, -, *, /, %, **, <<, >>, AND, OR, XOR
+```
+
+**Factorio Output:** Compiles to one arithmetic combinator with `signal-each` on both operands. The left bundle is read from the **red** wire and the right bundle from the **green** wire (wire colors are assigned automatically by the compiler, or can be pinned with `.wire`):
+
+```
+Left input:  signal-each (red wire)
+Right input: signal-each (green wire)
+Operation:   - (or +, *, etc.)
+Output:      signal-each
 ```
 
 #### Bundle Comparisons with `any()` and `all()`

@@ -77,6 +77,7 @@ def make_mock_usage(
     debug_label: str | None = None,
     source_ast=None,
     producer=None,
+    consumers=None,
     **kwargs,
 ):
     """Helper to create a mock usage object for signal_usage dict."""
@@ -87,6 +88,7 @@ def make_mock_usage(
         "debug_label": debug_label,
         "source_ast": source_ast,
         "producer": producer,
+        "consumers": consumers if consumers is not None else set(),
         **kwargs,
     }
     return type("MockUsage", (), attrs)()

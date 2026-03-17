@@ -380,6 +380,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
             # Validate reset write (reset= without set=) — resettable accumulator
             if expr.is_reset_write():
+                assert expr.reset_signal is not None  # guaranteed by is_reset_write()
                 reset_type = self.get_expr_type(expr.reset_signal)
                 if not isinstance(reset_type, (SignalValue, IntValue)):
                     self.diagnostics.error(
@@ -764,7 +765,12 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 expr._bundle_comparison_source = left_type  # type: ignore[attr-defined]
                 return result
 
-            # Bundle arithmetic: result is a Bundle with same signal types
+            # Bundle OP Bundle: element-wise operation using each-each
+            if isinstance(right_type, BundleValue):
+                combined_types = left_type.signal_types | right_type.signal_types
+                return BundleValue(signal_types=combined_types)
+
+            # Bundle OP scalar: result is a Bundle with same signal types
             if isinstance(right_type, (SignalValue, IntValue)):
                 return BundleValue(signal_types=left_type.signal_types.copy())
 

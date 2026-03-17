@@ -319,16 +319,15 @@ class ConnectionPlanner:
         self.use_mst_optimization = use_mst_optimization
 
         # Pre-solved colors or defaults
+        self._wire_edges: list[WireEdge] = []
+        self._edge_wire_colors: dict[tuple[str, str, str], str] = {}
+        self._edge_network_ids: dict[tuple[str, str, str], int] = {}
+        self._isolated_entities: set[str] = set()
         if wire_color_result:
             self._wire_edges = wire_color_result.wire_edges
             self._edge_wire_colors = dict(wire_color_result.edge_colors)
             self._edge_network_ids = dict(wire_color_result.network_ids)
             self._isolated_entities = wire_color_result.isolated_entities
-        else:
-            self._wire_edges: list[WireEdge] = []
-            self._edge_wire_colors: dict[tuple[str, str, str], str] = {}
-            self._edge_network_ids: dict[tuple[str, str, str], int] = {}
-            self._isolated_entities: set[str] = set()
 
         self._routing_failed = False
         self._memory_modules: dict[str, Any] = {}

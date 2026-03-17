@@ -4,8 +4,6 @@ Tests for bundle expression lowering.
 Tests bundle parsing, semantic analysis, and IR lowering for the Bundle type.
 """
 
-import contextlib
-
 import pytest
 
 from dsl_compiler.src.ast.expressions import (
@@ -177,8 +175,8 @@ class TestBundleSemantics:
         assert symbol is not None
         assert isinstance(symbol.value_type, SignalValue)
 
-    def test_bundle_bundle_arithmetic_rejected(self, parser):
-        """Bundle + Bundle should be rejected (not supported per spec)."""
+    def test_bundle_bundle_arithmetic_type_inference(self, parser):
+        """Bundle OP Bundle should return BundleValue with union of signal types."""
         code = """
         Bundle a = { ("iron-plate", 100) };
         Bundle b = { ("copper-plate", 80) };
@@ -187,11 +185,35 @@ class TestBundleSemantics:
         program = parser.parse(code)
         diagnostics = ProgramDiagnostics()
         analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
 
-        with contextlib.suppress(Exception):
-            analyzer.visit(program)
+        assert not diagnostics.has_errors(), diagnostics.get_messages()
+        symbol = analyzer.symbol_table.lookup("c")
+        assert symbol is not None
+        assert isinstance(symbol.value_type, BundleValue)
+        assert "iron-plate" in symbol.value_type.signal_types
+        assert "copper-plate" in symbol.value_type.signal_types
 
-        assert diagnostics.has_errors()
+    def test_bundle_bundle_subtraction_type_inference(self, parser):
+        """Bundle - Bundle should return BundleValue."""
+        code = """
+        Bundle a = { ("signal-A", 10), ("signal-B", 5) };
+        Bundle b = { ("signal-A", 3), ("signal-C", 7) };
+        Bundle c = a - b;
+        """
+        program = parser.parse(code)
+        diagnostics = ProgramDiagnostics()
+        analyzer = SemanticAnalyzer(diagnostics)
+        analyzer.visit(program)
+
+        assert not diagnostics.has_errors(), diagnostics.get_messages()
+        symbol = analyzer.symbol_table.lookup("c")
+        assert symbol is not None
+        assert isinstance(symbol.value_type, BundleValue)
+        # Union of signal types from both bundles
+        assert "signal-A" in symbol.value_type.signal_types
+        assert "signal-B" in symbol.value_type.signal_types
+        assert "signal-C" in symbol.value_type.signal_types
 
 
 class TestBundleLowering:
@@ -250,6 +272,57 @@ class TestBundleLowering:
         bundle_arith = next((a for a in ariths if a.output_type == "signal-each"), None)
         assert bundle_arith is not None
         assert bundle_arith.op == "*"
+
+    def test_bundle_bundle_subtraction_creates_each_each_combinator(
+        self, parser, analyzer, diagnostics
+    ):
+        """Bundle - Bundle should create arithmetic combinator with signal-each on both sides."""
+        code = """
+        Bundle a = { ("signal-A", 10), ("signal-B", 5) };
+        Bundle b = { ("signal-A", 3) };
+        Bundle c = a - b;
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
+
+        ariths = [op for op in ir_operations if isinstance(op, IRArith)]
+        bundle_arith = next((a for a in ariths if a.output_type == "signal-each"), None)
+        assert bundle_arith is not None
+        assert bundle_arith.op == "-"
+        # Both left and right should be signal-each references
+        assert isinstance(bundle_arith.left, SignalRef)
+        assert bundle_arith.left.signal_type == "signal-each"
+        assert isinstance(bundle_arith.right, SignalRef)
+        assert bundle_arith.right.signal_type == "signal-each"
+        # Must require wire separation
+        assert bundle_arith.needs_wire_separation is True
+
+    def test_bundle_bundle_addition_creates_each_each_combinator(
+        self, parser, analyzer, diagnostics
+    ):
+        """Bundle + Bundle should create arithmetic combinator with each-each."""
+        code = """
+        Bundle a = { ("iron-plate", 100) };
+        Bundle b = { ("copper-plate", 80) };
+        Bundle c = a + b;
+        """
+        program = parser.parse(code)
+        analyzer.visit(program)
+        ir_operations, lower_diags, _ = lower_program(program, analyzer)
+
+        assert not lower_diags.has_errors(), lower_diags.get_messages()
+
+        ariths = [op for op in ir_operations if isinstance(op, IRArith)]
+        bundle_arith = next((a for a in ariths if a.output_type == "signal-each"), None)
+        assert bundle_arith is not None
+        assert bundle_arith.op == "+"
+        assert isinstance(bundle_arith.left, SignalRef)
+        assert isinstance(bundle_arith.right, SignalRef)
+        assert bundle_arith.left.signal_type == "signal-each"
+        assert bundle_arith.right.signal_type == "signal-each"
 
     def test_bundle_any_comparison_creates_decider(self, parser, analyzer, diagnostics):
         """any(bundle) comparison should create decider with signal-anything input."""

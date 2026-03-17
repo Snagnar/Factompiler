@@ -485,7 +485,62 @@ class WireColorAssigner:
                                 f"multi-condition same signal '{sig_i}' at {eid}",
                             )
 
-        # 3. Isolation: user-defined inputs/outputs must not carry stray signals
+        # 3. Stray signal contamination from multi-signal sources.
+        # When source A is a bundle (entity output/wire merge producing multiple signals)
+        # and another edge carries a specific signal to the same sink, they must be
+        # separated. Otherwise the bundle's stray signals contaminate the intended
+        # specific signal on the same wire, potentially creating feedback loops.
+        # Also applies when source A has edges carrying different specific signals
+        # (to other sinks) that collide with another edge's signal at the same sink.
+        source_output_signals: dict[str, set[str]] = defaultdict(set)
+        for e in edges:
+            source_output_signals[e.source_entity_id].add(e.signal_name)
+
+        sink_groups: dict[str, list[WireEdge]] = defaultdict(list)
+        for e in edges:
+            sink_groups[e.sink_entity_id].append(e)
+
+        for sink_id, incoming in sorted(sink_groups.items()):
+            if len(incoming) <= 1:
+                continue
+            for i in range(len(incoming)):
+                for j in range(i + 1, len(incoming)):
+                    a, b = incoming[i], incoming[j]
+                    if a.source_entity_id == b.source_entity_id:
+                        continue
+                    if a.merge_group and a.merge_group == b.merge_group:
+                        continue
+
+                    # Case 1: bundle edge vs specific-signal edge — bundle may contain
+                    # the specific signal, causing contamination
+                    a_is_bundle = a.signal_name == "bundle"
+                    b_is_bundle = b.signal_name == "bundle"
+                    if (a_is_bundle and not b_is_bundle) or (b_is_bundle and not a_is_bundle):
+                        bundle_src = a.source_entity_id if a_is_bundle else b.source_entity_id
+                        specific = b if a_is_bundle else a
+                        solver.add_separation(
+                            a,
+                            b,
+                            f"stray signal: bundle source '{bundle_src}' "
+                            f"may contaminate '{specific.signal_name}' at sink '{sink_id}'",
+                        )
+                        continue
+
+                    # Case 2: both specific signals — check if source A produces
+                    # signal B carries (or vice versa) via its other edges
+                    a_stray = b.signal_name in source_output_signals.get(a.source_entity_id, set())
+                    b_stray = a.signal_name in source_output_signals.get(b.source_entity_id, set())
+                    if a_stray or b_stray:
+                        stray_src = a.source_entity_id if a_stray else b.source_entity_id
+                        stray_sig = b.signal_name if a_stray else a.signal_name
+                        solver.add_separation(
+                            a,
+                            b,
+                            f"stray signal: '{stray_src}' also produces "
+                            f"'{stray_sig}' at sink '{sink_id}'",
+                        )
+
+        # 4. Isolation: user-defined inputs/outputs must not carry stray signals
         for e in edges:
             if e.merge_group:
                 continue
@@ -518,7 +573,7 @@ class WireColorAssigner:
                         f"isolation: output anchor {e.sink_entity_id}",
                     )
 
-        # 4. Transitive merge conflicts
+        # 5. Transitive merge conflicts
         self._add_transitive_merge_constraints(solver, edges, merge_membership, signal_graph)
 
     def _add_transitive_merge_constraints(

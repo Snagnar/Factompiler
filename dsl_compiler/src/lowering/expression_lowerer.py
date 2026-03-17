@@ -1422,12 +1422,16 @@ class ExpressionLowerer:
     def _lower_bundle_op(self, expr: BinaryOp, bundle_type: BundleValue) -> BundleRef:
         """Lower Bundle OP operand to an arithmetic combinator using 'each'.
 
+        Supports two modes:
+        - Bundle OP scalar: each signal combined with the scalar value
+        - Bundle OP Bundle: element-wise operation, each-each on red/green wires
+
         Args:
             expr: The binary operation expression
             bundle_type: The BundleValue type of the left operand
 
         Returns:
-            BundleRef with the same signal types as input, pointing to the result
+            BundleRef with the result signal types, pointing to the result
         """
         # Lower the bundle expression
         bundle_ref = self.lower_expr(expr.left)
@@ -1435,13 +1439,19 @@ class ExpressionLowerer:
             self._error("Expected bundle for bundle operation", expr)
             return BundleRef(set(), "error", source_ast=expr)
 
-        # Lower the right operand (must be Signal or int)
+        # Lower the right operand
         right_ref = self.lower_expr(expr.right)
 
         # Map DSL operators to Factorio operators
         factorio_op = {"**": "^"}.get(expr.op, expr.op)
 
-        # Create arithmetic combinator with 'each' input/output
+        # Bundle OP Bundle: element-wise operation using each-each
+        if isinstance(right_ref, BundleRef):
+            return self.ir_builder.bundle_bundle_arithmetic(
+                factorio_op, bundle_ref, right_ref, expr
+            )
+
+        # Bundle OP scalar: existing path
         return self.ir_builder.bundle_arithmetic(factorio_op, bundle_ref, right_ref, expr)
 
     def lower_property_access(self, expr: PropertyAccess | PropertyAccessExpr) -> ValueRef:
