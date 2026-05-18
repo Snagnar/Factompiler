@@ -28,7 +28,7 @@ Memory counter: "signal-A";
 counter.write((counter.read() + 1) % 20);
 
 Entity lamp = place("small-lamp", 0, 0);
-lamp.enable = counter.read() < 30;
+lamp.enable = counter.read() < 10;
 ```
 
 
