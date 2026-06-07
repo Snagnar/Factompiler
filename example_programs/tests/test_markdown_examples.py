@@ -219,7 +219,7 @@ def extract_facto_blocks(markdown_path: Path) -> list[tuple[str, int, str]]:
 
     Returns: List of (code, line_number, first_30_chars) tuples
     """
-    content = markdown_path.read_text()
+    content = markdown_path.read_text(encoding="utf-8")
     blocks = []
 
     # Find all ```facto ... ``` blocks
