@@ -1,3 +1,5 @@
+import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,11 +18,19 @@ class EarlyStopCallback(cp_model.CpSolverSolutionCallback):
 
     The callback tracks objective value improvements across solutions. It stops
     when:
-    1. A solution with zero violations is found AND
+    1. An acceptable solution (violations <= max_violations) is found AND
     2. The objective has not improved significantly for several consecutive solutions
 
     This allows the solver to continue optimizing wire length even after finding
     a feasible (zero-violation) solution.
+
+    Optionally, ``max_seconds_after_feasible`` caps how long the solver keeps
+    optimizing after a good solution. CP-SAT's branch-and-bound frequently
+    produces a long tail of tiny improvements that never triggers the plateau
+    check, so without the cap the solver burns its entire time budget on
+    marginal gains once a good-enough layout exists. When violation variables
+    are provided, the cap is anchored on the first zero-violation solution;
+    otherwise it falls back to the first acceptable solution.
     """
 
     def __init__(
@@ -28,6 +38,8 @@ class EarlyStopCallback(cp_model.CpSolverSolutionCallback):
         max_violations: int = 0,
         plateau_threshold: int = 10,
         min_improvement: float = 0.005,
+        max_seconds_after_feasible: float | None = None,
+        violation_vars: list | None = None,
     ):
         """Initialize the callback.
 
@@ -35,16 +47,39 @@ class EarlyStopCallback(cp_model.CpSolverSolutionCallback):
             max_violations: Maximum acceptable violations for early stopping
             plateau_threshold: Stop after this many solutions without improvement
             min_improvement: Minimum relative improvement to count as "improving"
+            max_seconds_after_feasible: If set, stop the search this many
+                seconds after a good solution is found (the first zero-violation
+                solution when violation_vars are provided, otherwise the first
+                acceptable solution)
+            violation_vars: The model's span-violation variables. When given,
+                a solution counts as feasible based on its actual violation
+                count (the objective value alone mixes in wire length, so it
+                cannot be compared against a violation threshold).
         """
         super().__init__()
         self._solution_count = 0
         self._max_violations = max_violations
         self._plateau_threshold = plateau_threshold
         self._min_improvement = min_improvement
+        self._max_seconds_after_feasible = max_seconds_after_feasible
+        self._violation_vars = violation_vars
+        self._first_feasible_time: float | None = None
+        self._first_zero_violation_time: float | None = None
         self._best_objective = float("inf")
         self._solutions_without_improvement = 0
         self._has_feasible_solution = False
-        self._stop_search = False
+
+    def cap_anchor_time(self) -> float | None:
+        """Time of the solution that starts the post-feasible optimization cap.
+
+        When violation variables are tracked, the cap only starts once a
+        zero-violation solution exists: an acceptable (but violating) solution
+        is not good enough to stop optimizing, since a perfect placement may
+        still be within reach.
+        """
+        if self._violation_vars is not None:
+            return self._first_zero_violation_time
+        return self._first_feasible_time
 
     def on_solution_callback(self) -> None:
         self._solution_count += 1
@@ -65,17 +100,40 @@ class EarlyStopCallback(cp_model.CpSolverSolutionCallback):
             self._solutions_without_improvement += 1
 
         # Check if solution is feasible (has acceptable violations)
-        # violation_weight is 10000, so we can check thresholds
-        violation_threshold = 10000 * (self._max_violations + 1)
-        if obj < violation_threshold:
-            self._has_feasible_solution = True
+        if self._violation_vars is not None:
+            num_violations = sum(self.Value(v) for v in self._violation_vars)
+            if num_violations == 0:
+                if self._first_zero_violation_time is None:
+                    self._first_zero_violation_time = time.monotonic()
+            if num_violations <= self._max_violations:
+                if not self._has_feasible_solution:
+                    self._first_feasible_time = time.monotonic()
+                self._has_feasible_solution = True
+        else:
+            # Fallback heuristic: the objective is dominated by violations
+            # (violation_weight is 10000), so a small objective implies few
+            # violations. Only reliable for tiny circuits.
+            violation_threshold = 10000 * (self._max_violations + 1)
+            if obj < violation_threshold:
+                if not self._has_feasible_solution:
+                    self._first_feasible_time = time.monotonic()
+                self._has_feasible_solution = True
+
+        # Stop if the post-feasible optimization budget is exhausted
+        anchor = self.cap_anchor_time()
+        if (
+            self._max_seconds_after_feasible is not None
+            and anchor is not None
+            and time.monotonic() - anchor > self._max_seconds_after_feasible
+        ):
+            self.StopSearch()
+            return
 
         # Stop only if we have a feasible solution AND optimization has plateaued
         if (
             self._has_feasible_solution
             and self._solutions_without_improvement >= self._plateau_threshold
         ):
-            self._stop_search = True
             self.StopSearch()
 
     @property
@@ -424,7 +482,14 @@ class IntegerLayoutEngine:
         }
 
         strict_time = max(1, time_limit_seconds * 2 // 3)
-        result = self._solve_with_strategy(strict_strategy, strict_time, early_stop=True)
+        # Cap post-feasible optimization: once a good strict solution exists,
+        # keep refining for at most half the strict budget. This bounds wall
+        # time (and keeps compilation fast under CPU contention) instead of
+        # letting the solver grind through marginal improvements until the
+        # whole budget is spent.
+        result = self._solve_with_strategy(
+            strict_strategy, strict_time, early_stop=True, post_feasible_cap=strict_time / 2
+        )
 
         if result.success and result.violations == 0:
             self.diagnostics.info(f"Perfect solution found in {result.solve_time:.2f}s")
@@ -438,12 +503,16 @@ class IntegerLayoutEngine:
             return result.positions
 
         # --- Stage 2: Relaxed span limit (fallback) ---
-        # Use a large span limit to find any feasible placement.
-        # The connection planner's relay routing will bridge long wires later.
+        # Use the full layout area as the span limit: a tight span domain makes
+        # the CP-SAT model dramatically harder to solve (the |dx|/|dy| variable
+        # domains are bounded by max_span * 2), so a near-unlimited span lets the
+        # solver find a feasible placement quickly. The objective still minimizes
+        # wire length, and the connection planner's relay routing bridges any
+        # long wires afterwards.
         self.diagnostics.info("Strict strategy insufficient, trying relaxed span limit")
         relaxed_strategy = {
             "name": "Relaxed",
-            "max_span": max(max_span * 3, 30),
+            "max_span": max_coord,
             "max_coord": max_coord,
             "violation_weight": 100,
             "max_acceptable_violations": max(self.config.acceptable_layout_violations * 3, 10),
@@ -462,7 +531,11 @@ class IntegerLayoutEngine:
         return self._fallback_grid_layout()
 
     def _solve_with_strategy(
-        self, strategy: dict, time_limit: int, early_stop: bool = True
+        self,
+        strategy: dict,
+        time_limit: int,
+        early_stop: bool = True,
+        post_feasible_cap: float | None = None,
     ) -> OptimizationResult:
         """Solve layout with a specific strategy.
 
@@ -470,6 +543,10 @@ class IntegerLayoutEngine:
             strategy: Strategy configuration dict
             time_limit: Maximum time in seconds
             early_stop: If True, stop as soon as a good solution is found
+            post_feasible_cap: If set (with early_stop), stop this many seconds
+                after a good solution (first zero-violation solution when
+                violation variables are tracked) to avoid burning the budget on
+                marginal improvements
         """
         model = cp_model.CpModel()
 
@@ -507,8 +584,35 @@ class IntegerLayoutEngine:
             max_acceptable = strategy.get(
                 "max_acceptable_violations", self.config.acceptable_layout_violations
             )
-            callback = EarlyStopCallback(max_violations=max_acceptable)
-            status = solver.Solve(model, callback)
+            callback = EarlyStopCallback(
+                max_violations=max_acceptable,
+                max_seconds_after_feasible=post_feasible_cap,
+                violation_vars=span_violations,
+            )
+
+            # The callback only runs when the solver reports a solution, so if
+            # solutions are sparse (e.g. under CPU contention) the post-feasible
+            # cap could not fire in time. A watchdog thread enforces it as a
+            # hard deadline by calling StopSearch from outside the search.
+            stop_watchdog = threading.Event()
+
+            def _watchdog() -> None:
+                while not stop_watchdog.wait(0.1):
+                    anchor = callback.cap_anchor_time()
+                    if (
+                        anchor is not None
+                        and time.monotonic() - anchor > post_feasible_cap
+                    ):
+                        solver.StopSearch()
+                        return
+
+            if post_feasible_cap is not None:
+                threading.Thread(target=_watchdog, daemon=True).start()
+
+            try:
+                status = solver.Solve(model, callback)
+            finally:
+                stop_watchdog.set()
         else:
             status = solver.Solve(model)
 
@@ -888,8 +992,16 @@ class IntegerLayoutEngine:
             non_pole_x = [positions[e][0] for e in non_pole_entities]
             non_pole_y = [positions[e][1] for e in non_pole_entities]
 
-            max_x = model.NewIntVar(0, max_coord, "max_x")
-            max_y = model.NewIntVar(0, max_coord, "max_y")
+            # Fixed positions (user-placed entities) are not bounded by
+            # max_coord, so the bounding-box variables must cover them too.
+            # Bounding them by max_coord alone makes the model infeasible
+            # whenever any fixed position lies outside the free-placement box.
+            bbox_bound = max_coord
+            for fx, fy in self.fixed_positions.values():
+                bbox_bound = max(bbox_bound, fx, fy)
+
+            max_x = model.NewIntVar(0, bbox_bound, "max_x")
+            max_y = model.NewIntVar(0, bbox_bound, "max_y")
             model.AddMaxEquality(max_x, non_pole_x)
             model.AddMaxEquality(max_y, non_pole_y)
 
