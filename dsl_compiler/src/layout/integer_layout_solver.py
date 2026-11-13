@@ -151,6 +151,7 @@ class IntegerLayoutEngine:
         self._identify_fixed_positions()
         self._extract_footprints()
         self._identify_star_topologies()
+        self._compute_placement_bounds()
 
     def _build_connectivity(self) -> None:
         """Build connectivity as list of (source_id, sink_id) pairs.
@@ -268,6 +269,60 @@ class IntegerLayoutEngine:
                 self.footprints[entity_id] = (int(np.ceil(width)), int(np.ceil(height)))
             else:
                 self.footprints[entity_id] = (1, 1)
+
+    def _compute_placement_bounds(self) -> None:
+        """Derive the coordinate range free entities may be placed in.
+
+        The configured ``max_coordinate`` is only a lower bound for the size of
+        the free-placement box. The box is grown so that
+
+        * the circuit's total footprint fits comfortably (big programs need
+          more room than a fixed 20x20 box), and
+        * every user-fixed entity (e.g. lamps placed with ``place(..., x, y)``)
+          is reachable: a free entity wired to a lamp at x=60 must be able to
+          sit within wire reach of it, so the box extends past every fixed
+          position by one maximum wire span.
+
+        The lower bound only extends below 0 when fixed positions do, so free
+        entities never drift left of / above everything the user placed.
+        """
+        base = int(self.constraints.max_coordinate)
+        span = int(np.ceil(self.constraints.max_wire_span))
+
+        free_area = sum(
+            w * h for e, (w, h) in self.footprints.items() if e not in self.fixed_positions
+        )
+        # 2.5x the raw area leaves room for wiring-friendly arrangements.
+        area_side = int(np.ceil(np.sqrt(free_area * 2.5))) if free_area else 0
+
+        # Edge layout puts all free inputs in one row and all free outputs in
+        # another (see _add_edge_layout_constraints), so each row must fit.
+        input_row = output_row = 0
+        for entity_id in self.entity_ids:
+            if entity_id in self.fixed_positions:
+                continue
+            p = self.entity_placements[entity_id]
+            width = self.footprints.get(entity_id, (1, 1))[0]
+            if p.properties.get("is_input") or p.role == "input":
+                input_row += width
+            elif p.properties.get("is_output") or p.role == "output":
+                output_row += width
+
+        lo = 0
+        hi = max(base, area_side, input_row, output_row)
+        for entity_id, (fx, fy) in self.fixed_positions.items():
+            w, h = self.footprints.get(entity_id, (1, 1))
+            lo = min(lo, fx, fy)
+            hi = max(hi, fx + w + span, fy + h + span)
+
+        self._coord_lo = lo
+        self._coord_hi = hi
+        if hi != base or lo != 0:
+            self.diagnostics.info(
+                f"Placement area expanded from 0..{base} to {lo}..{hi} "
+                f"(free area {free_area}, input row {input_row}, output row {output_row}, "
+                f"{len(self.fixed_positions)} fixed entities)"
+            )
 
     def _get_downstream_fixed_position(self, entity_id: str) -> tuple[int, int] | None:
         """Get the fixed position of a downstream entity (if any).
@@ -412,7 +467,7 @@ class IntegerLayoutEngine:
             return self._optimize_with_decomposition(time_limit_seconds)
 
         max_span = int(self.constraints.max_wire_span)
-        max_coord = self.constraints.max_coordinate
+        max_coord = self._coord_hi
 
         # --- Stage 1: Strict span limit ---
         strict_strategy = {
@@ -444,7 +499,9 @@ class IntegerLayoutEngine:
         relaxed_strategy = {
             "name": "Relaxed",
             "max_span": max(max_span * 3, 30),
-            "max_coord": max_coord,
+            # Give the relaxed stage more room as well: when the strict stage
+            # fails, a cramped box is often the reason.
+            "max_coord": self._coord_lo + 2 * (max_coord - self._coord_lo),
             "violation_weight": 100,
             "max_acceptable_violations": max(self.config.acceptable_layout_violations * 3, 10),
         }
@@ -530,8 +587,8 @@ class IntegerLayoutEngine:
                 y = model.NewIntVar(y_fixed, y_fixed, f"y_{entity_id}")
             else:
                 # Free position: can be anywhere in bounds
-                x = model.NewIntVar(0, max_coord, f"x_{entity_id}")
-                y = model.NewIntVar(0, max_coord, f"y_{entity_id}")
+                x = model.NewIntVar(self._coord_lo, max_coord, f"x_{entity_id}")
+                y = model.NewIntVar(self._coord_lo, max_coord, f"y_{entity_id}")
 
             positions[entity_id] = (x, y)
 
@@ -777,7 +834,8 @@ class IntegerLayoutEngine:
             self.diagnostics.info("No edge layout constraints (no inputs/outputs marked)")
             return
 
-        max_coord = self.constraints.max_coordinate
+        max_coord = self._coord_hi
+        lo = self._coord_lo
 
         # ========================================================================
         # Create shared Y-coordinate variables for input and output lines
@@ -787,7 +845,7 @@ class IntegerLayoutEngine:
         max_input_height = 0
 
         if input_entities:
-            Y_input_line = model.NewIntVar(0, max_coord, "Y_input_line")
+            Y_input_line = model.NewIntVar(lo, max_coord, "Y_input_line")
             max_input_height = max(self.footprints.get(e, (1, 1))[1] for e in input_entities)
             self.diagnostics.info(
                 f"Edge layout: {len(input_entities)} inputs, max height {max_input_height}"
@@ -796,7 +854,7 @@ class IntegerLayoutEngine:
         Y_output_line = None
 
         if output_entities:
-            Y_output_line = model.NewIntVar(0, max_coord, "Y_output_line")
+            Y_output_line = model.NewIntVar(lo, max_coord, "Y_output_line")
             self.diagnostics.info(f"Edge layout: {len(output_entities)} outputs")
 
         # Ensure sufficient vertical gap between input and output lines
@@ -888,8 +946,15 @@ class IntegerLayoutEngine:
             non_pole_x = [positions[e][0] for e in non_pole_entities]
             non_pole_y = [positions[e][1] for e in non_pole_entities]
 
-            max_x = model.NewIntVar(0, max_coord, "max_x")
-            max_y = model.NewIntVar(0, max_coord, "max_y")
+            # Fixed (user-placed) entities may lie outside the free-placement
+            # box, so the bounding-box variables must cover them as well;
+            # otherwise AddMaxEquality makes the whole model infeasible.
+            bbox_lo, bbox_hi = self._coord_lo, max_coord
+            for fx, fy in self.fixed_positions.values():
+                bbox_lo = min(bbox_lo, fx, fy)
+                bbox_hi = max(bbox_hi, fx, fy)
+            max_x = model.NewIntVar(bbox_lo, bbox_hi, "max_x")
+            max_y = model.NewIntVar(bbox_lo, bbox_hi, "max_y")
             model.AddMaxEquality(max_x, non_pole_x)
             model.AddMaxEquality(max_y, non_pole_y)
 
@@ -994,7 +1059,8 @@ class IntegerLayoutEngine:
             w * h for k, (w, h) in self.footprints.items() if k in self._power_pole_ids
         )
         total_area_needed = total_entity_area + total_pole_area
-        available_area = self.constraints.max_coordinate**2
+        side = self._coord_hi - self._coord_lo
+        available_area = side**2
 
         error_msg += (
             f"Diagnostic information:\n"
@@ -1006,7 +1072,7 @@ class IntegerLayoutEngine:
             f"  Entity area (circuit only): {total_entity_area}\n"
             f"  Power pole area: {total_pole_area}\n"
             f"  Total area needed: {total_area_needed}\n"
-            f"  Available area: {available_area} ({self.constraints.max_coordinate}x{self.constraints.max_coordinate})\n"
+            f"  Available area: {available_area} ({side}x{side})\n"
             f"  Area utilization: {100 * total_area_needed / available_area:.1f}%"
         )
 
@@ -1062,7 +1128,7 @@ class IntegerLayoutEngine:
             self.entity_ids = component
 
             max_span = int(self.constraints.max_wire_span)
-            max_coord = self.constraints.max_coordinate
+            max_coord = self._coord_hi
             strategy = {
                 "name": "Strict",
                 "max_span": max_span,
