@@ -1,5 +1,7 @@
 """Tests for layout/integer_layout_solver.py - one test per function."""
 
+import time
+
 import pytest
 
 from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
@@ -231,6 +233,82 @@ def test_early_stop_callback_on_solution():
     # Simulate being called with low objective value
     # We can't fully test without a real solver, but ensure solution_count works
     assert cb.solution_count == 0
+
+
+def _make_callback(num_violations, objective, max_violations=0, cap=None):
+    """Build an EarlyStopCallback with faked solver responses.
+
+    Returns (callback, calls) where calls["stop"] counts StopSearch invocations.
+    """
+    violation_vars = [f"v{i}" for i in range(num_violations)]
+    cb = EarlyStopCallback(
+        max_violations=max_violations,
+        max_seconds_after_feasible=cap,
+        violation_vars=violation_vars,
+    )
+    calls = {"stop": 0}
+    cb.ObjectiveValue = lambda: objective
+    cb.Value = lambda v: 1
+    cb.StopSearch = lambda: calls.__setitem__("stop", calls["stop"] + 1)
+    return cb, calls
+
+
+def test_early_stop_callback_zero_violation_sets_anchor():
+    """A zero-violation solution starts the post-feasible cap."""
+    cb, calls = _make_callback(0, objective=50000)
+    assert cb.cap_anchor_time() is None
+    cb.on_solution_callback()
+    assert cb.cap_anchor_time() is not None
+    assert calls["stop"] == 0
+
+
+def test_early_stop_callback_violating_solution_does_not_set_anchor():
+    """An acceptable-but-violating solution is feasible, but does not start
+    the cap: a zero-violation placement may still be within reach."""
+    cb, calls = _make_callback(1, objective=50000, max_violations=1)
+    cb.on_solution_callback()
+    assert cb._has_feasible_solution
+    assert cb.cap_anchor_time() is None
+    assert calls["stop"] == 0
+
+
+def test_early_stop_callback_cap_stops_search(monkeypatch):
+    """The post-feasible cap stops the search once it is exhausted."""
+    fake_time = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: fake_time[0])
+    cb, calls = _make_callback(0, objective=50000, cap=10.0)
+    cb.on_solution_callback()  # t=100: anchor set, elapsed 0 <= 10
+    assert calls["stop"] == 0
+    fake_time[0] = 111.0  # elapsed 11 > 10
+    cb.on_solution_callback()
+    assert calls["stop"] == 1
+
+
+def test_early_stop_callback_cap_waits_for_zero_violation(monkeypatch):
+    """The cap never fires while only violating solutions exist, even after
+    the time budget is exceeded."""
+    fake_time = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: fake_time[0])
+    cb, calls = _make_callback(1, objective=50000, max_violations=1, cap=10.0)
+    fake_time[0] = 200.0
+    cb.on_solution_callback()
+    assert calls["stop"] == 0
+
+
+def test_early_stop_callback_heuristic_fallback():
+    """Without violation variables, feasibility falls back to the objective
+    threshold (only reliable for tiny circuits)."""
+    cb_small, _ = _make_callback(0, objective=5000)
+    cb_small._violation_vars = None
+    cb_small.on_solution_callback()
+    assert cb_small._has_feasible_solution
+    assert cb_small.cap_anchor_time() is not None
+
+    cb_large, _ = _make_callback(0, objective=50000)
+    cb_large._violation_vars = None
+    cb_large.on_solution_callback()
+    assert not cb_large._has_feasible_solution
+    assert cb_large.cap_anchor_time() is None
 
 
 def test_engine_add_no_overlap_constraint(signal_graph, simple_placements, diagnostics):
