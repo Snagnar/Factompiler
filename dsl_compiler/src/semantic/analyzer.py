@@ -45,6 +45,7 @@ from dsl_compiler.src.ast.statements import (
 from dsl_compiler.src.common.diagnostics import (
     ProgramDiagnostics,
 )
+from dsl_compiler.src.common.int32 import INT32_MAX, INT32_MIN, in_int32
 from dsl_compiler.src.common.signal_registry import (
     SignalTypeInfo,
     SignalTypeRegistry,
@@ -346,6 +347,13 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
     def infer_expr_type(self, expr: Expr) -> ValueInfo:
         """Infer the type of an expression."""
         if isinstance(expr, NumberLiteral):
+            if not in_int32(expr.value):
+                self.diagnostics.error(
+                    f"Integer literal {expr.value} is outside Factorio's signal range "
+                    f"({INT32_MIN} .. {INT32_MAX})",
+                    stage="semantic",
+                    node=expr,
+                )
             return IntValue(value=expr.value)
 
         elif isinstance(expr, (StringLiteral, DictLiteral)):

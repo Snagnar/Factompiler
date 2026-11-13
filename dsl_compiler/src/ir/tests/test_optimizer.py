@@ -46,7 +46,8 @@ class TestConstantPropagationOptimizerFoldArithmetic:
         opt = ConstantPropagationOptimizer()
         assert opt._fold_arithmetic("/", 10, 3) == 3
         assert opt._fold_arithmetic("/", 9, 3) == 3
-        assert opt._fold_arithmetic("/", -10, 3) == -4  # Python floor division
+        # Factorio truncates toward zero (C++), unlike Python's floor division
+        assert opt._fold_arithmetic("/", -10, 3) == -3
 
     def test_fold_division_by_zero_returns_none(self):
         """Test that division by zero returns None."""
@@ -76,11 +77,12 @@ class TestConstantPropagationOptimizerFoldArithmetic:
         opt = ConstantPropagationOptimizer()
         assert opt._fold_arithmetic("**", 2, -1) == 0
 
-    def test_fold_power_with_large_values_returns_none(self):
-        """Test that very large power operations return None to prevent overflow."""
+    def test_fold_power_with_large_values_wraps_to_int32(self):
+        """Large powers wrap to 32 bits like in game instead of overflowing."""
         opt = ConstantPropagationOptimizer()
-        assert opt._fold_arithmetic("**", 10000, 10) is None  # Base too large
-        assert opt._fold_arithmetic("**", 2, 200) is None  # Exponent too large
+        assert opt._fold_arithmetic("**", 2, 31) == -(2**31)
+        assert opt._fold_arithmetic("**", 2, 200) == 0
+        assert opt._fold_arithmetic("**", 10000, 10) == ((10000**10 + 2**31) % 2**32) - 2**31
 
     def test_fold_left_shift(self):
         """Test folding left shift operations."""

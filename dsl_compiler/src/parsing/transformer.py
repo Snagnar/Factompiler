@@ -44,6 +44,7 @@ from dsl_compiler.src.ast.statements import (
     Statement,
     TypedParam,
 )
+from dsl_compiler.src.common.int32 import wrap32
 
 
 class DSLTransformer(Transformer):
@@ -64,15 +65,22 @@ class DSLTransformer(Transformer):
         """
         text = text.strip()
 
-        # Handle different bases
+        # Handle different bases. Hex/octal/binary literals denote bit
+        # patterns, so values up to 32 bits wrap like in game
+        # (0xFFFFFFFF == -1). Decimal literals are range-checked by the
+        # semantic analyzer instead.
         if text.startswith(("0x", "0X")):
-            return int(text, 16)
+            return DSLTransformer._wrap_bit_pattern(int(text, 16))
         elif text.startswith(("0o", "0O")):
-            return int(text, 8)
+            return DSLTransformer._wrap_bit_pattern(int(text, 8))
         elif text.startswith(("0b", "0B")):
-            return int(text, 2)
+            return DSLTransformer._wrap_bit_pattern(int(text, 2))
         else:
             return int(text, 10)
+
+    @staticmethod
+    def _wrap_bit_pattern(value: int) -> int:
+        return wrap32(value) if 0 <= value <= 0xFFFFFFFF else value
 
     def _set_position(self, node: ASTNode, token_or_tree) -> ASTNode:
         """Set line/column position on AST node from Lark token/tree."""
@@ -153,6 +161,7 @@ class DSLTransformer(Transformer):
                 return self._set_position(result, item)
             if item.type == "NUMBER":
                 result = NumberLiteral(value=self._parse_number(item.value), raw_text=item.value)
+                self._set_position(result, item)
                 return self._set_position(result, item)
             return item.value
         return item
@@ -886,7 +895,11 @@ class DSLTransformer(Transformer):
         else:
             raw_number = str(token)
         value = NumberLiteral(value=self._parse_number(raw_number), raw_text=raw_number)
-        return SignalLiteral(value=value, signal_type=None, raw_text=raw_number)
+        node = SignalLiteral(value=value, signal_type=None, raw_text=raw_number)
+        if isinstance(token, Token):
+            self._set_position(value, token)
+            self._set_position(node, token)
+        return node
 
     def type_property_access(self, items) -> SignalTypeAccess:
         """type_property_access: NAME "." NAME

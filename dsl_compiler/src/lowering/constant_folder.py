@@ -16,6 +16,7 @@ from dsl_compiler.src.ast.statements import (
     ASTNode,
     Expr,
 )
+from dsl_compiler.src.common.int32 import fold_int_op, overflows, wrap32
 
 # Type alias for symbol resolver callback
 SymbolResolver = Callable[[str], int | None]
@@ -34,75 +35,34 @@ class ConstantFolder:
     ) -> int | None:
         """Evaluate a binary integer operation at compile time."""
 
-        # Arithmetic
-        if op == "+":
-            return left + right
-        if op == "-":
-            return left - right
-        if op == "*":
-            return left * right
-        if op == "/":
-            if right == 0:
-                if diagnostics is not None:
-                    diagnostics.warning(
-                        "Division by zero in constant expression",
-                        stage="lowering",
-                        node=node,
-                    )
-                return 0
-            return left // right
-        if op == "%":
-            if right == 0:
-                if diagnostics is not None:
-                    diagnostics.warning(
-                        "Modulo by zero in constant expression",
-                        stage="lowering",
-                        node=node,
-                    )
-                return 0
-            return left % right
-
-        # Power
-        if op == "**":
-            if right < 0:
-                if diagnostics is not None:
-                    diagnostics.warning(
-                        "Negative exponent in constant expression",
-                        stage="lowering",
-                        node=node,
-                    )
-                return 0
-            try:
-                result = left**right
-                return int(result) if isinstance(result, (int, float)) else 0
-            except (OverflowError, ValueError):
-                if diagnostics is not None:
-                    diagnostics.warning(
-                        "Power operation overflow in constant expression",
-                        stage="lowering",
-                        node=node,
-                    )
-                return 0
-
-        # Shifts - Factorio uses 32-bit signed integers
-        # Shift amounts >= 32 or < 0 result in 0
-        if op == "<<":
-            if right < 0 or right >= 32:
-                return 0
-            return (left << right) & 0xFFFFFFFF  # Mask to 32-bit
-        if op == ">>":
-            if right < 0 or right >= 32:
-                return 0
-            # Arithmetic right shift for signed integers
-            return left >> right
-
-        # Bitwise
-        if op == "AND":
-            return left & right
-        if op == "OR":
-            return left | right
-        if op == "XOR":
-            return left ^ right
+        # Arithmetic and bitwise ops use Factorio's 32-bit semantics
+        if op in ("/", "%") and right == 0:
+            if diagnostics is not None:
+                kind = "Division" if op == "/" else "Modulo"
+                diagnostics.warning(
+                    f"{kind} by zero in constant expression (result is 0, as in game)",
+                    stage="lowering",
+                    node=node,
+                )
+            return 0
+        if op == "**" and right < 0:
+            if diagnostics is not None:
+                diagnostics.warning(
+                    "Negative exponent in constant expression",
+                    stage="lowering",
+                    node=node,
+                )
+            return 0
+        result = fold_int_op(op, left, right)
+        if result is not None:
+            if diagnostics is not None and overflows(op, left, right):
+                diagnostics.warning(
+                    f"Constant expression {left} {op} {right} overflows the 32-bit "
+                    f"signal range; it wraps to {result} (as it would in game)",
+                    stage="lowering",
+                    node=node,
+                )
+            return result
 
         # Comparisons - MUST be folded when both operands are constants
         # because Factorio decider combinators cannot compare two constants.
@@ -177,7 +137,7 @@ class ConstantFolder:
             if expr.op == "+":
                 return inner_val
             if expr.op == "-":
-                return -inner_val
+                return wrap32(-inner_val)
             return None
 
         if isinstance(expr, BinaryOp):

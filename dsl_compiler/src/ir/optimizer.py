@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dsl_compiler.src.common.int32 import fold_int_op
+
 from .nodes import (
     IRArith,
     IRConst,
@@ -186,43 +188,10 @@ class ConstantPropagationOptimizer:
         return None
 
     def _fold_arithmetic(self, op: str, left: int, right: int) -> int | None:
-        """Fold an arithmetic operation on two constants."""
-        try:
-            if op == "+":
-                return left + right
-            elif op == "-":
-                return left - right
-            elif op == "*":
-                return left * right
-            elif op == "/":
-                return left // right if right != 0 else None
-            elif op == "%":
-                return left % right if right != 0 else None
-            elif op == "**" or op == "^":
-                # Prevent overflow (^ is Factorio's power operator)
-                if abs(left) > 1000 or abs(right) > 100:
-                    return None
-                if right < 0:
-                    return 0
-                result = left**right
-                return int(result) if isinstance(result, (int, float)) else None
-            elif op == "<<":
-                if right < 0 or right >= 32:
-                    return 0
-                return (left << right) & 0xFFFFFFFF
-            elif op == ">>":
-                if right < 0 or right >= 32:
-                    return 0
-                return left >> right
-            elif op == "&" or op == "AND":
-                return left & right
-            elif op == "|" or op == "OR":
-                return left | right
-            elif op == "XOR":
-                return left ^ right
-        except (OverflowError, ValueError):
-            return None
-        return None
+        """Fold an arithmetic operation on two constants (Factorio semantics)."""
+        if op in ("/", "%") and right == 0:
+            return None  # leave to the lowering pass, which warns
+        return fold_int_op(op, left, right)
 
     def _fold_comparison(self, op: str, left: int, right: int) -> bool | None:
         """Evaluate a comparison operation on two constants.
