@@ -227,22 +227,14 @@ class ConstantPropagationOptimizer:
         if const_map[node_id].debug_metadata.get("user_declared", False):
             return
 
-        # Check if this constant is used anywhere else
+        # Check if this constant is used anywhere else. Walk every operand
+        # field (multi-condition deciders, entity property writes, memory
+        # writes, ...), not just left/right: missing a consumer here deletes
+        # a constant that is still referenced.
         for op in all_ops:
             if op.node_id == node_id or op.node_id in self.dead_nodes:
                 continue
-
-            # Check all operands
-            if isinstance(op, IRArith):
-                if self._references_node(op.left, node_id) or self._references_node(
-                    op.right, node_id
-                ):
-                    return
-            elif isinstance(op, IRDecider) and (
-                self._references_node(op.left, node_id)
-                or self._references_node(op.right, node_id)
-                or self._references_node(op.output_value, node_id)
-            ):
+            if _references_anywhere(op, node_id):
                 return
 
         # No consumers found, mark as dead
@@ -418,3 +410,26 @@ class CSEOptimizer:
 
 
 __all__ = ["CSEOptimizer", "ConstantPropagationOptimizer"]
+
+
+_SKIP_FIELDS = frozenset({"source_ast", "debug_metadata", "debug_info", "node_id"})
+
+
+def _references_anywhere(obj: object, target_id: str, _depth: int = 0) -> bool:
+    """True if any SignalRef reachable from ``obj``'s fields points at target_id."""
+    if isinstance(obj, SignalRef):
+        return obj.source_id == target_id
+    if _depth > 6 or obj is None or isinstance(obj, (str, int, float, bool)):
+        return False
+    if isinstance(obj, dict):
+        return any(_references_anywhere(v, target_id, _depth + 1) for v in obj.values())
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return any(_references_anywhere(v, target_id, _depth + 1) for v in obj)
+    fields = getattr(obj, "__dict__", None)
+    if fields is None:
+        return False
+    return any(
+        _references_anywhere(v, target_id, _depth + 1)
+        for k, v in fields.items()
+        if k not in _SKIP_FIELDS
+    )

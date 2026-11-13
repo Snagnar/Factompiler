@@ -402,7 +402,7 @@ class EntityPlacer:
             elif cond.second_constant is not None:
                 cond_dict["second_constant"] = cond.second_constant
 
-            conditions_list.append(cond_dict)
+            conditions_list.append(_normalize_condition_operands(cond_dict))
 
         # Resolve output
         usage = self.signal_usage.get(op.node_id)
@@ -828,3 +828,75 @@ class EntityPlacer:
                 self.diagnostics.info(
                     f"Created output anchor '{anchor_id}' for signal '{alias_name}'"
                 )
+
+
+_MIRRORED_COMPARATOR = {
+    "<": ">",
+    ">": "<",
+    "<=": ">=",
+    ">=": "<=",
+    "=": "=",
+    "==": "==",
+    "!=": "!=",
+}
+_ALWAYS_SIGNAL = "signal-0"
+
+
+def _normalize_condition_operands(cond: dict[str, Any]) -> dict[str, Any]:
+    """Make a decider condition expressible in Factorio.
+
+    A condition's left side must be a signal. Operands can turn into plain
+    integers when constant inputs are inlined (e.g. a function called with
+    literal arguments), so:
+
+    * ``constant OP signal`` is mirrored to ``signal OP' constant``
+    * ``constant OP constant`` is evaluated now and replaced by an
+      always-true (``signal-0 = signal-0``) or always-false
+      (``signal-0 != signal-0``) condition
+    """
+    first = cond.get("first_signal")
+    if isinstance(first, int) and not isinstance(first, bool):
+        cond.pop("first_signal")
+        cond.pop("first_operand_signal_id", None)
+        cond["first_constant"] = first
+    second = cond.get("second_signal")
+    if isinstance(second, int) and not isinstance(second, bool):
+        cond.pop("second_signal")
+        cond.pop("second_operand_signal_id", None)
+        cond["second_constant"] = second
+
+    has_first_const = cond.get("first_signal") is None and "first_constant" in cond
+    if not has_first_const:
+        return cond
+
+    comparator = cond.get("comparator", ">")
+    if cond.get("second_signal") is not None:
+        # constant OP signal  ->  signal OP' constant
+        cond["first_signal"] = cond.pop("second_signal")
+        if "second_signal_wires" in cond:
+            cond["first_signal_wires"] = cond.pop("second_signal_wires")
+        if "second_operand_signal_id" in cond:
+            cond["first_operand_signal_id"] = cond.pop("second_operand_signal_id")
+        cond["second_constant"] = cond.pop("first_constant")
+        cond["comparator"] = _MIRRORED_COMPARATOR.get(comparator, comparator)
+        return cond
+
+    left = cond.pop("first_constant")
+    right = cond.pop("second_constant", 0)
+    ops = {
+        "<": left < right,
+        ">": left > right,
+        "<=": left <= right,
+        "≤": left <= right,
+        ">=": left >= right,
+        "≥": left >= right,
+        "=": left == right,
+        "==": left == right,
+        "!=": left != right,
+        "≠": left != right,
+    }
+    truth = ops.get(comparator, False)
+    cond["first_signal"] = _ALWAYS_SIGNAL
+    cond["second_signal"] = _ALWAYS_SIGNAL
+    cond["comparator"] = "=" if truth else "!="
+    return cond

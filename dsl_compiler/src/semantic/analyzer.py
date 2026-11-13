@@ -1582,6 +1582,24 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                 if problem:
                     self.diagnostics.warning(problem, stage="semantic", node=node.target)
 
+        # Same rule as for declarations: a bundle comparison is ambiguous
+        if self._is_naked_bundle_comparison(node.value):
+            target = (
+                f"{node.target.object_name}.{node.target.property_name}"
+                if isinstance(node.target, PropertyAccess)
+                else getattr(node.target, "name", "?")
+            )
+            self.diagnostics.error(
+                f"Cannot assign bundle comparison directly to '{target}'.\n"
+                "  Bundle comparisons must use one of:\n"
+                "    - any(bundle) > N  (true if any signal matches)\n"
+                "    - all(bundle) > N  (true if all signals match)\n"
+                "    - (bundle > N) : bundle  (filter syntax)",
+                stage="semantic",
+                node=node,
+            )
+            return
+
         value_type = self.get_expr_type(node.value)
 
         if isinstance(node.target, Identifier):
