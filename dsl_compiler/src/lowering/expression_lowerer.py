@@ -578,10 +578,14 @@ class ExpressionLowerer:
                 return None  # Mixed chain, can't fold
             return left_chain + right_chain
 
-        elif isinstance(expr, BinaryOp) and expr.op in COMPARISON_OPS:
-            # Base case: simple comparison - check operands are simple
-            if self._is_simple_operand(expr.left) and self._is_simple_operand(expr.right):
-                return [expr]
+        elif (
+            isinstance(expr, BinaryOp)
+            and expr.op in COMPARISON_OPS
+            and self._is_simple_operand(expr.left)
+            and self._is_simple_operand(expr.right)
+        ):
+            # Base case: simple comparison with simple operands
+            return [expr]
 
         return None  # Not foldable
 

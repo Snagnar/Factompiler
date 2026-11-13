@@ -379,7 +379,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             value_type = self.get_expr_type(expr.value)
 
             # Validate reset write (reset= without set=) — resettable accumulator
-            if expr.is_reset_write():
+            if expr.is_reset_write() and expr.reset_signal is not None:
                 reset_type = self.get_expr_type(expr.reset_signal)
                 if not isinstance(reset_type, (SignalValue, IntValue)):
                     self.diagnostics.error(
