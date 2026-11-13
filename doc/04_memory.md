@@ -56,9 +56,13 @@ Returns a signal with the memory's type and stored value.
 ### Writing: `.write()`
 
 ```facto
-memory.write(value);                  # Unconditional (every tick)
-memory.write(value, when=condition);  # Conditional
+memory.write(value);                                 # Unconditional (every tick)
+memory.write(value, when=condition);                 # Conditional
+memory.write(memory.read() + x, reset=condition);    # Resettable accumulator
+memory.write(value, set=on, reset=off);              # Latch (see below)
 ```
+
+Each memory can only be written **once** (one `write()` call per memory, see [Memory Type Rules](#memory-type-rules)).
 
 **Unconditional** — writes every tick:
 
@@ -116,8 +120,8 @@ Capture a value when triggered:
 
 ```facto
 Memory captured: "signal-A";
-Signal input = ("signal-input", 0);
-Signal trigger = ("signal-trigger", 0);
+Signal input = ("signal-A", 0);
+Signal trigger = ("signal-T", 0);
 
 captured.write(input, when=trigger > 0);
 Signal output = captured.read();
@@ -131,7 +135,7 @@ Switch between 0 and 1:
 
 ```facto
 Memory toggle: "signal-A";
-Signal button = ("signal-button", 0);
+Signal button = ("signal-B", 0);
 
 Signal new_state = 1 - toggle.read();  # 0→1 or 1→0
 toggle.write(new_state, when=button > 0);
@@ -148,7 +152,7 @@ Press once to turn on, again to turn off.
 Sum values over time:
 
 ```facto
-Memory total: "signal-A";
+Memory total: "iron-plate";
 Signal incoming = ("iron-plate", 0);
 
 total.write(total.read() + incoming);
@@ -162,10 +166,30 @@ Only accumulate when enabled:
 ```facto
 Memory total: "iron-plate";
 Signal incoming = ("iron-plate", 0);
-Signal should_count = ("signal-enable", 0);
+Signal should_count = ("signal-E", 0);
 
 total.write(total.read() + incoming, when=should_count > 0);
 ```
+
+### Resettable Accumulator
+
+Sum values over time, and clear the total on demand:
+
+```facto
+Memory total: "iron-plate";
+Signal incoming = ("iron-plate", 0);
+Signal clear = ("signal-R", 0);
+
+total.write(total.read() + incoming, reset=clear > 0);
+Signal running_total = total.read();
+```
+
+Every tick, `incoming` is added to the stored total. While the `reset=` condition is non-zero, the memory is cleared to 0 instead.
+
+**Rules:**
+- The value is normally `memory.read() + x`, so the memory adds `x` each tick (the accumulator itself is a single decider combinator; the reset condition may add one more)
+- `reset=` cannot be combined with `when=` — use either a conditional write or a resettable accumulator
+- `reset=` on its own means accumulator; `set=` together with `reset=` means latch (see below)
 
 ### Maximum Tracker
 
@@ -173,7 +197,7 @@ Remember the highest value seen (using conditional values):
 
 ```facto
 Memory maximum: "signal-A";
-Signal input = ("signal-input", 0);
+Signal input = ("signal-A", 0);
 
 Signal current_max = maximum.read();
 Signal new_max = ((input > current_max) : input) 
@@ -187,7 +211,7 @@ maximum.write(new_max);
 ```facto
 Memory minimum: "signal-A";
 Memory initialized: "signal-I";
-Signal input = ("signal-input", 0);
+Signal input = ("signal-A", 0);
 
 Signal current_min = minimum.read();
 Signal is_first = initialized.read() == 0;
@@ -325,8 +349,8 @@ Memory previous: "signal-B";
 Memory accumulator: "signal-C";
 
 counter.write(counter.read() + 1);
-previous.write(counter.read());
-accumulator.write(accumulator.read() + counter.read());
+previous.write(counter.read() | "signal-B");
+accumulator.write(accumulator.read() + (counter.read() | "signal-C"));
 ```
 
 Each memory is independent with its own signal type.
@@ -335,23 +359,51 @@ Each memory is independent with its own signal type.
 
 ## Memory Type Rules
 
-### All Writes Must Match
+### One Write per Memory
 
-Every write must use the memory's signal type:
+Each memory cell has exactly **one** `write()` call. A second write to the same memory is a compile error:
+
+```facto
+Memory buffer: "signal-A";
+Signal a = ("signal-A", 1);
+Signal b = ("signal-A", 2);
+
+buffer.write(a);
+buffer.write(b);  # ERROR
+```
+
+```
+ERROR: [semantic] main.facto:6:1: Multiple writes to memory 'buffer' not allowed. Each memory cell can only have one write() call. Previous write was at line 5.
+```
+
+Combine the alternatives into a single value with conditional values instead:
+
+```facto
+Memory buffer: "signal-A";
+Signal a = ("signal-A", 1);
+Signal b = ("signal-A", 2);
+Signal use_b = ("signal-U", 0);
+
+buffer.write(((use_b == 0) : a) + ((use_b != 0) : b));
+```
+
+### The Write Must Match the Memory's Type
+
+The written value must use the memory's signal type:
 
 ```facto
 Memory buffer: "iron-plate";
-
-Signal iron = ("iron-plate", 50);
 Signal copper = ("copper-plate", 30);
 
-buffer.write(iron);    # OK
 buffer.write(copper);  # ERROR - type mismatch!
 ```
 
 Fix with projection:
 
 ```facto
+Memory buffer: "iron-plate";
+Signal copper = ("copper-plate", 30);
+
 buffer.write(copper | "iron-plate");  # OK
 ```
 
@@ -419,8 +471,14 @@ counter.write(counter.read() + 1);
 Memory buffer: "signal-A";
 Signal value = ("signal-B", 50);
 
-buffer.write(value);  # Warning - type mismatch
-buffer.write(value | "signal-A");  # Fixed with projection
+buffer.write(value);  # ERROR - type mismatch
+```
+
+```facto
+Memory buffer: "signal-A";
+Signal value = ("signal-B", 50);
+
+buffer.write(value | "signal-A");  # OK - fixed with projection
 ```
 
 ### Using signal-W
@@ -435,10 +493,6 @@ Memory write_count: "signal-V";  # OK
 ## Practical Example: Binary Clock
 
 4-bit binary counter with lamp display:
-
-<table>
-<tr>
-<td>
 
 ```facto
 Memory counter: "signal-A";
@@ -459,13 +513,6 @@ for i in 0..4 {
 }
 ```
 
-</td>
-<td>
-<img src="img/placeholder_binary_clock.gif" width="300" alt="4-bit binary counter with lamps in Factorio"/>
-</td>
-</tr>
-</table>
-
 ## Practical Example: Moving Average
 
 Smooth a noisy signal with 4-sample averaging:
@@ -476,7 +523,7 @@ Memory sample2: "signal-A";
 Memory sample3: "signal-A";
 Memory sample4: "signal-A";
 
-Signal input = ("signal-input", 0);
+Signal input = ("signal-A", 0);
 
 # Shift samples (oldest falls off)
 sample4.write(sample3.read());
@@ -499,13 +546,14 @@ Signal average = sum / 4;
 | Read value | `memory.read()` |
 | Write always | `memory.write(value);` |
 | Write conditionally | `memory.write(value, when=condition);` |
+| Resettable accumulator | `memory.write(memory.read() + x, reset=condition);` |
 | SR latch (set priority) | `memory.write(1, set=on, reset=off);` |
 | RS latch (reset priority) | `memory.write(1, reset=off, set=on);` |
 
 **Key points:**
 - Memory persists across ticks via feedback loops
 - Use latches for hysteresis control (prevents flickering)
-- All writes must match the memory's signal type
+- Each memory has exactly one `write()`, and it must match the memory's signal type
 - `signal-W` is reserved for internal use
 
 ---

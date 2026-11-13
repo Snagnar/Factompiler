@@ -119,10 +119,10 @@ Signal lamp_status = lamp.enable;  # Read the enable state
 
 ### Entity Contents: `.output`
 
-Entities like chests and tanks output their contents as circuit signals. Access with `.output`:
+Entities like chests and tanks output their contents as circuit signals (in Factorio 2.0, chests always output their contents when wired — no extra setting is needed). Access with `.output`:
 
 ```facto
-Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
+Entity chest = place("steel-chest", 0, 0);
 Bundle contents = chest.output;  # All item signals from chest
 ```
 
@@ -159,7 +159,7 @@ The `.input` property creates a wire connection from a signal source to the enti
 **Example with selector combinator:**
 ```facto
 # Count unique signals
-Entity chest = place("steel-chest", 0, 0, {read_contents: 1});
+Entity chest = place("steel-chest", 0, 0);
 Bundle items = chest.output;
 Entity counter = place("selector-combinator", 1, 0, {
     operation: "count",
@@ -172,9 +172,9 @@ Signal count = counter.output["signal-C"];  # Read the count
 ### Balanced Loader Example
 
 ```facto
-Entity c1 = place("steel-chest", 0, 0, {read_contents: 1});
-Entity c2 = place("steel-chest", 1, 0, {read_contents: 1});
-Entity c3 = place("steel-chest", 2, 0, {read_contents: 1});
+Entity c1 = place("steel-chest", 0, 0);
+Entity c2 = place("steel-chest", 1, 0);
+Entity c3 = place("steel-chest", 2, 0);
 
 # Sum contents and compute negative average
 Bundle total = {c1.output, c2.output, c3.output};
@@ -183,7 +183,7 @@ Bundle neg_avg = total / -3;
 # Each inserter compares its chest to average
 Entity i1 = place("fast-inserter", 0, 1);
 Bundle in1 = {neg_avg, c1.output};
-i1.enable = in1 < 0;  # Enable if below average
+i1.enable = any(in1) < 0;  # Enable if any item is below average
 ```
 
 ---
@@ -283,8 +283,7 @@ belt.enable = should_run > 0;
 
 ```facto
 Entity station = place("train-stop", 0, 0, {
-    station: "Iron Pickup",
-    color: {r: 255, g: 0, b: 0}
+    station: "Iron Pickup"
 });
 
 station.enable = iron_available > 0;

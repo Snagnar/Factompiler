@@ -213,7 +213,7 @@ Compiler assigns:
 The compiler handles complex patterns like balanced loaders:
 
 ```facto
-Entity c1 = place("steel-chest", 0, 0, {read_contents: 1});
+Entity c1 = place("steel-chest", 0, 0);
 Bundle total = {c1.output, c2.output, c3.output};
 Bundle neg_avg = total / -3;
 
@@ -272,14 +272,15 @@ Require signal to be stable before accepting:
 
 ```facto
 Memory stable_count: "signal-C";
-Memory last_input: "signal-L";
-Memory output: "signal-O";
+Memory last_input: "signal-I";
+Memory output: "signal-I";
 
-Signal input = ("signal-input", 0);
+Signal input = ("signal-I", 0);
 int stability_threshold = 3;
 
 Signal input_changed = input != last_input.read();
-Signal count = ((input_changed != 0) : 0) + ((input_changed == 0) : (stable_count.read() + 1));
+# Count stable ticks; drops back to 0 whenever the input changes
+Signal count = (input_changed == 0) : (stable_count.read() + 1);
 stable_count.write(count);
 last_input.write(input);
 
@@ -295,9 +296,9 @@ Implement a finite state machine using conditional values:
 Memory state: "signal-S";
 Signal current = state.read();
 
-Signal start = ("signal-start", 0);
-Signal stop = ("signal-stop", 0);
-Signal reset = ("signal-reset", 0);
+Signal start = ("signal-G", 0);   # "go"
+Signal stop = ("signal-H", 0);    # "halt"
+Signal reset = ("signal-R", 0);
 
 # States: 0=IDLE, 1=RUNNING, 2=STOPPED
 
@@ -338,7 +339,7 @@ Signal selected =
 Choose input based on selector:
 
 ```facto
-Signal selector = ("signal-select", 0);
+Signal selector = ("signal-S", 0);
 Signal input0 = ("signal-A", 0);
 Signal input1 = ("signal-B", 0);
 Signal input2 = ("signal-C", 0);
@@ -358,11 +359,11 @@ Count time and trigger actions:
 Memory ticks: "signal-T";
 int duration = 60;  # 1 second at 60 UPS
 
-Signal running = ("signal-run", 0);
-Signal count = ticks.read();
+Signal running = ("signal-R", 0);
 
-ticks.write((running > 0) : (count + 1), when=running > 0);
-ticks.write(0, when=running == 0);
+# Count up while running, clear to 0 when stopped (one write per memory)
+ticks.write(ticks.read() + 1, reset=running == 0);
+Signal count = ticks.read();
 
 Signal elapsed = count >= duration;
 Signal progress = (count * 100) / duration;
@@ -534,7 +535,10 @@ Useful for understanding what each expression creates.
 | "Undefined variable 'x'" | Variable not declared | Check spelling |
 | "Type mismatch" | Wrong signal type for memory | Use projection: `value \| "type"` |
 | "Signal 'signal-W' is reserved" | Using internal signal | Choose different signal |
-| "Mixed signal types" | Different types in operation | Align types with projection |
+| "Mixed signal types" (warning) | Different types in operation | Align types with projection |
+| "Unknown signal '...'" | Signal name isn't a real Factorio signal | Use a valid item/fluid/virtual signal (e.g. `signal-A`) |
+| "Multiple writes to memory '...' not allowed" | More than one `write()` for one memory | Combine into one write using conditional values |
+| "Cannot assign bundle comparison directly" | `bundle > 0` used as a value | Use `any(bundle) > 0`, `all(bundle) > 0`, or filtering `(bundle > 0) : bundle` |
 
 ---
 
@@ -581,8 +585,8 @@ Memory stage1: "signal-A";
 Memory stage2: "signal-A";
 Memory stage3: "signal-A";
 
-Signal input = ("signal-input", 0);
-Signal clock = ("signal-clock", 0);
+Signal input = ("signal-A", 0);
+Signal clock = ("signal-C", 0);
 
 stage3.write(stage2.read(), when=clock > 0);
 stage2.write(stage1.read(), when=clock > 0);
@@ -607,24 +611,24 @@ for i in 0..8 {
 ### PID Controller
 
 ```facto
-Signal setpoint = ("signal-setpoint", 100);
-Signal actual = ("signal-actual", 0);
+Signal setpoint = ("signal-S", 100);
+Signal actual = ("signal-A", 0);
 
 int kp = 10;  # Proportional
 int ki = 1;   # Integral
 int kd = 5;   # Derivative
 
-Signal error = setpoint - actual;
+Signal error = (setpoint - (actual | "signal-S")) | "signal-E";
 
 Memory integral: "signal-I";
-integral.write(integral.read() + error);
+integral.write(integral.read() + (error | "signal-I"));
 
 Memory prev_error: "signal-P";
-Signal derivative = error - prev_error.read();
-prev_error.write(error);
+Signal derivative = error - (prev_error.read() | "signal-E");
+prev_error.write(error | "signal-P");
 
 Signal p_term = error * kp;
-Signal i_term = integral.read() * ki;
+Signal i_term = (integral.read() * ki) | "signal-E";
 Signal d_term = derivative * kd;
 
 Signal output = (p_term + i_term + d_term) / 100;

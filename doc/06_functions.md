@@ -38,7 +38,7 @@ Signal result = double(input);  # result = 100
 
 ### Return Values
 
-Functions can return signals or entities:
+Functions can return signals, bundles, or entities (but parameters can only be `Signal`, `int`, or `Entity` — there are no `Bundle` parameters):
 
 ```facto
 # Returns a Signal
@@ -52,6 +52,12 @@ func clamp(Signal value, int min_val, int max_val) {
 func make_lamp(int x, int y) {
     Entity lamp = place("small-lamp", x, y);
     return lamp;
+}
+
+# Returns a Bundle
+func pair_doubled(Signal a, Signal b) {
+    Bundle both = { a, b };
+    return both * 2;
 }
 ```
 
@@ -90,7 +96,7 @@ func clamp(Signal value, int min_val, int max_val) {
          + ((value >= min_val && value <= max_val) : value);
 }
 
-Signal raw_input = ("signal-input", 0);
+Signal raw_input = ("signal-I", 0);
 Signal safe_input = clamp(raw_input, 0, 100);
 ```
 
@@ -313,6 +319,14 @@ project/
     utils.facto        # ← imported file
 ```
 
+Imports are searched in this order:
+
+1. The directory of the importing file
+2. Each directory in the `FACTORIO_IMPORT_PATH` environment variable (`;`-separated)
+3. The bundled standard library (so `import "lib/math.facto";` works for pip installs too; `import "math.facto";` also resolves)
+
+The `.facto` extension may be omitted. `import "file" as name;` is **not** supported and is a compile error — imported functions always land in the global namespace.
+
 ### Circular Import Protection
 
 The compiler detects and prevents circular imports:
@@ -416,7 +430,7 @@ func make_status_indicator(int x, int y, Signal status) {
 ```facto
 import "display_lib.facto";
 
-Signal system_status = ("signal-status", 0);
+Signal system_status = ("signal-S", 0);
 Entity indicator = make_status_indicator(0, 0, system_status);
 ```
 

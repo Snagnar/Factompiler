@@ -146,7 +146,14 @@ Bundle doubled = resources * 2;           # Double all values
 Signal iron = resources["iron-plate"];    # Access a single signal
 Signal anyLow = any(resources) < 20;      # True if any resource is below 20
 Bundle positive = (resources > 0) : resources;  # Filter to only positive values
+Bundle ones = (resources > 0) : 1;              # 1 for each matching signal
+
+Bundle used = { ("iron-plate", 30), ("coal", 10) };
+Bundle left = resources - used;                 # Element-wise bundle–bundle arithmetic
 ```
+
+- **Filtering:** `(bundle > 0) : bundle` keeps only the signals that pass the comparison; `(bundle > 0) : 1` outputs a constant for each of them.
+- **Bundle–bundle arithmetic:** `a + b`, `a - b`, `a * b`, ... combine two bundles signal by signal in one combinator.
 
 Bundles are powerful for building generic circuits like balanced train loaders that work regardless of what items you're loading.
 
@@ -231,9 +238,10 @@ factompile program.facto --name "My Circuit"    # Custom blueprint name
 factompile program.facto --log-level debug      # Debug output
 factompile program.facto --json                 # Output raw JSON
 factompile program.facto --no-optimize          # Skip optimizations
+factompile program.facto --layout-retries 6     # More layout attempts for big programs
 ```
 
-The `-i` / `--input` flag is great for quick experiments—try out circuit ideas without creating a file.
+The `-i` / `--input` flag is great for quick experiments—try out circuit ideas without creating a file. From a source checkout, `python compile.py` accepts the same options as `factompile`.
 
 ---
 

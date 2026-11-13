@@ -1,12 +1,12 @@
 # Missing Features and Roadmap
 
-This document outlines features that are planned but not yet implemented in Facto.
+This document outlines features that are planned but not yet implemented in Facto, and the current limitations of the language.
 
 ---
 
-## Selector Combinator Support
+## Selector Combinator Syntax
 
-The **selector combinator** was introduced in Factorio 2.0 and provides advanced signal filtering capabilities that Facto does not currently support. This combinator can:
+The **selector combinator** was introduced in Factorio 2.0. It can:
 
 - **Select input by value**: Sort signals ascending/descending and output the nth signal (e.g., highest, lowest, or by index)
 - **Count inputs**: Output the count of unique input signals
@@ -16,9 +16,27 @@ The **selector combinator** was introduced in Factorio 2.0 and provides advanced
 - **Quality filter** (Space Age): Filter signals by quality grade
 - **Quality transfer** (Space Age): Apply quality grades to signals
 
-### Potential Facto Syntax
+### What Works Today
 
-Future versions may support selector combinators with syntax like:
+You can already use a selector combinator through the generic entity API: place it with `place()`, configure it with placement properties, wire signals into it with `.input`, and read the result with `.output`:
+
+```facto
+Bundle resources = { ("iron-plate", 100), ("copper-plate", 80) };
+
+Entity selector = place("selector-combinator", 0, 0, {
+    operation: "count",
+    count_signal: "signal-C"
+});
+selector.input = resources;
+
+Signal count = selector.output["signal-C"];
+```
+
+See [Entities](05_entities.md#wiring-signals-to-entities-input) and the [Entity Reference](ENTITY_REFERENCE.md#selectorcombinator) for all selector properties.
+
+### What's Missing
+
+There is no dedicated syntax yet. Future versions may offer functions like:
 
 ```facto
 # Select the maximum value signal
@@ -38,15 +56,19 @@ Bundle stacks = stack_size(items);
 
 ## Entity Arrays
 
-Currently, entities must be placed individually:
+For loops already place many entities at once:
 
 ```facto
-Entity lamp1 = place("small-lamp", 0, 0);
-Entity lamp2 = place("small-lamp", 1, 0);
-Entity lamp3 = place("small-lamp", 2, 0);
+Memory counter: "signal-A";
+counter.write((counter.read() + 1) % 10);
+
+for i in 0..10 {
+    Entity lamp = place("small-lamp", i, 0);
+    lamp.enable = counter.read() > i;
+}
 ```
 
-A future feature would allow **entity arrays** for dynamic placement using for-loops:
+What's missing is a way to keep references to those entities after the loop. A future feature would allow **entity arrays**:
 
 ```facto
 # Proposed syntax - NOT YET IMPLEMENTED
@@ -58,22 +80,23 @@ for i in 0..10 {
 ```
 
 This would enable:
-- Creating rows/grids of entities with a single loop
+- Configuring entities from a loop later in the program
 - Dynamic indexing and configuration
-- More concise blueprints for repetitive structures
+- Passing groups of entities to functions
 
 ---
 
-## Web-Based Compiler Platform
+## Current Limitations
 
-A web-based version of the Facto compiler is planned, which would allow:
+These restrictions apply to the current compiler:
 
-- **In-browser compilation**: Write and compile Facto code without installing anything
-- **Blueprint preview**: Visual preview of the generated circuit layout
-- **Interactive examples**: Try sample programs directly in the browser
-- **Sharing**: Generate shareable links to Facto programs
-
-This will lower the barrier to entry for new users and enable quick experimentation without local setup.
+- **No `if`/`else` statements.** Use conditional values (`(cond) : value`) to select between values.
+- **Loop range bounds must be a number literal or a variable name.** `for i in 0..n` works, `for i in 0..n*2` is a syntax error — compute `int limit = n * 2;` first.
+- **List iterators only accept number literals.** `for x in [1, 3, 5]` works; variables or expressions inside the list do not.
+- **Function parameters are `int`, `Signal`, or `Entity` only.** There are no `Bundle` (or `Memory`) parameters, although functions can *return* a Bundle.
+- **One write per memory.** Each memory cell can have exactly one `write()` call (see [Memory](04_memory.md#memory-type-rules)).
+- **No quality support.** Signals and entities always use normal quality (see [GitHub issue #3](https://github.com/Snagnar/Factompiler/issues/3)).
+- **`import "file" as name` is not supported.** Imports are always inlined into the global namespace.
 
 ---
 
@@ -81,7 +104,9 @@ This will lower the barrier to entry for new users and enable quick experimentat
 
 Additional features under consideration:
 
-- **Display panel support**: Control display panels for in-game text output
+- **Display panel messages**: Display panels can be placed (`place("display-panel", 0, 0, {text: "hello"})`), but there is no syntax yet for circuit-driven messages
 - **Interrupt signals**: Support for interrupt-based control flow
 - **Blueprint books**: Generate blueprint books containing multiple related circuits
 - **Import from blueprint**: Reverse-compile existing blueprints to Facto code for modification
+
+The web-based compiler is already available: <https://snagnar.github.io/factompile/>.

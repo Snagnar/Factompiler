@@ -64,8 +64,9 @@ lamp.r = red_value;
 Most entities can output circuit signals. Access them using `.output`:
 
 ```facto
-Entity combinator = place("arithmetic-combinator", 0, 0, {...});
-Signal result = combinator.output;  # Read the combinator's output signal
+Entity chest = place("steel-chest", 0, 0);
+Bundle contents = chest.output;            # .output is always a Bundle
+Signal iron = chest.output["iron-plate"];  # Select one signal from it
 ```
 
 This is particularly useful for reading values from combinators, sensors, and other entities that produce circuit signals.
@@ -1447,13 +1448,11 @@ Set at placement: `place("name", x, y, {prop: value})`
 Use `entity.output` to read: **Item contents of the container**
 
 ```facto
-Entity e = place("factorio-logo-22tiles", 0, 0);
+Entity e = place("iron-chest", 0, 0);
 Bundle signals = e.output;  # Returns all output signals
 ```
 
-**Enable properties:**
-
-- `read_contents`: Enable reading container contents
+In Factorio 2.0, containers always output their contents when wired; no property needs to be set.
 
 #### DSL Examples
 

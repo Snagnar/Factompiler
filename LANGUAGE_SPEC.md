@@ -1,7 +1,6 @@
 # Facto Language Specification
 
-**Version 2.5**  
-**Date: December 2025**
+**Version for factompile 0.2.0**
 
 This document provides a complete specification of the Facto programming language as currently implemented. Facto compiles to Factorio 2.0 blueprint strings that can be imported into the game.
 
@@ -130,6 +129,9 @@ Facto supports integer literals in multiple bases:
 
 All number bases represent 32-bit signed integers and compile to the same values.
 
+- **Decimal** literals must lie in the int32 range (`-2147483648` to `2147483647`); a decimal literal outside that range is a compile error.
+- **Hexadecimal, binary and octal** literals may use up to 32 bits and are interpreted as two's-complement bit patterns: `0xFFFFFFFF` is `-1`, `0x80000000` is `-2147483648`.
+
 **Strings:**
 ```facto
 "iron-plate"    # Item signal
@@ -137,7 +139,28 @@ All number bases represent 32-bit signed integers and compile to the same values
 "water"         # Fluid signal
 ```
 
-Strings are used exclusively for signal type names and entity prototypes.
+Strings are used for signal type names, entity prototypes, import paths and string-valued entity properties (e.g. `station: "Iron Pickup"`).
+
+### Trailing Commas
+
+A trailing comma is allowed in every comma-separated list: function arguments and parameters, bundle literals, dictionary (property) literals, signal literals and `for` lists:
+
+```facto
+func add(Signal a, int b,) {
+    return a + b;
+}
+
+Bundle b = { ("signal-A", 1), ("signal-B", 2), };
+Signal x = add(("signal-C", 3,), 4,);
+Entity lamp = place("small-lamp", 0, 0, {use_colors: 1, always_on: 1,},);
+for i in [1, 2, 3,] {
+    Entity l = place("small-lamp", i, 2);
+}
+```
+
+### Reserved Type Keyword `SignalType`
+
+`SignalType` is reserved as a type keyword by the grammar, but it cannot be used to declare variables yet. Use `.type` (see [Signal Type Access](#signal-type-access-type)) to reuse another signal's type.
 
 ### Operators
 
@@ -273,7 +296,7 @@ Signal iron = ("iron-plate", 50);
 accumulator.write(iron);  # Now accumulator stores iron-plate signals
 ```
 
-**Warning:** All writes to a memory cell must use the same signal type. Mixed types will generate warnings.
+**Note:** A memory cell has exactly one `write()`, and its value must use the memory's signal type; a mismatch is a compile error. A memory without an explicit type *and* without a write is an error (`Memory 'state' must have an explicit signal type.`).
 
 ### Entity (`Entity`)
 
@@ -387,7 +410,7 @@ Output:      signal-each
 Use `any()` and `all()` functions for bundle-wide comparisons:
 
 ```facto
-Bundle levels = { ("water", 500), ("oil", 100), ("steam", 0) };
+Bundle levels = { ("water", 500), ("crude-oil", 100), ("steam", 0) };
 
 # any() - True if at least one signal matches
 Signal anyLow = any(levels) < 50;      # True (steam=0 matches)
@@ -401,6 +424,8 @@ Signal allBelow1000 = all(levels) < 1000;  # True (all values match)
 **Factorio Output:**
 - `any()` compiles to a decider combinator outputting `signal-anything`
 - `all()` compiles to a decider combinator outputting `signal-everything`
+
+A bundle comparison without `any()`/`all()` or the filter syntax below is an error, e.g. `Bundle x = b > 0;` or `lamp.enable = b < 0;` (`Cannot assign bundle comparison directly ...`).
 
 #### Bundle Filtering
 
@@ -563,6 +588,15 @@ Signal quotient = a / 3;
 Signal remainder = a % 10;
 ```
 
+#### Integer Semantics
+
+All arithmetic uses Factorio's 32-bit signed integer semantics, both in-game and when the compiler folds constants at compile time:
+
+- Results wrap around on overflow (`2147483647 + 1` is `-2147483648`); when this happens in a constant expression the compiler also emits a warning
+- `/` truncates toward zero (`-7 / 2` is `-3`)
+- `%` takes the sign of the dividend (`-7 % 2` is `-1`)
+- Division or modulo by zero yields `0` (`x / 0` and `x % 0` are `0`); when this happens in a constant expression the compiler also emits a warning
+
 #### Type Inference Rules
 
 **Int + Int = Int**
@@ -573,8 +607,7 @@ int x = 5 + 3;  # Result: 8 (integer)
 **Signal + Int = Signal** (integer coerced to signal type)
 ```facto
 Signal iron = ("iron-plate", 100);
-Signal more = iron + 50;  # Result: iron-plate signal with value 150
-# Warning: Mixed types in binary operation
+Signal more = iron + 50;  # Result: iron-plate signal with value 150 (no warning)
 ```
 
 **Signal + Signal = Signal** (left operand type wins)
@@ -622,8 +655,8 @@ Signal not_zero = !(x == 0);
 
 **Operator Aliases:** The word forms `and` and `or` are semantically identical to `&&` and `||`. Use whichever form improves readability.
 
-**Compilation:** Logical operations are compiled to arithmetic combinators:
-- `&&` compiles to multiplication (both must be non-zero)
+**Compilation:** Chains of comparisons joined by `&&` or `||` compile to a single multi-condition decider combinator (see [Condition Folding](#condition-folding)). Otherwise:
+- `&&` on non-comparison operands compiles to multiplication (both must be non-zero)
 - `||` compiles to addition followed by comparison (at least one non-zero)
 - `!` compiles to a zero-equality check
 
@@ -677,13 +710,13 @@ Signal iron = ("iron-plate", 100);
 Signal copper = ("copper-plate", 80);
 Signal coal = ("coal", 50);
 
-# Aggregate onto signal-total channel
-Signal total = (iron | "signal-total")
-             + (copper | "signal-total")
-             + (coal | "signal-total");
+# Aggregate onto the signal-T channel
+Signal total = (iron | "signal-T")
+             + (copper | "signal-T")
+             + (coal | "signal-T");
 ```
 
-This pattern creates a single combinator that outputs `signal-total` with value 230.
+This pattern outputs `signal-T` with value 230.
 
 ### Signal Type Access (`.type`)
 
@@ -744,11 +777,11 @@ All variables are **immutable** except memories (which are stateful by nature).
 ### Assignments
 
 ```facto
-x = y + 5;              # Variable reassignment
-lamp.enable = count > 0; # Property assignment
+lamp.enable = count > 0;  # Property assignment
+sensor.wire = red;        # Wire color pinning (see Wire Color Pinning)
 ```
 
-**Note:** Variable reassignment creates a new signal in the IR; it doesn't mutate the original. Think of it as creating an alias.
+Only entity properties and `.wire` can be assigned. Variables cannot be reassigned after declaration; `x = y + 5;` for an existing `x` is an error (`Cannot assign to immutable 'x'`).
 
 ### Expression Statements
 
@@ -772,12 +805,17 @@ func double(Signal x) {
 ### Import Statements
 
 ```facto
-import "stdlib/memory_utils.facto";
+import "lib/memory_patterns.facto";
 ```
 
-Imports use **C-style preprocessing**: the imported file's content is inlined before parsing. Circular imports are detected and skipped.
+Imports use **C-style preprocessing**: the imported file's content is inlined before parsing. Circular imports are detected and skipped. The `.facto` extension may be omitted.
 
-**Note:** The `import "file" as alias` syntax is recognized by the grammar but aliases are not currently utilized since files are textually inlined. All functions from imported files become available in the global namespace.
+**Search order:**
+1. The directory of the importing file
+2. Each directory listed in the `FACTORIO_IMPORT_PATH` environment variable (`;`-separated)
+3. The bundled standard library (`dsl_compiler/lib/`), so `import "lib/math.facto";` works for pip installs as well as source checkouts; `import "math.facto";` also resolves
+
+**Note:** `import "file" as alias` is **not supported** and produces a compile error. All functions from imported files become available in the global namespace.
 
 ### For Loop Statements
 
@@ -927,6 +965,32 @@ The `when` parameter controls the `signal-W` write enable:
 - **When == 0**: Write blocked, previous value held
 
 If omitted, `when=1` (always write) is used as the default.
+
+#### One Write per Memory
+
+Each memory cell may have exactly **one** `write()` call (of any form: plain, `when=`, `reset=`, or `set=`/`reset=`). A second write is a compile error:
+
+```
+ERROR: [semantic] main.facto:5:1: Multiple writes to memory 'ticks' not allowed. Each memory cell can only have one write() call. Previous write was at line 4.
+```
+
+Combine alternatives into a single value expression with conditional values, or use a resettable accumulator / latch.
+
+### Resettable Accumulator
+
+```facto
+Memory total: "iron-plate";
+Signal incoming = ("iron-plate", 0);
+Signal clear = ("signal-R", 0);
+
+total.write(total.read() + incoming, reset=clear > 0);
+```
+
+`mem.write(mem.read() + x, reset=cond)` adds `x` to the stored value every tick; while `cond` is non-zero, the memory is cleared to 0 instead.
+
+- `reset=` alone (without `set=`) selects the accumulator form; `set=` together with `reset=` is a latch (below).
+- `reset=` cannot be combined with `when=` (this is a syntax error).
+- The simple `mem.read() + x` form compiles to a single decider combinator.
 
 ### SR/RS Latches (Set/Reset Memory)
 
@@ -1108,12 +1172,13 @@ Entities represent physical Factorio structures placed in the blueprint. Facto l
 ### Entity Placement
 
 ```facto
-Entity entity_name = place(prototype, x, y, [properties]);
+Entity entity_name = place("prototype", x, y);
+Entity entity_name = place("prototype", x, y, {property: value});
 ```
 
 **Parameters:**
 - `prototype`: String literal entity name (e.g., `"small-lamp"`)
-- `x`, `y`: Integer coordinates or signal expressions
+- `x`, `y`: Integer coordinates or signal expressions (both are required; `place()` takes 3 or 4 arguments)
 - `properties` (optional): Dictionary of static prototype properties
 
 **Examples:**
@@ -1136,7 +1201,7 @@ Entity lamp1 = place("small-lamp", 0, lamp_y);  # Fixed at (0, 20)
 Entity lamp2 = place("small-lamp", 5, 10);      # Fixed at (5, 10)
 ```
 
-**Optimized Positions:** When either coordinate is a dynamic signal expression (not a compile-time constant), or when coordinates are omitted, the layout engine automatically optimizes the entity's position based on signal flow and wire connections:
+**Optimized Positions:** When either coordinate is a dynamic signal expression (not a compile-time constant), the layout engine automatically optimizes the entity's position based on signal flow and wire connections:
 
 ```facto
 Signal x_pos = counter * 2;
@@ -1151,8 +1216,7 @@ Entity lamp3 = place("small-lamp", x_pos, 0);  # Position optimized by layout en
 
 ```facto
 Entity station = place("train-stop", 10, 5, {
-    station: "Central Depot",
-    color: {r: 1, g: 0, b: 0}
+    station: "Central Depot"
 });
 ```
 
@@ -1169,7 +1233,7 @@ lamp.enable = signal > 0;  # Circuit control
 
 ```facto
 lamp.enable = signal > 0;         # Circuit-controlled enable
-train_stop.manual_mode = 1;       # Constant value
+train_stop.send_to_train = 1;     # Constant value
 assembler.enable = production_flag;
 ```
 
@@ -1207,7 +1271,27 @@ lamp.enable = all(contents) > 100;  # Light when all items > 100
 - `roboport` - Logistics network contents
 - Any entity with circuit network output
 
-The `.output` property returns a **dynamic Bundle** whose signals are determined at runtime by the entity's contents.
+The `.output` property returns a **dynamic Bundle** whose signals are determined at runtime by the entity's contents. Assign it to a `Bundle` (not a `Signal`), or select one signal with `entity.output["iron-plate"]`.
+
+#### Wiring Signals into an Entity (`.input`)
+
+Assigning a Signal or Bundle to an entity's `.input` property wires that value into the entity's circuit input:
+
+```facto
+Bundle resources = { ("iron-plate", 100), ("copper-plate", 80) };
+
+Entity selector = place("selector-combinator", 0, 0, {
+    operation: "count",
+    count_signal: "signal-C"
+});
+selector.input = resources;                    # Wire the bundle into the selector
+Signal count = selector.output["signal-C"];    # Read its result
+```
+
+- **Dual-connector entities** (arithmetic, decider and selector combinators): the wire goes to the **input** side.
+- **Single-connector entities** (lamps, chests, inserters, ...): the wire goes to the entity's circuit connection.
+
+This is how you drive manually placed combinators (for example a selector combinator) that have no dedicated Facto syntax.
 
 ### Inline Comparison Optimization
 
@@ -1265,12 +1349,11 @@ lamp.b = blue_signal;   # Blue component (0-255)
 **Lamp Properties:**
 - `use_colors`: Enable RGB color mode (1 = on, 0 = off)
 - `always_on`: Lamp stays on regardless of circuit condition (1 = on, 0 = off)
-- `color_mode`: Use custom color mode (1 = on, 0 = off)
-- `r`, `g`, `b`: Circuit-controlled color components (0-255 each)
+- `color_mode`: Color mode enum — `0` = COLOR_MAPPING (signal color palette), `1` = COMPONENTS (separate r/g/b signals), `2` = PACKED_RGB (single 0xRRGGBB value)
+- `r`, `g`, `b`: Circuit-controlled color components (0-255 each); assigning them sets the lamp's red/green/blue signal and wires the value in. Requires `color_mode: 1`.
 
 #### Train Stops
 ```facto
-train_stop.manual_mode = 1;        # Enable/disable trains
 train_stop.enable = condition;      # Enable/disable station
 train_stop.read_from_train = 1;     # Read train contents
 train_stop.send_to_train = 1;       # Send signals to train
@@ -1322,8 +1405,10 @@ func clamp(Signal value, int min_val, int max_val) {
 }
 ```
 
+**Return values:** a function may return a Signal, a Bundle, an Entity, or nothing.
+
 **Restrictions:**
-- `Memory` cannot be used as a parameter type (stateful, incompatible with inlining)
+- `Bundle` and `Memory` cannot be used as parameter types (only `int`, `Signal`, `Entity`)
 - Recursive functions are not supported (functions are inlined at call sites)
 
 ### Function Inlining
@@ -1494,14 +1579,17 @@ The compiler's **wire router** automatically assigns colors to avoid conflicts w
 
 **Manual Wire Color Control:**
 
-For input signals that interface with external circuits, you can pin specific wire colors using the signal literal 3-tuple form:
+For signals that interface with external circuits, pin the wire color with the `.wire` attribute (see [Wire Color Pinning](#wire-color-pinning)):
 
 ```facto
-Signal sensor_input = ("signal-S", 0, red);    # external sensor on red
-Signal control_input = ("signal-C", 0, green); # external control on green
+Signal sensor_input = ("signal-S", 0);
+sensor_input.wire = red;      # external sensor on red
+
+Signal control_input = ("signal-C", 0);
+control_input.wire = green;   # external control on green
 ```
 
-User-specified colors take priority over automatic assignment. The compiler will respect the annotation and build the rest of the wire color assignment around it.
+Only `red` and `green` are valid (`Invalid wire color 'blue'. Use 'red' or 'green'.`). User-specified colors take priority over automatic assignment. The compiler will respect the annotation and build the rest of the wire color assignment around it.
 
 **Memory Wire Color Strategy:**
 - **RED wires**: Data signals and feedback loops (e.g., signal-A, signal-B, iron-plate)
@@ -1697,8 +1785,8 @@ The `condition : value` syntax compiles to a single decider combinator using "co
 ```facto
 Signal iron = ("iron-plate", 100);        # Explicit types for clarity
 Signal copper = ("copper-plate", 50);
-Signal total = (iron | "signal-total") 
-             + (copper | "signal-total");  # Aggregate with projections
+Signal total = (iron | "signal-T") 
+             + (copper | "signal-T");  # Aggregate with projections
 ```
 
 **DON'T:**
@@ -1727,9 +1815,9 @@ counter.write(value);  # Hard to track what type counter uses
 **DO:** Use conditional value syntax for efficient functions:
 ```facto
 func clamp(Signal value, int min_val, int max_val) {
-    Signal result = (value < min_val) : min_val
-                  + (value > max_val) : max_val
-                  + ((value >= min_val) && (value <= max_val)) : value;
+    Signal result = ((value < min_val) : min_val)
+                  + ((value > max_val) : max_val)
+                  + (((value >= min_val) && (value <= max_val)) : value);
     return result;
 }
 ```
@@ -1806,11 +1894,11 @@ lamp2.enable = pattern >= 10;
 
 ```facto
 # Inputs (wire these signals from your factory)
-Signal demand = ("signal-demand", 0);
-Signal supply = ("signal-supply", 0);
+Signal demand = ("signal-D", 0);
+Signal supply = ("signal-S", 0);
 
 # Calculate shortage
-Signal shortage = demand - supply;
+Signal shortage = demand - (supply | "signal-D");
 Signal should_produce = shortage > 0;
 
 # Control assemblers
@@ -1867,29 +1955,32 @@ Memory state: "signal-S";
 Signal current_state = state.read();
 
 # Inputs (wire from factory)
-Signal start_signal = ("signal-start", 0);
-Signal stop_signal = ("signal-stop", 1);
-Signal error_signal = ("signal-error", 2);
+Signal start_signal = ("signal-G", 0);   # "go"
+Signal stop_signal = ("signal-H", 1);    # "halt"
+Signal error_signal = ("signal-E", 2);
+
+# Stay in current state if no transition matches
+Signal stay = (current_state == 0 && start_signal == 0) ||
+              (current_state == 1 && stop_signal == 0 && error_signal == 0) ||
+              (current_state == 2 && start_signal == 0) ||
+              (current_state == 3 && start_signal == 0);
 
 # State transitions using condition : value syntax
+# (each term is parenthesized: ':' binds more loosely than '+')
 Signal next_state = 
     ((current_state == 0 && start_signal > 0) : 1) +      # Idle → Running
     ((current_state == 1 && stop_signal > 0) : 2) +       # Running → Stopped
     ((current_state == 1 && error_signal > 0) : 3) +      # Running → Error
     ((current_state == 2 && start_signal > 0) : 1) +      # Stopped → Running
     ((current_state == 3 && start_signal > 0) : 0) +      # Error → Idle
-    # Stay in current state if no transition matches
-    ((current_state == 0 && start_signal == 0) ||
-     (current_state == 1 && stop_signal == 0 && error_signal == 0) ||
-     (current_state == 2 && start_signal == 0) ||
-     (current_state == 3 && start_signal == 0)) : current_state;
+    ((stay != 0) : current_state);
 
 state.write(next_state);
 
 # Outputs based on state
-Signal running = (current_state == 1) | "signal-running";
-Signal stopped = (current_state == 2) | "signal-stopped";
-Signal error = (current_state == 3) | "signal-error";
+Signal running = (current_state == 1) | "signal-1";
+Signal stopped = (current_state == 2) | "signal-2";
+Signal error = (current_state == 3) | "signal-3";
 ```
 
 ### Balanced Train Loader (MadZuri Pattern)
@@ -1918,9 +2009,9 @@ Bundle in2 = {neg_avg, c2.output};  # c2.output - avg
 Bundle in3 = {neg_avg, c3.output};  # c3.output - avg
 
 # Enable inserter only when chest is below average (all item types)
-i1.enable = in1 < 0;  # Multi-signal comparison
-i2.enable = in2 < 0;
-i3.enable = in3 < 0;
+i1.enable = any(in1) < 0;  # True if any item is below average
+i2.enable = any(in2) < 0;
+i3.enable = any(in3) < 0;
 ```
 
 The compiler automatically detects the **transitive conflict** where each chest's signal appears in both:
@@ -1935,21 +2026,22 @@ Different wire colors are assigned to prevent double-counting:
 
 ```facto
 func smooth_filter(Signal input, int window_size) {
-    Memory sum: "signal-sum";
-    Memory count: "signal-count";
+    Memory sum: "iron-plate";
+    Memory count: "signal-N";
     
     Signal current_sum = sum.read();
     Signal current_count = count.read();
     
     # Use condition : value syntax for efficient branching
-    Signal should_reset = current_count >= window_size;
-    Signal new_sum = ((should_reset) : input) + ((!should_reset) : (current_sum + input));
-    Signal new_count = ((should_reset) : 1) + ((!should_reset) : (current_count + 1));
+    Signal new_sum = ((current_count >= window_size) : input)
+                   + ((current_count < window_size) : (current_sum + input));
+    Signal new_count = ((current_count >= window_size) : 1)
+                     + ((current_count < window_size) : (current_count + 1));
     
     sum.write(new_sum);
-    count.write(new_count);
+    count.write(new_count | "signal-N");
     
-    return new_sum / new_count;
+    return new_sum / (new_count | "iron-plate");
 }
 
 Signal raw_input = ("iron-plate", 0);
@@ -2050,16 +2142,28 @@ Signal mixed = iron + copper;
 Signal aligned = (copper | "iron-plate") + iron;  # Both iron-plate
 ```
 
-#### Unknown Signal Warnings
+#### Unknown Entity and Property Warnings
+
+```facto
+Entity lamp = place("small-lamb", 0, 0);
+# Warning: Unknown entity 'small-lamb' (not a vanilla or Space Age entity; the blueprint may not import). Did you mean 'small-lamp'?
+
+Entity chest = place("steel-chest", 2, 0, {read_contents: 1});
+# Warning: 'steel-chest' has no property 'read_contents'; it will be ignored.
+```
+
+Unknown entity prototypes, `place()` options and entity properties are reported as warnings (with a "did you mean" suggestion when one is close); compilation continues.
+
+### Error Types
+
+#### Unknown Signals
 
 ```facto
 Signal unknown = ("nonexistent-signal", 0);
-# Warning: Unknown signal type: nonexistent-signal, using signal-0
+# Error: Unknown signal 'nonexistent-signal'. Signal must be a valid Factorio item, fluid, or virtual signal name (e.g., 'iron-plate', 'water', 'signal-A').
 ```
 
-The compiler validates signals against the Factorio database. If a signal doesn't exist, it falls back to `signal-0`.
-
-### Error Types
+The compiler validates signal names against the Factorio database (vanilla and Space Age). An unknown signal name is a compile error.
 
 #### Undefined Variables
 
@@ -2072,7 +2176,7 @@ Signal result = undefined_var + 5;
 
 ```facto
 Entity lamp = 42;
-# Error: Cannot assign int to Entity type
+# Error: Cannot assign int to Entity variable 'lamp'
 ```
 
 #### Memory Type Conflicts
@@ -2088,23 +2192,54 @@ buffer.write(copper);
 
 ```facto
 Signal bad = ("signal-W", 5);
-# Error: Signal 'signal-W' is reserved for memory write-enable and cannot be used in signal literals
+# Error: Signal 'signal-W' is reserved for the memory write-enable channel and cannot be used in signal literals.
 ```
+
+#### Multiple Memory Writes
+
+```facto
+Memory m: "signal-A";
+m.write(1);
+m.write(2);
+# Error: Multiple writes to memory 'm' not allowed. Each memory cell can only have one write() call. Previous write was at line 2.
+```
+
+#### Bare Bundle Comparisons
+
+```facto
+Bundle b = { ("signal-A", 1), ("signal-B", -2) };
+Bundle x = b > 0;
+# Error: Cannot assign bundle comparison directly to 'x'.
+#   Bundle comparisons must use one of:
+#     - any(bundle) > N  (true if any signal matches)
+#     - all(bundle) > N  (true if all signals match)
+#     - (bundle > N) : bundle  (filter syntax)
+```
+
+The same applies to entity properties: `lamp.enable = b < 0;` is an error — write `lamp.enable = any(b) < 0;`.
 
 ### Diagnostic Output
 
-```
-Compiling example.facto...
-Diagnostics:
-  WARNING [semantic:example.facto:12]: Mixed signal types in binary operation
-  ERROR [lowering:example.facto:25]: Undefined memory 'invalid_mem' in read operation
+Warnings and errors are printed to stderr as `SEVERITY: [stage] file:line:column: message`; if any error occurred, the compiler prints `Compilation failed.` and exits with a non-zero status:
 
-Compilation failed: Semantic analysis failed
+```
+WARNING: [semantic] main.facto:3:12: Mixed signal types in binary operation: ...
+ERROR: [semantic] main.facto:3:12: Undefined variable 'x'
+Compilation failed.
+```
+
+Syntax errors show the offending source line, a caret, and a hint where possible:
+
+```
+Compilation failed: Syntax error in main.facto:3:1: unexpected 'Signal'
+  Signal c = a + b;
+  ^
+Did you forget a ';' at the end of the previous statement?
 ```
 
 Diagnostics include:
-- Severity (INFO, WARNING, ERROR)
-- Stage (parsing, semantic, lowering, layout, emission)
+- Severity (WARNING, ERROR; INFO with `--log-level info`)
+- Stage (e.g. semantic, lowering, layout_planning)
 - Location (file:line:column)
 - Message
 
@@ -2112,30 +2247,39 @@ Diagnostics include:
 
 ## Compiler Usage
 
+Install with `pip install factompile`; this provides the `factompile` command. From a source checkout, `python compile.py` is a thin wrapper around the same CLI and accepts exactly the same options.
+
 ### Basic Compilation
 
 ```bash
-python compile.py input.facto
+factompile input.facto
 ```
 
 Prints blueprint string to stdout.
 
+### Compile from a String
+
+```bash
+factompile -i 'Signal x = 42;'
+factompile --input 'Memory m: "signal-A"; m.write(m.read() + 1);'
+```
+
 ### Save to File
 
 ```bash
-python compile.py input.facto -o output.blueprint
+factompile input.facto -o output.blueprint
 ```
 
 ### Debug Logging
 
 ```bash
-python compile.py input.facto --log-level debug
+factompile input.facto --log-level debug
 ```
 
 ### Add Power Poles
 
 ```bash
-python compile.py input.facto --power-poles medium
+factompile input.facto --power-poles medium
 ```
 
 Options: `small`, `medium`, `big`, `substation`
@@ -2143,22 +2287,27 @@ Options: `small`, `medium`, `big`, `substation`
 ### Custom Blueprint Name
 
 ```bash
-python compile.py input.facto --name "My Factory Controller"
+factompile input.facto --name "My Factory Controller"
 ```
 
 ### Disable Optimizations
 
 ```bash
-python compile.py input.facto --no-optimize
+factompile input.facto --no-optimize
 ```
 
 ### Output JSON Format
 
 ```bash
-python compile.py input.facto --json
+factompile input.facto --json
 ```
 
 Outputs raw blueprint JSON instead of base64-encoded blueprint string.
 
+### Layout Retries
 
-**Happy building!**
+```bash
+factompile input.facto --layout-retries 6
+```
+
+Maximum number of layout planning retries when wire routing fails (default: 3). Raise it for large programs that fail with a layout error.

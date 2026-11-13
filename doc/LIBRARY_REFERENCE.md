@@ -19,7 +19,7 @@ Facto includes a standard library of commonly-used functions for mathematical op
   - [toggle_bit](#toggle_bit)
   - [div_floor](#div_floor)
   - [mod_positive](#mod_positive)
-- [memory_patterns.facto — Memory Functions](#memory_patternsfacto--memory-functions)
+- [memory_patterns.facto — Memory Patterns](#memory_patternsfacto--memory-patterns)
   - [edge_rising](#edge_rising)
   - [edge_falling](#edge_falling)
   - [clock](#clock)
@@ -35,7 +35,6 @@ Facto includes a standard library of commonly-used functions for mathematical op
   - [brightness](#brightness)
   - [hsv_to_rgb](#hsv_to_rgb)
   - [deadband](#deadband)
-  - [hysteresis](#hysteresis)
   - [quantize](#quantize)
   - [wrap](#wrap)
   - [rescale](#rescale)
@@ -55,7 +54,7 @@ import "lib/memory_patterns.facto";
 import "lib/signal_processing.facto";
 ```
 
-After importing, all functions from the library are available in your program's global namespace.
+After importing, all functions from the library are available in your program's global namespace. The standard library ships with the compiler (`dsl_compiler/lib/`), so these imports work for pip installs as well as source checkouts; `import "math.facto";` resolves too. `import "..." as name` is not supported.
 
 ---
 
@@ -457,7 +456,7 @@ Detects rising edges: outputs 1 for exactly one tick when input transitions from
 ```facto
 import "lib/memory_patterns.facto";
 
-Signal button = ("signal-button", 0);  # Wire from your circuit
+Signal button = ("signal-B", 0);  # Wire from your circuit
 Signal pressed = edge_rising(button);
 
 # pressed is 1 only on the tick when button goes from 0 → non-zero
@@ -819,7 +818,12 @@ Memory tick: "signal-T";
 tick.write((tick.read() + 1) % 360);
 
 Signal rainbow = hsv_to_rgb(tick.read(), 100, 100);
-lamp.rgb = rainbow | "signal-white";
+
+# Show it on an RGB lamp (color_mode: 1 = COMPONENTS)
+Entity lamp = place("small-lamp", 0, 0, {use_colors: 1, always_on: 1, color_mode: 1});
+lamp.r = rgb_unpack_r(rainbow);
+lamp.g = rgb_unpack_g(rainbow);
+lamp.b = rgb_unpack_b(rainbow);
 ```
 
 ---
@@ -846,32 +850,6 @@ import "lib/signal_processing.facto";
 Signal sensor = ("signal-S", 0);
 Signal filtered = deadband(sensor, 100, 5);
 # 95-105 → 100, outside that range → actual value
-```
-
----
-
-### hysteresis
-
-```facto
-func hysteresis(Signal input, int low_threshold, int high_threshold) → Signal
-```
-
-Schmitt trigger behavior with memory. Output goes high when input exceeds high_threshold, low when below low_threshold.
-
-**Parameters:**
-- `input` (Signal): Input signal
-- `low_threshold` (int): Turn off when input falls below this
-- `high_threshold` (int): Turn on when input rises above this
-
-**Returns:** Signal containing 0 or 1
-
-**Example:**
-```facto
-import "lib/signal_processing.facto";
-
-Signal temperature = ("signal-T", 0);
-Signal heater_on = hysteresis(temperature, 18, 22);
-# Turns on at 22°, stays on until drops to 18°
 ```
 
 ---
@@ -1047,18 +1025,14 @@ Signal y = saturating_sub(10, 50, 0);      # Result: 0 (not -40)
 
 ### Common Patterns
 
-**Hysteresis with min/max:**
+**Hysteresis (Schmitt trigger):** there is no library function for this; use a latch directly:
 ```facto
-import "lib/math.facto";
-
 Memory state: "signal-S";
 Signal input = ("signal-I", 0);
 
 # Turn on when input > 80, off when input < 20
-Signal turn_on = (input > 80) : 1;
-Signal turn_off = (input < 20) : 0;
-Signal keep = (input >= 20 && input <= 80) : state.read();
-state.write(turn_on + keep);  # turn_off contributes 0
+state.write(1, set=input > 80, reset=input < 20);
+Signal heater_on = state.read();
 ```
 
 **Smooth value tracking:**

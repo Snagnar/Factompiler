@@ -144,6 +144,8 @@ Signal hex = 0xFF;            # Hexadecimal
 # All four represent the same value: 255
 ```
 
+Decimal literals must fit into a 32-bit signed integer (`-2147483648` to `2147483647`); larger values are a compile error. Hexadecimal, binary and octal literals of up to 32 bits are read as bit patterns, so `0xFFFFFFFF` is `-1` and `0x80000000` is `-2147483648`.
+
 Especially useful for bitwise operations and colors:
 
 ```facto
@@ -170,6 +172,15 @@ Signal power = a ** 2;        # Exponentiation: 10000
 ```
 
 Each operation creates an **arithmetic combinator** in your blueprint.
+
+### Integer Semantics
+
+All values are 32-bit signed integers, exactly like in Factorio. When the compiler folds constants at compile time it uses the same rules as the game:
+
+- Overflow wraps around (`2147483647 + 1` is `-2147483648`); when this happens in a constant expression the compiler also emits a warning
+- `/` truncates toward zero (`-7 / 2` is `-3`)
+- `%` takes the sign of the dividend (`-7 % 2` is `-1`)
+- Division or modulo by zero yields `0`; when this happens in a constant expression the compiler also emits a warning
 
 ### Bitwise Operations
 
@@ -455,12 +466,24 @@ Each bundle arithmetic operation compiles to one arithmetic combinator using `si
 
 **Supported operators:** `+`, `-`, `*`, `/`, `%`, `**`, `<<`, `>>`, `AND`, `OR`, `XOR`
 
-**Note:** Bundle arithmetic requires a scalar operand. Bundle + Bundle is not supported.
+### Bundle–Bundle Arithmetic
+
+Two bundles can also be combined **element-wise**. For every signal type present in either bundle, the operator is applied to both values (a signal missing on one side counts as 0):
+
+```facto
+Bundle requests = { ("iron-plate", 100), ("copper-plate", 50) };
+Bundle fulfilled = { ("iron-plate", 30) };
+
+Bundle remaining = requests - fulfilled;
+# Result: iron-plate=70, copper-plate=50
+```
+
+This compiles to one arithmetic combinator with `signal-each` on both inputs: the left bundle arrives on one wire color and the right bundle on the other. You can pin the colors with `.wire` (see [Pinning Wire Colors](#pinning-wire-colors)).
 
 ### Bundle Comparisons: `any()` and `all()`
 
 ```facto
-Bundle levels = { ("water", 500), ("oil", 100), ("steam", 0) };
+Bundle levels = { ("water", 500), ("crude-oil", 100), ("steam", 0) };
 
 # any() — true if ANY signal matches
 Signal anyLow = any(levels) < 50;      # True (steam=0 matches)
@@ -473,6 +496,8 @@ Signal allBelow1000 = all(levels) < 1000;  # True
 
 - `any()` compiles to `signal-anything`
 - `all()` compiles to `signal-everything`
+
+A bundle cannot be compared on its own: `Bundle x = levels > 0;` or `lamp.enable = levels < 50;` is a compile error. Wrap it in `any()`/`all()`, or use filtering (below).
 
 ### Bundle Filtering
 
@@ -510,12 +535,12 @@ for i in 0..5 {
 
 # 0, 2, 4, 6, 8 (with step)
 for j in 0..10 step 2 {
-    Entity lamp = place("small-lamp", j, 0);
+    Entity lamp = place("small-lamp", j, 2);
 }
 
 # Counting down: 10, 8, 6, 4, 2
 for k in 10..0 step -2 {
-    Entity lamp = place("small-lamp", k, 0);
+    Entity lamp = place("small-lamp", k, 4);
 }
 ```
 
@@ -594,9 +619,9 @@ Signal warning = (temp > too_hot) && (temp < critical);
 Signal danger = temp >= critical;
 
 # Labeled outputs using conditional values
-Signal status_normal = (normal != 0) : 1 | "signal-G";
-Signal status_warning = (warning != 0) : 1 | "signal-Y";
-Signal status_danger = (danger != 0) : 1 | "signal-R";
+Signal status_normal = ((normal != 0) : 1) | "signal-G";
+Signal status_warning = ((warning != 0) : 1) | "signal-Y";
+Signal status_danger = ((danger != 0) : 1) | "signal-R";
 ```
 
 ### Resource Ratio Calculator
@@ -607,7 +632,7 @@ Signal copper = ("copper-plate", 0);
 
 # Electronic circuits need 1 iron + 3 copper each
 Signal iron_limited = iron;
-Signal copper_limited = copper / 3;
+Signal copper_limited = (copper / 3) | "iron-plate";  # same channel as iron_limited
 
 # Minimum determines capacity — using conditional values
 Signal can_make = ((iron_limited < copper_limited) : iron_limited)

@@ -37,14 +37,24 @@ Usage: factompile [OPTIONS] [INPUT_FILE]
 
 Options:
   -i, --input TEXT                Compile from string instead of file
-  -o, --output PATH               Output file for the blueprint
-  --name TEXT                     Blueprint name
+  -o, --output PATH               Output file for the blueprint (default:
+                                  stdout)
+  --name TEXT                     Blueprint name (default: derived from input
+                                  filename)
   --log-level [debug|info|warning|error]
+                                  Set the logging level
   --no-optimize                   Disable IR optimizations
   --power-poles TEXT              Add power poles
-  --json                          Output blueprint in JSON format
+                                  (small/medium/big/substation, defaults to
+                                  medium if no value)
+  --json                          Output blueprint in JSON format instead of
+                                  compressed string format
+  --layout-retries INTEGER        Maximum retries for layout planning on
+                                  routing failures (default: 3)
   --help                          Show this message and exit.
 ```
+
+When working from a source checkout, `python compile.py` accepts exactly the same options as `factompile`.
 
 ---
 
@@ -96,9 +106,8 @@ The compiler outputs a blueprint string.
 **Your lamp is now blinking!**
 
 The compiled circuit consists of:
-- One constant combinator (the memory cell)
-- One decider combinator (the comparison)
-- One lamp (the output)
+- Two arithmetic combinators with a feedback loop (the memory cell: `+ 1` and `% 20`)
+- One lamp (the output) — the `< 10` comparison is inlined into the lamp's own circuit condition, so no decider is needed
 
 All automatically wired together.
 
@@ -303,6 +312,12 @@ factompile blink.facto --name "My Awesome Blinker"
 ### Raw JSON Output
 ```bash
 factompile blink.facto --json
+```
+
+### Layout Retries
+For large programs where wire routing fails, let the layout planner try more often (default: 3):
+```bash
+factompile blink.facto --layout-retries 6
 ```
 
 ---

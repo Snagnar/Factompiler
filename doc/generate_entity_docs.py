@@ -296,12 +296,26 @@ SIGNAL_IO_PROPERTIES = {
     "storage_signal",
 }
 
+_UNUSUAL_PROTOTYPE_MARKERS = ("logo", "crash-site", "bottomless", "dummy", "hidden")
+
+
+def _example_prototype(entity: Any) -> str:
+    """Pick a normal, buildable prototype for examples (not e.g. a 22x22 logo)."""
+    if not entity.prototypes:
+        return entity.class_name.lower()
+    from draftsman.data import items  # buildable entities have an item
+
+    normal = [p for p in entity.prototypes if not any(m in p for m in _UNUSUAL_PROTOTYPE_MARKERS)]
+    buildable = [p for p in normal if p in items.raw]
+    return (buildable or normal or list(entity.prototypes))[0]
+
+
 # Entity class name -> output description mapping
 ENTITY_OUTPUT_DESCRIPTIONS: dict[str, dict[str, Any]] = {
     "Container": {
         "supports_output": True,
         "description": "Item contents of the container",
-        "enable_properties": {"read_contents": "Enable reading container contents"},
+        "enable_properties": {},  # Factorio 2.0 containers always output contents
     },
     "StorageTank": {
         "supports_output": True,
@@ -880,9 +894,7 @@ def generate_entity_section(entity: EntityInfo) -> list[str]:
         lines.append(f"Use `entity.output` to read: **{output_info.description}**")
         lines.append("")
         lines.append("```facto")
-        lines.append(
-            f'Entity e = place("{entity.prototypes[0] if entity.prototypes else entity.class_name.lower()}", 0, 0);'
-        )
+        lines.append(f'Entity e = place("{_example_prototype(entity)}", 0, 0);')
         lines.append("Bundle signals = e.output;  # Returns all output signals")
         lines.append("```")
         lines.append("")
@@ -1084,7 +1096,7 @@ def generate_documentation() -> str:
             "",
             "```facto",
             "# Read all signals from a container",
-            'Entity chest = place("iron-chest", 0, 0, {read_contents: 1});',
+            'Entity chest = place("iron-chest", 0, 0);',
             "Bundle contents = chest.output;",
             "",
             "# Extract a specific signal",
@@ -1099,7 +1111,7 @@ def generate_documentation() -> str:
             "| Entity Type | What `.output` Returns | Enable Property |",
             "|-------------|------------------------|-----------------|",
             "| Combinators | Computed result signals | (always active) |",
-            "| Containers | Item counts | `read_contents: 1` |",
+            "| Containers | Item counts | (always active) |",
             "| Storage Tanks | Fluid level | (always active) |",
             "| Inserters | Hand contents | `read_hand_contents: 1` |",
             "| Belts | Belt contents | `read_contents: 1` |",
