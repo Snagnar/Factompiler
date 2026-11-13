@@ -69,6 +69,7 @@ factompile = "dsl_compiler.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["dsl_compiler*"]
+exclude = ["*.tests", "*.tests.*", "dsl_compiler.integration_tests*"]
 
 [tool.setuptools.package-data]
 "dsl_compiler" = ["grammar/*.lark", "lib/*.facto"]

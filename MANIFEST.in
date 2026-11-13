@@ -12,9 +12,6 @@ recursive-include doc *
 # Include example programs
 recursive-include example_programs *.facto
 
-# Include standard library
-recursive-include lib *.facto
-
 # Exclude development and test files
 global-exclude __pycache__
 global-exclude *.py[cod]
