@@ -5,6 +5,7 @@ These tests cover the command-line interface and compile_dsl_source function.
 """
 
 import json
+import os
 
 import click
 import pytest
@@ -365,13 +366,13 @@ class TestCliCoverageGaps:
         success, result, messages = compile_dsl_source(code)
         assert success is True
 
+    @pytest.mark.skipif(os.name == "nt", reason="chmod permission test not reliable on Windows")
     def test_read_file_error_unreadable_file(self, runner, tmp_path):
         """Cover lines 234-236: error handling when reading input file fails.
 
         Click validates file readability before our code runs, so we test
         that Click properly reports unreadable files.
         """
-        import os
         import stat
 
         # Create a file, then make it unreadable
@@ -395,12 +396,12 @@ class TestCliCoverageGaps:
         result = runner.invoke(main, [str(tmp_path / "nonexistent.facto")])
         assert result.exit_code != 0
 
+    @pytest.mark.skipif(os.name == "nt", reason="chmod permission test not reliable on Windows")
     def test_write_file_error_unwritable_directory(self, runner, tmp_path):
         """Cover lines 261-264: error handling when writing output file fails.
 
         Tests the exception handler for file write errors.
         """
-        import os
         import stat
 
         # Create a valid input file

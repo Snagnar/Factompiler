@@ -609,7 +609,7 @@ Signal copper = ("copper-plate", 0);
 Signal iron_limited = iron;
 Signal copper_limited = copper / 3;
 
-# Minimum determines capacity — using conditional values
+# Minimum determines capacity using conditional values
 Signal can_make = ((iron_limited < copper_limited) : iron_limited)
                + ((copper_limited <= iron_limited) : copper_limited);
 ```
