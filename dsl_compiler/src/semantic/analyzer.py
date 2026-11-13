@@ -45,6 +45,11 @@ from dsl_compiler.src.ast.statements import (
 from dsl_compiler.src.common.diagnostics import (
     ProgramDiagnostics,
 )
+from dsl_compiler.src.common.entity_data import (
+    is_known_prototype,
+    suggest_prototype,
+    unknown_property_hint,
+)
 from dsl_compiler.src.common.int32 import INT32_MAX, INT32_MIN, in_int32
 from dsl_compiler.src.common.signal_registry import (
     SignalTypeInfo,
@@ -1185,7 +1190,13 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         if expr.name == "place":
             signal_type = self.allocate_implicit_type()
             expr.metadata["entity_signal_type"] = signal_type
-            return EntityValue()  # place() returns an Entity, not a Signal
+            prototype = (
+                expr.args[0].value
+                if expr.args and isinstance(expr.args[0], StringLiteral)
+                else None
+            )
+            # place() returns an Entity, not a Signal
+            return EntityValue(prototype=prototype)
 
         if expr.name == "memory":
             signal_type = self._resolve_memory_signal_type(expr)
@@ -1256,6 +1267,20 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
         if isinstance(prototype, StringLiteral):
             node.metadata["prototype"] = prototype.value
+            if not is_known_prototype(prototype.value):
+                suggestion = suggest_prototype(prototype.value)
+                hint = f" Did you mean '{suggestion}'?" if suggestion else ""
+                self.diagnostics.warning(
+                    f"Unknown entity '{prototype.value}' (not a vanilla or Space Age "
+                    f"entity; the blueprint may not import).{hint}",
+                    stage="semantic",
+                    node=prototype,
+                )
+            elif len(node.args) == 4 and isinstance(node.args[3], DictLiteral):
+                for key in node.args[3].entries:
+                    problem = unknown_property_hint(prototype.value, key)
+                    if problem:
+                        self.diagnostics.warning(problem, stage="semantic", node=node.args[3])
 
     def _validate_memory_call(self, node: CallExpr) -> None:
         """Validate memory() builtin call."""
@@ -1551,6 +1576,11 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                     stage="semantic",
                     node=node.target,
                 )
+            else:
+                proto = getattr(object_symbol.value_type, "prototype", None)
+                problem = proto and unknown_property_hint(proto, node.target.property_name)
+                if problem:
+                    self.diagnostics.warning(problem, stage="semantic", node=node.target)
 
         value_type = self.get_expr_type(node.value)
 

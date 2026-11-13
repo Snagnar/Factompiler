@@ -1,6 +1,8 @@
 """Entity data extraction from draftsman."""
 
+import difflib
 import math
+import warnings
 from functools import lru_cache
 
 from draftsman.data import entities as entity_data
@@ -78,3 +80,49 @@ class EntityDataHelper:
 get_entity_footprint = EntityDataHelper.get_footprint
 get_entity_alignment = EntityDataHelper.get_alignment
 is_dual_circuit_connectable = EntityDataHelper.is_dual_circuit_connectable
+
+
+# Entity properties with special meaning in Facto (not draftsman attributes).
+FACTO_ENTITY_PROPERTIES = frozenset({"enable", "input", "output", "wire"})
+
+
+def is_known_prototype(prototype: str) -> bool:
+    """True if draftsman knows the entity prototype (vanilla + Space Age data)."""
+    return prototype in entity_data.raw
+
+
+def suggest_prototype(prototype: str) -> str | None:
+    """Closest known prototype name, for 'did you mean' hints."""
+    matches = difflib.get_close_matches(prototype, list(entity_data.raw), n=1, cutoff=0.6)
+    return matches[0] if matches else None
+
+
+@lru_cache(maxsize=256)
+def entity_attributes(prototype: str) -> frozenset[str] | None:
+    """Public attribute names of the draftsman entity, or None if unknown."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            entity = new_entity(prototype)
+    except Exception:
+        return None
+    return frozenset(a for a in dir(entity) if not a.startswith("_"))
+
+
+def unknown_property_hint(prototype: str, prop: str) -> str | None:
+    """Return a warning text if ``prop`` is not a property of ``prototype``.
+
+    Returns None when the property exists, or when the prototype is unknown
+    (that case is reported separately).
+    """
+    if prop in FACTO_ENTITY_PROPERTIES:
+        return None
+    attrs = entity_attributes(prototype)
+    if attrs is None or prop in attrs:
+        return None
+    if prop in ("r", "g", "b") and "red_signal" in attrs:
+        return None  # lamp colour components (lamp.r = signal)
+    candidates = sorted(attrs | FACTO_ENTITY_PROPERTIES)
+    close = difflib.get_close_matches(prop, candidates, n=1, cutoff=0.6)
+    hint = f" Did you mean '{close[0]}'?" if close else ""
+    return f"'{prototype}' has no property '{prop}'; it will be ignored.{hint}"

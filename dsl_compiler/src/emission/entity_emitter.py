@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import warnings
 from typing import Any
 
 from draftsman.classes.entity import Entity  # type: ignore[import-not-found]
@@ -142,7 +143,11 @@ class PlanEntityEmitter:
             entity = copy.deepcopy(template)
         else:
             try:
-                entity = new_entity(placement.entity_type)
+                # Unknown prototypes are already reported (with location) by
+                # the semantic analyzer; silence draftsman's duplicate warning.
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    entity = new_entity(placement.entity_type)
             except Exception as exc:  # pragma: no cover - draftsman errors
                 self.diagnostics.error(
                     f"Failed to instantiate entity '{placement.entity_type}': {exc}"
@@ -371,6 +376,18 @@ class PlanEntityEmitter:
             section = entity.add_section()
             section.set_signal(0, signal_name, value)
 
+    def _signal_dict(self, signal_ref: Any) -> dict[str, str]:
+        """Resolve a SignalRef to a Factorio signal dict {name, type}."""
+        signal_type_key = signal_ref.signal_type
+        signal_info = self.signal_type_map.get(signal_type_key)
+        if signal_info and isinstance(signal_info, dict):
+            return {
+                "name": signal_info.get("name", signal_type_key),
+                "type": signal_info.get("type", "virtual"),
+            }
+        name = signal_info if signal_info else signal_type_key
+        return {"name": name, "type": _infer_signal_type(name)}
+
     def _apply_property_writes(
         self,
         entity: Entity,
@@ -379,6 +396,17 @@ class PlanEntityEmitter:
     ) -> None:
         """Apply property writes to entity (e.g., entity.enable = signal)."""
         for prop_name, prop_data in property_writes.items():
+            color_attr = _LAMP_COLOR_ATTRS.get(prop_name)
+            if (
+                color_attr
+                and hasattr(entity, color_attr)
+                and isinstance(prop_data, dict)
+                and prop_data.get("type") == "signal"
+            ):
+                # lamp.r = sig: the signal is wired in (layout); here we tell
+                # the lamp which signal carries that colour component.
+                setattr(entity, color_attr, self._signal_dict(prop_data["signal_ref"]))
+                continue
             if prop_name == "enable":
                 prop_type = prop_data.get("type")
 
@@ -491,5 +519,8 @@ class PlanEntityEmitter:
                         f"Could not set property '{prop_name}' on '{placement.entity_type}'."
                     )
 
+
+# lamp.r / lamp.g / lamp.b select the colour component signals (RGB mode)
+_LAMP_COLOR_ATTRS = {"r": "red_signal", "g": "green_signal", "b": "blue_signal"}
 
 __all__ = ["PlanEntityEmitter"]

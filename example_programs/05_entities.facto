@@ -13,7 +13,7 @@ Signal input_b = 200;
 Entity train_station = place("train-stop", 4, 0);
 
 # Configure train station properties
-train_station.manual_mode = 1;
+train_station.manual_trains_limit = 1;
 
 # Input controls
 Signal enable_lamps = ("signal-E", 1);
