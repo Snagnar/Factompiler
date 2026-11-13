@@ -1556,6 +1556,9 @@ class ExpressionLowerer:
         old_param_values = {k: v for k, v in self.parent.param_values.items() if k in param_values}
         old_entity_refs = self.parent.entity_refs.copy()
         old_signal_refs = self.parent.signal_refs.copy()
+        # Memories declared inside the function are local to this call
+        old_memory_refs = self.parent.memory_refs.copy()
+        old_memory_types = self.parent.memory_types.copy()
 
         # Set up function scope
         self.parent.param_values.update(param_values)
@@ -1596,6 +1599,9 @@ class ExpressionLowerer:
         finally:
             # Pop from inlining stack
             self.parent._inlining_stack.pop()
+
+            self.parent.memory_refs = old_memory_refs
+            self.parent.memory_types = old_memory_types
 
             # Restore param_values
             for k in param_values:

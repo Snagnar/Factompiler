@@ -48,6 +48,7 @@ class ASTLowerer:
         self.signal_refs: dict[str, SignalRef] = {}
         self.memory_refs: dict[str, str] = {}
         self.memory_types: dict[str, str] = {}  # Track memory signal types during lowering
+        self.used_memory_ids: set[str] = set()  # IR ids of all memory cells created
         self.entity_refs: dict[str, str] = {}
         self.param_values: dict[str, ValueRef] = {}
         # Track which signal names are actually referenced (not just declared)

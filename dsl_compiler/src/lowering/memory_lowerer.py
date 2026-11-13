@@ -57,13 +57,27 @@ class MemoryLowerer:
         Memory type (standard vs latch) is determined later when we see the write.
         At declaration time, we just create a placeholder.
         """
+        # Memory names are only unique per scope: two functions (or two calls
+        # of one function) may each declare 'Memory m'. Every declaration
+        # needs its own cell, so make the IR id unique.
         memory_id = f"mem_{stmt.name}"
+        used_ids = self.parent.used_memory_ids
+        if memory_id in used_ids:
+            n = 2
+            while f"{memory_id}_{n}" in used_ids:
+                n += 1
+            memory_id = f"{memory_id}_{n}"
+        used_ids.add(memory_id)
         self.parent.memory_refs[stmt.name] = memory_id
 
         signal_type: str | None = None
         mem_info = getattr(self.semantic, "memory_types", {}).get(stmt.name)
 
-        if mem_info:
+        if stmt.signal_type:
+            # The declaration's own type. semantic.memory_types is keyed by
+            # name only and holds whichever same-named memory came last.
+            signal_type = stmt.signal_type
+        elif mem_info:
             signal_type = mem_info.signal_type
         else:
             symbol = self.semantic.symbol_table.lookup(stmt.name)

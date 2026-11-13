@@ -688,3 +688,46 @@ class TestMemoryLowererCoverageGaps:
         # Verify read operation was generated
         mem_reads = [op for op in ir_ops if isinstance(op, IRMemRead)]
         assert len(mem_reads) >= 1
+
+
+class TestFunctionLocalMemory:
+    """Memories declared inside functions get one cell per call."""
+
+    def test_same_function_called_twice_gets_two_cells(self):
+        ir_ops, _, diags = compile_to_ir(
+            "func counter(Signal step) {\n"
+            '    Memory m: "signal-A";\n'
+            '    m.write(m.read() + (step | "signal-A"));\n'
+            "    return m.read();\n"
+            "}\n"
+            'Signal a = counter(("signal-X", 1));\n'
+            'Signal b = counter(("signal-X", 5));\n'
+        )
+        creates = [op for op in ir_ops if isinstance(op, IRMemCreate)]
+        writes = [op for op in ir_ops if isinstance(op, IRMemWrite)]
+        assert len({op.memory_id for op in creates}) == 2
+        assert len({op.memory_id for op in writes}) == 2
+        assert not diags.has_errors()
+
+    def test_same_memory_name_in_two_functions_keeps_each_type(self):
+        ir_ops, _, diags = compile_to_ir(
+            'func f(Signal x) { Memory m: "signal-A"; m.write(x | "signal-A"); return m.read(); }\n'
+            'func g(Signal x) { Memory m: "signal-B"; m.write(x | "signal-B"); return m.read(); }\n'
+            'Signal a = f(("signal-X", 1));\n'
+            'Signal b = g(("signal-X", 2));\n'
+        )
+        creates = [op for op in ir_ops if isinstance(op, IRMemCreate)]
+        assert sorted(op.signal_type for op in creates) == ["signal-A", "signal-B"]
+        assert not any("Type mismatch" in d.message for d in diags.diagnostics)
+
+    def test_outer_memory_survives_function_with_same_name(self):
+        ir_ops, _, _ = compile_to_ir(
+            'Memory m: "signal-C";\n'
+            'func f(Signal x) { Memory m: "signal-A"; m.write(x | "signal-A"); return m.read(); }\n'
+            'Signal a = f(("signal-X", 1));\n'
+            'm.write(("signal-C", 3));\n'
+        )
+        creates = {op.memory_id: op.signal_type for op in ir_ops if isinstance(op, IRMemCreate)}
+        writes = [op for op in ir_ops if isinstance(op, IRMemWrite)]
+        outer_id = next(k for k, v in creates.items() if v == "signal-C")
+        assert any(op.memory_id == outer_id for op in writes)
