@@ -7,6 +7,18 @@ from typing import Any
 """Unified diagnostic collection for the entire compiler pipeline."""
 
 
+class CompilationError(RuntimeError):
+    """Raised for user-facing compile errors when ``raise_errors`` is enabled.
+
+    It is a ``RuntimeError`` subclass for backwards compatibility. The CLI
+    catches it and prints the message without a Python traceback.
+    """
+
+    def __init__(self, message: str, diagnostic: "Diagnostic | None" = None):
+        super().__init__(message)
+        self.diagnostic = diagnostic
+
+
 class DiagnosticSeverity(Enum):
     """Severity levels for compiler diagnostics."""
 
@@ -60,8 +72,8 @@ class ProgramDiagnostics:
         node: Any | None = None,
     ) -> None:
         """Add an informational message (shown in verbose mode)."""
-        logging.info(f"[{stage or self.default_stage}] {message}")
-        self._add(DiagnosticSeverity.INFO, message, stage, line, column, source_file, node)
+        diag = self._add(DiagnosticSeverity.INFO, message, stage, line, column, source_file, node)
+        logging.info(self._log_text(diag))
 
     def warning(
         self,
@@ -73,8 +85,10 @@ class ProgramDiagnostics:
         node: Any | None = None,
     ) -> None:
         """Add a warning (always shown, doesn't stop compilation)."""
-        logging.warning(f"[{stage or self.default_stage}] {message}")
-        self._add(DiagnosticSeverity.WARNING, message, stage, line, column, source_file, node)
+        diag = self._add(
+            DiagnosticSeverity.WARNING, message, stage, line, column, source_file, node
+        )
+        logging.warning(self._log_text(diag))
         self._warning_count += 1
 
     def error(
@@ -87,10 +101,10 @@ class ProgramDiagnostics:
         node: Any | None = None,
     ) -> None:
         """Add an error (always shown, stops compilation)."""
-        logging.error(f"[{stage or self.default_stage}] {message}")
-        self._add(DiagnosticSeverity.ERROR, message, stage, line, column, source_file, node)
+        diag = self._add(DiagnosticSeverity.ERROR, message, stage, line, column, source_file, node)
+        logging.error(self._log_text(diag))
         if self.raise_errors:
-            raise RuntimeError(f"[{stage or self.default_stage}] {message}")
+            raise CompilationError(self._log_text(diag), diag)
         self._error_count += 1
 
     def _add(
@@ -102,7 +116,7 @@ class ProgramDiagnostics:
         column: int,
         source_file: str | None,
         node: Any | None,
-    ) -> None:
+    ) -> Diagnostic:
         """Internal method to add a diagnostic."""
         if node is not None and line == 0:
             line = getattr(node, "line", 0)
@@ -120,6 +134,25 @@ class ProgramDiagnostics:
             node=node,
         )
         self.diagnostics.append(diag)
+        return diag
+
+    @staticmethod
+    def _location(diag: Diagnostic) -> str:
+        """``file.facto:line:col`` (parts omitted when unknown)."""
+        parts = []
+        if diag.source_file and diag.source_file != "<string>":
+            parts.append(Path(diag.source_file).name)
+        if diag.line > 0:
+            parts.append(str(diag.line))
+            if diag.column > 0:
+                parts.append(str(diag.column))
+        return ":".join(parts)
+
+    def _log_text(self, diag: Diagnostic) -> str:
+        """Text used for log output: ``[stage] file.facto:3:7: message``."""
+        location = self._location(diag)
+        prefix = f"[{diag.stage}] "
+        return f"{prefix}{location}: {diag.message}" if location else prefix + diag.message
 
     def has_errors(self) -> bool:
         """Check if any errors have been recorded."""
@@ -134,19 +167,8 @@ class ProgramDiagnostics:
         return self._warning_count
 
     def _format_diagnostic(self, diag: Diagnostic) -> str:
-        """Format a single diagnostic for display."""
-        parts = [diag.severity.value.upper()]
-
-        location_parts = [diag.stage]
-        if diag.source_file:
-            location_parts.append(Path(diag.source_file).name)
-        if diag.line > 0:
-            location_parts.append(str(diag.line))
-            if diag.column > 0:
-                location_parts.append(str(diag.column))
-
-        location = ":".join(location_parts)
-        return f"{parts[0]} [{location}]: {diag.message}"
+        """Format a single diagnostic for display: ``ERROR: [stage] file:3:7: msg``."""
+        return f"{diag.severity.value.upper()}: {self._log_text(diag)}"
 
     def get_messages(
         self, min_severity: DiagnosticSeverity = DiagnosticSeverity.WARNING

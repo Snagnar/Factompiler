@@ -727,7 +727,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             if left_is_implicit or right_is_implicit:
                 return left_type, None
 
-            warning_msg = f"Mixed signal types in binary operation at line {node.line}:"
+            warning_msg = "Mixed signal types in binary operation:"
             warning_msg += (
                 f"\n  Left operand:  '{left_type.signal_type.name}' {op}"
                 f"\n  Right operand: '{right_type.signal_type.name}'"

@@ -194,4 +194,4 @@ class TestDSLParserErrorHandling:
         # Use an invalid character that causes lex error
         with pytest.raises(SyntaxError) as exc_info:
             parser.parse("Signal x = @@@;")
-        assert "Parse error" in str(exc_info.value)
+        assert "Syntax error" in str(exc_info.value)

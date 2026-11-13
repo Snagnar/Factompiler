@@ -559,6 +559,16 @@ class DSLTransformer(Transformer):
             return "||"
         return op
 
+    def _set_binary_position(self, node: ASTNode, left, op_token) -> None:
+        """Position a binary op at its left operand, else at the operator token."""
+        if getattr(left, "line", 0) > 0:
+            node.line = left.line
+            node.column = getattr(left, "column", 0)
+            node.source_file = getattr(left, "source_file", None)
+        elif isinstance(op_token, Token) and op_token.line:
+            node.line = op_token.line
+            node.column = op_token.column or 0
+
     def _handle_binary_op_chain(self, items, normalize_op=None) -> Expr:
         """Handle chains of binary operations like a + b - c.
 
@@ -573,11 +583,7 @@ class DSLTransformer(Transformer):
             if normalize_op:
                 op = normalize_op(op)
             node = BinaryOp(op=op, left=items[0], right=items[2])
-            # Set position from first operand if it has position info
-            if hasattr(items[0], "line") and items[0].line > 0:
-                node.line = items[0].line
-                node.column = getattr(items[0], "column", 0)
-                node.source_file = getattr(items[0], "source_file", None)
+            self._set_binary_position(node, items[0], items[1])
             return node
 
         result = items[0]
@@ -588,11 +594,7 @@ class DSLTransformer(Transformer):
                 op = normalize_op(op)
             right = items[index + 1]
             node = BinaryOp(op=op, left=result, right=right)
-            # Set position from left operand (first in chain)
-            if hasattr(result, "line") and result.line > 0:
-                node.line = result.line
-                node.column = getattr(result, "column", 0)
-                node.source_file = getattr(result, "source_file", None)
+            self._set_binary_position(node, result, items[index])
             result = node
             index += 2
         return result
@@ -810,6 +812,9 @@ class DSLTransformer(Transformer):
             # Fallback - shouldn't happen but handle gracefully
             current_expr = base  # type: ignore
 
+        if current_expr is not base:
+            self._copy_position(current_expr, base)
+
         # Apply each subscript operation left-to-right
         for signal_type_token in items[1:]:
             if isinstance(signal_type_token, Token):
@@ -862,7 +867,16 @@ class DSLTransformer(Transformer):
         if isinstance(value, SignalLiteral) and value.signal_type is None:
             value = value.value
 
-        return SignalLiteral(value=value, signal_type=signal_type, raw_text=raw_text)
+        type_token = signal_type
+        if isinstance(signal_type, Token):
+            signal_type = str(signal_type)  # keep plain strings in the AST
+        node = SignalLiteral(value=value, signal_type=signal_type, raw_text=raw_text)
+        if isinstance(type_token, Token):
+            self._set_position(node, type_token)
+        elif getattr(value, "line", 0) > 0:
+            node.line = value.line
+            node.column = getattr(value, "column", 0)
+        return node
 
     def signal_constant(self, items) -> SignalLiteral:
         """signal_literal: NUMBER -> signal_constant"""
@@ -892,12 +906,27 @@ class DSLTransformer(Transformer):
             return token
         if isinstance(token, Token):
             if token.type == "STRING":
-                return token.value[1:-1]
-            return str(token)
+                # Keep the token (a str subclass) so callers retain the position
+                return Token.new_borrow_pos(token.type, token.value[1:-1], token)
+            return Token.new_borrow_pos(token.type, str(token), token)
         return str(token)
+
+    @staticmethod
+    def _copy_position(dst, src) -> None:
+        """Copy line/column from ``src`` to ``dst`` when ``dst`` has none."""
+        if getattr(dst, "line", 0) or not getattr(src, "line", 0):
+            return
+        dst.line = src.line
+        dst.column = getattr(src, "column", 0)
 
     def primary(self, items) -> Expr:
         """Handle primary expressions that weren't caught by other rules."""
+        result = self._primary(items)
+        if len(items) == 1 and result is not items[0]:
+            self._copy_position(result, items[0])
+        return result
+
+    def _primary(self, items) -> Expr:
         if len(items) == 1:
             item = items[0]
 

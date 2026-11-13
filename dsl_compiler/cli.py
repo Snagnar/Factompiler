@@ -19,7 +19,7 @@ from pathlib import Path
 import click
 
 from dsl_compiler.src.common.constants import DEFAULT_CONFIG, CompilerConfig
-from dsl_compiler.src.common.diagnostics import ProgramDiagnostics
+from dsl_compiler.src.common.diagnostics import CompilationError, ProgramDiagnostics
 from dsl_compiler.src.emission.emitter import BlueprintEmitter
 from dsl_compiler.src.ir.optimizer import ConstantPropagationOptimizer, CSEOptimizer
 from dsl_compiler.src.layout.planner import LayoutPlanner
@@ -67,7 +67,37 @@ def compile_dsl_source(
 
     Returns:
         (success: bool, result: str, diagnostics: list)
+
+    Raises:
+        SyntaxError: on parse errors (message includes file:line:col)
+        CompilationError: (a RuntimeError) on the first semantic/layout error
     """
+    diagnostics = ProgramDiagnostics(log_level=log_level, raise_errors=True)
+    return _compile_pipeline(
+        source_code,
+        source_name,
+        program_name,
+        optimize,
+        power_pole_type,
+        use_json,
+        config,
+        max_layout_retries,
+        diagnostics,
+    )
+
+
+def _compile_pipeline(
+    source_code: str,
+    source_name: str,
+    program_name: str | None,
+    optimize: bool,
+    power_pole_type: str | None,
+    use_json: bool,
+    config: CompilerConfig,
+    max_layout_retries: int,
+    diagnostics: ProgramDiagnostics,
+) -> tuple[bool, str, list]:
+    """Run parse → analyze → lower → optimize → layout → emit."""
     if program_name is None:
         if source_name == "<string>":
             program_name = "Facto Circuit"
@@ -75,12 +105,9 @@ def compile_dsl_source(
             # Extract name from path-like string
             program_name = Path(source_name).stem.replace("_", " ").title()
 
-    # Create unified diagnostics collector
-    diagnostics = ProgramDiagnostics(log_level=log_level, raise_errors=True)
-
-    # Parse
+    # Parse (don't strip the source: leading blank lines must keep line numbers)
     parser = DSLParser()
-    program = parser.parse(source_code.strip(), source_name)
+    program = parser.parse(source_code, source_name)
     if diagnostics.has_errors():
         return False, "Parsing failed", diagnostics.get_messages()
 
@@ -236,16 +263,38 @@ def main(
             sys.exit(1)
 
     # Compile
-    success, result, diagnostic_messages = compile_dsl_source(
-        source_code,
-        source_name=source_name,
-        program_name=name,
-        optimize=not no_optimize,
-        power_pole_type=power_poles,
-        log_level=log_level,
-        use_json=json,
-        max_layout_retries=layout_retries,
-    )
+    try:
+        success, result, diagnostic_messages = compile_dsl_source(
+            source_code,
+            source_name=source_name,
+            program_name=name,
+            optimize=not no_optimize,
+            power_pole_type=power_poles,
+            log_level=log_level,
+            use_json=json,
+            max_layout_retries=layout_retries,
+        )
+    except SyntaxError as e:
+        click.echo(f"Compilation failed: {e}", err=True)
+        sys.exit(1)
+    except CompilationError as e:
+        # The logger has already printed the error unless it was silenced.
+        if log_level == "error" or not logging.getLogger().isEnabledFor(logging.ERROR):
+            click.echo(f"Compilation failed: {e}", err=True)
+        else:
+            click.echo("Compilation failed.", err=True)
+        sys.exit(1)
+    except Exception as e:  # compiler bug, not a user error
+        if log_level == "debug":
+            raise
+        click.echo(
+            f"Internal compiler error: {type(e).__name__}: {e}\n"
+            "This is a bug in factompile. Please report it at "
+            "https://github.com/Snagnar/Factompiler/issues "
+            "(re-run with --log-level debug to get a traceback).",
+            err=True,
+        )
+        sys.exit(2)
     verbose = log_level in ["debug", "info"]
 
     if not success:
